@@ -1,4 +1,3 @@
-import { Card } from 'antd'
 import { AppErrorSummary, AppMetrics, appMetricsSceneLogic, AppMetricsTab } from './appMetricsSceneLogic'
 import { DescriptionColumns } from './constants'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
@@ -28,45 +27,42 @@ export function MetricsTab({ tab }: MetricsTabProps): JSX.Element {
     const { setDateFrom } = useActions(appMetricsSceneLogic)
 
     return (
-        <div className="mt-4">
-            <Card
-                title={
-                    <div className="flex items-center justify-between gap-2">
-                        <span>Metrics overview</span>
-                        <LemonSelect
-                            value={dateFrom}
-                            onChange={(newValue) => setDateFrom(newValue as string)}
-                            options={[
-                                { label: 'Last 30 days', value: '-30d' },
-                                { label: 'Last 7 days', value: '-7d' },
-                                { label: 'Last 24 hours', value: '-24h' },
-                            ]}
-                        />
-                    </div>
-                }
-            >
+        <div className="space-y-8">
+            <div className="flex items-start justify-between gap-2">
                 <MetricsOverview
                     tab={tab}
                     metrics={appMetricsResponse?.metrics}
                     metricsLoading={appMetricsResponseLoading}
                 />
-            </Card>
 
-            <Card title="Delivery trends" className="mt-4">
+                <LemonSelect
+                    value={dateFrom}
+                    onChange={(newValue) => setDateFrom(newValue as string)}
+                    options={[
+                        { label: 'Last 30 days', value: '-30d' },
+                        { label: 'Last 7 days', value: '-7d' },
+                        { label: 'Last 24 hours', value: '-24h' },
+                    ]}
+                />
+            </div>
+
+            <div>
+                <h2>Delivery trends</h2>
                 <AppMetricsGraph
                     tab={tab}
                     metrics={appMetricsResponse?.metrics}
                     metricsLoading={appMetricsResponseLoading}
                 />
-            </Card>
+            </div>
 
-            <Card title="Errors" className="mt-4">
+            <div>
+                <h2>Errors</h2>
                 <ErrorsOverview
                     category={tab}
                     errors={appMetricsResponse?.errors || []}
                     loading={appMetricsResponseLoading}
                 />
-            </Card>
+            </div>
         </div>
     )
 }
@@ -79,38 +75,42 @@ export function MetricsOverview({
     exportFailureReason,
 }: MetricsOverviewProps): JSX.Element {
     if (metricsLoading) {
-        return <LemonSkeleton className="h-20" />
+        return <LemonSkeleton className="w-20 mb-2" repeat={4} />
     }
 
     return (
-        <>
-            <div>
-                <div className="card-secondary">{DescriptionColumns[tab].successes}</div>
-                <div>{renderNumber(metrics?.totals?.successes)}</div>
-            </div>
-            {DescriptionColumns[tab].successes_on_retry && (
+        <div className="space-y-4">
+            <div className="flex items-start gap-8 flex-wrap">
                 <div>
-                    <div className="card-secondary">{DescriptionColumns[tab].successes_on_retry}</div>
-                    <div>{renderNumber(metrics?.totals?.successes_on_retry)}</div>
+                    <div className="text-muted font-semibold mb-2">{DescriptionColumns[tab].successes}</div>
+                    <div className="text-4xl">{renderNumber(metrics?.totals?.successes)}</div>
                 </div>
-            )}
-            <div>
-                <div className="card-secondary">{DescriptionColumns[tab].failures}</div>
-                <div>{renderNumber(metrics?.totals?.failures)}</div>
-            </div>
-            {exportDuration && (
+                {DescriptionColumns[tab].successes_on_retry && (
+                    <div>
+                        <div className="text-muted font-semibold mb-2">
+                            {DescriptionColumns[tab].successes_on_retry}
+                        </div>
+                        <div className="text-4xl">{renderNumber(metrics?.totals?.successes_on_retry)}</div>
+                    </div>
+                )}
                 <div>
-                    <div className="card-secondary">Export duration</div>
-                    <div>{humanFriendlyDuration(exportDuration)}</div>
+                    <div className="text-muted font-semibold mb-2">{DescriptionColumns[tab].failures}</div>
+                    <div className="text-4xl">{renderNumber(metrics?.totals?.failures)}</div>
                 </div>
-            )}
+                {exportDuration && (
+                    <div>
+                        <div className="text-muted font-semibold mb-2">Export duration</div>
+                        <div className="text-4xl">{humanFriendlyDuration(exportDuration)}</div>
+                    </div>
+                )}
+            </div>
             {exportFailureReason && (
                 <div>
-                    <div className="card-secondary">Export failure reason</div>
+                    <div className="text-muted font-semibold mb-2">Export failure reason</div>
                     <div>{renderNumber(metrics?.totals?.successes)}</div>
                 </div>
             )}
-        </>
+        </div>
     )
 }
 

@@ -86,11 +86,11 @@ export function AppMetricsGraph({ tab, metrics, metricsLoading }: AppMetricsGrap
     }, [metrics])
 
     if (metricsLoading || !metrics) {
-        return <LemonSkeleton className="AppMetricsGraph" />
+        return <LemonSkeleton className="AppMetricsGraph border rounded p-6" />
     }
 
     return (
-        <div className="AppMetricsGraph">
+        <div className="AppMetricsGraph border rounded p-6">
             <canvas ref={canvasRef} />
         </div>
     )
