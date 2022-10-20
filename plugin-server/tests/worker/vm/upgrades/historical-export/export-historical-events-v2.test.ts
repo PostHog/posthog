@@ -857,7 +857,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         })
 
         it('captures activity for export failure', async () => {
-            await stopExport(params, '', 'fail')
+            await stopExport(params, 'Some error message', 'fail')
 
             expect(createPluginActivityLog).toHaveBeenCalledWith(
                 hub,
@@ -868,7 +868,10 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     trigger: {
                         job_id: '1',
                         job_type: INTERFACE_JOB_NAME,
-                        payload: params,
+                        payload: {
+                            ...params,
+                            failure_reason: 'Some error message',
+                        },
                     },
                 }
             )
