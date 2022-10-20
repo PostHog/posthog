@@ -1,4 +1,3 @@
-import React from 'react'
 import { BuiltLogic, kea } from 'kea'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 import {

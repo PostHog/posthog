@@ -1,4 +1,4 @@
-import React, { useRef } from 'react'
+import { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { colonDelimitedDuration, range } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
@@ -133,7 +133,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                                     onClick={() => onRecordingClick(rec)}
                                 >
                                     <div className="flex justify-between items-center">
-                                        <div className="truncate font-medium text-primary">
+                                        <div className="truncate font-medium text-primary ph-no-capture">
                                             {asDisplay(rec.person, 25)}
                                         </div>
                                         {!rec.viewed && (

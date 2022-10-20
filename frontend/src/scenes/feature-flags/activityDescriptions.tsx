@@ -9,7 +9,6 @@ import {
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
-import React from 'react'
 import { pluralize } from 'lib/utils'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'

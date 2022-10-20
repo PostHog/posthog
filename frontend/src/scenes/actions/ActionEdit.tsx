@@ -1,4 +1,3 @@
-import React from 'react'
 import { compactNumber, uuid } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'

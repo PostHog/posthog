@@ -30,7 +30,6 @@ beforeEach(async () => {
     await redis.flushdb()
 
     eventsProcessor = new EventsProcessor(hub)
-    eventsProcessor.db.personAndGroupsCachingEnabledTeams = new Set([2])
 })
 
 afterEach(async () => {

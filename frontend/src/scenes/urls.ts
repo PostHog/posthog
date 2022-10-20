@@ -1,6 +1,7 @@
 import { DashboardType, FilterType, InsightShortId } from '~/types'
 import { combineUrl } from 'kea-router'
 import { ExportOptions } from '~/exporter/types'
+import { AppMetricsUrlParams } from './apps/appMetricsSceneLogic'
 
 /**
  * To add a new URL to the front end:
@@ -61,9 +62,12 @@ export const urls = {
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     annotations: (): string => '/annotations',
     projectApps: (): string => '/project/apps',
+    projectApp: (id: string | number): string => `/project/apps/${id}`,
+    projectAppLogs: (id: string | number): string => `/project/apps/${id}/logs`,
+    projectAppSource: (id: string | number): string => `/project/apps/${id}/source`,
     frontendApp: (id: string | number): string => `/app/${id}`,
-    appMetrics: (pluginConfigId: string | number, tab?: string): string =>
-        combineUrl(`/app/${pluginConfigId}/metrics`, { tab }).url,
+    appMetrics: (pluginConfigId: string | number, params: AppMetricsUrlParams = {}): string =>
+        combineUrl(`/app/${pluginConfigId}/metrics`, params).url,
     appHistoricalExports: (pluginConfigId: string | number): string => `/app/${pluginConfigId}/historical_exports`,
     projectCreateFirst: (): string => '/project/create',
     projectHomepage: (): string => '/home',

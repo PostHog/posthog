@@ -1,10 +1,13 @@
+import json
 from datetime import datetime
 from unittest import mock
 
 from freezegun.api import freeze_time
 
 from posthog.models.activity_logging.activity_log import Detail, Trigger, log_activity
+from posthog.models.plugin import Plugin, PluginConfig, PluginStorage
 from posthog.models.team.team import Team
+from posthog.models.utils import UUIDT
 from posthog.queries.app_metrics.historical_exports import historical_export_metrics, historical_exports_activity
 from posthog.queries.app_metrics.test.test_app_metrics import create_app_metric
 from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries, snapshot_postgres_queries
@@ -16,6 +19,13 @@ SAMPLE_PAYLOAD = {"dateRange": ["2021-06-10", "2022-06-12"], "parallelism": 1}
 class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
     maxDiff = None
 
+    def setUp(self):
+        super().setUp()
+        self.plugin = Plugin.objects.create(organization=self.organization)
+        self.plugin_config = PluginConfig.objects.create(
+            pk=3, plugin=self.plugin, team=self.team, enabled=True, order=1
+        )
+
     @snapshot_postgres_queries
     def test_historical_exports_activity_for_not_finished_export(self):
         self._create_activity_log(
@@ -26,7 +36,11 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
             ),
         )
 
-        activities = historical_exports_activity(self.team.pk, 3)
+        PluginStorage.objects.create(
+            plugin_config_id=self.plugin_config.pk, key="EXPORT_COORDINATION", value=json.dumps({"progress": 0.33})
+        )
+
+        activities = historical_exports_activity(self.team.pk, self.plugin_config.pk)
         self.assertEqual(len(activities), 1)
         self.assertEqual(
             activities[0],
@@ -36,6 +50,7 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                 "payload": SAMPLE_PAYLOAD,
                 "created_at": datetime.fromisoformat("2021-08-25T13:00:00+00:00"),
                 "created_by": mock.ANY,
+                "progress": 0.33,
             },
         )
 
@@ -58,7 +73,7 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                 ),
             )
 
-        activities = historical_exports_activity(self.team.pk, 3)
+        activities = historical_exports_activity(self.team.pk, self.plugin_config.pk)
         self.assertEqual(len(activities), 1)
         self.assertEqual(
             activities[0],
@@ -88,11 +103,13 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                 activity="export_fail",
                 detail=Detail(
                     name="Some export plugin",
-                    trigger=Trigger(job_type="Export historical events V2", job_id="1234", payload={}),
+                    trigger=Trigger(
+                        job_type="Export historical events V2", job_id="1234", payload={"failure_reason": "foobar"}
+                    ),
                 ),
             )
 
-        activities = historical_exports_activity(self.team.pk, 3)
+        activities = historical_exports_activity(self.team.pk, self.plugin_config.pk)
         self.assertEqual(len(activities), 1)
         self.assertEqual(
             activities[0],
@@ -104,6 +121,7 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                 "payload": SAMPLE_PAYLOAD,
                 "duration": 2 * 60 * 60,
                 "created_by": mock.ANY,
+                "failure_reason": "foobar",
             },
         )
 
@@ -153,7 +171,7 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
             ),
         )
 
-        activities = historical_exports_activity(self.team.pk, 3)
+        activities = historical_exports_activity(self.team.pk, self.plugin_config.pk)
         self.assertEqual(len(activities), 1)
         self.assertEqual(
             activities[0],
@@ -179,7 +197,7 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                     ),
                 )
 
-        activities = historical_exports_activity(self.team.pk, 3)
+        activities = historical_exports_activity(self.team.pk, self.plugin_config.pk)
         start_times = [activity["created_at"].isoformat() for activity in activities]
         self.assertEqual(
             start_times,
@@ -215,7 +233,7 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
         create_app_metric(
             team_id=self.team.pk,
             category="exportEvents",
-            plugin_config_id=3,
+            plugin_config_id=self.plugin_config.pk,
             job_id="1234",
             timestamp="2021-08-25T01:10:00Z",
             successes=102,
@@ -223,21 +241,24 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
         create_app_metric(
             team_id=self.team.pk,
             category="exportEvents",
-            plugin_config_id=3,
+            plugin_config_id=self.plugin_config.pk,
             job_id="1234",
             timestamp="2021-08-25T02:55:00Z",
             failures=2,
+            error_uuid=str(UUIDT()),
+            error_type="SomeError",
+            error_details={"event": {}},
         )
         create_app_metric(
             team_id=self.team.pk,
             category="exportEvents",
-            plugin_config_id=3,
+            plugin_config_id=self.plugin_config.pk,
             job_id="1234",
             timestamp="2021-08-25T03:10:00Z",
             successes=10,
         )
 
-        results = historical_export_metrics(self.team, 3, "1234")
+        results = historical_export_metrics(self.team, self.plugin_config.pk, "1234")
 
         self.assertEqual(
             results,
@@ -266,6 +287,13 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                     "status": "success",
                     "created_by": mock.ANY,
                 },
+                "errors": [
+                    {
+                        "error_type": "SomeError",
+                        "count": 1,
+                        "last_seen": datetime.fromisoformat("2021-08-25T02:55:00+00:00"),
+                    },
+                ],
             },
         )
 
@@ -275,7 +303,7 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                 "organization_id": self.team.organization.id,
                 "team_id": self.team.pk,
                 "user": self.user,
-                "item_id": 3,
+                "item_id": self.plugin_config.pk,
                 "scope": "PluginConfig",
                 **kwargs,
             }

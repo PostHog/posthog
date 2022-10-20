@@ -2,7 +2,6 @@
 module.exports = {
     plugins: [
         '@babel/plugin-transform-runtime',
-        '@babel/plugin-transform-react-jsx',
         '@babel/plugin-proposal-class-properties',
         '@babel/plugin-proposal-private-property-in-object',
     ],
@@ -12,6 +11,12 @@ module.exports = {
             {
                 useBuiltIns: 'usage',
                 corejs: 3,
+            },
+        ],
+        [
+            '@babel/preset-react',
+            {
+                runtime: 'automatic',
             },
         ],
         '@babel/typescript',

@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import React from 'react'
 import './LemonTableLoader.scss'
 
 export function LemonTableLoader({ loading = false }: { loading?: boolean }): JSX.Element {

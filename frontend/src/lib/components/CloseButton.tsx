@@ -1,5 +1,4 @@
 import { CloseOutlined } from '@ant-design/icons'
-import React from 'react'
 
 export function CloseButton(props: Record<string, any>): JSX.Element {
     return (

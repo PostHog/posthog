@@ -7,28 +7,22 @@ import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
 import { defaultConfig } from '../config/config'
-import {
-    Hub,
-    JobsConsumerControl,
-    PluginScheduleControl,
-    PluginServerCapabilities,
-    PluginsServerConfig,
-} from '../types'
+import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub } from '../utils/db/hub'
 import { killProcess } from '../utils/kill'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
+import { delay, getPiscinaStats, logOrThrowJobQueueError, stalenessCheck } from '../utils/utils'
 import { makePiscina as defaultMakePiscina } from '../worker/piscina'
+import { loadPluginSchedule } from './graphile-worker/schedule'
+import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
 import { KafkaQueue } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
-import { startGraphileWorker } from './jobs/worker-setup'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
-import { startPluginSchedules } from './services/schedule'
 
 const { version } = require('../../package.json')
 
@@ -57,17 +51,44 @@ export async function startPluginsServer(
     status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     status.info('ℹ️', `${serverConfig.WORKER_CONCURRENCY} workers, ${serverConfig.TASKS_PER_WORKER} tasks per worker`)
 
-    let pubSub: PubSub | undefined
+    // Structure containing initialized clients for Postgres, Kafka, Redis, etc.
     let hub: Hub | undefined
+
+    // Used to trigger reloads of plugin code/config
+    let pubSub: PubSub | undefined
+
+    // A Node Worker Thread pool
     let piscina: Piscina | undefined
-    let queue: KafkaQueue | undefined | null // ingestion queue
-    let jobQueueConsumer: JobsConsumerControl | undefined
+
+    // Ingestion Kafka consumer. Handles both analytics events and screen
+    // recording events. The functionality roughly looks like:
+    //
+    // 1. events come in via the /e/ and friends endpoints and published to the
+    //    plugin_events_ingestion Kafka topic.
+    // 2. this queue consumes from the plugin_events_ingestion topic.
+    // 3. update or creates people in the Persons table in pg with the new event
+    //    data.
+    // 4. passes he event through `processEvent` on any plugins that the team
+    //    has enabled.
+    // 5. publishes the resulting event to a Kafka topic on which ClickHouse is
+    //    listening.
+    //
+    // The queue also handles async handlers, reading from
+    // clickhouse_events_json topic.
+    let queue: KafkaQueue | undefined | null
+
+    // Kafka consumer. Handles events that we couldn't find an existing person
+    // to associate. The buffer handles delaying the ingestion of these events
+    // (default 60 seconds) to allow for the person to be created in the
+    // meantime.
     let bufferConsumer: Consumer | undefined
+
+    let httpServer: Server | undefined // healthcheck server
+    let mmdbServer: net.Server | undefined // geoip server
+
     let closeHub: () => Promise<void> | undefined
-    let pluginScheduleControl: PluginScheduleControl | undefined
-    let mmdbServer: net.Server | undefined
+
     let lastActivityCheck: NodeJS.Timeout | undefined
-    let httpServer: Server | undefined
     let stopEventLoopMetrics: (() => void) | undefined
 
     async function closeJobs(): Promise<void> {
@@ -77,9 +98,8 @@ export async function startPluginsServer(
         stopEventLoopMetrics?.()
         await queue?.stop()
         await pubSub?.stop()
-        await jobQueueConsumer?.stop()
+        await hub?.graphileWorker.stop()
         await bufferConsumer?.disconnect()
-        await pluginScheduleControl?.stopSchedule()
         await new Promise<void>((resolve, reject) =>
             !mmdbServer
                 ? resolve()
@@ -139,12 +159,6 @@ export async function startPluginsServer(
             hub,
         }
 
-        if (hub.capabilities.http) {
-            // start http server used for the healthcheck
-            // TODO: include bufferConsumer in healthcheck
-            httpServer = createHttpServer(hub!, serverInstance as ServerInstance)
-        }
-
         if (!serverConfig.DISABLE_MMDB) {
             serverInstance.mmdb = (await prepareMmdb(serverInstance)) ?? undefined
             serverInstance.mmdbUpdateJob = schedule.scheduleJob(
@@ -158,12 +172,34 @@ export async function startPluginsServer(
 
         piscina = makePiscina(serverConfig)
 
-        if (hub.capabilities.pluginScheduledTasks) {
-            pluginScheduleControl = await startPluginSchedules(hub, piscina)
+        // Based on the mode the plugin server was started, we start a number of
+        // different services. Mostly this is reasonably obvious from the name.
+        // There is however the `queue` which is a little more complicated.
+        // Depending on the capabilities we start with, it will either consume
+        // from:
+        //
+        // 1. plugin_events_ingestion
+        // 2. clickhouse_events_json
+        // 3. clickhouse_events_json and plugin_events_ingestion
+        // 4. conversion_events_buffer
+        //
+        if (hub.capabilities.http) {
+            // start http server used for the healthcheck
+            // TODO: include bufferConsumer in healthcheck
+            httpServer = createHttpServer(hub!, serverInstance as ServerInstance)
         }
-        if (hub.capabilities.ingestion || hub.capabilities.processPluginJobs) {
-            jobQueueConsumer = await startGraphileWorker(hub, piscina)
+
+        if (hub.capabilities.ingestion || hub.capabilities.processPluginJobs || hub.capabilities.pluginScheduledTasks) {
+            const graphileWorkerError = await startGraphileWorker(hub, piscina)
+            if (graphileWorkerError instanceof Error) {
+                try {
+                    logOrThrowJobQueueError(hub, graphileWorkerError, `Cannot start job queue consumer!`)
+                } catch {
+                    killProcess()
+                }
+            }
         }
+
         if (hub.capabilities.ingestion) {
             bufferConsumer = await startAnonymousEventBufferConsumer({
                 kafka: hub.kafka,
@@ -177,8 +213,9 @@ export async function startPluginsServer(
 
         // `queue` refers to the ingestion queue.
         queue = queues.ingestion
+
         piscina.on('drain', () => {
-            void jobQueueConsumer?.resume()
+            void hub?.graphileWorker.resumeConsumer()
         })
 
         // use one extra Redis connection for pub-sub
@@ -186,7 +223,14 @@ export async function startPluginsServer(
             [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
                 status.info('⚡', 'Reloading plugins!')
                 await piscina?.broadcastTask({ task: 'reloadPlugins' })
-                await pluginScheduleControl?.reloadSchedule()
+
+                if (hub?.capabilities.pluginScheduledTasks && piscina) {
+                    await piscina.broadcastTask({ task: 'reloadSchedule' })
+                    hub.pluginSchedule = await loadPluginSchedule(piscina)
+                }
+            },
+            'reset-available-features-cache': async (message) => {
+                await piscina?.broadcastTask({ task: 'resetAvailableFeaturesCache', args: JSON.parse(message) })
             },
             ...(hub.capabilities.processAsyncHandlers
                 ? {

@@ -2,7 +2,7 @@ import { Hub } from '../src/types'
 import { defaultConfig, formatConfigHelp } from './config/config'
 import { healthcheckWithExit } from './healthcheck'
 import { initApp } from './init'
-import { GraphileWorker } from './main/jobs/graphile-worker'
+import { GraphileWorker } from './main/graphile-worker/graphile-worker'
 import { startPluginsServer } from './main/pluginsServer'
 import { Status } from './utils/status'
 import { makePiscina } from './worker/piscina'
@@ -42,24 +42,15 @@ switch (alternativeMode) {
         void healthcheckWithExit()
         break
     case AlternativeMode.Migrate:
-        const isGraphileEnabled = defaultConfig.JOB_QUEUES.split(',')
-            .map((s) => s.trim())
-            .includes('graphile')
-
-        if (!isGraphileEnabled) {
-            status.info('😔', 'Graphile job queues not enabled. Nothing to migrate.')
-            process.exit(0)
-        }
-
         initApp(defaultConfig)
 
-        status.info(`🔗`, `Attempting to connect to Graphile job queue to run migrations`)
+        status.info(`🔗`, `Attempting to connect to Graphile Worker to run migrations`)
         void (async function () {
             try {
-                const graphile = new GraphileWorker(defaultConfig as Hub)
-                await graphile.migrate()
-                status.info(`✅`, `Graphile migrations are now up to date!`)
-                await graphile.disconnectProducer()
+                const graphileWorker = new GraphileWorker(defaultConfig as Hub)
+                await graphileWorker.migrate()
+                status.info(`✅`, `Graphile Worker migrations are now up to date!`)
+                await graphileWorker.disconnectProducer()
                 process.exit(0)
             } catch (error) {
                 status.error('🔴', 'Error running migrations for Graphile Worker!\n', error)

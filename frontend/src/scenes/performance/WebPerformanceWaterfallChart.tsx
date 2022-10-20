@@ -5,7 +5,7 @@ import {
 } from 'scenes/performance/webPerformanceLogic'
 import { Col, Collapse, Row, Typography } from 'antd'
 import { areObjectValuesEmpty, humanizeBytes } from 'lib/utils'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Popup } from 'lib/components/Popup/Popup'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'

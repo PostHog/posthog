@@ -16,7 +16,7 @@ export function getDefaultConfig(): PluginsServerConfig {
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
             ? 'postgres://posthog:posthog@localhost:5432/posthog'
-            : null,
+            : '',
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
         POSTHOG_DB_PASSWORD: '',
@@ -88,7 +88,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CONVERSION_BUFFER_ENABLED_TEAMS: '',
         CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: '',
         BUFFER_CONVERSION_SECONDS: 60, // KEEP IN SYNC WITH posthog/settings/ingestion.py
-        PERSON_INFO_TO_REDIS_TEAMS: '',
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
         OBJECT_STORAGE_ENABLED: false,
@@ -147,8 +146,8 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         EVENT_PROPERTY_LRU_SIZE: "size of the event property tracker's LRU cache (keyed by [team.id, event])",
         INTERNAL_MMDB_SERVER_PORT: 'port of the internal server used for IP location (0 means random)',
         JOB_QUEUES: 'retry queue engine and fallback queues',
-        JOB_QUEUE_GRAPHILE_URL: 'use a different postgres connection in the graphile retry queue',
-        JOB_QUEUE_GRAPHILE_SCHEMA: 'the postgres schema that the graphile job queue uses',
+        JOB_QUEUE_GRAPHILE_URL: 'use a different postgres connection in the graphile worker',
+        JOB_QUEUE_GRAPHILE_SCHEMA: 'the postgres schema that the graphile worker',
         JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: 'enable this to increase job queue throughput if not using pgbouncer',
         JOB_QUEUE_S3_AWS_ACCESS_KEY: 'AWS access key for the S3 job queue',
         JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: 'AWS secret access key for the S3 job queue',
@@ -213,8 +212,22 @@ export function overrideWithEnv(
         }
     }
 
-    if (!['ingestion', 'async', null].includes(newConfig.PLUGIN_SERVER_MODE)) {
+    if (!['ingestion', 'async', 'exports', 'scheduler', 'jobs', null].includes(newConfig.PLUGIN_SERVER_MODE)) {
         throw Error(`Invalid PLUGIN_SERVER_MODE ${newConfig.PLUGIN_SERVER_MODE}`)
+    }
+
+    if (!newConfig.DATABASE_URL && !newConfig.POSTHOG_DB_NAME) {
+        throw Error(
+            'You must specify either DATABASE_URL or the database options POSTHOG_DB_NAME, POSTHOG_DB_USER, POSTHOG_DB_PASSWORD, POSTHOG_POSTGRES_HOST, POSTHOG_POSTGRES_PORT!'
+        )
+    }
+
+    if (!newConfig.DATABASE_URL) {
+        newConfig.DATABASE_URL = `postgres://${newConfig.POSTHOG_DB_USER}:${newConfig.POSTHOG_DB_PASSWORD}@${newConfig.POSTHOG_POSTGRES_HOST}:${newConfig.POSTHOG_POSTGRES_PORT}/${newConfig.POSTHOG_DB_NAME}`
+    }
+
+    if (!newConfig.JOB_QUEUE_GRAPHILE_URL) {
+        newConfig.JOB_QUEUE_GRAPHILE_URL = newConfig.DATABASE_URL
     }
 
     if (!Object.keys(KAFKAJS_LOG_LEVEL_MAPPING).includes(newConfig.KAFKAJS_LOG_LEVEL)) {

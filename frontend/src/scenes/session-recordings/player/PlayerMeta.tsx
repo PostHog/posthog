@@ -1,8 +1,7 @@
 import './PlayerMeta.scss'
-import React from 'react'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import { TZLabel } from 'lib/components/TimezoneAware'
@@ -12,8 +11,12 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { SessionRecordingPlayerProps } from '~/types'
 import clsx from 'clsx'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { playerSettingsLogic } from './playerSettingsLogic'
+import { IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { CSSTransition } from 'react-transition-group'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const {
@@ -28,7 +31,9 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
         isSmallPlayer,
     } = useValues(playerMetaLogic({ sessionRecordingId, playerKey }))
 
-    const { isFullScreen } = useValues(playerSettingsLogic)
+    const { isFullScreen, isMetadataExpanded } = useValues(playerSettingsLogic)
+    const { setIsMetadataExpanded } = useActions(playerSettingsLogic)
+
     return (
         <div
             className={clsx('PlayerMeta', {
@@ -60,7 +65,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                         />
                     )}
                 </div>
-                <div className="flex-1">
+                <div className="flex-1 overflow-hidden">
                     <div className="font-bold">
                         {!sessionPerson || !recordingStartTime ? (
                             <LemonSkeleton className="w-1/3 my-1" />
@@ -81,7 +86,36 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                         {loading ? <LemonSkeleton className="w-1/4 my-1" /> : <span>{description}</span>}
                     </div>
                 </div>
+                <Tooltip
+                    title={isMetadataExpanded ? 'Hide person properties' : 'Show person properties'}
+                    placement={isFullScreen ? 'bottom' : 'left'}
+                >
+                    <LemonButton
+                        className={clsx('PlayerMeta__expander', isFullScreen ? 'rotate-90' : '')}
+                        status="stealth"
+                        active={isMetadataExpanded}
+                        onClick={() => setIsMetadataExpanded(!isMetadataExpanded)}
+                        icon={isMetadataExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                    />
+                </Tooltip>
             </div>
+            {sessionPerson && (
+                <CSSTransition
+                    in={isMetadataExpanded}
+                    timeout={200}
+                    classNames="PlayerMetaPersonProperties-"
+                    mountOnEnter
+                    unmountOnExit
+                >
+                    <div className="PlayerMetaPersonProperties">
+                        {Object.keys(sessionPerson.properties).length ? (
+                            <PropertiesTable properties={sessionPerson.properties} />
+                        ) : (
+                            <p className="text-center m-4">There are no properties.</p>
+                        )}
+                    </div>
+                </CSSTransition>
+            )}
             <div
                 className={clsx('flex items-center justify-between gap-2 whitespace-nowrap', {
                     'p-3 flex-wrap': !isFullScreen,
@@ -89,7 +123,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                 })}
             >
                 {loading || currentWindowIndex === -1 ? (
-                    <LemonSkeleton className="w-1/3" />
+                    <LemonSkeleton className="w-1/3 my-1" />
                 ) : (
                     <>
                         <IconWindow value={currentWindowIndex + 1} className="text-muted" />

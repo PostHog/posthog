@@ -1,13 +1,13 @@
 import re
 from typing import Any, Dict, cast
 
-from django.conf import settings
 from rest_framework import exceptions, request, response, serializers
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.cloud_utils import is_cloud
 from posthog.models import OrganizationDomain
 from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
 
@@ -48,7 +48,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         validated_data.pop("sso_enforcement", None)  # can never be set on creation because domain must be verified
         instance = super().create(validated_data)
 
-        if not getattr(settings, "MULTI_TENANCY", False):
+        if not is_cloud():
             instance, _ = instance.attempt_verification()
 
         return instance

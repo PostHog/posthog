@@ -1,9 +1,22 @@
 import ClickHouse from '@posthog/clickhouse'
+import Redis from 'ioredis'
 import { Kafka, Partitioners, Producer } from 'kafkajs'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
 import { ONE_HOUR } from '../src/config/constants'
+import {
+    KAFKA_BUFFER,
+    KAFKA_EVENTS_DEAD_LETTER_QUEUE,
+    KAFKA_EVENTS_JSON,
+    KAFKA_EVENTS_PLUGIN_INGESTION,
+    KAFKA_GROUPS,
+    KAFKA_PERSON,
+    KAFKA_PERSON_DISTINCT_ID,
+    KAFKA_PERSON_UNIQUE_ID,
+    KAFKA_PLUGIN_LOG_ENTRIES,
+    KAFKA_SESSION_RECORDING_EVENTS,
+} from '../src/config/kafka-topics'
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
 import {
     LogLevel,
@@ -16,11 +29,9 @@ import {
 import { Plugin, PluginConfig } from '../src/types'
 import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
-import { writeToFile } from '../src/worker/vm/extensions/test-utils'
-import { delayUntilEventIngested } from './helpers/clickhouse'
-import { insertRow, POSTGRES_TRUNCATE_TABLES_QUERY } from './helpers/sql'
-
-const { console: testConsole } = writeToFile
+import { delayUntilEventIngested } from '../tests/helpers/clickhouse'
+import { createTopics } from '../tests/helpers/kafka'
+import { insertRow } from '../tests/helpers/sql'
 
 jest.setTimeout(60000) // 60 sec timeout
 
@@ -46,8 +57,20 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
 }
 
 const startMultiServer = async () => {
+    // All capabilities run as separate servers
+    const ingestionServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'ingestion' })
+    const asyncServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'exports' })
+    const jobsServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'jobs' })
+    const schedulerServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'scheduler' })
+
+    return await Promise.all([ingestionServer, asyncServer, jobsServer, schedulerServer])
+}
+
+const startIngestionAsyncSplit = async () => {
+    // A split of ingestion and all other tasks
     const ingestionServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'ingestion' })
     const asyncServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'async' })
+
     return await Promise.all([ingestionServer, asyncServer])
 }
 
@@ -59,6 +82,7 @@ let producer: Producer
 let clickHouseClient: ClickHouse
 let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
 let kafka: Kafka
+let redis: Redis.Redis
 let organizationId: string
 
 beforeAll(async () => {
@@ -69,7 +93,6 @@ beforeAll(async () => {
         // so set max connections to 1.
         max: 1,
     })
-    await postgres.query(POSTGRES_TRUNCATE_TABLES_QUERY)
     clickHouseClient = new ClickHouse({
         host: defaultConfig.CLICKHOUSE_HOST,
         port: 8123,
@@ -80,25 +103,34 @@ beforeAll(async () => {
         },
     })
     kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS] })
+    await createTopics(kafka, [
+        KAFKA_EVENTS_JSON,
+        KAFKA_EVENTS_PLUGIN_INGESTION,
+        KAFKA_BUFFER,
+        KAFKA_GROUPS,
+        KAFKA_SESSION_RECORDING_EVENTS,
+        KAFKA_PERSON,
+        KAFKA_PERSON_UNIQUE_ID,
+        KAFKA_PERSON_DISTINCT_ID,
+        KAFKA_PLUGIN_LOG_ENTRIES,
+        KAFKA_EVENTS_DEAD_LETTER_QUEUE,
+    ])
     producer = kafka.producer({ createPartitioner: Partitioners.DefaultPartitioner })
     await producer.connect()
+    redis = new Redis(defaultConfig.REDIS_URL)
 
     organizationId = await createOrganization(postgres)
 })
 
 afterAll(async () => {
-    await Promise.all([producer.disconnect(), postgres.end()])
+    await Promise.all([producer.disconnect(), postgres.end(), redis.disconnect()])
 })
 
-describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) => {
+describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSplit]])('E2E', (pluginServer) => {
     let pluginsServers: ServerInstance[]
 
     beforeAll(async () => {
         pluginsServers = await pluginServer()
-    })
-
-    beforeEach(() => {
-        testConsole.reset()
     })
 
     afterAll(async () => {
@@ -106,14 +138,8 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
     })
 
     describe(`plugin method tests (${pluginServer.name})`, () => {
-        let plugin: Plugin
-
         const indexJs = `
-            import { console as testConsole } from 'test-utils/write-to-file'
-    
             export async function processEvent (event) {
-                testConsole.log('processEvent')
-                console.info('amogus')
                 event.properties.processed = 'hell yes'
                 event.properties.upperUuid = event.properties.uuid?.toUpperCase()
                 event.properties['$snapshot_data'] = 'no way'
@@ -127,27 +153,20 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                     max: new Date(),
                     min: new Date(Date.now()-${ONE_HOUR})
                 }
-                testConsole.log('onEvent', JSON.stringify(event))
-            }
-            
-            export async function runEveryMinute() {
-                testConsole.log('runEveryMinute')
+                console.info(JSON.stringify(['onEvent', event]))
             }
         `
 
-        beforeAll(async () => {
-            plugin = await createPlugin(postgres, {
+        test('event captured, processed, ingested', async () => {
+            const plugin = await createPlugin(postgres, {
                 organization_id: organizationId,
                 name: 'test plugin',
                 plugin_type: 'source',
                 is_global: false,
                 source__index_ts: indexJs,
             })
-        })
-
-        test('event captured, processed, ingested', async () => {
             const teamId = await createTeam(postgres, organizationId)
-            await createAndReloadPluginConfig(postgres, teamId, plugin.id, pluginsServers)
+            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
             const distinctId = new UUIDT().toString()
             const uuid = new UUIDT().toString()
 
@@ -158,7 +177,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
             await capture(producer, teamId, distinctId, uuid, event.event, event.properties)
 
-            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1)
+            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
             const events = await fetchEvents(clickHouseClient, teamId)
             expect(events.length).toBe(1)
 
@@ -167,23 +186,37 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
             expect(events[0].properties.upperUuid).toEqual(uuid.toUpperCase())
 
             // onEvent ran
-            const consoleOutput = testConsole.read()
-            expect(consoleOutput).toContainEqual(['processEvent'])
-            expect(consoleOutput).toContainEqual(['onEvent', expect.any(String)])
+            const onEvent = await delayUntilEventIngested(
+                async () =>
+                    (
+                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                    ).filter(({ message: [method] }) => method === 'onEvent'),
+                1,
+                500,
+                40
+            )
 
-            const onEventLog = consoleOutput.filter((line) => line[0] === 'onEvent')[0]
-            const onEventEvent = JSON.parse(onEventLog[1])
+            expect(onEvent.length).toBeGreaterThan(0)
+
+            const onEventEvent = onEvent[0].message[1]
             expect(onEventEvent.event).toEqual('custom event')
             expect(onEventEvent.properties).toEqual(expect.objectContaining(event.properties))
-        }, 10000)
+        })
 
         test('correct $autocapture properties included in onEvent calls', async () => {
             // The plugin server does modifications to the `event.properties`
             // and as a results we remove the initial `$elements` from the
             // object. Thus we want to ensure that this information is passed
             // through to any plugins with `onEvent` handlers
+            const plugin = await createPlugin(postgres, {
+                organization_id: organizationId,
+                name: 'test plugin',
+                plugin_type: 'source',
+                is_global: false,
+                source__index_ts: indexJs,
+            })
             const teamId = await createTeam(postgres, organizationId)
-            await createAndReloadPluginConfig(postgres, teamId, plugin.id, pluginsServers)
+            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
 
             const distinctId = new UUIDT().toString()
             const uuid = new UUIDT().toString()
@@ -198,43 +231,30 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
             }
 
             await capture(producer, teamId, distinctId, uuid, event.event, event.properties)
-            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1)
 
-            // onEvent ran
-            const consoleOutput = testConsole.read()
-            expect(consoleOutput).toEqual([['processEvent'], ['onEvent', expect.any(String)]])
-
-            const onEventEvent = JSON.parse(consoleOutput[1][1])
-            expect(onEventEvent.elements).toEqual([
-                expect.objectContaining({ attributes: {}, nth_child: 1, nth_of_type: 2, tag_name: 'div', text: '💻' }),
-            ])
-        }, 10000)
-
-        test('console logging is persistent', async () => {
-            const teamId = await createTeam(postgres, organizationId)
-            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, pluginsServers)
-
-            const distinctId = new UUIDT().toString()
-            const uuid = new UUIDT().toString()
-
-            const fetchLogs = async () => {
-                const logs = await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                return logs.filter(({ type, source }) => type === 'INFO' && source !== 'SYSTEM')
-            }
-
-            await capture(producer, teamId, distinctId, uuid, 'custom event', {
-                name: 'hehe',
-                uuid: new UUIDT().toString(),
-            })
-
-            const pluginLogEntries = await delayUntilEventIngested(fetchLogs)
-            expect(pluginLogEntries).toContainEqual(
-                expect.objectContaining({
-                    type: 'INFO',
-                    message: 'amogus',
-                })
+            const onEvent = await delayUntilEventIngested(
+                async () =>
+                    (
+                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                    ).filter(({ message: [method] }) => method === 'onEvent'),
+                1,
+                500,
+                40
             )
-        })
+
+            expect(onEvent.length).toBeGreaterThan(0)
+
+            const onEventEvent = onEvent[0].message[1]
+            expect(onEventEvent.elements).toEqual([
+                expect.objectContaining({
+                    attributes: {},
+                    nth_child: 1,
+                    nth_of_type: 2,
+                    tag_name: 'div',
+                    text: '💻',
+                }),
+            ])
+        }, 20000)
     })
 
     describe(`session recording ingestion (${pluginServer.name})`, () => {
@@ -248,13 +268,13 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                 $snapshot_data: 'yes way',
             })
 
-            await delayUntilEventIngested(() => fetchSessionRecordingsEvents(clickHouseClient, teamId), 1)
+            await delayUntilEventIngested(() => fetchSessionRecordingsEvents(clickHouseClient, teamId), 1, 500, 40)
             const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
             expect(events.length).toBe(1)
 
             // processEvent did not modify
             expect(events[0].snapshot_data).toEqual('yes way')
-        }, 10000)
+        }, 20000)
     })
 
     describe(`event ingestion (${pluginServer.name})`, () => {
@@ -296,11 +316,11 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                 $anon_distinct_id: returningDistinctId,
             })
 
-            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 3)
+            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 3, 500, 40)
             const events = await fetchEvents(clickHouseClient, teamId)
             expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
 
-            await delayUntilEventIngested(() => fetchPersons(clickHouseClient, teamId), 1)
+            await delayUntilEventIngested(() => fetchPersons(clickHouseClient, teamId), 1, 500, 40)
             const persons = await fetchPersons(clickHouseClient, teamId)
             expect(persons.length).toBe(1)
         })
@@ -308,10 +328,8 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
     describe(`exports (${pluginServer.name})`, () => {
         const indexJs = `
-            import { console as testConsole } from 'test-utils/write-to-file'
-
             export const exportEvents = async (events, { global, config }) => {
-                testConsole.log('exportEvents', JSON.stringify(events))
+                console.info(JSON.stringify(['exportEvents', events]))
             }
         `
 
@@ -324,7 +342,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                 source__index_ts: indexJs,
             })
             const teamId = await createTeam(postgres, organizationId)
-            await createAndReloadPluginConfig(postgres, teamId, plugin.id, pluginsServers)
+            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
             const distinctId = new UUIDT().toString()
             const uuid = new UUIDT().toString()
 
@@ -334,18 +352,26 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                 uuid: new UUIDT().toString(),
             })
 
-            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1)
+            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
 
             const events = await fetchEvents(clickHouseClient, teamId)
             expect(events.length).toBe(1)
 
             // Then check that the exportEvents function was called
-            await delayUntilEventIngested(() => testConsole.read(), 1)
-            expect(testConsole.read().length).toBeGreaterThan(0)
+            const exportEvents = await delayUntilEventIngested(
+                async () =>
+                    (
+                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                    ).filter(({ message: [method] }) => method === 'exportEvents'),
+                1,
+                500,
+                40
+            )
 
-            const [[method, exportedEvents]] = testConsole.read()
-            expect(method).toBe('exportEvents')
-            expect(JSON.parse(exportedEvents)).toEqual([
+            expect(exportEvents.length).toBeGreaterThan(0)
+
+            const exportedEvents = exportEvents[0].message[1]
+            expect(exportedEvents).toEqual([
                 expect.objectContaining({
                     distinct_id: distinctId,
                     team_id: teamId,
@@ -363,17 +389,15 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
     })
 
     describe(`plugin jobs (${pluginServer.name})`, () => {
-        const indexJs = `
-            import { console as testConsole } from 'test-utils/write-to-file'
-    
+        const indexJs = `    
             export function onEvent (event) {
-                testConsole.log('onEvent', JSON.stringify(event))
+                console.info(JSON.stringify(['onEvent', event]))
                 jobs.runMeAsync().runNow()
             }
 
             export const jobs = {
                 runMeAsync: async () => {
-                    testConsole.log('runMeAsync')
+                    console.info(JSON.stringify(['runMeAsync']))
                 }
             }
         `
@@ -387,7 +411,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                 source__index_ts: indexJs,
             })
             const teamId = await createTeam(postgres, organizationId)
-            await createAndReloadPluginConfig(postgres, teamId, plugin.id, pluginsServers)
+            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
             const distinctId = new UUIDT().toString()
             const uuid = new UUIDT().toString()
 
@@ -397,16 +421,60 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                 uuid: new UUIDT().toString(),
             })
 
-            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1)
+            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
 
             const events = await fetchEvents(clickHouseClient, teamId)
             expect(events.length).toBe(1)
 
-            // Then check that the exportEvents function was called
-            await delayUntilEventIngested(() => testConsole.read(), 1)
-            const output = testConsole.read().flatMap((x) => x)
-            expect(output).toContain('runMeAsync')
+            // Then check that the runNow function was called
+            const runNow = await delayUntilEventIngested(
+                async () =>
+                    (
+                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                    ).filter(({ message: [method] }) => method === 'runMeAsync'),
+                1,
+                500,
+                40
+            )
+
+            expect(runNow.length).toBeGreaterThan(0)
         })
+
+        test('runEveryMinute is executed', async () => {
+            // NOTE: we do not check Hour and Day, merely because if we advance
+            // too much it seems we end up performing alot of reloads of
+            // actions, which prevents the test from completing.
+            //
+            // NOTE: we do not use Fake Timers here as there is an issue in that
+            // it only appears to work for timers in the main thread, and not
+            // ones in the worker threads.
+            const plugin = await createPlugin(postgres, {
+                organization_id: organizationId,
+                name: 'runEveryMinute plugin',
+                plugin_type: 'source',
+                is_global: false,
+                source__index_ts: `
+                    export async function runEveryMinute() {
+                        console.info(JSON.stringify(['runEveryMinute']))
+                    }
+                `,
+            })
+
+            const teamId = await createTeam(postgres, organizationId)
+            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+
+            const runNow = await delayUntilEventIngested(
+                async () =>
+                    (
+                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                    ).filter(({ message: [method] }) => method === 'runEveryMinute'),
+                1,
+                1000,
+                60
+            )
+
+            expect(runNow.length).toBeGreaterThan(0)
+        }, 120000)
     })
 })
 
@@ -471,17 +539,12 @@ const createPluginConfig = async (
     })
 }
 
-const createAndReloadPluginConfig = async (
-    pgClient: Pool,
-    teamId: number,
-    pluginId: number,
-    pluginsServers: ServerInstance[]
-) => {
+const createAndReloadPluginConfig = async (pgClient: Pool, teamId: number, pluginId: number, redis: Redis.Redis) => {
     const pluginConfig = await createPluginConfig(postgres, { team_id: teamId, plugin_id: pluginId })
     // Make sure the plugin server reloads the newly created plugin config.
     // TODO: avoid reaching into the pluginsServer internals and rather use
     // the pubsub mechanism to trigger this.
-    await Promise.all(pluginsServers.map((instance) => instance.piscina.broadcastTask({ task: 'reloadPlugins' })))
+    await redis.publish('reload-plugins', '')
     return pluginConfig
 }
 
@@ -514,9 +577,9 @@ const fetchSessionRecordingsEvents = async (clickHouseClient: ClickHouse, teamId
 const fetchPluginLogEntries = async (clickHouseClient: ClickHouse, pluginConfigId: number) => {
     const { data: logEntries } = (await clickHouseClient.querying(`
         SELECT * FROM plugin_log_entries
-        WHERE plugin_config_id = ${pluginConfigId}
+        WHERE plugin_config_id = ${pluginConfigId} AND source = 'CONSOLE'
     `)) as unknown as ClickHouse.ObjectQueryResult<PluginLogEntry>
-    return logEntries
+    return logEntries.map((entry) => ({ ...entry, message: JSON.parse(entry.message) }))
 }
 
 const createOrganization = async (pgClient: Pool) => {
@@ -533,7 +596,7 @@ const createOrganization = async (pgClient: Pool) => {
         available_features: [],
         domain_whitelist: [],
         is_member_join_email_enabled: false,
-        slug: Math.round(Math.random() * 10000),
+        slug: Math.round(Math.random() * 20000),
     })
     return organizationId
 }

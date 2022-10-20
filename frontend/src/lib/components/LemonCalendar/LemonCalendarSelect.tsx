@@ -1,5 +1,5 @@
 import { LemonCalendar } from 'lib/components/LemonCalendar/LemonCalendar'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'

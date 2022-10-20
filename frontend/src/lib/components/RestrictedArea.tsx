@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { organizationLogic } from '../../scenes/organizationLogic'
 import { OrganizationMembershipLevel } from '../constants'
 import { Tooltip } from 'lib/components/Tooltip'

@@ -152,6 +152,7 @@ export const insightLogic = kea<insightLogicType>([
         toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
+        highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
     }),
     loaders(({ actions, cache, values, props }) => ({
         insight: [
@@ -399,6 +400,12 @@ export const insightLogic = kea<insightLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        highlightedSeries: [
+            null as number | null,
+            {
+                highlightSeries: (_, { seriesIndex }) => seriesIndex,
+            },
+        ],
         insight: {
             loadInsight: (state, { shortId }) =>
                 shortId === state.short_id
@@ -978,7 +985,6 @@ export const insightLogic = kea<insightLogicType>([
         },
         toggleVisibility: ({ index }) => {
             const currentIsHidden = !!values.hiddenLegendKeys?.[index]
-
             actions.setFilters({
                 ...values.filters,
                 hidden_legend_keys: {

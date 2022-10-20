@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 import recordings from './__mocks__/recordings.json'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { mswDecorator } from '~/mocks/browser'
 import { combineUrl, router } from 'kea-router'
 import { urls } from 'scenes/urls'

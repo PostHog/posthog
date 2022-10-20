@@ -7,3 +7,4 @@ yalc.lock
 .yalc/
 tmp
 *.0x
+coverage/

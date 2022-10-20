@@ -1,4 +1,3 @@
-import React from 'react'
 import { Select } from 'antd'
 import { FundOutlined } from '@ant-design/icons'
 import { smoothingOptions } from './smoothings'

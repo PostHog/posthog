@@ -1,4 +1,3 @@
-import React from 'react'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import './index.scss'
 import { Button } from 'antd'

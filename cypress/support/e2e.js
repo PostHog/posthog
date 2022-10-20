@@ -16,10 +16,13 @@ Cypress.on('window:before:load', (win) => {
 })
 
 beforeEach(() => {
+    cy.intercept('api/prompts/my_prompts/', { sequences: [], state: {} })
+
     cy.intercept('https://app.posthog.com/decide/*', (req) =>
         req.reply(
             decideResponse({
-                'toolbar-launch-side-action': true,
+                // set feature flags here e.g.
+                // 'toolbar-launch-side-action': true,
             })
         )
     )

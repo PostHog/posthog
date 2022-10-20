@@ -1,3 +1,104 @@
+# name: TestAppMetricsErrorDetailsQuery.test_error_details_query
+  '
+  
+  SELECT timestamp,
+         error_uuid,
+         error_type,
+         error_details
+  FROM app_metrics
+  WHERE team_id = 2
+    AND plugin_config_id = 3
+    AND category = 'processEvent'
+    AND error_type = 'SomeError'
+  ORDER BY timestamp DESC
+  LIMIT 20
+  '
+---
+# name: TestAppMetricsErrorDetailsQuery.test_error_details_query_filter_by_job_id
+  '
+  
+  SELECT timestamp,
+         error_uuid,
+         error_type,
+         error_details
+  FROM app_metrics
+  WHERE team_id = 2
+    AND plugin_config_id = 3
+    AND category = 'processEvent'
+    AND error_type = 'SomeError'
+    AND job_id = '1234'
+  ORDER BY timestamp DESC
+  LIMIT 20
+  '
+---
+# name: TestAppMetricsErrorDetailsQuery.test_ignores_unrelated_data
+  '
+  
+  SELECT timestamp,
+         error_uuid,
+         error_type,
+         error_details
+  FROM app_metrics
+  WHERE team_id = 2
+    AND plugin_config_id = 3
+    AND category = 'processEvent'
+    AND error_type = 'SomeError'
+  ORDER BY timestamp DESC
+  LIMIT 20
+  '
+---
+# name: TestAppMetricsErrorsQuery.test_errors_query
+  '
+  
+  SELECT error_type,
+         count() AS count,
+         max(timestamp) AS last_seen
+  FROM app_metrics
+  WHERE team_id = 2
+    AND plugin_config_id = 3
+    AND category = 'processEvent'
+    AND timestamp >= '2021-11-28 00:00:00'
+    AND timestamp < '2021-12-05 13:23:00'
+    AND error_type <> ''
+  GROUP BY error_type
+  ORDER BY count DESC
+  '
+---
+# name: TestAppMetricsErrorsQuery.test_errors_query_filter_by_job_id
+  '
+  
+  SELECT error_type,
+         count() AS count,
+         max(timestamp) AS last_seen
+  FROM app_metrics
+  WHERE team_id = 2
+    AND plugin_config_id = 3
+    AND category = 'processEvent'
+    AND job_id = '1234'
+    AND timestamp >= '2021-11-28 00:00:00'
+    AND timestamp < '2021-12-05 13:23:00'
+    AND error_type <> ''
+  GROUP BY error_type
+  ORDER BY count DESC
+  '
+---
+# name: TestAppMetricsErrorsQuery.test_ignores_unrelated_data
+  '
+  
+  SELECT error_type,
+         count() AS count,
+         max(timestamp) AS last_seen
+  FROM app_metrics
+  WHERE team_id = 2
+    AND plugin_config_id = 3
+    AND category = 'processEvent'
+    AND timestamp >= '2021-11-28 00:00:00'
+    AND timestamp < '2021-12-05 13:23:00'
+    AND error_type <> ''
+  GROUP BY error_type
+  ORDER BY count DESC
+  '
+---
 # name: TestAppMetricsQuery.test_app_metrics
   '
   
@@ -125,5 +226,16 @@
         GROUP BY dateTrunc('day', timestamp, 'UTC'))
      GROUP BY date
      ORDER BY date)
+  '
+---
+# name: TestTeamPluginsDeliveryRateQuery.test_query_delivery_rate
+  '
+  
+  SELECT plugin_config_id,
+         (sum(successes) + sum(successes_on_retry)) / (sum(successes) + sum(successes_on_retry) + sum(failures)) AS rate
+  FROM app_metrics
+  WHERE team_id = 2
+    AND timestamp > '2021-12-04 13:23:00.000000'
+  GROUP BY plugin_config_id
   '
 ---

@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import React from 'react'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { SitePopover } from './SitePopover'
 import { Announcement } from './Announcement'

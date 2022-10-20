@@ -45,6 +45,7 @@ from rest_framework.request import Request
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception
 
+from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
@@ -299,7 +300,15 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
+        "week_start": 1,  # Monday
     }
+
+    from posthog.api.geoip import get_geoip_properties  # avoids circular import
+
+    geoip_properties = get_geoip_properties(get_ip_address(request))
+    country_code = geoip_properties.get("$geoip_country_code", None)
+    if country_code:
+        posthog_app_context["week_start"] = get_week_start_for_country_code(country_code)
 
     posthog_bootstrap: Dict[str, Any] = {}
     posthog_distinct_id: Optional[str] = None
@@ -709,7 +718,7 @@ def get_instance_realm() -> str:
 
     Historically this would also have returned `hosted` for hosted postgresql based installations
     """
-    if settings.MULTI_TENANCY:
+    if is_cloud():
         return "cloud"
     elif settings.DEMO:
         return "demo"
@@ -721,7 +730,7 @@ def get_instance_region() -> Optional[str]:
     """
     Returns the region for the current instance. `US` or 'EU'.
     """
-    if settings.MULTI_TENANCY:
+    if is_cloud():
         return settings.REGION
     return None
 
@@ -738,7 +747,7 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
     from posthog.models.organization import Organization
 
     if (
-        settings.MULTI_TENANCY  # There's no limit of organizations on Cloud
+        is_cloud()  # There's no limit of organizations on Cloud
         or (settings.DEMO and user.is_anonymous)  # Demo users can have a single demo org, but not more
         or settings.E2E_TESTING
         or not Organization.objects.filter(for_internal_metrics=False).exists()  # Definitely can create an org if zero
@@ -773,7 +782,7 @@ def get_instance_available_sso_providers() -> Dict[str, bool]:
     }
 
     # Get license information
-    bypass_license: bool = settings.MULTI_TENANCY or settings.DEMO
+    bypass_license: bool = is_cloud() or settings.DEMO
     license = None
     try:
         from ee.models.license import License
@@ -1053,3 +1062,70 @@ def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
 def generate_short_id():
     """Generate securely random 8 characters long alphanumeric ID."""
     return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(8))
+
+
+def get_week_start_for_country_code(country_code: str) -> int:
+    # Data from https://github.com/unicode-cldr/cldr-core/blob/master/supplemental/weekData.json
+    if country_code in [
+        "AG",
+        "AS",
+        "AU",
+        "BD",
+        "BR",
+        "BS",
+        "BT",
+        "BW",
+        "BZ",
+        "CA",
+        "CN",
+        "CO",
+        "DM",
+        "DO",
+        "ET",
+        "GT",
+        "GU",
+        "HK",
+        "HN",
+        "ID",
+        "IL",
+        "IN",
+        "JM",
+        "JP",
+        "KE",
+        "KH",
+        "KR",
+        "LA",
+        "MH",
+        "MM",
+        "MO",
+        "MT",
+        "MX",
+        "MZ",
+        "NI",
+        "NP",
+        "PA",
+        "PE",
+        "PH",
+        "PK",
+        "PR",
+        "PT",
+        "PY",
+        "SA",
+        "SG",
+        "SV",
+        "TH",
+        "TT",
+        "TW",
+        "UM",
+        "US",
+        "VE",
+        "VI",
+        "WS",
+        "YE",
+        "ZA",
+        "ZW",
+    ]:
+        return 0  # Sunday
+    if country_code in ["AE", "AF", "BH", "DJ", "DZ", "EG", "IQ", "IR", "JO", "KW", "LY", "OM", "QA", "SD", "SY"]:
+        return 6  # Saturday
+    return 1  # Monday

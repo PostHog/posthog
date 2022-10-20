@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { AddToDashboardModal } from './AddToDashboardModal'
 import { InsightModel } from '~/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
