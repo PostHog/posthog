@@ -7,8 +7,8 @@ import { LazyPluginVM } from '../vm/lazy'
 import { loadPlugin } from './loadPlugin'
 import { teardownPlugins } from './teardown'
 
-export async function setupPlugins(server: Hub): Promise<void> {
-    const { plugins, pluginConfigs, pluginConfigsPerTeam } = await loadPluginsFromDB(server)
+export async function setupPlugins(hub: Hub): Promise<void> {
+    const { plugins, pluginConfigs, pluginConfigsPerTeam } = await loadPluginsFromDB(hub)
     const pluginVMLoadPromises: Array<Promise<any>> = []
     const statelessVms = {} as StatelessVmMap
 
@@ -16,8 +16,8 @@ export async function setupPlugins(server: Hub): Promise<void> {
 
     for (const [id, pluginConfig] of pluginConfigs) {
         const plugin = plugins.get(pluginConfig.plugin_id)
-        const prevConfig = server.pluginConfigs.get(id)
-        const prevPlugin = prevConfig ? server.plugins.get(pluginConfig.plugin_id) : null
+        const prevConfig = hub.pluginConfigs.get(id)
+        const prevPlugin = prevConfig ? hub.plugins.get(pluginConfig.plugin_id) : null
 
         const pluginConfigChanged = !prevConfig || pluginConfig.updated_at !== prevConfig.updated_at
         const pluginChanged = plugin?.updated_at !== prevPlugin?.updated_at
@@ -27,11 +27,11 @@ export async function setupPlugins(server: Hub): Promise<void> {
         } else if (plugin?.is_stateless && statelessVms[plugin.id]) {
             pluginConfig.vm = statelessVms[plugin.id]
         } else {
-            pluginConfig.vm = new LazyPluginVM(server, pluginConfig)
-            pluginVMLoadPromises.push(loadPlugin(server, pluginConfig))
+            pluginConfig.vm = new LazyPluginVM(hub, pluginConfig)
+            pluginVMLoadPromises.push(loadPlugin(hub, pluginConfig))
 
             if (prevConfig) {
-                void teardownPlugins(server, prevConfig)
+                void teardownPlugins(hub, prevConfig)
             }
 
             if (plugin?.is_stateless) {
@@ -41,17 +41,20 @@ export async function setupPlugins(server: Hub): Promise<void> {
     }
 
     await Promise.all(pluginVMLoadPromises)
-    server.statsd?.timing('setup_plugins.success', timer)
+    hub.statsd?.timing('setup_plugins.success', timer)
 
-    server.plugins = plugins
-    server.pluginConfigs = pluginConfigs
-    server.pluginConfigsPerTeam = pluginConfigsPerTeam
+    hub.plugins = plugins
+    hub.pluginConfigs = pluginConfigs
+    hub.pluginConfigsPerTeam = pluginConfigsPerTeam
 
-    for (const teamId of server.pluginConfigsPerTeam.keys()) {
-        server.pluginConfigsPerTeam.get(teamId)?.sort((a, b) => a.order - b.order)
+    for (const teamId of hub.pluginConfigsPerTeam.keys()) {
+        hub.pluginConfigsPerTeam.get(teamId)?.sort((a, b) => a.order - b.order)
     }
 
-    await loadSchedule(server)
+    // Only load the schedule in server that can process scheduled tasks, else the schedule won't be useful
+    if (hub.capabilities.pluginScheduledTasks) {
+        await loadSchedule(hub)
+    }
 }
 
 async function loadPluginsFromDB(hub: Hub): Promise<Pick<Hub, 'plugins' | 'pluginConfigs' | 'pluginConfigsPerTeam'>> {
