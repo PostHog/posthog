@@ -69,7 +69,7 @@ class AutoRollbackTest(APIBaseTest):
             self.assertEqual(check_condition(rollback_condition, flag), False)
 
         # Go another day with 0 events
-        with freeze_time("2021-08-25T20:00:00.000Z"):
+        with freeze_time("2021-08-26T20:00:00.000Z"):
             self.assertEqual(check_condition(rollback_condition, flag), True)
 
     def test_feature_flag_rolledback(self):

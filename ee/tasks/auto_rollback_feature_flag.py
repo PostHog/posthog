@@ -44,11 +44,11 @@ def check_condition(rollback_condition: Dict, feature_flag: FeatureFlag) -> bool
 
         data = result[0]["data"]
 
-        if not len(data):
+        if len(data) <= 2:
             return False
 
         # Don't look at latest
-        data = data[: len(data) - 1]
+        data = data[1 : len(data) - 1]
 
         if rollback_condition["operator"] == "lt":
             return any(data_point < rollback_condition["threshold"] for data_point in data)
