@@ -23,6 +23,12 @@ export function HistoricalExport(props: HistoricalExportLogicProps): JSX.Element
                     metrics={data?.metrics ?? null}
                     metricsLoading={dataLoading}
                 />
+                {data && data.summary.failure_reason ? (
+                    <div>
+                        <div className="card-secondary">Failure reason</div>
+                        <div>{data.summary.failure_reason}</div>
+                    </div>
+                ) : null}
             </Card>
 
             <Card title="Delivery trends" className="mt-4">
