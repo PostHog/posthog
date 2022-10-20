@@ -55,6 +55,7 @@ export const DEFAULT_ENTITY_FILTERS = {
 export interface SessionRecordingTableLogicProps {
     personUUID?: PersonUUID
     key?: string
+    flagKey?: string
 }
 
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
@@ -112,9 +113,35 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             },
         ],
     }),
-    events: ({ actions }) => ({
+    events: ({ actions, props }) => ({
         afterMount: () => {
-            actions.getSessionRecordings()
+            console.log('HERE:', props.flagKey)
+            if (props.flagKey) {
+                actions.setEntityFilters({
+                    events: [
+                        {
+                            name: '$feature_flag_called',
+                            type: 'events',
+                            properties: [
+                                {
+                                    key: '$feature/' + props.flagKey,
+                                    type: 'event',
+                                    value: ['true'],
+                                    operator: 'exact',
+                                },
+                                {
+                                    key: '$feature_flag',
+                                    type: 'event',
+                                    value: [props.flagKey],
+                                    operator: 'exact',
+                                },
+                            ],
+                        },
+                    ],
+                })
+            } else {
+                actions.getSessionRecordings()
+            }
         },
     }),
     reducers: ({}) => ({

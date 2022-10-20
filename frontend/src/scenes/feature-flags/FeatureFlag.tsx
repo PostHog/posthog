@@ -42,6 +42,7 @@ import { allOperatorsToHumanName } from 'lib/components/DefinitionPopup/utils'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
 import { cohortsModel } from '~/models/cohortsModel'
+import { FeatureFlagRecordings } from './FeatureFlagRecordingsCard'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -367,6 +368,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     <FeatureFlagInstructions
                                                         featureFlagKey={featureFlag.key || 'my-flag'}
                                                     />
+                                                    <div className="my-4" />
+                                                    <FeatureFlagRecordings key={featureFlag.key || 'my-flag'} />
                                                 </Col>
                                             </Row>
                                         </Tabs.TabPane>
