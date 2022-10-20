@@ -28,11 +28,7 @@ export function AggregationSelect({ aggregationGroupTypeIndex, onChange }: Aggre
         },
     ]
 
-    if (
-        [GroupsAccessStatus.HasAccess, GroupsAccessStatus.HasGroupTypes, GroupsAccessStatus.NoAccess].includes(
-            groupsAccessStatus
-        )
-    ) {
+    if ([GroupsAccessStatus.NoAccess].includes(groupsAccessStatus)) {
         optionSections[0].footer = <GroupIntroductionFooter />
     } else {
         groupTypes.forEach((groupType) => {
