@@ -56,8 +56,9 @@ export type PromptRule = {
     path: {
         must_match: string[]
         exclude?: string[]
-        requires_opt_in?: boolean
     }
+    must_be_completed?: string[]
+    requires_opt_in?: boolean
 }
 
 export type PromptSequence = {
@@ -406,10 +407,11 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                             continue
                         }
                     }
+                    const hasOptedInToSequence = sequence.rule.requires_opt_in ? values.canShowProductTour : true
                     if (values.userState[sequence.key]) {
                         const sequenceState = values.userState[sequence.key]
                         const completed = !!sequenceState.completed || sequenceState.step === sequence.prompts.length
-                        const canRun = !sequenceState.dismissed && values.canShowProductTour
+                        const canRun = !sequenceState.dismissed && hasOptedInToSequence
                         if (
                             sequence.type !== 'product-tour' &&
                             (completed || !canRun || sequenceState.step === sequence.prompts.length)
@@ -429,7 +431,7 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                             sequence,
                             state: {
                                 step: 0,
-                                canRun: sequence.rule.requires_opt_in ? values.canShowProductTour : true,
+                                canRun: hasOptedInToSequence,
                             },
                         })
                     }
