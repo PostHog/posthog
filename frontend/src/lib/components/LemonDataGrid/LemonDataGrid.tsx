@@ -48,7 +48,11 @@ export function LemonDataGrid<T extends Record<string, any>>(props: LemonDataGri
         return (
             <CellMeasurer cache={cache} columnIndex={columnIndex} key={key} parent={parent} rowIndex={rowIndex}>
                 {columnIndex === props.columns.length ? (
-                    <div className={className} style={style} />
+                    <div
+                        className={className}
+                        /* eslint-disable-next-line react/forbid-dom-props */
+                        style={style}
+                    />
                 ) : (
                     <div
                         className={className}
@@ -61,8 +65,6 @@ export function LemonDataGrid<T extends Record<string, any>>(props: LemonDataGri
             </CellMeasurer>
         )
     }
-
-    const scrollWidth = 15
 
     return (
         <AutoSizer disableHeight>
@@ -79,14 +81,13 @@ export function LemonDataGrid<T extends Record<string, any>>(props: LemonDataGri
                         deferredMeasurementCache={cache}
                         fixedColumnCount={props.fixedColumnCount ?? 0}
                         fixedRowCount={1}
-                        autoHeight
-                        height={(props.dataSource.length + 1) * 48 + scrollWidth}
                         overscanColumnCount={0}
                         overscanRowCount={0}
                         cellRenderer={cellRenderer}
                         rowCount={props.dataSource.length + 1}
                         rowHeight={rowHeight}
                         width={width}
+                        height={0} /** not used */
                     />
                 </div>
             )}
