@@ -181,6 +181,7 @@ export async function startPluginsServer(
         // 1. plugin_events_ingestion
         // 2. clickhouse_events_json
         // 3. clickhouse_events_json and plugin_events_ingestion
+        // 4. conversion_events_buffer
         //
         if (hub.capabilities.http) {
             // start http server used for the healthcheck
