@@ -52,6 +52,9 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "rollout_percentage",
             "ensure_experience_continuity",
             "experiment_set",
+            "rollback_conditions",
+            "auto_rollback",
+            "performed_rollback",
         ]
 
     # Simple flags are ones that only have rollout_percentage

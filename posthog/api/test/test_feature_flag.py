@@ -1635,3 +1635,36 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(
             updated_flag.filters, {"groups": [{"properties": [], "rollout_percentage": 100}], "multivariate": None}
         )
+
+    def test_feature_flag_threshold(self):
+        feature_flag = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Beta feature",
+                "key": "beta-feature",
+                "filters": {"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 65}]},
+                "rollback_conditions": [
+                    {
+                        "threshold": 5000,
+                        "threshold_metric": {
+                            "insight": "trends",
+                            "events": [{"order": 0, "id": "$pageview"}],
+                            "properties": [
+                                {
+                                    "key": "$geoip_country_name",
+                                    "type": "person",
+                                    "value": ["france"],
+                                    "operator": "exact",
+                                }
+                            ],
+                        },
+                        "operator": "lt",
+                        "threshold_type": "insight",
+                    }
+                ],
+                "auto-rollback": True,
+            },
+            format="json",
+        ).json()
+
+        self.assertEqual(len(feature_flag["rollback_conditions"]), 1)
