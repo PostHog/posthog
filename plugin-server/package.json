@@ -6,7 +6,7 @@
     "main": "dist/index.js",
     "scripts": {
         "test": "jest --runInBand --forceExit tests/",
-        "functional_tests": "jest --runInBand --config ./functional_tests/jest.config.js",
+        "functional_tests": "jest --runInBand --config ./jest.config.functional.js",
         "start": "yarn start:dist",
         "start:dist": "BASE_DIR=.. node dist/index.js",
         "start:dev": "NODE_ENV=dev BASE_DIR=.. ts-node-dev --debug --exit-child src/index.ts 2>&1 | pino-pretty",
