@@ -7,13 +7,14 @@ import { alphabet } from 'lib/utils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/components/Tooltip'
 import { IconCalculate } from 'lib/components/icons'
+import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 
 export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))
-    const { filters, isFormulaOn } = useValues(trendsLogic(insightProps))
+    const { filters, isFormulaOn, secondAxisSeriesOptions } = useValues(trendsLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const propertiesTaxonomicGroupTypes = [
@@ -25,6 +26,7 @@ export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
         TaxonomicFilterGroupType.Elements,
         ...(filters.insight === InsightType.TRENDS ? [TaxonomicFilterGroupType.Sessions] : []),
     ]
+
     return (
         <>
             {filters.insight === InsightType.LIFECYCLE && (
@@ -54,6 +56,16 @@ export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
                 }
                 propertiesTaxonomicGroupTypes={propertiesTaxonomicGroupTypes}
             />
+            <div className={'flex justify-end'}>
+                <LemonLabel>
+                    second axis:
+                    <LemonSelect
+                        value={null}
+                        options={secondAxisSeriesOptions}
+                        onChange={(choice) => setFilters({ second_axis_series: choice }, true)}
+                    />
+                </LemonLabel>
+            </div>
         </>
     )
 }

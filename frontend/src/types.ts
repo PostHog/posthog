@@ -1160,6 +1160,8 @@ export interface FilterType {
     date_to?: string | null
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
+    // index into the events array or null for timeseries
+    second_axis_series?: number | null
     event?: string // specify one event
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
@@ -1323,7 +1325,7 @@ export interface TrendResult {
     days: string[]
     dates?: string[]
     label: string
-    labels: string[]
+    labels: string[] | number[]
     breakdown_value?: string | number
     aggregated_value: number
     status?: string

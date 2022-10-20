@@ -8,6 +8,24 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 import { isTrendsInsight, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { subscriptions } from 'kea-subscriptions'
+import { LemonSelectOption } from 'lib/components/LemonSelect'
+
+function filtersToSecondAxisSeriesOptions(
+    filters: Partial<FilterType>,
+    state: LemonSelectOption<number | null>[]
+): LemonSelectOption<number | null>[] {
+    if (!filters || !filters.events?.length) {
+        return state
+    }
+
+    const seriesAsOptions = (filters.events || []).map((eventSeries) => ({
+        value: eventSeries.order,
+        label: eventSeries.name,
+    }))
+    seriesAsOptions.push({ value: null, label: 'time series' })
+
+    return seriesAsOptions
+}
 
 export const trendsLogic = kea<trendsLogicType>([
     props({} as InsightLogicProps),
@@ -34,7 +52,13 @@ export const trendsLogic = kea<trendsLogicType>([
         setIsFormulaOn: (enabled: boolean) => ({ enabled }),
     })),
 
-    reducers(({ props }) => ({
+    reducers(({ props, values }) => ({
+        secondAxisSeriesOptions: [
+            filtersToSecondAxisSeriesOptions(values.filters, []) as LemonSelectOption<number | null>[], //index of the series to use or null for timeseries
+            {
+                setFilters: (state, { filters }) => filtersToSecondAxisSeriesOptions(filters, state),
+            },
+        ],
         toggledLifecycles: [
             ['new', 'resurrecting', 'returning', 'dormant'],
             {
@@ -89,16 +113,47 @@ export const trendsLogic = kea<trendsLogicType>([
             (s) => [s.filters, s.results, s.toggledLifecycles],
             (filters, _results, toggledLifecycles): IndexedTrendResult[] => {
                 let results = _results || []
+
                 if (filters.insight === InsightType.LIFECYCLE) {
                     results = results.filter((result) => toggledLifecycles.includes(String(result.status)))
                 }
+
                 if (
                     filters.display === ChartDisplayType.ActionsBarValue ||
                     filters.display === ChartDisplayType.ActionsPie
                 ) {
                     results.sort((a, b) => b.aggregated_value - a.aggregated_value)
                 }
-                return results.map((result, index) => ({ ...result, id: index }))
+
+                const indexedResults = results.map((result, index) => ({ ...result, id: index }))
+
+                if (
+                    filters.second_axis_series !== null &&
+                    filters.second_axis_series !== undefined &&
+                    filters.second_axis_series >= 0
+                ) {
+                    const secondAxisSeriesLabels = indexedResults[filters.second_axis_series]?.data
+
+                    return indexedResults
+                        .filter((r) => r.id !== filters.second_axis_series)
+                        .map((r: IndexedTrendResult) => {
+                            const buckets = secondAxisSeriesLabels.reduce((acc, label, index) => {
+                                if (!acc[label]) {
+                                    acc[label] = 0
+                                }
+                                acc[label] += r.data[index]
+                                return acc
+                            }, {} as Record<string, number>)
+                            debugger
+                            return {
+                                ...r,
+                                data: Object.values(buckets).map((b) => Number(b)),
+                                labels: Object.keys(buckets).map((b) => b.toString()),
+                            }
+                        })
+                }
+
+                return indexedResults
             },
         ],
         aggregationTargetLabel: [

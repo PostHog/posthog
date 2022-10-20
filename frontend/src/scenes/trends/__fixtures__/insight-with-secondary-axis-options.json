@@ -1,0 +1,370 @@
+{
+    "id": 189,
+    "short_id": "7bgeFDEt",
+    "name": "",
+    "derived_name": "Pageview count & checkout count",
+    "filters": {
+        "events": [
+            { "id": "$pageview", "name": "$pageview", "type": "events", "order": 0 },
+            { "id": "checkout", "name": "checkout", "type": "events", "order": 1 }
+        ],
+        "actions": [],
+        "display": "ActionsLineGraph",
+        "insight": "TRENDS",
+        "interval": "day",
+        "new_entity": [],
+        "properties": [],
+        "filter_test_accounts": false,
+        "date_from": "-7d",
+        "second_axis_series": 1
+    },
+    "filters_hash": "cache_718d46750471d9cb7f281d8b81d7d1e0",
+    "order": null,
+    "deleted": false,
+    "dashboards": [],
+    "last_refresh": "2022-10-20T10:00:03.727652Z",
+    "refreshing": false,
+    "result": [
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview",
+            "count": 13665.0,
+            "data": [0.0, 0.0, 0.0, 0.0, 0.0, 116.0, 13549.0, 0.0],
+            "labels": [
+                "13-Oct-2022",
+                "14-Oct-2022",
+                "15-Oct-2022",
+                "16-Oct-2022",
+                "17-Oct-2022",
+                "18-Oct-2022",
+                "19-Oct-2022",
+                "20-Oct-2022"
+            ],
+            "days": [
+                "2022-10-13",
+                "2022-10-14",
+                "2022-10-15",
+                "2022-10-16",
+                "2022-10-17",
+                "2022-10-18",
+                "2022-10-19",
+                "2022-10-20"
+            ],
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-10-13T00:00:00Z",
+                        "date_to": "2022-10-13T00:00:00Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&date_from=2022-10-13T00%3A00%3A00%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22checkout%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22checkout%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-10-13T00%3A00%3A00%2B00%3A00&entity_order=0"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-10-14T00:00:00Z",
+                        "date_to": "2022-10-14T00:00:00Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&date_from=2022-10-14T00%3A00%3A00%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22checkout%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22checkout%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-10-14T00%3A00%3A00%2B00%3A00&entity_order=0"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-10-15T00:00:00Z",
+                        "date_to": "2022-10-15T00:00:00Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&date_from=2022-10-15T00%3A00%3A00%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22checkout%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22checkout%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-10-15T00%3A00%3A00%2B00%3A00&entity_order=0"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-10-16T00:00:00Z",
+                        "date_to": "2022-10-16T00:00:00Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&date_from=2022-10-16T00%3A00%3A00%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22checkout%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22checkout%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-10-16T00%3A00%3A00%2B00%3A00&entity_order=0"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-10-17T00:00:00Z",
+                        "date_to": "2022-10-17T00:00:00Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&date_from=2022-10-17T00%3A00%3A00%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22checkout%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22checkout%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-10-17T00%3A00%3A00%2B00%3A00&entity_order=0"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-10-18T00:00:00Z",
+                        "date_to": "2022-10-18T00:00:00Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&date_from=2022-10-18T00%3A00%3A00%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22checkout%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22checkout%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-10-18T00%3A00%3A00%2B00%3A00&entity_order=0"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-10-19T00:00:00Z",
+                        "date_to": "2022-10-19T00:00:00Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&date_from=2022-10-19T00%3A00%3A00%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22checkout%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22checkout%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-10-19T00%3A00%3A00%2B00%3A00&entity_order=0"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-10-20T00:00:00Z",
+                        "date_to": "2022-10-20T00:00:00Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&date_from=2022-10-20T00%3A00%3A00%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22checkout%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22checkout%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-10-20T00%3A00%3A00%2B00%3A00&entity_order=0"
+                }
+            ],
+            "filter": {
+                "breakdown_attribution_type": "first_touch",
+                "date_from": "-7d",
+                "display": "ActionsLineGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    },
+                    {
+                        "id": "checkout",
+                        "type": "events",
+                        "order": 1,
+                        "name": "checkout",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "insight": "TRENDS",
+                "interval": "day",
+                "smoothing_intervals": 1
+            }
+        },
+        {
+            "action": {
+                "id": "checkout",
+                "type": "events",
+                "order": 1,
+                "name": "checkout",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "checkout",
+            "count": 643.0,
+            "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 643.0, 0.0],
+            "labels": [
+                "13-Oct-2022",
+                "14-Oct-2022",
+                "15-Oct-2022",
+                "16-Oct-2022",
+                "17-Oct-2022",
+                "18-Oct-2022",
+                "19-Oct-2022",
+                "20-Oct-2022"
+            ],
+            "days": [
+                "2022-10-13",
+                "2022-10-14",
+                "2022-10-15",
+                "2022-10-16",
+                "2022-10-17",
+                "2022-10-18",
+                "2022-10-19",
+                "2022-10-20"
+            ],
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "checkout",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-10-13T00:00:00Z",
+                        "date_to": "2022-10-13T00:00:00Z",
+                        "entity_order": 1
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&date_from=2022-10-13T00%3A00%3A00%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22checkout%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22checkout%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=checkout&entity_type=events&date_to=2022-10-13T00%3A00%3A00%2B00%3A00&entity_order=1"
+                },
+                {
+                    "filter": {
+                        "entity_id": "checkout",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-10-14T00:00:00Z",
+                        "date_to": "2022-10-14T00:00:00Z",
+                        "entity_order": 1
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&date_from=2022-10-14T00%3A00%3A00%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22checkout%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22checkout%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=checkout&entity_type=events&date_to=2022-10-14T00%3A00%3A00%2B00%3A00&entity_order=1"
+                },
+                {
+                    "filter": {
+                        "entity_id": "checkout",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-10-15T00:00:00Z",
+                        "date_to": "2022-10-15T00:00:00Z",
+                        "entity_order": 1
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&date_from=2022-10-15T00%3A00%3A00%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22checkout%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22checkout%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=checkout&entity_type=events&date_to=2022-10-15T00%3A00%3A00%2B00%3A00&entity_order=1"
+                },
+                {
+                    "filter": {
+                        "entity_id": "checkout",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-10-16T00:00:00Z",
+                        "date_to": "2022-10-16T00:00:00Z",
+                        "entity_order": 1
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&date_from=2022-10-16T00%3A00%3A00%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22checkout%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22checkout%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=checkout&entity_type=events&date_to=2022-10-16T00%3A00%3A00%2B00%3A00&entity_order=1"
+                },
+                {
+                    "filter": {
+                        "entity_id": "checkout",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-10-17T00:00:00Z",
+                        "date_to": "2022-10-17T00:00:00Z",
+                        "entity_order": 1
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&date_from=2022-10-17T00%3A00%3A00%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22checkout%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22checkout%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=checkout&entity_type=events&date_to=2022-10-17T00%3A00%3A00%2B00%3A00&entity_order=1"
+                },
+                {
+                    "filter": {
+                        "entity_id": "checkout",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-10-18T00:00:00Z",
+                        "date_to": "2022-10-18T00:00:00Z",
+                        "entity_order": 1
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&date_from=2022-10-18T00%3A00%3A00%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22checkout%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22checkout%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=checkout&entity_type=events&date_to=2022-10-18T00%3A00%3A00%2B00%3A00&entity_order=1"
+                },
+                {
+                    "filter": {
+                        "entity_id": "checkout",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-10-19T00:00:00Z",
+                        "date_to": "2022-10-19T00:00:00Z",
+                        "entity_order": 1
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&date_from=2022-10-19T00%3A00%3A00%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22checkout%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22checkout%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=checkout&entity_type=events&date_to=2022-10-19T00%3A00%3A00%2B00%3A00&entity_order=1"
+                },
+                {
+                    "filter": {
+                        "entity_id": "checkout",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-10-20T00:00:00Z",
+                        "date_to": "2022-10-20T00:00:00Z",
+                        "entity_order": 1
+                    },
+                    "url": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&date_from=2022-10-20T00%3A00%3A00%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%2C+%7B%22id%22%3A+%22checkout%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+1%2C+%22name%22%3A+%22checkout%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=checkout&entity_type=events&date_to=2022-10-20T00%3A00%3A00%2B00%3A00&entity_order=1"
+                }
+            ],
+            "filter": {
+                "breakdown_attribution_type": "first_touch",
+                "date_from": "-7d",
+                "display": "ActionsLineGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    },
+                    {
+                        "id": "checkout",
+                        "type": "events",
+                        "order": 1,
+                        "name": "checkout",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "insight": "TRENDS",
+                "interval": "day",
+                "smoothing_intervals": 1
+            }
+        }
+    ],
+    "created_at": "2022-10-20T07:48:38.341802Z",
+    "created_by": {
+        "id": 1,
+        "uuid": "0183eb5a-37c7-0000-4938-ab9fd4999fe1",
+        "distinct_id": "JNvYj4IGCS5NTOWg6eD4pBTs1SrYj6xttThIA4HPy3G",
+        "first_name": "p",
+        "email": "paul@posthog.com"
+    },
+    "description": "",
+    "updated_at": "2022-10-20T07:48:38.341886Z",
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2022-10-20T07:48:38.340176Z",
+    "last_modified_by": {
+        "id": 1,
+        "uuid": "0183eb5a-37c7-0000-4938-ab9fd4999fe1",
+        "distinct_id": "JNvYj4IGCS5NTOWg6eD4pBTs1SrYj6xttThIA4HPy3G",
+        "first_name": "p",
+        "email": "paul@posthog.com"
+    },
+    "is_sample": false,
+    "effective_restriction_level": 21,
+    "effective_privilege_level": 37,
+    "timezone": "UTC",
+    "tags": []
+}
