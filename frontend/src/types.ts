@@ -1521,8 +1521,9 @@ export interface FeatureFlagType {
     rollout_percentage: number | null
     ensure_experience_continuity: boolean | null
     experiment_set: string[] | null
-    rollback_conditions: FeatureFlagRollbackConditions | null
+    rollback_conditions: FeatureFlagRollbackConditions[]
     auto_rollback: boolean
+    performed_rollback: boolean
 }
 
 export interface FeatureFlagRollbackConditions {

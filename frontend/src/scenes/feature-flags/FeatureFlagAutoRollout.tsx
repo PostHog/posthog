@@ -11,9 +11,9 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { featureFlagLogic } from './featureFlagLogic'
 
 export function FeatureFlagAutoRollback(): JSX.Element {
-    const { featureFlagRollbackInsight } = useValues(featureFlagLogic)
+    const { featureFlagRollbackInsight, featureFlag } = useValues(featureFlagLogic)
     const { createFeatureFlagRollbackInsight, setFilters } = useActions(featureFlagLogic)
-
+    console.log(featureFlagRollbackInsight)
     const { insightProps } = useValues(
         insightLogic({
             dashboardItemId: featureFlagRollbackInsight?.short_id,
@@ -22,7 +22,7 @@ export function FeatureFlagAutoRollback(): JSX.Element {
 
     const { filters: trendsFilters } = useValues(trendsLogic(insightProps))
 
-    const [hasCondition, setHasCondition] = useState(false)
+    const [hasCondition, setHasCondition] = useState(featureFlag.auto_rollback)
 
     return (
         <div>
@@ -48,28 +48,34 @@ export function FeatureFlagAutoRollback(): JSX.Element {
                             />
                         )}
                     </Field>
-                    <Group name="rollback_conditions">
+                    <Group name={['rollback_conditions', 0]}>
                         <div className="flex gap-2 items-center mt-4">
                             When
                             <Field name="threshold_metric">
-                                <ActionFilter
-                                    filters={trendsFilters}
-                                    setFilters={(payload) => {
-                                        setFilters(payload)
-                                    }}
-                                    typeKey={'feature-flag-rollback-trends'}
-                                    buttonCopy={'Add graph series'}
-                                    showSeriesIndicator
-                                    showNestedArrow
-                                    entitiesLimit={1}
-                                    propertiesTaxonomicGroupTypes={[
-                                        TaxonomicFilterGroupType.EventProperties,
-                                        TaxonomicFilterGroupType.PersonProperties,
-                                        TaxonomicFilterGroupType.EventFeatureFlags,
-                                        TaxonomicFilterGroupType.Cohorts,
-                                        TaxonomicFilterGroupType.Elements,
-                                    ]}
-                                />
+                                {({ onChange }) => (
+                                    <ActionFilter
+                                        filters={trendsFilters}
+                                        setFilters={(payload) => {
+                                            setFilters(payload)
+                                            onChange({
+                                                ...trendsFilters,
+                                                ...payload,
+                                            })
+                                        }}
+                                        typeKey={'feature-flag-rollback-trends'}
+                                        buttonCopy={'Add graph series'}
+                                        showSeriesIndicator
+                                        showNestedArrow
+                                        entitiesLimit={1}
+                                        propertiesTaxonomicGroupTypes={[
+                                            TaxonomicFilterGroupType.EventProperties,
+                                            TaxonomicFilterGroupType.PersonProperties,
+                                            TaxonomicFilterGroupType.EventFeatureFlags,
+                                            TaxonomicFilterGroupType.Cohorts,
+                                            TaxonomicFilterGroupType.Elements,
+                                        ]}
+                                    />
+                                )}
                             </Field>
                             is
                             <Field name="operator">
@@ -81,15 +87,11 @@ export function FeatureFlagAutoRollback(): JSX.Element {
                                 />
                             </Field>
                             <Field name="threshold">
-                                <LemonInput
-                                    min={0}
-                                    onChange={function Ke() {}}
-                                    onPressEnter={function Ke() {}}
-                                    type="number"
-                                />
+                                <LemonInput min={0} type="number" />
                             </Field>
                         </div>
                     </Group>
+
                     <div className="mt-4">
                         <BindLogic logic={insightLogic} props={insightProps}>
                             <InsightContainer

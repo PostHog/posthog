@@ -306,7 +306,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     iconStyle={{ color: 'var(--muted-alt)' }}
                                                 />
                                                 <div className="flex">
-                                                    {featureFlag.active ? (
+                                                    {featureFlag.performed_rollback ? (
+                                                        <LemonTag type="warning" className="uppercase">
+                                                            Rolled Back
+                                                        </LemonTag>
+                                                    ) : featureFlag.active ? (
                                                         <LemonTag type="success" className="uppercase">
                                                             Enabled
                                                         </LemonTag>

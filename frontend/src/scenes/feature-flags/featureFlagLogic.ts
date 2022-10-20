@@ -40,7 +40,14 @@ const NEW_FLAG: FeatureFlagType = {
     rollout_percentage: null,
     ensure_experience_continuity: false,
     experiment_set: null,
-    rollback_conditions: null,
+    rollback_conditions: [
+        {
+            threshold: 0,
+            operator: 'gt',
+            threshold_metric: {},
+            threshold_type: 'insight',
+        },
+    ],
     auto_rollback: false,
 }
 const NEW_VARIANT = {
@@ -360,6 +367,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         loadFeatureFlagSuccess: async () => {
             actions.loadRecentInsights()
+            if (values.featureFlag.rollback_conditions[0].threshold_metric) {
+                actions.setFeatureFlagRollbackInsight(values.featureFlag.rollback_conditions[0].threshold_metric)
+            }
         },
         createFeatureFlagRollbackInsight: async ({ filters }) => {
             const newInsightFilters = cleanFilters({

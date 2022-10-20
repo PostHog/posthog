@@ -5,10 +5,12 @@ import requests
 from django.http import HttpRequest, JsonResponse
 from rest_framework.decorators import api_view
 
+TOKEN = "419b86cfcf824c6c9cbc3f07207db59e50a4b83a155e4ed3b877f4e6375c65f4"
+
 
 def get_sentry_stats(start_time: str, end_time: str) -> Tuple[dict, int]:
     url = f"https://sentry.io/api/0/organizations/posthog/issues/"
-    token = "cb3d86f46c8e4ca592113d65c9adcac47482d32040674311bebe6ec11f714f1a"
+    token = TOKEN
     headers = {"Authorization": f"Bearer {token}"}
 
     params = {"start": start_time, "end": end_time, "sort": "freq", "utc": "true"}
@@ -34,7 +36,7 @@ def get_tagged_issues_stats(
     start_time: str, end_time: str, tags: Dict[str, str], target_issues: List[str]
 ) -> Dict[str, Any]:
     url = f"https://sentry.io/api/0/organizations/posthog/issues-stats/"
-    token = "cb3d86f46c8e4ca592113d65c9adcac47482d32040674311bebe6ec11f714f1a"
+    token = TOKEN
     headers = {"Authorization": f"Bearer {token}"}
 
     query = "is:unresolved"

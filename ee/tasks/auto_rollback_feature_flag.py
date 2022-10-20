@@ -13,7 +13,7 @@ def check_flags_to_rollback():
     flags_with_threshold = FeatureFlag.objects.exclude(rollback_conditions__isnull=True)
 
     for feature_flag in flags_with_threshold:
-        check_feature_flag_rollback_conditions.delay(feature_flag_id=feature_flag.pk)
+        check_feature_flag_rollback_conditions(feature_flag_id=feature_flag.pk)
 
 
 @shared_task(ignore_result=True, max_retries=2)
