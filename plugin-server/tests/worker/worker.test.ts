@@ -24,6 +24,8 @@ jest.mock('../../src/utils/status')
 jest.mock('../../src/worker/plugins/run')
 jest.mock('../../src/worker/plugins/setup')
 jest.mock('../../src/worker/plugins/teardown')
+jest.mock('../../src/worker/plugins/loadPluginsFromDB')
+jest.mock('../../src/worker/plugins/loadSchedule')
 jest.setTimeout(600000) // 600 sec timeout
 
 function createEvent(index = 0): PluginEvent {

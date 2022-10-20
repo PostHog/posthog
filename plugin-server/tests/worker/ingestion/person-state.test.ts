@@ -1004,7 +1004,7 @@ describe('PersonState.update()', () => {
         })
     })
 
-    describe('on $create_alias event', () => {
+    describe.skip('on $create_alias event', () => {
         it('creates person and sets is_identified false when alias property not passed', async () => {
             const personContainer = await personState({
                 event: '$create_alias',
