@@ -43,7 +43,13 @@ export function LemonDataGrid<T extends Record<string, any>>(props: LemonDataGri
             const value = props.dataSource[rowIndex - 1][column.key ?? '']
             content = column.render?.(value, props.dataSource[rowIndex - 1], rowIndex - 1) ?? value
         }
-        const className = clsx({ 'LemonDataGrid--cell': true, 'LemonDataGrid--header': rowIndex === 0 })
+        const className = clsx({
+            'LemonDataGrid--cell': true,
+            'LemonDataGrid--header': rowIndex === 0,
+            [`justify-start`]: rowIndex !== 0 && props.columns[columnIndex]?.align === 'left',
+            [`justify-center`]: rowIndex !== 0 && props.columns[columnIndex]?.align === 'center',
+            [`justify-end`]: rowIndex !== 0 && props.columns[columnIndex]?.align === 'right',
+        })
 
         return (
             <CellMeasurer cache={cache} columnIndex={columnIndex} key={key} parent={parent} rowIndex={rowIndex}>
