@@ -1,4 +1,3 @@
-import { Card } from 'antd'
 import { AppErrorSummary, AppMetrics, appMetricsSceneLogic, AppMetricsTab } from './appMetricsSceneLogic'
 import { DescriptionColumns } from './constants'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
