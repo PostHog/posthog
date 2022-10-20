@@ -32,11 +32,10 @@ export const startJobsConsumer = async ({
     const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat }) => {
         status.info('🔁', 'Processing batch', { size: batch.messages.length })
         for (const message of batch.messages) {
-            if (!message.value || !message.headers?.processEventAt || !message.headers?.eventId) {
+            if (!message.value || !message.headers?.processEventAt) {
                 status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
                     value: message.value,
                     processEventAt: message.headers?.processEventAt,
-                    eventId: message.headers?.eventId,
                 })
                 producer.queueMessage({ topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE, messages: [message] })
                 resolveOffset(message.offset)
