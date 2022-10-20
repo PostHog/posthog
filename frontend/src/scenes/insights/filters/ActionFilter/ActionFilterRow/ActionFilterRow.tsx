@@ -438,7 +438,7 @@ function useMathSelectorOptions(
 
     if (mathAvailability !== MathAvailability.ActorsOnly) {
         if (featureFlags[FEATURE_FLAGS.EVENT_COUNT_PER_ACTOR]) {
-            options.push({
+            options.splice(1, 0, {
                 value: countPerActorMathTypeShown,
                 label: (
                     <div className="flex items-center gap-2">

@@ -289,7 +289,7 @@ export const mathsLogic = kea<mathsLogicType>({
             (groupsMathDefinitions, needsUpgradeForGroups): Record<string, MathDefinition> => {
                 const staticMathDefinitions: Record<string, MathDefinition> = {
                     ...BASE_MATH_DEFINITIONS,
-                    ...(!needsUpgradeForGroups ? groupsMathDefinitions : []),
+                    ...(!needsUpgradeForGroups ? groupsMathDefinitions : {}),
                 }
                 return staticMathDefinitions
             },
