@@ -28,6 +28,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         temporaryToken: [props.temporaryToken || null, { logout: () => null, tokenExpired: () => null }],
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
+        source: [props.source || null, { logout: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
         dataAttributes: [(props.dataAttributes || []) as string[]],
         posthog: [(props.posthog ?? null) as PostHog | null],
@@ -57,7 +58,9 @@ export const toolbarLogic = kea<toolbarLogicType>([
         tokenExpired: () => {
             posthog.capture('toolbar token expired')
             console.log('PostHog Toolbar API token expired. Clearing session.')
-            lemonToast.error('PostHog Toolbar API token expired.')
+            if (values.source !== 'localstorage') {
+                lemonToast.error('PostHog Toolbar API token expired.')
+            }
             clearSessionToolbarToken()
         },
         processUserIntent: async () => {
