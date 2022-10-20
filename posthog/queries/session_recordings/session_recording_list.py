@@ -35,6 +35,7 @@ class SessionRecordingList(EventQuery):
         "$current_url",
         "$host",
         "$pathname",
+        "$geoip_country_code",
     }
 
     _core_events_query = """
