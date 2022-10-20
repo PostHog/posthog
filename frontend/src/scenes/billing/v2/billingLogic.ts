@@ -77,9 +77,9 @@ export const billingLogic = kea<billingLogicType>([
     })),
     selectors({
         billingVersion: [
-            (s) => [s.billing, s.billingLoading],
-            (billing, billingLoading): BillingVersion | undefined =>
-                !billingLoading || billing ? (billing ? 'v2' : 'v1') : undefined,
+            () => [],
+            (): BillingVersion | undefined => 'v1',
+            // !billingLoading || billing ? (billing ? 'v2' : 'v1') : undefined,
         ],
     }),
     forms(({ actions }) => ({
