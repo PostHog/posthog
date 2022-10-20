@@ -5,6 +5,7 @@ import {
     Breadcrumb,
     FeatureFlagType,
     InsightModel,
+    InsightType,
     MultivariateFlagOptions,
     MultivariateFlagVariant,
     PropertyFilter,
@@ -22,6 +23,9 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urlToAction } from 'kea-router'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { dayjs } from 'lib/dayjs'
 
 const NEW_FLAG: FeatureFlagType = {
     id: null,
@@ -36,6 +40,8 @@ const NEW_FLAG: FeatureFlagType = {
     rollout_percentage: null,
     ensure_experience_continuity: false,
     experiment_set: null,
+    rollback_conditions: null,
+    auto_rollback: false,
 }
 const NEW_VARIANT = {
     key: '',
@@ -87,6 +93,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         removeVariant: (index: number) => ({ index }),
         editFeatureFlag: (editing: boolean) => ({ editing }),
         distributeVariantsEqually: true,
+        createFeatureFlagRollbackInsight: (filters?) => ({ filters }),
+        setFeatureFlagRollbackInsight: (insight) => ({ insight }),
+        setFilters: (filters) => ({ filters }),
     }),
     forms(({ actions }) => ({
         featureFlag: {
@@ -269,6 +278,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 editFeatureFlag: (_, { editing }) => editing,
             },
         ],
+        featureFlagRollbackInsight: [
+            null,
+            {
+                setFeatureFlagRollbackInsight: (_, { insight }) => insight,
+            },
+        ],
     }),
     loaders(({ values, props, actions }) => ({
         featureFlag: {
@@ -345,6 +360,37 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         loadFeatureFlagSuccess: async () => {
             actions.loadRecentInsights()
+        },
+        createFeatureFlagRollbackInsight: async ({ filters }) => {
+            const newInsightFilters = cleanFilters({
+                insight: InsightType.TRENDS,
+                date_from: dayjs().subtract(1, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                ...filters,
+            })
+
+            const newInsight = {
+                name: ``,
+                description: '',
+                tags: [],
+                filters: newInsightFilters,
+                result: null,
+            }
+
+            const createdInsight: InsightModel = await api.create(
+                `api/projects/${values.currentTeamId}/insights`,
+                newInsight
+            )
+            actions.setFeatureFlagRollbackInsight(createdInsight)
+        },
+        setFilters: ({ filters }) => {
+            // if (values.experimentInsightType === InsightType.FUNNELS) {
+            //     funnelLogic.findMounted({ dashboardItemId: values.experimentInsightId })?.actions.setFilters(filters)
+            // } else {
+            trendsLogic
+                .findMounted({ dashboardItemId: values.featureFlagRollbackInsight?.short_id })
+                ?.actions.setFilters(filters)
+            // }
         },
     })),
     selectors({

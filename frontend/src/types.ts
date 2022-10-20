@@ -1521,6 +1521,15 @@ export interface FeatureFlagType {
     rollout_percentage: number | null
     ensure_experience_continuity: boolean | null
     experiment_set: string[] | null
+    rollback_conditions: FeatureFlagRollbackConditions | null
+    auto_rollback: boolean
+}
+
+export interface FeatureFlagRollbackConditions {
+    threshold: number
+    threshold_metric: FilterType
+    operator: 'gt' | 'lt'
+    threshold_type: string
 }
 
 export interface CombinedFeatureFlagAndValueType {

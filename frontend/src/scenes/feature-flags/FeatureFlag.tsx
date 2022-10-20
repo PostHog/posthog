@@ -42,6 +42,7 @@ import { allOperatorsToHumanName } from 'lib/components/DefinitionPopup/utils'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
 import { cohortsModel } from '~/models/cohortsModel'
+import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -260,6 +261,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             <FeatureFlagRollout />
                             <Divider />
                             <FeatureFlagReleaseConditions />
+                            <LemonDivider />
+                            <FeatureFlagAutoRollback />
                             <LemonDivider className="mt-8" />
                             <div className="flex items-center gap-2 justify-end">
                                 <LemonButton
