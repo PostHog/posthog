@@ -13,6 +13,7 @@ from django.utils import timezone
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
 
+from posthog.cloud_utils import is_cloud
 from posthog.redis import get_client
 from posthog.utils import get_crontab
 
@@ -87,7 +88,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     )
 
     # PostHog Cloud cron jobs
-    if getattr(settings, "MULTI_TENANCY", False):
+    if is_cloud():
         # TODO EC this should be triggered only for instances that haven't been migrated to the new billing
         # Calculate billing usage for the day every day at midnight UTC
         sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())
@@ -127,7 +128,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(
         crontab(minute=0, hour="*"), pg_plugin_server_query_timing.s(), name="PG plugin server query timing"
     )
-    sender.add_periodic_task(120, graphile_queue_size.s(), name="Graphile queue size")
+    sender.add_periodic_task(120, graphile_worker_queue_size.s(), name="Graphile Worker queue size")
 
     sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_cohort_ids_in_feature_flags_task.s())
 
@@ -327,7 +328,7 @@ def ingestion_lag():
 
 
 @app.task(ignore_result=True)
-def graphile_queue_size():
+def graphile_worker_queue_size():
     from django.db import connections
 
     from posthog.internal_metrics import gauge
@@ -345,7 +346,7 @@ def graphile_queue_size():
         )
 
         queue_size = cursor.fetchone()[0]
-        gauge("graphile_queue_size", queue_size)
+        gauge("graphile_worker_queue_size", queue_size)
 
         # Track the number of jobs that will still be run at least once or are currently running based on job type (i.e. task_identifier)
         # Completed jobs are deleted and "permanently failed" jobs have attempts == max_attempts
@@ -641,7 +642,7 @@ def schedule_all_subscriptions():
 @app.task(ignore_result=True)
 def clickhouse_send_license_usage():
     try:
-        if not settings.MULTI_TENANCY:
+        if not is_cloud():
             from ee.tasks.send_license_usage import send_license_usage
 
             send_license_usage()

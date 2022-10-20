@@ -20,7 +20,7 @@ Error handling:
 
 Note:
 - parallelism is only settable by superusers to avoid abuse.
-- Double-processing might be possible if a task is queued in graphile for a long time
+- Double-processing might be possible if a task is queued in graphile worker for a long time
 */
 
 import { Plugin, PluginEvent, PluginMeta, RetryError } from '@posthog/plugin-scaffold'
@@ -284,13 +284,13 @@ export function addHistoricalEventsExportCapabilityV2(
                     await startChunk(payload, payload.progress)
                 })
             )
-
-            await meta.storage.set(EXPORT_COORDINATION_KEY, {
-                done: update.done,
-                running: update.running,
-                progress: update.progress,
-            })
         }
+
+        await meta.storage.set(EXPORT_COORDINATION_KEY, {
+            done: update.done,
+            running: update.running,
+            progress: update.progress,
+        })
     }
 
     async function calculateCoordination(

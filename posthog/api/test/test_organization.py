@@ -35,7 +35,7 @@ class TestOrganizationAPI(APIBaseTest):
     # Creating organizations
 
     def test_cant_create_organization_without_valid_license_on_self_hosted(self):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post("/api/organizations/", {"name": "Test"})
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertEqual(
@@ -52,7 +52,7 @@ class TestOrganizationAPI(APIBaseTest):
             self.assertEqual(Organization.objects.count(), 1)
 
     def test_cant_create_organization_with_custom_plugin_level(self):
-        with self.settings(MULTI_TENANCY=True):
+        with self.is_cloud(True):
             response = self.client.post("/api/organizations/", {"name": "Test", "plugins_access_level": 6})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             self.assertEqual(Organization.objects.count(), 2)
