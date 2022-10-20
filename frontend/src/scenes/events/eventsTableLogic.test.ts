@@ -716,7 +716,8 @@ describe('eventsTableLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.setEventFilter(eventFilter)
                 })
-                expect(router.values.searchParams.toString()).toHaveProperty('eventFilter', eventFilter)
+                expect(router.values.searchParams).toHaveProperty('eventFilter')
+                expect(router.values.searchParams.eventFilter.toString()).toEqual(eventFilter)
             })
 
             it('fires two actions to change state, but just one API.get', async () => {
