@@ -20,11 +20,11 @@ import api from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
 import { groupsModelType } from '~/models/groupsModelType'
 import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
-import { EVENT_COUNT_PER_ACTOR, RETENTION_FIRST_TIME } from 'lib/constants'
+import { RETENTION_FIRST_TIME } from 'lib/constants'
 import { retentionOptions } from 'scenes/retention/retentionTableLogic'
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { mathsLogicType } from 'scenes/trends/mathsLogicType'
-import { apiValueToMathType, MathDefinition } from 'scenes/trends/mathsLogic'
+import { apiValueToMathType, MathCategory, MathDefinition } from 'scenes/trends/mathsLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightLogic } from './insightLogic'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
@@ -264,26 +264,24 @@ export function summarizeInsightFilters(
                         .map((localFilter, localFilterIndex) => {
                             const mathType = apiValueToMathType(localFilter.math, localFilter.math_group_type_index)
                             const mathDefinition = mathDefinitions[mathType] as MathDefinition | undefined
-                            const propertyMath: string =
-                                mathDefinition?.onProperty &&
-                                localFilter.math_property &&
-                                localFilter.math_property !== EVENT_COUNT_PER_ACTOR
-                                    ? `'s ${
-                                          keyMapping.event[localFilter.math_property]?.label ||
-                                          localFilter.math_property
-                                      }`
-                                    : ''
                             let series: string
-                            if (localFilter.math && localFilter.math_property === EVENT_COUNT_PER_ACTOR) {
-                                series = `${capitalizeFirstLetter(
+                            if (mathDefinition?.category === MathCategory.EventPerActorCount) {
+                                series = `${getDisplayNameFromEntityFilter(localFilter)} count per user ${
+                                    mathDefinition.shortName
+                                }`
+                            } else if (mathDefinition?.category === MathCategory.PropertyValue) {
+                                series = `${getDisplayNameFromEntityFilter(localFilter)}'s ${
+                                    keyMapping.event[localFilter.math_property as string]?.label ||
+                                    localFilter.math_property
+                                } ${
                                     mathDefinition
                                         ? mathDefinition.shortName
                                         : localFilter.math === 'unique_group'
                                         ? 'unique groups'
                                         : mathType
-                                )} ${getDisplayNameFromEntityFilter(localFilter)}${propertyMath} count per user`
+                                }`
                             } else {
-                                series = `${getDisplayNameFromEntityFilter(localFilter)}${propertyMath} ${
+                                series = `${getDisplayNameFromEntityFilter(localFilter)} ${
                                     mathDefinition
                                         ? mathDefinition.shortName
                                         : localFilter.math === 'unique_group'

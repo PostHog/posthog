@@ -54,14 +54,28 @@
         margin: #{$space/4}rem;
     }
 
+    .-m-#{$space} {
+        margin: #{-$space/4}rem;
+    }
+
     .mx-#{$space} {
         margin-left: #{$space/4}rem;
         margin-right: #{$space/4}rem;
     }
 
+    .-mx-#{$space} {
+        margin-left: #{-$space/4}rem;
+        margin-right: #{-$space/4}rem;
+    }
+
     .my-#{$space} {
         margin-top: #{$space/4}rem;
         margin-bottom: #{$space/4}rem;
+    }
+
+    .-my-#{$space} {
+        margin-top: #{-$space/4}rem;
+        margin-bottom: #{-$space/4}rem;
     }
 
     .px-#{$space} {
@@ -81,6 +95,10 @@
     @each $side in $sides {
         .m#{str-slice($side, 0, 1)}-#{$space} {
             margin-#{$side}: #{$space/4}rem;
+        }
+
+        .-m#{str-slice($side, 0, 1)}-#{$space} {
+            margin-#{$side}: #{-$space/4}rem;
         }
 
         .p#{str-slice($side, 0, 1)}-#{$space} {

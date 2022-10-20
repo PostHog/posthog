@@ -1997,6 +1997,16 @@ export enum PropertyMathType {
     P99 = 'p99',
 }
 
+export enum CountPerActorMathType {
+    Average = 'avg_count_per_actor',
+    Minimum = 'min_count_per_actor',
+    Maximum = 'max_count_per_actor',
+    Median = 'median_count_per_actor',
+    P90 = 'p90_count_per_actor',
+    P95 = 'p95_count_per_actor',
+    P99 = 'p99_count_per_actor',
+}
+
 export enum ActorGroupType {
     Person = 'person',
     GroupPrefix = 'group',

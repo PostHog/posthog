@@ -7,6 +7,9 @@ import {
     EntityTypes,
     FunnelStepRangeEntityFilter,
     PropertyFilterValue,
+    BaseMathType,
+    PropertyMathType,
+    CountPerActorMathType,
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { entityFilterLogic } from '../entityFilterLogic'
@@ -16,16 +19,23 @@ import './ActionFilterRow.scss'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { apiValueToMathType, mathsLogic, mathTypeToApiValues } from 'scenes/trends/mathsLogic'
+import {
+    apiValueToMathType,
+    COUNT_PER_ACTOR_MATH_DEFINITIONS,
+    MathCategory,
+    mathsLogic,
+    mathTypeToApiValues,
+    PROPERTY_MATH_DEFINITIONS,
+} from 'scenes/trends/mathsLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicStringPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
 import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/components/icons'
-
 import { SortableHandle as sortableHandle } from 'react-sortable-hoc'
 import { SortableDragIcon } from 'lib/components/icons'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
+import { useState } from 'react'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -121,7 +131,6 @@ export function ActionFilterRow({
     } = useActions(logic)
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -134,7 +143,10 @@ export function ActionFilterRow({
     const onMathSelect = (_: unknown, selectedMath: string): void => {
         updateFilterMath({
             ...mathTypeToApiValues(selectedMath),
-            math_property: mathDefinitions[selectedMath]?.onProperty ? mathProperty ?? '$time' : undefined,
+            math_property:
+                mathDefinitions[selectedMath]?.category === MathCategory.PropertyValue
+                    ? mathProperty ?? '$time'
+                    : undefined,
             type: filter.type,
             index,
         })
@@ -313,15 +325,13 @@ export function ActionFilterRow({
                                         style={{ maxWidth: '100%', width: 'initial' }}
                                         mathAvailability={mathAvailability}
                                     />
-                                    {mathDefinitions[math || '']?.onProperty && (
+                                    {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
+                                        MathCategory.PropertyValue && (
                                         <div className="flex-auto overflow-hidden">
                                             <TaxonomicStringPopup
                                                 groupType={TaxonomicFilterGroupType.NumericalEventProperties}
                                                 groupTypes={[
                                                     TaxonomicFilterGroupType.NumericalEventProperties,
-                                                    ...(featureFlags[FEATURE_FLAGS.EVENT_COUNT_PER_ACTOR]
-                                                        ? [TaxonomicFilterGroupType.EventCount]
-                                                        : []),
                                                     TaxonomicFilterGroupType.Sessions,
                                                 ]}
                                                 value={mathProperty}
@@ -403,6 +413,89 @@ interface MathSelectorProps {
     style?: React.CSSProperties
 }
 
+function useMathSelectorOptions(
+    index: number,
+    mathAvailability: MathAvailability,
+    onMathSelect: (index: number, value: any) => any
+): LemonSelectOptions<string> {
+    const { staticMathDefinitions, staticActorsOnlyMathDefinitions } = useValues(mathsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(PropertyMathType.Average)
+    const [countPerActorMathTypeShown, setCountPerActorMathTypeShown] = useState<CountPerActorMathType>(
+        CountPerActorMathType.Average
+    )
+
+    const options: LemonSelectOption<string>[] = Object.entries(
+        mathAvailability != MathAvailability.ActorsOnly ? staticMathDefinitions : staticActorsOnlyMathDefinitions
+    ).map(([key, definition]) => ({
+        value: key,
+        label: definition.name,
+        tooltip: definition.description,
+        'data-attr': `math-${key}-${index}`,
+    }))
+
+    if (mathAvailability !== MathAvailability.ActorsOnly) {
+        if (featureFlags[FEATURE_FLAGS.EVENT_COUNT_PER_ACTOR]) {
+            options.push({
+                value: countPerActorMathTypeShown,
+                label: (
+                    <div className="flex items-center gap-2">
+                        <span>Count per user</span>
+                        <LemonSelect
+                            value={countPerActorMathTypeShown}
+                            onChange={(value) => {
+                                setCountPerActorMathTypeShown(value as CountPerActorMathType)
+                                onMathSelect(index, value)
+                            }}
+                            options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS).map(([key, definition]) => ({
+                                value: key,
+                                label: definition.shortName,
+                                tooltip: definition.description,
+                                'data-attr': `math-${key}-${index}`,
+                            }))}
+                            onClick={(e) => e.stopPropagation()}
+                            size="small"
+                            className="-mr-1"
+                            dropdownMatchSelectWidth={false}
+                            optionTooltipPlacement="right"
+                        />
+                    </div>
+                ),
+                tooltip: 'Statistical analysis of event count per user.',
+            })
+        }
+        options.push({
+            value: propertyMathTypeShown,
+            label: (
+                <div className="flex items-center gap-2">
+                    <span>Property value</span>
+                    <LemonSelect
+                        value={propertyMathTypeShown}
+                        onChange={(value) => {
+                            setPropertyMathTypeShown(value as PropertyMathType)
+                            onMathSelect(index, value)
+                        }}
+                        options={Object.entries(PROPERTY_MATH_DEFINITIONS).map(([key, definition]) => ({
+                            value: key,
+                            label: definition.shortName,
+                            tooltip: definition.description,
+                            'data-attr': `math-${key}-${index}`,
+                        }))}
+                        onClick={(e) => e.stopPropagation()}
+                        size="small"
+                        className="-mr-1"
+                        dropdownMatchSelectWidth={false}
+                        optionTooltipPlacement="right"
+                    />
+                </div>
+            ),
+            tooltip: 'Statistical analysis of property value.',
+        })
+    }
+    return options
+}
+
 function MathSelector({
     math,
     mathGroupTypeIndex,
@@ -410,45 +503,19 @@ function MathSelector({
     index,
     onMathSelect,
 }: MathSelectorProps): JSX.Element {
-    const { mathDefinitions, selectFormattedOptions } = useValues(mathsLogic)
+    const options = useMathSelectorOptions(index, mathAvailability, onMathSelect)
 
-    let relevantEventMathEntries: LemonSelectSection<string>[] = []
-
-    if (mathAvailability === MathAvailability.ActorsOnly) {
-        selectFormattedOptions.forEach((section) => {
-            const newSection = { ...section }
-            newSection.options = section.options.filter(
-                (option) => option.value && mathDefinitions[option.value]?.actor
-            )
-            if (newSection.options.length > 0) {
-                relevantEventMathEntries.push(newSection)
-            }
-        })
-    } else {
-        relevantEventMathEntries = selectFormattedOptions
-    }
-
-    // add data-attr dynamically
-    relevantEventMathEntries = relevantEventMathEntries.map((section) => ({
-        ...section,
-        options: section.options.map((option) => ({ ...option, 'data-attr': `math-${option.value}-${index}` })),
-    }))
-
-    let mathType = apiValueToMathType(math, mathGroupTypeIndex)
-    if (mathAvailability === MathAvailability.ActorsOnly && !mathDefinitions[mathType]?.actor) {
-        // Backwards compatibility for Stickiness insights that had a non-actor value before (e.g. "Total")
-        // Such values are assumed to be user aggregation by the backend
-        mathType = 'dau'
-    }
+    const mathType = apiValueToMathType(math, mathGroupTypeIndex)
 
     return (
         <LemonSelect
             value={mathType}
-            options={relevantEventMathEntries}
+            options={options}
             onChange={(value) => onMathSelect(index, value)}
             data-attr={`math-selector-${index}`}
+            optionTooltipPlacement="right"
             dropdownMatchSelectWidth={false}
-            dropdownPlacement={'bottom-start'}
+            dropdownPlacement="bottom-start"
         />
     )
 }

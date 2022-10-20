@@ -95,10 +95,6 @@ export enum ShownAsValue {
 export const RETENTION_RECURRING = 'retention_recurring'
 export const RETENTION_FIRST_TIME = 'retention_first_time'
 
-// Properties constants
-export const PROPERTY_MATH_TYPE = 'property'
-export const EVENT_MATH_TYPE = 'event'
-
 export const WEBHOOK_SERVICES: Record<string, string> = {
     Slack: 'slack.com',
     Discord: 'discord.com',
@@ -167,8 +163,6 @@ export enum FunnelLayout {
 }
 
 export const BIN_COUNT_AUTO = 'auto' as const
-
-export const EVENT_COUNT_PER_ACTOR = '__event_count_per_actor' as const
 
 // Cohort types
 export enum CohortTypeEnum {

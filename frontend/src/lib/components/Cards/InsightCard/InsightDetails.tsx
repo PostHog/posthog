@@ -5,7 +5,7 @@ import { allOperatorsMapping, alphabet, convertPropertyGroupToProperties, format
 import { LocalFilter, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { BreakdownFilter } from 'scenes/insights/filters/BreakdownFilter'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
-import { apiValueToMathType, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
+import { apiValueToMathType, MathCategory, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 import { FilterType, InsightModel, InsightType, PropertyFilter } from '~/types'
 import { IconCalculate, IconSubdirectoryArrowRight } from '../../icons'
@@ -95,7 +95,7 @@ function SeriesDisplay({
                     {insightType !== InsightType.FUNNELS && (
                         <div>
                             counted by{' '}
-                            {mathDefinition?.onProperty && filter.math_property && (
+                            {mathDefinition?.category === MathCategory.PropertyValue && filter.math_property && (
                                 <>
                                     {' '}
                                     event's

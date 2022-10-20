@@ -75,7 +75,6 @@ export enum TaxonomicFilterGroupType {
     Dashboards = 'dashboards',
     GroupNamesPrefix = 'name_groups',
     Sessions = 'sessions',
-    EventCount = 'event_count',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
