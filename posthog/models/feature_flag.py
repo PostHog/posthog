@@ -82,6 +82,7 @@ class FeatureFlag(models.Model):
 
     rollback_conditions: models.JSONField = models.JSONField(default=list, null=True)
     auto_rollback: models.BooleanField = models.BooleanField(default=False, null=True)
+    performed_rollback: models.BooleanField = models.BooleanField(default=False, null=True)
 
     ensure_experience_continuity: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
 
