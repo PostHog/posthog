@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 import { billingLogic } from 'scenes/billing/v2/billingLogic'
 import { urls } from 'scenes/urls'
 import { AlertMessage } from './AlertMessage'
-import { IconArrowRight } from './icons'
 
 export function BillingAlertsV2(): JSX.Element | null {
     const { billingAlert, billingVersion } = useValues(billingLogic)
