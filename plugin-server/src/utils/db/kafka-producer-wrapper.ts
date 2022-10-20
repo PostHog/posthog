@@ -23,13 +23,14 @@ CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
  * We also flush the queue regularly to avoid dropping any messages as the program quits.
  */
 export class KafkaProducerWrapper {
-    /** Kafka producer used for syncing Postgres and ClickHouse person data. */
-    private producer: Producer
     /** StatsD instance used to do instrumentation */
     private statsd: StatsD | undefined
 
+    /** Kafka producer used for syncing Postgres and ClickHouse person data. */
+    producer: Producer
+
     lastFlushTime: number
-    currentBatch: Array<ProducerRecord>
+    currentBatch: Array<[ProducerRecord, () => void, (err: Error) => void]>
     currentBatchSize: number
 
     flushFrequencyMs: number
@@ -59,7 +60,17 @@ export class KafkaProducerWrapper {
     }
 
     queueMessage(kafkaMessage: ProducerRecord): Promise<void> {
-        return runInSpan(
+        // Note that we need to allow confirmation of messages that are not
+        // sent, as we need to know e.g. when we can update the offsets of any
+        // messages we have processed.
+        let resolveMessage: () => void
+        let rejectMessage: (err: Error) => void
+        const promise = new Promise<void>((resolve, reject) => {
+            resolveMessage = resolve
+            rejectMessage = reject
+        })
+
+        void runInSpan(
             {
                 op: 'kafka.queueMessage',
                 description: kafkaMessage.topic,
@@ -71,7 +82,7 @@ export class KafkaProducerWrapper {
                     // :TRICKY: We want to first flush then immediately add the message to the queue. Awaiting and then pushing would result in a race condition.
                     await this.flush(kafkaMessage)
                 } else {
-                    this.currentBatch.push(kafkaMessage)
+                    this.currentBatch.push([kafkaMessage, resolveMessage, rejectMessage])
                     this.currentBatchSize += messageSize
 
                     const timeSinceLastFlush = Date.now() - this.lastFlushTime
@@ -85,6 +96,8 @@ export class KafkaProducerWrapper {
                 }
             }
         )
+
+        return promise
     }
 
     async queueMessages(kafkaMessages: ProducerRecord[]): Promise<void> {
@@ -106,10 +119,12 @@ export class KafkaProducerWrapper {
         }
 
         return instrument(this.statsd, { metricName: 'query.kafka_send' }, async () => {
-            const messages = this.currentBatch
+            const messages = this.currentBatch.map(([message]) => message)
+            const resolves = this.currentBatch.map(([, resolve]) => resolve)
+            const rejects = this.currentBatch.map(([, , reject]) => reject)
             const batchSize = this.currentBatchSize
             this.lastFlushTime = Date.now()
-            this.currentBatch = append ? [append] : []
+            this.currentBatch = append ? [[append, () => null, () => null]] : []
             this.currentBatchSize = append ? this.estimateMessageSize(append) : 0
 
             this.statsd?.histogram('query.kafka_send.size', batchSize)
@@ -120,7 +135,9 @@ export class KafkaProducerWrapper {
                     topicMessages: messages,
                     compression: CompressionTypes.Snappy,
                 })
+                resolves.forEach((resolve) => resolve())
             } catch (err) {
+                rejects.forEach((reject) => reject(err))
                 Sentry.captureException(err, {
                     extra: {
                         batchCount: messages.length,
@@ -139,7 +156,6 @@ export class KafkaProducerWrapper {
                     messageCounts: messages.map((record) => record.messages.length),
                     estimatedSize: batchSize,
                 })
-                throw err
             } finally {
                 clearTimeout(timeout)
             }

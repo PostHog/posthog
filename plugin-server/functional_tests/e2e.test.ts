@@ -382,7 +382,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
     describe(`plugin jobs (${pluginServer.name})`, () => {
         const indexJs = `    
-            export function onEvent (event) {
+            export function onEvent (event, { jobs }) {
                 console.info(JSON.stringify(['onEvent', event]))
                 jobs.runMeAsync().runNow()
             }

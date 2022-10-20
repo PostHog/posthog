@@ -1,5 +1,4 @@
-import { KAFKA_JOBS } from 'config/kafka-topics'
-
+import { KAFKA_JOBS } from '../../../config/kafka-topics'
 import { Hub, PluginConfig, PluginLogEntryType } from '../../../types'
 
 type JobRunner = {
@@ -63,6 +62,8 @@ export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
                 `Failed to enqueue job ${type} with error: ${e.message}`,
                 PluginLogEntryType.Error
             )
+
+            throw e
         }
     }
 

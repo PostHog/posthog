@@ -32,13 +32,13 @@ export const startJobsConsumer = async ({
     const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat }) => {
         status.info('🔁', 'Processing batch', { size: batch.messages.length })
         for (const message of batch.messages) {
-            if (!message.value || !message.headers?.processEventAt) {
+            if (!message.value) {
                 status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
                     value: message.value,
-                    processEventAt: message.headers?.processEventAt,
                 })
-                producer.queueMessage({ topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE, messages: [message] })
-                resolveOffset(message.offset)
+                producer
+                    .queueMessage({ topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE, messages: [message] })
+                    .then(() => resolveOffset(message.offset))
                 continue
             }
 
@@ -50,22 +50,22 @@ export const startJobsConsumer = async ({
                 status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
                     error,
                 })
-                producer.queueMessage({ topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE, messages: [message] })
-                resolveOffset(message.offset)
+                producer
+                    .queueMessage({ topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE, messages: [message] })
+                    .then(() => resolveOffset(message.offset))
                 continue
             }
 
             status.debug('⬆️', 'Enqueuing plugin job', { job })
             try {
                 await graphileWorker.enqueue(JobName.PLUGIN_JOB, job)
+                resolveOffset(message.offset)
                 statsd?.increment('jobs_consumer.enqueued')
             } catch (error) {
                 status.error('⚠️', 'Failed to enqueue anonymous event for processing', { error })
                 statsd?.increment('jobs_consumer.enqueue_error')
                 throw error
             }
-
-            resolveOffset(message.offset)
 
             // After processing each message, we need to heartbeat to ensure
             // we don't get kicked out of the group. Note that although we call
