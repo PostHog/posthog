@@ -107,7 +107,7 @@ export function MetricsOverview({
             {exportFailureReason && (
                 <div>
                     <div className="text-muted font-semibold mb-2">Export failure reason</div>
-                    <div>{renderNumber(metrics?.totals?.successes)}</div>
+                    <div>{exportFailureReason}</div>
                 </div>
             )}
         </div>
