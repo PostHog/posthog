@@ -818,6 +818,7 @@ export interface BillingProductV2Type {
         up_to: number | null
     }[]
     current_usage?: number
+    percentage_usage: number
     current_amount_usd?: string
     usage_limit?: number
 }

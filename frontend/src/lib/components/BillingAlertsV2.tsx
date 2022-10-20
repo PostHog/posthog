@@ -17,12 +17,12 @@ export function BillingAlertsV2(): JSX.Element | null {
     return (
         <div className="my-4">
             <AlertMessage
-                type="info"
+                type={billingAlert.status}
                 action={showButton ? { to: urls.organizationBilling(), children: 'Setup billing' } : undefined}
             >
-                <b>Action needed!</b>
+                <b>{billingAlert.title}</b>
                 <br />
-                You have used up your free allowance
+                {billingAlert.message}
             </AlertMessage>
         </div>
     )

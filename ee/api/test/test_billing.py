@@ -43,7 +43,6 @@ def create_billing_customer(**kwargs) -> Dict[str, Any]:
                 "current_amount_usd": "0.00",
                 "current_usage": 0,
                 "usage_limit": None,
-                "has_exceeded_limit": False,
             }
         ],
         "billing_period": {"current_period_start": "2022-10-07T11:12:48", "current_period_end": "2022-11-07T11:12:48"},

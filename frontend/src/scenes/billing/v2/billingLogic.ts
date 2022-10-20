@@ -93,6 +93,32 @@ export const billingLogic = kea<billingLogicType>([
             (billing): BillingAlertConfig | undefined => {
                 console.log(billing?.products)
 
+                const productOverLimit = billing?.products.find((x) => {
+                    return x.percentage_usage > 1
+                })
+
+                if (productOverLimit) {
+                    return {
+                        status: 'error',
+                        title: 'Usage limit exceeded',
+                        message: `You have exceeded the usage limit for ${productOverLimit.name}. Please upgrade your plan or data loss may occur.`,
+                    }
+                }
+
+                const productApproachingLimit = billing?.products.find((x) => {
+                    return x.percentage_usage || 0 > ALLOCATION_THRESHOLD_ALERT
+                })
+
+                if (productApproachingLimit) {
+                    return {
+                        status: 'info',
+                        title: 'You will soon hit your usage limit',
+                        message: `You have currently used ${(
+                            productApproachingLimit.percentage_usage * 100
+                        ).toPrecision(2)}% of your ${productApproachingLimit.type.toLowerCase()} allocation.`,
+                    }
+                }
+
                 return
                 // if (
                 //     scene !== Scene.Billing &&

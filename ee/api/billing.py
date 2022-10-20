@@ -160,6 +160,10 @@ class BillingViewset(viewsets.GenericViewSet):
                         product["current_usage"] = calculated_usage[product["type"]]
             response["products"] = products
 
+        for product in response["products"]:
+            usage_limit = product.get("usage_limit", product.get("free_allocation"))
+            product["percentage_usage"] = product["current_usage"] / usage_limit if usage_limit else 0
+
         return Response(response)
 
     @action(methods=["PATCH"], detail=False, url_path="/")
@@ -179,13 +183,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
         handle_billing_service_error(res)
 
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/billing/",
-            headers={"Authorization": f"Bearer {billing_service_token}"},
-        )
-
-        handle_billing_service_error(res)
-        return Response(res.json()["customer"])
+        return self.list(request, *args, **kwargs)
 
     @action(methods=["GET"], detail=False)
     def activation(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:

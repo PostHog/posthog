@@ -26,7 +26,8 @@ export const projectUsage = (
 
     const timeSoFar = dayjs().diff(period.current_period_start, 'hours')
 
-    if (timeSoFar === 0) {
+    // If less than 6 hours have passed, we don't have enough data to project
+    if (timeSoFar <= 6) {
         return usage
     }
     const timeTotal = period.current_period_end.diff(period.current_period_start, 'hours')

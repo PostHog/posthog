@@ -176,28 +176,20 @@ export function BillingV2(): JSX.Element {
             {billing?.products?.map((x) => (
                 <>
                     <LemonDivider dashed className="my-2" />
-                    <BillingProduct
-                        product={x}
-                        billingPeriod={billing.billing_period}
-                        customLimitUsd={billing.custom_limits_usd?.[x.type]}
-                    />
+                    <BillingProduct product={x} />
                 </>
             ))}
         </div>
     )
 }
 
-const BillingProduct = ({
-    product,
-    billingPeriod,
-    customLimitUsd,
-}: {
-    product: BillingProductV2Type
-    billingPeriod?: BillingV2Type['billing_period']
-    customLimitUsd?: string | null
-}): JSX.Element => {
+const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { billing, billingLoading } = useValues(billingLogic)
     const { updateBillingLimits } = useActions(billingLogic)
+
+    const billingPeriod = billing?.billing_period
+    const customLimitUsd = billing?.custom_limits_usd?.[product.type]
+
     const [tierAmountType, setTierAmountType] = useState<'individual' | 'total'>('individual')
     const [showBillingLimit, setShowBillingLimit] = useState(false)
     const [billingLimit, setBillingLimit] = useState<number | undefined>(100)
@@ -206,9 +198,53 @@ const BillingProduct = ({
     const projectedUsage = projectUsage(product.current_usage, billingPeriod)
 
     const updateBillingLimit = (value: number | undefined): any => {
-        updateBillingLimits({
-            [product.type]: typeof value === 'number' ? `${value}` : null,
-        })
+        const actuallyUpdateLimit = (): void => {
+            updateBillingLimits({
+                [product.type]: typeof value === 'number' ? `${value}` : null,
+            })
+        }
+        if (value === undefined) {
+            return actuallyUpdateLimit()
+        }
+
+        const newAmountAsUsage = convertAmountToUsage(`${value}`, product.tiers)
+
+        console.log({ current: product.current_usage, newAmountAsUsage, projectedUsage })
+
+        if (product.current_usage && newAmountAsUsage < product.current_usage) {
+            LemonDialog.open({
+                title: 'Billing limit warning',
+                description:
+                    'Your new billing limit will be below your current usage. Your bill will not increase for this period but parts of the product will stop working and data may be lost.',
+                primaryButton: {
+                    status: 'danger',
+                    children: 'I understand',
+                    onClick: () => actuallyUpdateLimit(),
+                },
+                secondaryButton: {
+                    children: 'I changed my mind',
+                },
+            })
+            return
+        }
+
+        if (projectedUsage && newAmountAsUsage < projectedUsage) {
+            LemonDialog.open({
+                title: 'Billing limit warning',
+                description:
+                    'Your predicted usage is above your current billing limit which is likely to result in a bill. Are you sure you want to remove the limit?',
+                primaryButton: {
+                    children: 'Yes, remove the limit',
+                    onClick: () => actuallyUpdateLimit(),
+                },
+                secondaryButton: {
+                    children: 'I changed my mind',
+                },
+            })
+            return
+        }
+
+        return actuallyUpdateLimit()
     }
 
     useEffect(() => {
@@ -227,18 +263,7 @@ const BillingProduct = ({
         if (!customLimitUsd) {
             return setShowBillingLimit(false)
         }
-        LemonDialog.open({
-            title: 'Remove billing limit',
-            description:
-                'Your predicted usage is above your current billing limit which is likely to result in a bill. Are you sure you want to remove the limit?',
-            primaryButton: {
-                children: 'Yes, remove the limit',
-                onClick: () => updateBillingLimit(undefined),
-            },
-            secondaryButton: {
-                children: 'I changed my mind',
-            },
-        })
+        updateBillingLimit(undefined)
     }
 
     const billingGaugeItems: BillingGaugeProps['items'] = useMemo(
@@ -274,7 +299,7 @@ const BillingProduct = ({
                             <b>Current</b>
                         </>
                     ),
-                    color: 'success',
+                    color: product.percentage_usage <= 1 ? 'success' : 'danger',
                     value: product.current_usage || 0,
                     top: false,
                 },
@@ -303,7 +328,7 @@ const BillingProduct = ({
                       }
                     : (undefined as any),
             ].filter(Boolean),
-        [product, billingLimitAsUsage]
+        [product, billingLimitAsUsage, customLimitUsd]
     )
 
     return (
@@ -392,6 +417,12 @@ const BillingProduct = ({
                 ) : null}
 
                 <BillingGauge items={billingGaugeItems} />
+
+                {product.percentage_usage > 1 ? (
+                    <AlertMessage type={'error'}>
+                        You have exceeded the {customLimitUsd ? 'billing limit' : 'free tier limit'} for this product.
+                    </AlertMessage>
+                ) : null}
             </div>
 
             <LemonDivider vertical dashed />
