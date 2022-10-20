@@ -174,6 +174,15 @@ export function ErrorsOverview({
             defaultSorting={{ columnKey: 'last_seen', order: -1 }}
             useURLForSorting={false}
             noSortingCancellation
+            emptyState={
+                <div className="">
+                    <b>No errors! 🥳</b>
+                    <p className="m-0">
+                        If this app has any errors in the future, this table will contain information to help solve the
+                        issue.
+                    </p>
+                </div>
+            }
         />
     )
 }
