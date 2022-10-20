@@ -1,74 +1,117 @@
+import { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { appMetricsSceneLogic } from './appMetricsSceneLogic'
-import { Drawer } from 'lib/components/Drawer'
+import { AppMetricErrorDetail, appMetricsSceneLogic } from './appMetricsSceneLogic'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { TZLabel } from 'lib/components/TimezoneAware'
-import { PaginationControl, usePaginationLocal } from 'lib/components/PaginationControl'
-import { Tabs } from 'antd'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
-import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconChevronLeft, IconChevronRight, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
+import { LemonModal } from 'lib/components/LemonModal'
+import { CodeSnippet, Language } from '../ingestion/frameworks/CodeSnippet'
 
 export function ErrorDetailsDrawer(): JSX.Element {
-    const { errorDetailsDrawerError, errorDetailsLoading } = useValues(appMetricsSceneLogic)
+    const { errorDetails, errorDetailsDrawerError, errorDetailsLoading } = useValues(appMetricsSceneLogic)
     const { closeErrorDetailsDrawer } = useActions(appMetricsSceneLogic)
+    const [page, setPage] = useState(0)
+
+    const activeErrorDetails: AppMetricErrorDetail = errorDetails[page]
 
     return (
-        <Drawer
-            visible={!!errorDetailsDrawerError}
+        <LemonModal
+            isOpen={!!errorDetailsDrawerError}
             onClose={closeErrorDetailsDrawer}
-            title={`Viewing error details: ${errorDetailsDrawerError}`}
+            title={errorDetailsDrawerError}
             width={'min(50vw, 80rem)'}
-            destroyOnClose
-        >
-            {errorDetailsLoading ? <LemonSkeleton className="h-10" /> : <ErrorDetails />}
-        </Drawer>
-    )
-}
-
-function ErrorDetails(): JSX.Element {
-    const { errorDetails } = useValues(appMetricsSceneLogic)
-    const paginationState = usePaginationLocal(errorDetails, { pageSize: 1 })
-
-    const [activeErrorDetails] = paginationState.dataSourcePage
-
-    return (
-        <div>
-            <PaginationControl {...paginationState} nouns={['sample error', 'sample errors']} />
-
-            <Tabs>
-                <Tabs.TabPane tab="Overview" key="overview">
-                    <div>
-                        <LemonLabel>Error:</LemonLabel> {activeErrorDetails.error_type}
-                    </div>
-                    {activeErrorDetails.error_details.error.message && (
-                        <div>
-                            <LemonLabel>Error message:</LemonLabel> {activeErrorDetails.error_details.error.message}
-                        </div>
+            description={<span>{activeErrorDetails?.error_details?.error.message?.substring(0, 200)}</span>}
+            footer={
+                <div className="flex items-center justify-end gap-1 h-">
+                    {errorDetailsLoading ? (
+                        <LemonSkeleton className="1-10" />
+                    ) : (
+                        <>
+                            <span>
+                                {page + 1} of {errorDetails.length} sample{errorDetails.length > 1 ? 's' : ''}
+                            </span>
+                            <LemonButton
+                                icon={<IconChevronLeft />}
+                                onClick={() => setPage(page - 1)}
+                                disabled={page == 0}
+                            />
+                            <LemonButton
+                                icon={<IconChevronRight />}
+                                onClick={() => setPage(page + 1)}
+                                disabled={page == errorDetails.length - 1}
+                            />
+                        </>
                     )}
+                </div>
+            }
+        >
+            {!errorDetailsDrawerError || errorDetailsLoading ? (
+                <LemonSkeleton className="h-10" />
+            ) : (
+                // eslint-disable-next-line react/forbid-dom-props
+                <div className="flex flex-col space-y-2" style={{ height: '80vh' }}>
                     <div>
                         <LemonLabel>When:</LemonLabel> <TZLabel time={activeErrorDetails.timestamp} showSeconds />
                     </div>
+
                     {activeErrorDetails.error_details.eventCount && (
                         <div>
-                            <LemonLabel>Event count:</LemonLabel> {activeErrorDetails.error_details.eventCount}
+                            <LemonLabel>Event Count</LemonLabel>
+                            <div>{activeErrorDetails.error_details.eventCount}</div>
                         </div>
                     )}
-                </Tabs.TabPane>
-                {activeErrorDetails.error_details.event && (
-                    <Tabs.TabPane tab="Event" key="event">
-                        <CodeSnippet language={Language.JSON}>
-                            {JSON.stringify(activeErrorDetails.error_details.event, null, 2)}
-                        </CodeSnippet>
-                    </Tabs.TabPane>
-                )}
-                {activeErrorDetails.error_details.error.stack && (
-                    <Tabs.TabPane tab="Stack trace" key="stacktrace">
-                        <CodeSnippet wrap language={Language.JavaScript}>
-                            {activeErrorDetails.error_details.error.stack}
-                        </CodeSnippet>
-                    </Tabs.TabPane>
-                )}
-            </Tabs>
+
+                    {activeErrorDetails.error_details.error.message && (
+                        <CollapsibleSection title="Error message" defaultIsExpanded={true}>
+                            <CodeSnippet wrap language={Language.JavaScript}>
+                                {activeErrorDetails.error_details.error.message}
+                            </CodeSnippet>
+                        </CollapsibleSection>
+                    )}
+
+                    {activeErrorDetails.error_details.event && (
+                        <CollapsibleSection title="Event payload" defaultIsExpanded={false}>
+                            <CodeSnippet wrap language={Language.JSON}>
+                                {JSON.stringify(activeErrorDetails.error_details.event, null, 2)}
+                            </CodeSnippet>
+                        </CollapsibleSection>
+                    )}
+
+                    {activeErrorDetails.error_details.error.stack && (
+                        <CollapsibleSection title="Stack trace" defaultIsExpanded={false}>
+                            <CodeSnippet wrap language={Language.JavaScript}>
+                                {activeErrorDetails.error_details.error.stack}
+                            </CodeSnippet>
+                        </CollapsibleSection>
+                    )}
+                </div>
+            )}
+        </LemonModal>
+    )
+}
+
+function CollapsibleSection(props: {
+    title: string
+    defaultIsExpanded: boolean
+    children: React.ReactNode
+}): JSX.Element {
+    const [isExpanded, setIsExpanded] = useState(props.defaultIsExpanded)
+
+    return (
+        <div className="bg-mid border rounded">
+            <LemonButton
+                status="stealth"
+                fullWidth
+                onClick={() => setIsExpanded(!isExpanded)}
+                sideIcon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                title={isExpanded ? 'Show less' : 'Show more'}
+                className="bg-mid"
+            >
+                {props.title}
+            </LemonButton>
+            {isExpanded && <div className="bg-light p-2">{props.children}</div>}
         </div>
     )
 }
