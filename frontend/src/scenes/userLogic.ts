@@ -8,7 +8,6 @@ import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
-import { billingLogic } from './billing/v2/billingLogic'
 
 export interface UserDetailsFormType {
     first_name: string

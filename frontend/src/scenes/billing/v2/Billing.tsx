@@ -209,8 +209,6 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
 
         const newAmountAsUsage = convertAmountToUsage(`${value}`, product.tiers)
 
-        console.log({ current: product.current_usage, newAmountAsUsage, projectedUsage })
-
         if (product.current_usage && newAmountAsUsage < product.current_usage) {
             LemonDialog.open({
                 title: 'Billing limit warning',

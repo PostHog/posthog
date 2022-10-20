@@ -118,22 +118,6 @@ export const billingLogic = kea<billingLogicType>([
                         ).toPrecision(2)}% of your ${productApproachingLimit.type.toLowerCase()} allocation.`,
                     }
                 }
-
-                return
-                // if (
-                //     scene !== Scene.Billing &&
-                //     billing?.is_billing_active &&
-                //     billing?.current_usage &&
-                //     eventAllocation &&
-                //     percentage >= ALLOCATION_THRESHOLD_ALERT
-                // ) {
-                //     return BillingAlertType.UsageNearLimit
-                // }
-
-                // // Priority 4: Users on free account that are almost reaching free events threshold
-                // if (!billing?.is_billing_active && billing?.current_usage && percentage > ALLOCATION_THRESHOLD_ALERT) {
-                //     return BillingAlertType.FreeUsageNearLimit
-                // }
             },
         ],
     }),
