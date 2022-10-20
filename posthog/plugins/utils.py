@@ -28,6 +28,7 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
 
     parsed: Dict[str, Optional[str]] = {
         "type": "github",
+        "root_url": f"https://github.com/{match.group(1)}/{match.group(2)}",
         "user": match.group(1),
         "repo": match.group(2),
         "ref_type": match.group(4),
@@ -38,7 +39,7 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
 
     if get_latest_if_none and parsed["ref_type"] not in ("commit", "archive"):
         token = private_token or settings.GITHUB_TOKEN
-        headers = {"Authorization": "token {}".format(token)} if token else {}
+        headers = {"Authorization": "Bearer {}".format(token)} if token else {}
 
         try:
             if parsed["ref_type"] is None:
@@ -62,11 +63,7 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
                 branch = requests.get(branch_url, headers=headers).json()
 
                 if not isinstance(branch, dict):
-                    raise Exception(
-                        "Could not fetch branch {} from https://github.com/{}/{}".format(
-                            parsed["tag"], parsed["user"], parsed["repo"]
-                        )
-                    )
+                    raise Exception(f"Could not fetch branch {parsed['tag']} from {parsed['root_url']}")
 
                 if branch["commit"].get("sha", None):
                     parsed["tag"] = branch["commit"]["sha"]

@@ -8,7 +8,6 @@ from posthog.models.plugin import validate_plugin_job_payload
 from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_FRONTEND_TSX,
     HELLO_WORLD_PLUGIN_GITHUB_INDEX_JS,
-    HELLO_WORLD_PLUGIN_GITHUB_SUBDIR_ZIP,
     HELLO_WORLD_PLUGIN_GITHUB_ZIP,
     HELLO_WORLD_PLUGIN_NPM_INDEX_JS,
     HELLO_WORLD_PLUGIN_NPM_TGZ,
@@ -290,25 +289,3 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         self.assertIsNone(index_ts_file)
         assert frontend_tsx_file is not None
         self.assertEqual(frontend_tsx_file.source, HELLO_WORLD_PLUGIN_FRONTEND_TSX)
-
-    @snapshot_postgres_queries
-    def test_sync_from_plugin_archive_with_subdir_works(self):
-        test_plugin: Plugin = Plugin.objects.create(
-            organization=self.organization,
-            name="Another name",
-            archive=base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_SUBDIR_ZIP[1]),
-            url="https://github.com/PostHog/posthog-hello-world-plugin/tree/main/app",
-        )
-
-        (
-            plugin_json_file,
-            index_ts_file,
-            frontend_tsx_file,
-            site_Ts_file,
-        ) = PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
-
-        self.assertEqual(PluginSourceFile.objects.count(), 2)
-        self.assertEqual(plugin_json_file.source, HELLO_WORLD_PLUGIN_PLUGIN_JSON)
-        assert index_ts_file is not None
-        self.assertEqual(index_ts_file.source, HELLO_WORLD_PLUGIN_GITHUB_INDEX_JS)
-        self.assertIsNone(frontend_tsx_file)

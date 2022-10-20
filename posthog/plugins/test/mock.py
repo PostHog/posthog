@@ -48,6 +48,12 @@ def mocked_plugin_requests_get(*args, **kwargs):
             200,
         )
 
+    if args[0] == "https://api.github.com/repos/PostHog/posthog/branches/main":
+        return MockJSONResponse(
+            {"commit": {"sha": "MOCKLATESTCOMMIT"}},
+            200,
+        )
+
     if args[0] == "https://api.github.com/repos/PostHog/helloworldplugin/commits":
         return MockJSONResponse(
             [
