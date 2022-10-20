@@ -8,7 +8,7 @@ import { status } from '../../utils/status'
 import { GraphileWorker } from '../graphile-worker/graphile-worker'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 
-export const startJobsBufferConsumer = async ({
+export const startJobsConsumer = async ({
     kafka,
     producer,
     graphileWorker,

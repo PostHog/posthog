@@ -19,7 +19,7 @@ import { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
-import { startJobsBufferConsumer } from './ingestion-queues/jobs-buffer-consumer'
+import { startJobsConsumer } from './ingestion-queues/jobs-buffer-consumer'
 import { KafkaQueue } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
 import { createHttpServer } from './services/http-server'
@@ -213,7 +213,7 @@ export async function startPluginsServer(
         }
 
         if (hub.capabilities.processPluginJobs) {
-            jobsConsumer = await startJobsBufferConsumer({
+            jobsConsumer = await startJobsConsumer({
                 kafka: hub.kafka,
                 producer: hub.kafkaProducer,
                 graphileWorker: hub.graphileWorker,
