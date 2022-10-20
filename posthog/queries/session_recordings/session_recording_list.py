@@ -60,14 +60,14 @@ class SessionRecordingList(EventQuery):
          SELECT
              uuid,
              distinct_id,
-             event,
+             event as pageview_event,
              team_id,
              timestamp,
-             properties
+             properties as pageview_properties
          FROM events
          WHERE
              team_id = %(team_id)s
-             AND event IN ['$pageview']
+             AND pageview_event IN ['$pageview']
              {events_timestamp_clause}
              LIMIT 1
     """
@@ -119,7 +119,7 @@ class SessionRecordingList(EventQuery):
         any(session_recordings.end_time) as end_time,
         any(session_recordings.duration) as duration,
         any(session_recordings.distinct_id) as distinct_id,
-        any(first_pageview_event.properties) as properties
+        any(first_pageview_event.pageview_properties) as first_pageview_event_properties
         {event_filter_aggregate_select_clause}
     FROM (
         {core_events_query}
@@ -155,7 +155,7 @@ class SessionRecordingList(EventQuery):
         any(session_recordings.end_time) as end_time,
         any(session_recordings.duration) as duration,
         any(session_recordings.distinct_id) as distinct_id,
-        any(first_pageview_event.properties) as properties
+        any(first_pageview_event.pageview_properties) as first_pageview_event_properties
     FROM (
         {core_recordings_query}
     ) AS session_recordings
@@ -294,8 +294,8 @@ class SessionRecordingList(EventQuery):
                 entity, prepend=f"event_matcher_{index}", team_id=self._team_id
             )
             aggregate_select_clause += f"""
-            , countIf(events.{condition_sql}) as count_event_match_{index}
-            , groupUniqArrayIf(100)((events.timestamp, events.uuid, events.session_id, events.window_id), events.{condition_sql}) as matching_events_{index}
+            , countIf({condition_sql}) as count_event_match_{index}
+            , groupUniqArrayIf(100)((events.timestamp, events.uuid, events.session_id, events.window_id), {condition_sql}) as matching_events_{index}
             """
             aggregate_having_clause += f"\nAND count_event_match_{index} > 0"
             params = {**params, **filter_params}
