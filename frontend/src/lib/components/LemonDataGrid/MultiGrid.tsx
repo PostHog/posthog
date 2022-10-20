@@ -300,10 +300,19 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
 
     _renderScrollHelpers(): JSX.Element {
         const { scrollLeft } = this.state
-        const { width } = this.props
+        const { width, fixedColumnCount } = this.props
         return (
             <>
                 {scrollLeft > 0 ? <div style={this._leftScrollHelperStyle} /> : null}
+                {scrollLeft === 0 && fixedColumnCount > 0 ? (
+                    <div
+                        style={{
+                            ...this._leftScrollHelperStyle,
+                            boxShadow: 'none',
+                            borderLeft: '1px solid var(--border)',
+                        }}
+                    />
+                ) : null}
                 {scrollLeft < this._getScrollWidth() - width ? <div style={this._rightScrollHelperStyle} /> : null}
             </>
         )
