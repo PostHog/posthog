@@ -46,8 +46,8 @@ def historical_exports_activity(team_id: int, plugin_config_id: int, job_id: Opt
             record["status"] = "fail"
             record["finished_at"] = entry.created_at
             record["duration"] = (entry.created_at - trigger_entry.created_at).total_seconds()
+            record["failure_reason"] = entry.detail["trigger"]["payload"].get("failure_reason")
         else:
-
             record["status"] = "not_finished"
             progress = _fetch_export_progress(plugin_config_id, export_job_id)
             if progress is not None:

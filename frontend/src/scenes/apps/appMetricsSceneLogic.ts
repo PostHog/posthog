@@ -35,6 +35,7 @@ export interface HistoricalExportInfo {
     finished_at?: string
     duration?: number
     progress?: number
+    failure_reason?: string
 }
 
 export interface AppMetrics {
