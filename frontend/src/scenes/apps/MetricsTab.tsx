@@ -125,7 +125,7 @@ export function ErrorsOverview({
     category: string
     jobId?: string
 }): JSX.Element {
-    const { openErrorDetailsDrawer } = useActions(appMetricsSceneLogic)
+    const { openErrorDetailsModal } = useActions(appMetricsSceneLogic)
 
     return (
         <LemonTable
@@ -142,7 +142,7 @@ export function ErrorsOverview({
                                 className="font-semibold"
                                 onClick={(event) => {
                                     event.preventDefault()
-                                    openErrorDetailsDrawer(errorSummary.error_type, category, jobId)
+                                    openErrorDetailsModal(errorSummary.error_type, category, jobId)
                                 }}
                             >
                                 {errorSummary.error_type}

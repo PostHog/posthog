@@ -9,18 +9,18 @@ import { IconChevronLeft, IconChevronRight, IconUnfoldLess, IconUnfoldMore } fro
 import { LemonModal } from 'lib/components/LemonModal'
 import { CodeSnippet, Language } from '../ingestion/frameworks/CodeSnippet'
 
-export function ErrorDetailsDrawer(): JSX.Element {
-    const { errorDetails, errorDetailsDrawerError, errorDetailsLoading } = useValues(appMetricsSceneLogic)
-    const { closeErrorDetailsDrawer } = useActions(appMetricsSceneLogic)
+export function ErrorDetailsModal(): JSX.Element {
+    const { errorDetails, errorDetailsModalError, errorDetailsLoading } = useValues(appMetricsSceneLogic)
+    const { closeErrorDetailsModal } = useActions(appMetricsSceneLogic)
     const [page, setPage] = useState(0)
 
     const activeErrorDetails: AppMetricErrorDetail = errorDetails[page]
 
     return (
         <LemonModal
-            isOpen={!!errorDetailsDrawerError}
-            onClose={closeErrorDetailsDrawer}
-            title={errorDetailsDrawerError}
+            isOpen={!!errorDetailsModalError}
+            onClose={closeErrorDetailsModal}
+            title={errorDetailsModalError}
             width={'min(50vw, 80rem)'}
             description={<span>{activeErrorDetails?.error_details?.error.message?.substring(0, 200)}</span>}
             footer={
@@ -47,7 +47,7 @@ export function ErrorDetailsDrawer(): JSX.Element {
                 </div>
             }
         >
-            {!errorDetailsDrawerError || errorDetailsLoading ? (
+            {!errorDetailsModalError || errorDetailsLoading ? (
                 <LemonSkeleton className="h-10" />
             ) : (
                 // eslint-disable-next-line react/forbid-dom-props
