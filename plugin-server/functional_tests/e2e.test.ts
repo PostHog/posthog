@@ -59,7 +59,7 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
 const startMultiServer = async () => {
     // All capabilities run as separate servers
     const ingestionServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'ingestion' })
-    const asyncServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'async-handlers' })
+    const asyncServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'exports' })
     const jobsServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'jobs' })
     const schedulerServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'scheduler' })
 

@@ -23,7 +23,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 pluginScheduledTasks: true,
                 ...sharedCapabilities,
             }
-        case 'async-handlers':
+        case 'exports':
             return {
                 processAsyncHandlers: true,
                 ...sharedCapabilities,
