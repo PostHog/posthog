@@ -56,6 +56,7 @@ export type PromptRule = {
     path: {
         must_match: string[]
         exclude?: string[]
+        requires_opt_in?: boolean
     }
 }
 
@@ -98,7 +99,7 @@ export enum DefaultAction {
 const NEW_SEQUENCE_DELAY = 1000
 // make sure to change this prefix in case the schema of cached values is changed
 // otherwise the code will try to run with cached deprecated values
-const CACHE_PREFIX = 'v3'
+const CACHE_PREFIX = 'v4'
 
 const iconMap = {
     home: <Lettermark name="PostHog" />,
@@ -214,7 +215,7 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
     actions({
         findValidSequences: true,
         setValidSequences: (validSequences: ValidSequenceWithState[]) => ({ validSequences }),
-        runFirstValidSequence: (options: { runDismissedOrCompleted?: boolean; restart?: boolean }) => ({ options }),
+        runFirstValidSequence: (options: { runDismissedOrCompleted?: boolean }) => ({ options }),
         runSequence: (sequence: PromptSequence, step: number) => ({ sequence, step }),
         promptShownSuccessfully: true,
         closePrompts: true,
@@ -271,6 +272,13 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
             [] as ValidSequenceWithState[],
             {
                 setValidSequences: (_, { validSequences }) => validSequences,
+            },
+        ],
+        validProductTourSequences: [
+            [] as ValidSequenceWithState[],
+            {
+                setValidSequences: (_, { validSequences }) =>
+                    validSequences?.filter((v) => v.sequence.type === 'product-tour') || [],
             },
         ],
         isPromptVisible: [
@@ -398,11 +406,10 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                             continue
                         }
                     }
-                    const isProductTourDismissed = sequence.type === 'product-tour' && !values.canShowProductTour
                     if (values.userState[sequence.key]) {
                         const sequenceState = values.userState[sequence.key]
                         const completed = !!sequenceState.completed || sequenceState.step === sequence.prompts.length
-                        const canRun = sequenceState.dismissed && !isProductTourDismissed
+                        const canRun = !sequenceState.dismissed && values.canShowProductTour
                         if (
                             sequence.type !== 'product-tour' &&
                             (completed || !canRun || sequenceState.step === sequence.prompts.length)
@@ -418,7 +425,13 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                             },
                         })
                     } else {
-                        valid.push({ sequence, state: { step: 0, canRun: !isProductTourDismissed } })
+                        valid.push({
+                            sequence,
+                            state: {
+                                step: 0,
+                                canRun: sequence.rule.requires_opt_in ? values.canShowProductTour : true,
+                            },
+                        })
                     }
                 }
             }
@@ -436,16 +449,14 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                 if (options.runDismissedOrCompleted) {
                     firstValid = values.validSequences[0]
                 } else {
+                    // to make it less greedy, we don't allow half-run sequences to be started automatically
                     firstValid = values.validSequences.filter(
-                        (sequence) => !sequence.state.completed && sequence.state.canRun
+                        (sequence) => !sequence.state.completed && sequence.state.canRun && sequence.state.step === 0
                     )?.[0]
                 }
                 if (firstValid) {
                     const { sequence, state } = firstValid
-                    setTimeout(
-                        () => actions.runSequence(sequence, options.restart ? 0 : state.step),
-                        NEW_SEQUENCE_DELAY
-                    )
+                    setTimeout(() => actions.runSequence(sequence, state.step), NEW_SEQUENCE_DELAY)
                 }
             }
         },
@@ -481,7 +492,7 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                 case DefaultAction.START_PRODUCT_TOUR:
                     actions.optInProductTour()
                     inAppPromptEventCaptureLogic.actions.reportProductTourStarted()
-                    actions.runFirstValidSequence({ runDismissedOrCompleted: true, restart: true })
+                    actions.runFirstValidSequence({ runDismissedOrCompleted: true })
                     break
                 case DefaultAction.SKIP:
                     actions.optOutProductTour()
