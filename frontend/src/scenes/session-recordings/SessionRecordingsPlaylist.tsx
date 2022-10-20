@@ -138,22 +138,24 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                                         </div>
                                         <div className="flex flex-row flex-nowrap shrink-0 gap-2">
                                             <PropertyIcon
-                                                hideText
                                                 className="text-muted"
                                                 property="$browser"
                                                 value={rec.properties?.['$browser']}
                                             />
                                             <PropertyIcon
-                                                hideText
                                                 className="text-muted"
                                                 property="$device_type"
                                                 value={rec.properties?.['$device_type']}
                                             />
                                             <PropertyIcon
-                                                hideText
                                                 className="text-muted"
                                                 property="$os"
                                                 value={rec.properties?.['$os']}
+                                            />
+                                            <PropertyIcon
+                                                className="text-muted"
+                                                property="$geoip_country_code"
+                                                value={rec.properties?.['$geoip_country_code']}
                                             />
                                         </div>
                                     </div>

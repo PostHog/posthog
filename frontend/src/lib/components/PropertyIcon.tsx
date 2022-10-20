@@ -18,6 +18,8 @@ import {
     IconWindows,
 } from 'lib/components/icons'
 import clsx from 'clsx'
+import { Tooltip } from 'lib/components/Tooltip'
+import { countryCodeToFlag } from 'scenes/insights/views/WorldMap'
 
 const PROPERTIES_ICON_MAP = {
     $browser: {
@@ -48,35 +50,34 @@ const PROPERTIES_ICON_MAP = {
         ['iOS']: <IconAppleIOS />,
         ['Other']: <IconCogBox />,
     },
+    $geoip_country_code: {
+        ['Other']: '🌐',
+    },
 }
 
 interface PropertyIconProps {
     property: string
     value?: string
-    hideIcon?: boolean
-    hideText?: boolean
     className?: string
 }
 
-export function PropertyIcon({
-    property,
-    value,
-    className,
-    hideIcon = false,
-    hideText = false,
-}: PropertyIconProps): JSX.Element {
+export function PropertyIcon({ property, value, className }: PropertyIconProps): JSX.Element {
     if (!property || !(property in PROPERTIES_ICON_MAP)) {
-        return <span>{!hideText && value}</span>
+        return <></>
     }
 
-    const icon =
+    let icon =
         !!value && value in PROPERTIES_ICON_MAP[property]
             ? PROPERTIES_ICON_MAP[property][value]
             : PROPERTIES_ICON_MAP[property]['Other']
+
+    if (property === '$geoip_country_code' && value) {
+        icon = countryCodeToFlag(value)
+    }
+
     return (
-        <span className={clsx('inline-flex items-center gap-1 whitespace-nowrap flex-nowrap', className)}>
-            {!hideIcon && <span className="flex items-center text-base">{icon}</span>}
-            {!hideText && <span>{value}</span>}
-        </span>
+        <Tooltip title={value}>
+            <span className={clsx('inline-flex items-center text-base', className)}>{icon}</span>
+        </Tooltip>
     )
 }
