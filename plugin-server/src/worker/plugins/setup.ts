@@ -1,7 +1,7 @@
 import { Hub, StatelessVmMap } from '../../types'
 import { LazyPluginVM } from '../vm/lazy'
 import { loadPlugin } from './loadPlugin'
-import { loadPluginsFromDB } from './loadPluginsFromDb'
+import { loadPluginsFromDB } from './loadPluginsFromDB'
 import { loadSchedule } from './loadSchedule'
 import { teardownPlugins } from './teardown'
 
