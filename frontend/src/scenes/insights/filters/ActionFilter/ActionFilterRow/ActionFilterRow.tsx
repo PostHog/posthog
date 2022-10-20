@@ -38,6 +38,7 @@ import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lem
 import { useState } from 'react'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 
 const DragHandle = sortableHandle(() => (
     <span className="ActionFilterRowDragHandle">
@@ -418,7 +419,7 @@ function useMathSelectorOptions(
     mathAvailability: MathAvailability,
     onMathSelect: (index: number, value: any) => any
 ): LemonSelectOptions<string> {
-    const { staticMathDefinitions, staticActorsOnlyMathDefinitions } = useValues(mathsLogic)
+    const { needsUpgradeForGroups, staticMathDefinitions, staticActorsOnlyMathDefinitions } = useValues(mathsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(PropertyMathType.Average)
@@ -493,7 +494,12 @@ function useMathSelectorOptions(
             tooltip: 'Statistical analysis of property value.',
         })
     }
-    return options
+    return [
+        {
+            options,
+            footer: needsUpgradeForGroups ? <GroupIntroductionFooter /> : undefined,
+        },
+    ]
 }
 
 function MathSelector({

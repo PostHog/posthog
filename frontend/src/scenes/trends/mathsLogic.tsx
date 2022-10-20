@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import type { mathsLogicType } from './mathsLogicType'
 import { BaseMathType, CountPerActorMathType, PropertyMathType } from '~/types'
-import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 
 export enum MathCategory {
     EventCount = 'event_count',
@@ -285,11 +285,11 @@ export const mathsLogic = kea<mathsLogicType>({
         ],
         // Static means the options do not have nested selectors (like math function)
         staticMathDefinitions: [
-            (s) => [s.groupsMathDefinitions],
-            (groupsMathDefinitions): Record<string, MathDefinition> => {
+            (s) => [s.groupsMathDefinitions, s.needsUpgradeForGroups],
+            (groupsMathDefinitions, needsUpgradeForGroups): Record<string, MathDefinition> => {
                 const staticMathDefinitions: Record<string, MathDefinition> = {
                     ...BASE_MATH_DEFINITIONS,
-                    ...groupsMathDefinitions,
+                    ...(!needsUpgradeForGroups ? groupsMathDefinitions : []),
                 }
                 return staticMathDefinitions
             },
@@ -331,6 +331,11 @@ export const mathsLogic = kea<mathsLogicType>({
                         } as MathDefinition,
                     ])
                 ),
+        ],
+        needsUpgradeForGroups: [
+            (s) => [s.groupsAccessStatus],
+            (groupsAccessStatus) =>
+                [GroupsAccessStatus.NoAccess, GroupsAccessStatus.HasGroupTypes].includes(groupsAccessStatus),
         ],
     },
 })

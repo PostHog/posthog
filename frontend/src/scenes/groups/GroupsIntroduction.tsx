@@ -45,14 +45,14 @@ export function GroupsIntroduction({ access }: Props): JSX.Element {
 export function GroupIntroductionFooter(): JSX.Element {
     return (
         <div className="text-sm bg-side rounded p-2" style={{ maxWidth: '15rem' }}>
-            Enter your payment information to use group analytics.{' '}
+            Track usage of groups of users with Group Analytics.{' '}
             <Link
                 className="font-medium"
                 to="/organization/billing"
                 target="_blank"
                 data-attr="group-analytics-upgrade"
             >
-                Upgrade
+                Upgrade now
             </Link>{' '}
             or{' '}
             <Link
@@ -61,8 +61,9 @@ export function GroupIntroductionFooter(): JSX.Element {
                 target="_blank"
                 data-attr="group-analytics-learn-more"
             >
-                Learn more
+                learn more
             </Link>
+            .
         </div>
     )
 }
