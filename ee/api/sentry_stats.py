@@ -84,10 +84,14 @@ def get_stats_for_timerange(
 @api_view(["GET"])
 def sentry_stats(request: HttpRequest):
 
-    current_time = datetime.utcnow()
-    target_end_date = current_time.strftime("%Y-%m-%dT%H:%M:%S")
-    target_start_date = (current_time - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
+    try:
+        current_time = datetime.utcnow()
+        target_end_date = current_time.strftime("%Y-%m-%dT%H:%M:%S")
+        target_start_date = (current_time - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
 
-    data, total_count = get_sentry_stats(target_start_date, target_end_date)
+        data, total_count = get_sentry_stats(target_start_date, target_end_date)
+
+    except Exception as e:
+        return JsonResponse({"error": "Error fetching stats from sentry", "exception": str(e)})
 
     return JsonResponse({"total_count": total_count, "data": data})
