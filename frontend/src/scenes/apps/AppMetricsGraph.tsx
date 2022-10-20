@@ -45,7 +45,7 @@ export function AppMetricsGraph({ tab, metrics, metricsLoading }: AppMetricsGrap
                         {
                             label: descriptions.failures,
                             data: metrics.failures,
-                            ...colorConfig('data-pink'),
+                            ...colorConfig('data-vermilion'),
                         },
                     ],
                 },
