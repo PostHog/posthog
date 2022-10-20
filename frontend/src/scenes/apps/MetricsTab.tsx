@@ -2,13 +2,13 @@ import { Card } from 'antd'
 import { AppErrorSummary, AppMetrics, appMetricsSceneLogic, AppMetricsTab } from './appMetricsSceneLogic'
 import { DescriptionColumns } from './constants'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { AppMetricsGraph } from './AppMetricsGraph'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { useActions, useValues } from 'kea'
-import { LemonTable } from '../../lib/components/LemonTable'
+import { LemonTable } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
-import { Link } from '../../lib/components/Link'
+import { Link } from 'lib/components/Link'
 
 export interface MetricsTabProps {
     tab: AppMetricsTab
@@ -18,6 +18,9 @@ export interface MetricsOverviewProps {
     tab: AppMetricsTab
     metrics?: AppMetrics | null
     metricsLoading: boolean
+
+    exportDuration?: number
+    exportFailureReason?: string
 }
 
 export function MetricsTab({ tab }: MetricsTabProps): JSX.Element {
@@ -68,7 +71,13 @@ export function MetricsTab({ tab }: MetricsTabProps): JSX.Element {
     )
 }
 
-export function MetricsOverview({ tab, metrics, metricsLoading }: MetricsOverviewProps): JSX.Element {
+export function MetricsOverview({
+    tab,
+    metrics,
+    metricsLoading,
+    exportDuration,
+    exportFailureReason,
+}: MetricsOverviewProps): JSX.Element {
     if (metricsLoading) {
         return <LemonSkeleton className="h-20" />
     }
@@ -89,6 +98,18 @@ export function MetricsOverview({ tab, metrics, metricsLoading }: MetricsOvervie
                 <div className="card-secondary">{DescriptionColumns[tab].failures}</div>
                 <div>{renderNumber(metrics?.totals?.failures)}</div>
             </div>
+            {exportDuration && (
+                <div>
+                    <div className="card-secondary">Export duration</div>
+                    <div>{humanFriendlyDuration(exportDuration)}</div>
+                </div>
+            )}
+            {exportFailureReason && (
+                <div>
+                    <div className="card-secondary">Export failure reason</div>
+                    <div>{renderNumber(metrics?.totals?.successes)}</div>
+                </div>
+            )}
         </>
     )
 }

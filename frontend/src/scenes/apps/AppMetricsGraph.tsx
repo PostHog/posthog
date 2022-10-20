@@ -2,13 +2,19 @@ import { useEffect, useRef } from 'react'
 import { getColorVar } from 'lib/colors'
 import { Chart, ChartDataset, ChartItem } from 'chart.js'
 import { DescriptionColumns } from './constants'
-import { MetricsOverviewProps } from './MetricsTab'
-import { LemonSkeleton } from '../../lib/components/LemonSkeleton'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 import './AppMetricsGraph.scss'
-import { lightenDarkenColor } from '../../lib/utils'
+import { lightenDarkenColor } from 'lib/utils'
+import { AppMetrics, AppMetricsTab } from './appMetricsSceneLogic'
 
-export function AppMetricsGraph({ tab, metrics, metricsLoading }: MetricsOverviewProps): JSX.Element {
+export interface AppMetricsGraphProps {
+    tab: AppMetricsTab
+    metrics?: AppMetrics | null
+    metricsLoading: boolean
+}
+
+export function AppMetricsGraph({ tab, metrics, metricsLoading }: AppMetricsGraphProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
     const descriptions = DescriptionColumns[tab]
