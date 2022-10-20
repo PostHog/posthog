@@ -134,22 +134,32 @@ class BillingViewset(viewsets.GenericViewSet):
             if org.billing.stripe_subscription_id:  # type: ignore
                 raise NotFound("Billing V1 is active for this organization")
 
+        billing_service_response: Dict[str, Any] = {}
         response: Dict[str, Any] = {}
 
+        # Load Billing info if we have a V2 license
         if org and license and license.is_v2_license:
             response["license"] = {"plan": license.plan}
-            data = self._get_billing(license, org)
-
-            if data.get("customer"):
-                response.update(data["customer"])
+            billing_service_response = self._get_billing(license, org)
 
         # If there isn't a valid v2 subscription then we only return sucessfully if BILLING_V2_ENABLED
-        if not response.get("has_active_subscription") and not settings.BILLING_V2_ENABLED:
+        if (
+            not billing_service_response.get("customer", {}).get("has_active_subscription")
+            and not settings.BILLING_V2_ENABLED
+        ):
             distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
             if not (distinct_id and posthoganalytics.get_feature_flag("billing-v2-enabled", distinct_id)):
                 raise NotFound("Billing V2 is not enabled for this organization")
 
-        # The default response is used if there is no subscription
+        # Sync the License and Org if we have a valid response
+        if license and billing_service_response.get("license"):
+            self._update_license_details(license, billing_service_response["license"])
+
+        if org and billing_service_response.get("customer"):
+            self._update_org_details(org, billing_service_response["customer"])
+            response.update(billing_service_response["customer"])
+
+        # If we don't have products then get the default ones with our local usage calculation
         if not response.get("products"):
             products = self._get_products()
             calculated_usage = get_cached_current_usage(org) if org else None
@@ -160,6 +170,7 @@ class BillingViewset(viewsets.GenericViewSet):
                         product["current_usage"] = calculated_usage[product["type"]]
             response["products"] = products
 
+        # Either way calculate the percentage_used for each product
         for product in response["products"]:
             usage_limit = product.get("usage_limit", product.get("free_allocation"))
             product["percentage_usage"] = product["current_usage"] / usage_limit if usage_limit else 0
@@ -267,12 +278,6 @@ class BillingViewset(viewsets.GenericViewSet):
         handle_billing_service_error(res)
 
         data = res.json()
-
-        if data.get("license"):
-            self._update_license_details(license, data["license"])
-
-        if data.get("customer"):
-            self._update_org_details(organization, data["customer"])
 
         return data
 
