@@ -1,3 +1,5 @@
+import { KAFKA_JOBS } from 'config/kafka-topics'
+
 import { Hub, PluginConfig, PluginLogEntryType } from '../../../types'
 
 type JobRunner = {
@@ -48,7 +50,7 @@ export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
                 pluginConfigTeam: pluginConfig.team_id,
             }
             await server.kafkaProducer.queueMessage({
-                topic: 'jobs',
+                topic: KAFKA_JOBS,
                 messages: [
                     {
                         key: pluginConfig.team_id.toString(),
