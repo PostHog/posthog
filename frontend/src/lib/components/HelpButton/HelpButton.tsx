@@ -80,7 +80,7 @@ export function HelpButton({
     const { reportHelpButtonUsed } = useActions(eventUsageLogic)
     const { isHelpVisible } = useValues(helpButtonLogic({ key: customKey }))
     const { toggleHelp, hideHelp } = useActions(helpButtonLogic({ key: customKey }))
-    const { validSequences } = useValues(inAppPromptLogic)
+    const { validProductTourSequences } = useValues(inAppPromptLogic)
     const { runFirstValidSequence, promptAction } = useActions(inAppPromptLogic)
     const { isPromptVisible } = useValues(inAppPromptLogic)
     const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
@@ -158,7 +158,7 @@ export function HelpButton({
                                 How to be successful with PostHog
                             </LemonButton>
                         )}
-                        {validSequences.length > 0 && (
+                        {validProductTourSequences.length > 0 && (
                             <LemonButton
                                 icon={<IconMessages />}
                                 status="stealth"
@@ -167,7 +167,7 @@ export function HelpButton({
                                     if (isPromptVisible) {
                                         promptAction(DefaultAction.SKIP)
                                     } else {
-                                        runFirstValidSequence({ runDismissedOrCompleted: true, restart: true })
+                                        runFirstValidSequence({ runDismissedOrCompleted: true })
                                     }
                                     hideHelp()
                                 }}
