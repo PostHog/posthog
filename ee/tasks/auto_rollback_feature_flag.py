@@ -1,7 +1,9 @@
+from datetime import datetime, timedelta
 from typing import Dict
 
 from celery import shared_task
 
+from ee.api.sentry_stats import get_stats_for_timerange
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.queries.trends.trends import Trends
@@ -26,8 +28,21 @@ def check_feature_flag_rollback_conditions(feature_flag_id: int) -> None:
 
 def check_condition(rollback_condition: Dict, feature_flag: FeatureFlag) -> bool:
     if rollback_condition["threshold_type"] == "sentry":
-        # TODO: fill in with sentry logic
-        return False
+        created_date = feature_flag.created_at
+        base_start_date = created_date.strftime("%Y-%m-%dT%H:%M:%S")
+        base_end_date = (created_date + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
+
+        current_time = datetime.utcnow()
+        target_end_date = current_time.strftime("%Y-%m-%dT%H:%M:%S")
+        target_start_date = (current_time - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
+
+        base, target = get_stats_for_timerange(base_start_date, base_end_date, target_start_date, target_end_date)
+
+        if rollback_condition["operator"] == "lt":
+            return target < float(rollback_condition["threshold"]) * base
+        else:
+            return target > float(rollback_condition["threshold"]) * base
+
     elif rollback_condition["threshold_type"] == "insight":
         filter = Filter(
             data={

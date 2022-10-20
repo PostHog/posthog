@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from freezegun import freeze_time
 
 from ee.tasks.auto_rollback_feature_flag import check_condition, check_feature_flag_rollback_conditions
@@ -118,3 +120,37 @@ class AutoRollbackTest(APIBaseTest):
             flag = FeatureFlag.objects.get(pk=flag.pk)
             self.assertEqual(flag.performed_rollback, True)
             self.assertEqual(flag.active, False)
+
+    @patch("ee.tasks.auto_rollback_feature_flag.get_stats_for_timerange")
+    def test_check_condition_sentry(self, stats_for_timerange):
+        rollback_condition = {
+            "threshold": 1.25,
+            "threshold_metric": {},
+            "operator": "gt",
+            "threshold_type": "sentry",
+        }
+
+        with freeze_time("2021-08-21T20:00:00.000Z"):
+            flag = FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key="test-ff",
+                rollout_percentage=50,
+                auto_rollback=True,
+                rollback_conditions=[rollback_condition],
+            )
+
+        stats_for_timerange.return_value = (100, 130)
+        with freeze_time("2021-08-23T20:00:00.000Z"):
+            self.assertEqual(check_condition(rollback_condition, flag), True)
+            stats_for_timerange.assert_called_once_with(
+                "2021-08-21T20:00:00", "2021-08-22T20:00:00", "2021-08-22T20:00:00", "2021-08-23T20:00:00"
+            )
+
+        stats_for_timerange.reset_mock()
+        stats_for_timerange.return_value = (100, 120)
+        with freeze_time("2021-08-25T13:00:00.000Z"):
+            self.assertEqual(check_condition(rollback_condition, flag), False)
+            stats_for_timerange.assert_called_once_with(
+                "2021-08-21T20:00:00", "2021-08-22T20:00:00", "2021-08-24T13:00:00", "2021-08-25T13:00:00"
+            )
