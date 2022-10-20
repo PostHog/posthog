@@ -84,7 +84,7 @@ export function AppMetricsGraph({ tab, metrics, metricsLoading }: MetricsOvervie
     }
 
     return (
-        <div className="AppMetricsGraph">
+        <div className="AppMetricsGraph border rounded p-6">
             <canvas ref={canvasRef} />
         </div>
     )

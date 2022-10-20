@@ -26,7 +26,7 @@ export function AppMetrics(): JSX.Element {
             />
 
             {pluginConfigLoading || !activeTab ? (
-                <LemonSkeleton />
+                <LemonSkeleton className="my-4 h-8 w-1/4" />
             ) : (
                 <Tabs
                     tabPosition="top"

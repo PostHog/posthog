@@ -7,7 +7,7 @@ import { Breadcrumb, PluginConfigWithPluginInfo, UserBasicType } from '~/types'
 import api from 'lib/api'
 import { teamLogic } from '../teamLogic'
 import { actionToUrl, urlToAction } from 'kea-router'
-import { toParams } from 'lib/utils'
+import { delay, toParams } from 'lib/utils'
 
 export interface AppMetricsLogicProps {
     /** Used as the logic's key */
@@ -136,6 +136,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             {
                 loadMetrics: async () => {
                     const params = toParams({ category: values.activeTab, date_from: values.dateFrom })
+
                     return await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}?${params}`
                     )
