@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
-import React from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Realm } from '~/types'
 
