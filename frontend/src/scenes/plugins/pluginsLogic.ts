@@ -678,6 +678,15 @@ export const pluginsLogic = kea<pluginsLogicType>([
             (hasAvailableFeature, featureFlags) =>
                 hasAvailableFeature(AvailableFeature.APP_METRICS) && featureFlags[FEATURE_FLAGS.APP_METRICS],
         ],
+        showAppMetricsForPlugin: [
+            (s) => [s.shouldShowAppMetrics],
+            (featureShown) => (plugin: Partial<PluginTypeWithConfig> | undefined) => {
+                if (!featureShown) {
+                    return false
+                }
+                return plugin?.capabilities?.methods?.length || plugin?.capabilities?.scheduled_tasks?.length
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
