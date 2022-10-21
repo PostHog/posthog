@@ -28,7 +28,7 @@
                 height: 0;
                 border-style: solid;
                 border-width: 0 0.75rem 0.75rem 0;
-                border-color: transparent map-get($colors, 'primary-light') transparent transparent;
+                border-color: transparent var(--primary-light) transparent transparent;
                 right: 0;
                 top: 0;
                 position: absolute;
