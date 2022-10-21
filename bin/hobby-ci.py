@@ -90,9 +90,8 @@ class HobbyTester:
         print("Attempting to reach the instance")
         print(f"We will time out after {timeout} minutes")
         url = f"https://{hostname}/_health"
-        timeout_seconds = timeout * 60
         start_time = datetime.datetime.now()
-        while datetime.datetime.now() < start_time + datetime.timedelta(seconds=timeout_seconds):
+        while datetime.datetime.now() < start_time + datetime.timedelta(minutes=timeout):
             try:
                 # verify is set False here because we are hitting the staging endoint for Let's Encrypt
                 # This endpoint doesn't have the strict rate limiting that the production endpoint has
@@ -100,6 +99,8 @@ class HobbyTester:
                 r = requests.get(url, verify=False)
             except Exception as e:
                 print(f"Host is probably not up. Received exception\n{e}")
+                time.sleep(retry_interval)
+                continue
             if r.status_code == 200:
                 print("Success - received heartbeat from the instance")
                 return True
