@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import type { mathsLogicType } from './mathsLogicType'
 import { BaseMathType, CountPerActorMathType, PropertyMathType } from '~/types'
-import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 
 export enum MathCategory {
     EventCount,
@@ -268,7 +268,12 @@ export function apiValueToMathType(math: string | undefined, groupTypeIndex: num
 export const mathsLogic = kea<mathsLogicType>({
     path: ['scenes', 'trends', 'mathsLogic'],
     connect: {
-        values: [groupsModel, ['groupTypes', 'aggregationLabel'], groupsAccessLogic, ['groupsAccessStatus']],
+        values: [
+            groupsModel,
+            ['groupTypes', 'aggregationLabel'],
+            groupsAccessLogic,
+            ['needsUpgradeForGroups', 'canStartUsingGroups'],
+        ],
     },
     selectors: {
         mathDefinitions: [
@@ -331,15 +336,6 @@ export const mathsLogic = kea<mathsLogicType>({
                         } as MathDefinition,
                     ])
                 ),
-        ],
-        needsUpgradeForGroups: [
-            (s) => [s.groupsAccessStatus],
-            (groupsAccessStatus) =>
-                [GroupsAccessStatus.NoAccess, GroupsAccessStatus.HasGroupTypes].includes(groupsAccessStatus),
-        ],
-        canStartUsingGroups: [
-            (s) => [s.groupsAccessStatus],
-            (groupsAccessStatus) => groupsAccessStatus === GroupsAccessStatus.HasAccess,
         ],
     },
 })
