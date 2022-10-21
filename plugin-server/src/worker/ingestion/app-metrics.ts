@@ -14,7 +14,7 @@ export interface AppMetricIdentifier {
     pluginConfigId: number
     jobId?: string
     // Keep in sync with posthog/queries/app_metrics/serializers.py
-    category: 'processEvent' | 'onEvent' | 'exportEvents'
+    category: 'processEvent' | 'onEvent' | 'exportEvents' | 'scheduledTask'
 }
 
 export interface AppMetric extends AppMetricIdentifier {

@@ -5,8 +5,10 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { useValues, useActions } from 'kea'
 import { MetricsTab } from './MetricsTab'
 import { HistoricalExportsTab } from './HistoricalExportsTab'
-import { LemonSkeleton } from '../../lib/components/LemonSkeleton'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { ErrorDetailsModal } from './ErrorDetailsModal'
+import { Tooltip } from 'lib/components/Tooltip'
+import { IconInfo } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: AppMetrics,
@@ -49,8 +51,27 @@ export function AppMetrics(): JSX.Element {
                             <MetricsTab tab={AppMetricsTab.ExportEvents} />
                         </Tabs.TabPane>
                     )}
+                    {showTab(AppMetricsTab.ScheduledTask) && (
+                        <Tabs.TabPane
+                            tab={
+                                <>
+                                    Scheduled tasks{' '}
+                                    <Tooltip
+                                        title={
+                                            'Shows metrics for app methods `runEveryMinute`, `runEveryHour` and `runEveryDay`'
+                                        }
+                                    >
+                                        <IconInfo />
+                                    </Tooltip>
+                                </>
+                            }
+                            key={AppMetricsTab.ScheduledTask}
+                        >
+                            <MetricsTab tab={AppMetricsTab.ScheduledTask} />
+                        </Tabs.TabPane>
+                    )}
                     {showTab(AppMetricsTab.HistoricalExports) && (
-                        <Tabs.TabPane tab="Historical Exports" key={AppMetricsTab.HistoricalExports}>
+                        <Tabs.TabPane tab="Historical exports" key={AppMetricsTab.HistoricalExports}>
                             <HistoricalExportsTab />
                         </Tabs.TabPane>
                     )}
