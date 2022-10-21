@@ -59,18 +59,14 @@ class SessionRecordingList(EventQuery):
     # having to return all events.
     _core_single_pageview_event_query = """
          SELECT
-             uuid,
-             distinct_id,
-             event as pageview_event,
-             team_id,
-             timestamp,
-             properties as pageview_properties
+            $session_id as pageview_session_id,
+            any(properties) as pageview_properties
          FROM events
-         WHERE
+         PREWHERE
              team_id = %(team_id)s
-             AND pageview_event IN ['$pageview']
+             AND event IN ['$pageview']
              {events_timestamp_clause}
-             LIMIT 1
+             GROUP BY pageview_session_id
     """
 
     _event_and_recording_match_conditions_clause = """
@@ -132,7 +128,7 @@ class SessionRecordingList(EventQuery):
     JOIN (
         {core_single_pageview_event_query}
     ) AS first_pageview_event
-    ON session_recordings.distinct_id = first_pageview_event.distinct_id
+    ON session_recordings.session_id = first_pageview_event.pageview_session_id
     JOIN (
         {person_distinct_id_query}
     ) as pdi
@@ -163,7 +159,7 @@ class SessionRecordingList(EventQuery):
     JOIN (
         {core_single_pageview_event_query}
     ) AS first_pageview_event
-    ON session_recordings.distinct_id = first_pageview_event.distinct_id
+    ON session_recordings.session_id = first_pageview_event.pageview_session_id
     JOIN (
         {person_distinct_id_query}
     ) as pdi
