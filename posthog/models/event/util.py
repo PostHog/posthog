@@ -266,7 +266,7 @@ class ElementSerializer(serializers.ModelSerializer):
 def parse_properties(properties: str, allow_list: Set[str] = set()) -> Dict:
     # parse_constants gets called for any NaN, Infinity etc values
     # we just want those to be returned as None
-    props = json.loads(properties, parse_constant=lambda x: None)
+    props = json.loads(properties or "{}", parse_constant=lambda x: None)
     return {
         key: value.strip('"') if isinstance(value, str) else value
         for key, value in props.items()
