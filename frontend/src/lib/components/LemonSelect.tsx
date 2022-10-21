@@ -33,7 +33,10 @@ export interface LemonSelectProps<T>
     > {
     options: LemonSelectOptions<T>
     value?: T
+    /** Callback fired when a value different from the one currently set is selected. */
     onChange?: (newValue: T | null) => void
+    /** Callback fired when a value is selected, even if it already is set. */
+    onSelect?: (newValue: T) => void
     optionTooltipPlacement?: TooltipProps['placement']
     dropdownMatchSelectWidth?: boolean
     dropdownMaxContentWidth?: boolean
@@ -87,6 +90,7 @@ export const boxToSections = <T,>(
 export function LemonSelect<T>({
     value,
     onChange,
+    onSelect,
     options,
     placeholder = 'Select a value',
     optionTooltipPlacement,
@@ -134,9 +138,10 @@ export function LemonSelect<T>({
                                     tooltipPlacement={optionTooltipPlacement}
                                     onClick={() => {
                                         if (option.value !== localValue) {
-                                            onChange?.(option.value ?? null)
+                                            onChange?.(option.value)
                                             setLocalValue(option.value)
                                         }
+                                        onSelect?.(option.value)
                                     }}
                                     status="stealth"
                                     active={option.value === localValue}

@@ -445,7 +445,7 @@ function useMathSelectorOptions(
                         <span>Count per user</span>
                         <LemonSelect
                             value={countPerActorMathTypeShown}
-                            onChange={(value) => {
+                            onSelect={(value) => {
                                 setCountPerActorMathTypeShown(value as CountPerActorMathType)
                                 onMathSelect(index, value)
                             }}
@@ -474,7 +474,7 @@ function useMathSelectorOptions(
                     <span>Property value</span>
                     <LemonSelect
                         value={propertyMathTypeShown}
-                        onChange={(value) => {
+                        onSelect={(value) => {
                             setPropertyMathTypeShown(value as PropertyMathType)
                             onMathSelect(index, value)
                         }}
