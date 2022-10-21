@@ -874,7 +874,8 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
     const { distributeVariantsEqually, addVariant, removeVariant, setMultivariateEnabled } =
         useActions(featureFlagLogic)
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
-    const { hasAvailableFeature, upgradeLink } = useValues(userLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const { upgradeLink } = useValues(billingLogic)
 
     return (
         <>
