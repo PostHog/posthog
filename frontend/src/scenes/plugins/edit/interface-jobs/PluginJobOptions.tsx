@@ -15,6 +15,7 @@ interface PluginJobOptionsProps {
     pluginConfigId: number
     capabilities: Record<'jobs' | 'methods' | 'scheduled_tasks', string[]>
     publicJobs: Record<string, JobSpec>
+    onSubmit: () => void
 }
 
 export function PluginJobOptions({
@@ -22,6 +23,7 @@ export function PluginJobOptions({
     pluginConfigId,
     capabilities,
     publicJobs,
+    onSubmit,
 }: PluginJobOptionsProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -60,6 +62,7 @@ export function PluginJobOptions({
                         jobSpec={publicJobs[jobName]}
                         pluginConfigId={pluginConfigId}
                         pluginId={pluginId}
+                        onSubmit={onSubmit}
                     />
                 </div>
             ))}
