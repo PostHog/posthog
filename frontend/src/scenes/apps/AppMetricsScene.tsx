@@ -71,7 +71,7 @@ export function AppMetrics(): JSX.Element {
                         </Tabs.TabPane>
                     )}
                     {showTab(AppMetricsTab.HistoricalExports) && (
-                        <Tabs.TabPane tab="Historical Exports" key={AppMetricsTab.HistoricalExports}>
+                        <Tabs.TabPane tab="Historical exports" key={AppMetricsTab.HistoricalExports}>
                             <HistoricalExportsTab />
                         </Tabs.TabPane>
                     )}
