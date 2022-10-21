@@ -4,6 +4,7 @@ from unittest.mock import ANY, Mock, patch
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
+import structlog
 
 from ee.api.billing import build_billing_token
 from ee.api.test.base import LicensedTestMixin
@@ -29,6 +30,9 @@ from posthog.test.base import (
 )
 from posthog.utils import get_machine_id
 from posthog.version import VERSION
+
+
+logger = structlog.get_logger(__name__)
 
 
 class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
@@ -99,7 +103,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
             }
 
             for key, value in minimum_expectations.items():
-                print(f"Checking {key}")  # noqa T201
+                logger.info(f"Checking {key}")
                 if value is None:
                     assert key in report
                 else:

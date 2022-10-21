@@ -140,8 +140,8 @@ class OrgReportFull(OrgReport, OrgMetadata, OrgUsageSummary):
     pass
 
 
-def get_org_usage_report(organization_id: str, team_ids: List[str], dry_run: bool) -> OrgUsageSummary:
-    period_start, period_end = get_previous_day()
+def get_org_usage_report(period: Tuple[datetime, datetime], team_ids: List[str]) -> OrgUsageSummary:
+    period_start, period_end = period
 
     org_usage_summary = OrgUsageSummary(
         event_count_lifetime=0,
@@ -162,64 +162,62 @@ def get_org_usage_report(organization_id: str, team_ids: List[str], dry_run: boo
     )
 
     for team_id in team_ids:
-        try:
-            # pull person stats and the rest here from Postgres always
-            persons_considered_total = Person.objects.filter(team_id=team_id)
-            persons_considered_total_new_in_period = persons_considered_total.filter(
-                created_at__gte=period_start, created_at__lte=period_end
-            )
+        # pull person stats and the rest here from Postgres always
+        persons_considered_total = Person.objects.filter(team_id=team_id)
+        persons_considered_total_new_in_period = persons_considered_total.filter(
+            created_at__gte=period_start, created_at__lte=period_end
+        )
 
-            # Dashboards
-            team_dashboards = Dashboard.objects.filter(team_id=team_id).exclude(deleted=True)
+        # Dashboards
+        team_dashboards = Dashboard.objects.filter(team_id=team_id).exclude(deleted=True)
 
-            # Feature Flags
-            feature_flags = FeatureFlag.objects.filter(team_id=team_id).exclude(deleted=True)
+        # Feature Flags
+        feature_flags = FeatureFlag.objects.filter(team_id=team_id).exclude(deleted=True)
 
-            team_report = TeamUsageReport(
-                event_count_lifetime=get_event_count_for_team(team_id),
-                event_count_in_period=get_event_count_for_team_and_period(team_id, period_start, period_end),
-                event_count_with_groups_in_period=get_event_count_with_groups_count_for_team_and_period(
-                    team_id, period_start, period_end
-                ),
-                event_count_by_lib=get_events_count_for_team_by_client_lib(team_id, period_start, period_end),
-                event_count_by_name=get_events_count_for_team_by_event_type(team_id, period_start, period_end),
-                recording_count_in_period=get_recording_count_for_team_and_period(team_id, period_start, period_end),
-                recording_count_lifetime=get_recording_count_for_team(team_id),
-                duplicate_distinct_ids=count_duplicate_distinct_ids_for_team(team_id),
-                multiple_ids_per_person=count_total_persons_with_multiple_ids(team_id),
-                group_types_total=GroupTypeMapping.objects.filter(team_id=team_id).count(),
-                person_count_total=persons_considered_total.count(),
-                person_count_in_period=persons_considered_total_new_in_period.count(),
-                dashboard_count=team_dashboards.count(),
-                dashboard_template_count=team_dashboards.filter(creation_mode="template").count(),
-                dashboard_shared_count=team_dashboards.filter(sharingconfiguration__enabled=True).count(),
-                dashboard_tagged_count=team_dashboards.exclude(tagged_items__isnull=True).count(),
-                ff_count=feature_flags.count(),
-                ff_active_count=feature_flags.filter(active=True).count(),
-            )
+        team_report = TeamUsageReport(
+            event_count_lifetime=get_event_count_for_team(team_id),
+            event_count_in_period=get_event_count_for_team_and_period(team_id, period_start, period_end),
+            event_count_with_groups_in_period=get_event_count_with_groups_count_for_team_and_period(
+                team_id, period_start, period_end
+            ),
+            event_count_by_lib=get_events_count_for_team_by_client_lib(team_id, period_start, period_end),
+            event_count_by_name=get_events_count_for_team_by_event_type(team_id, period_start, period_end),
+            recording_count_in_period=get_recording_count_for_team_and_period(team_id, period_start, period_end),
+            recording_count_lifetime=get_recording_count_for_team(team_id),
+            duplicate_distinct_ids=count_duplicate_distinct_ids_for_team(team_id),
+            multiple_ids_per_person=count_total_persons_with_multiple_ids(team_id),
+            group_types_total=GroupTypeMapping.objects.filter(team_id=team_id).count(),
+            person_count_total=persons_considered_total.count(),
+            person_count_in_period=persons_considered_total_new_in_period.count(),
+            dashboard_count=team_dashboards.count(),
+            dashboard_template_count=team_dashboards.filter(creation_mode="template").count(),
+            dashboard_shared_count=team_dashboards.filter(sharingconfiguration__enabled=True).count(),
+            dashboard_tagged_count=team_dashboards.exclude(tagged_items__isnull=True).count(),
+            ff_count=feature_flags.count(),
+            ff_active_count=feature_flags.filter(active=True).count(),
+        )
 
-            org_usage_summary.event_count_lifetime += team_report.event_count_lifetime
-            org_usage_summary.event_count_in_period += team_report.event_count_in_period
-            org_usage_summary.event_count_with_groups_in_period += team_report.event_count_with_groups_in_period
-            org_usage_summary.recording_count_in_period += team_report.recording_count_in_period
-            org_usage_summary.group_types_total += team_report.group_types_total
-            if team_report.group_types_total > 0:
-                org_usage_summary.using_groups = True
+        org_usage_summary.event_count_lifetime += team_report.event_count_lifetime
+        org_usage_summary.event_count_in_period += team_report.event_count_in_period
+        org_usage_summary.event_count_with_groups_in_period += team_report.event_count_with_groups_in_period
+        org_usage_summary.recording_count_in_period += team_report.recording_count_in_period
+        org_usage_summary.group_types_total += team_report.group_types_total
+        if team_report.group_types_total > 0:
+            org_usage_summary.using_groups = True
 
-            org_usage_summary.person_count_total += team_report.person_count_total
-            org_usage_summary.person_count_in_period += team_report.person_count_in_period
-            org_usage_summary.dashboard_count += team_report.dashboard_count
-            org_usage_summary.ff_count += team_report.ff_count
+        org_usage_summary.person_count_total += team_report.person_count_total
+        org_usage_summary.person_count_in_period += team_report.person_count_in_period
+        org_usage_summary.dashboard_count += team_report.dashboard_count
+        org_usage_summary.ff_count += team_report.ff_count
 
-            org_usage_summary.teams[team_id] = team_report
-        except Exception as err:
-            capture_event("get org usage report failure", organization_id, {"error": str(err)}, dry_run=dry_run)
+        org_usage_summary.teams[team_id] = team_report
 
     return org_usage_summary
 
 
-def get_instance_metadata(has_license: bool) -> OrgMetadata:
-    period_start, period_end = get_previous_day()
+def get_instance_metadata(period: Tuple[datetime, datetime], has_license: bool) -> OrgMetadata:
+    period_start, period_end = period
+
     realm = get_instance_realm()
     metadata = OrgMetadata(
         posthog_version=VERSION,
@@ -271,9 +269,11 @@ def send_all_org_usage_reports(dry_run: bool = False, at: Optional[datetime] = N
     Generic way to generate and send org usage reports.
     Specify Postgres or ClickHouse for event queries.
     """
-    period_start, _ = get_previous_day(at=at)
+    period = get_previous_day(at=at)
+    period_start, _ = period
+
     license = License.objects.first_valid()
-    metadata = get_instance_metadata(bool(license))
+    metadata = get_instance_metadata(period, bool(license))
 
     org_data: Dict[str, Dict[str, Any]] = {}
     org_reports: List[Dict] = []
@@ -301,7 +301,7 @@ def send_all_org_usage_reports(dry_run: bool = False, at: Optional[datetime] = N
             if not org_owner:
                 continue
             distinct_id = org_owner.distinct_id
-            usage = get_org_usage_report(organization_id, org["teams"], dry_run)
+            usage = get_org_usage_report(period, org["teams"])
 
             report = OrgReport(
                 admin_distinct_id=distinct_id,

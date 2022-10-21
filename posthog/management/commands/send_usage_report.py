@@ -1,10 +1,12 @@
-import dataclasses
-import json
+import pprint
 
 import dateutil
 from django.core.management.base import BaseCommand
+import structlog
 
 from ee.tasks.usage_report import send_all_org_usage_reports
+
+logger = structlog.get_logger(__name__)
 
 
 class Command(BaseCommand):
@@ -12,7 +14,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--dry-run", type=bool, help="Print information instead of sending it")
-        parser.add_argument("--date", type=bool, help="The date to be ran in format YYYY-MM-DD")
+        parser.add_argument("--date", type=str, help="The date to be ran in format YYYY-MM-DD")
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
@@ -25,12 +27,8 @@ class Command(BaseCommand):
 
         reports = send_all_org_usage_reports(dry_run, date_parsed)
 
-        print([dataclasses.asdict(x) for x in reports])
-
-        json_reports = json.dumps([dataclasses.asdict(x) for x in reports])
-
         if dry_run:
-            print("Reports:")
-            print(json_reports)
+            logger.info("Reports")
+            pprint.pprint(reports)
         else:
-            print("Done!")
+            logger.info("Done!")
