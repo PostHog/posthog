@@ -46,9 +46,9 @@ export function LemonDataGrid<T extends Record<string, any>>(props: LemonDataGri
         const className = clsx({
             'LemonDataGrid--cell': true,
             'LemonDataGrid--header': rowIndex === 0,
-            [`justify-start`]: rowIndex !== 0 && props.columns[columnIndex]?.align === 'left',
-            [`justify-center`]: rowIndex !== 0 && props.columns[columnIndex]?.align === 'center',
-            [`justify-end`]: rowIndex !== 0 && props.columns[columnIndex]?.align === 'right',
+            [`justify-start`]: props.columns[columnIndex]?.align === 'left',
+            [`justify-center`]: props.columns[columnIndex]?.align === 'center',
+            [`justify-end`]: props.columns[columnIndex]?.align === 'right',
         })
 
         return (
