@@ -337,5 +337,9 @@ export const mathsLogic = kea<mathsLogicType>({
             (groupsAccessStatus) =>
                 [GroupsAccessStatus.NoAccess, GroupsAccessStatus.HasGroupTypes].includes(groupsAccessStatus),
         ],
+        canStartUsingGroups: [
+            (s) => [s.groupsAccessStatus],
+            (groupsAccessStatus) => groupsAccessStatus === GroupsAccessStatus.HasAccess,
+        ],
     },
 })

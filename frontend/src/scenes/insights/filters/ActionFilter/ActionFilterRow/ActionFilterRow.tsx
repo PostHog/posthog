@@ -419,7 +419,8 @@ function useMathSelectorOptions(
     mathAvailability: MathAvailability,
     onMathSelect: (index: number, value: any) => any
 ): LemonSelectOptions<string> {
-    const { needsUpgradeForGroups, staticMathDefinitions, staticActorsOnlyMathDefinitions } = useValues(mathsLogic)
+    const { needsUpgradeForGroups, canStartUsingGroups, staticMathDefinitions, staticActorsOnlyMathDefinitions } =
+        useValues(mathsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(PropertyMathType.Average)
@@ -499,7 +500,10 @@ function useMathSelectorOptions(
     return [
         {
             options,
-            footer: needsUpgradeForGroups ? <GroupIntroductionFooter /> : undefined,
+            footer:
+                needsUpgradeForGroups || canStartUsingGroups ? (
+                    <GroupIntroductionFooter needsUpgrade={needsUpgradeForGroups} />
+                ) : undefined,
         },
     ]
 }
