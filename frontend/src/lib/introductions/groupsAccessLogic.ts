@@ -16,14 +16,7 @@ export enum GroupsAccessStatus {
 export const groupsAccessLogic = kea<groupsAccessLogicType>({
     path: ['lib', 'introductions', 'groupsAccessLogic'],
     connect: {
-        values: [
-            teamLogic,
-            ['currentTeam'],
-            preflightLogic,
-            ['preflight'],
-            userLogic,
-            ['hasAvailableFeature', 'upgradeLink'],
-        ],
+        values: [teamLogic, ['currentTeam'], preflightLogic, ['preflight'], userLogic, ['hasAvailableFeature']],
     },
     selectors: {
         groupsEnabled: [
