@@ -265,7 +265,7 @@ export function summarizeInsightFilters(
                             const mathType = apiValueToMathType(localFilter.math, localFilter.math_group_type_index)
                             const mathDefinition = mathDefinitions[mathType] as MathDefinition | undefined
                             let series: string
-                            if (mathDefinition?.category === MathCategory.EventPerActorCount) {
+                            if (mathDefinition?.category === MathCategory.EventCountPerActor) {
                                 series = `${getDisplayNameFromEntityFilter(localFilter)} count per user ${
                                     mathDefinition.shortName
                                 }`
