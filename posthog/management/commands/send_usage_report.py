@@ -1,12 +1,9 @@
 import pprint
 
 import dateutil
-import structlog
 from django.core.management.base import BaseCommand
 
 from ee.tasks.usage_report import send_all_org_usage_reports
-
-logger = structlog.get_logger(__name__)
 
 
 class Command(BaseCommand):
@@ -28,7 +25,10 @@ class Command(BaseCommand):
         reports = send_all_org_usage_reports(dry_run, date_parsed)
 
         if dry_run:
-            logger.info("Reports")
-            pprint.pprint(reports)
+            print("Reports")  # noqa T201
+            print("")  # noqa T201
+            pprint.pprint(reports)  # noqa T203
+            print("")  # noqa T201
+            print("Dry run so not sent.")  # noqa T201
         else:
-            logger.info("Done!")
+            print("Done!")  # noqa T201

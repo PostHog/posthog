@@ -1,5 +1,4 @@
 import dataclasses
-import json
 import os
 import time
 from collections import Counter
@@ -15,12 +14,12 @@ from typing import (
     cast,
 )
 
-import posthoganalytics
 import requests
 import structlog
 from django.conf import settings
 from django.db import connection
 from django.db.models.manager import BaseManager
+from posthoganalytics.client import Client
 from psycopg2 import sql
 from sentry_sdk import capture_exception
 
@@ -322,12 +321,15 @@ def send_all_org_usage_reports(dry_run: bool = False, at: Optional[datetime] = N
 
             org_reports.append(full_report_dict)
             if not dry_run:
-                capture_event("organization usage report", organization_id, full_report_dict, dry_run=dry_run)
+                capture_event("organization usage report", organization_id, full_report_dict, timestamp=at)
                 send_report(full_report_dict, org["token"])
                 time.sleep(0.25)
         except Exception as err:
-            capture_exception(err)
-            capture_event("organization usage report failure", organization_id, {"error": str(err)}, dry_run=dry_run)
+            if dry_run:
+                raise err
+            else:
+                capture_exception(err)
+                capture_event("organization usage report failure", organization_id, {"error": str(err)})
 
     return org_reports
 
@@ -338,9 +340,7 @@ def send_report(report: Dict, token: str):
         headers = {"Authorization": f"Bearer {token}"}
     response = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers)
     if response.status_code != 200:
-        capture_event(
-            "billing service usage report failure", report["organization_id"], {"code": response.status_code}, False
-        )
+        capture_event("billing service usage report failure", report["organization_id"], {"code": response.status_code})
 
 
 def get_product_name(realm: str, has_license: bool) -> str:
@@ -379,28 +379,31 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
     return user
 
 
-def capture_event(name: str, organization_id: str, report: Dict[str, Any], dry_run: bool) -> None:
-    if not dry_run:
-        posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
-        if is_cloud():
-            org_owner = get_org_owner_or_first_user(organization_id)
-            posthoganalytics.capture(
-                org_owner.distinct_id,  # type: ignore
-                name,
-                {**report, "scope": "user"},
-                groups={"organization": organization_id, "instance": settings.SITE_URL},
-            )
-            posthoganalytics.group_identify("organization", organization_id, report)
-        else:
-            posthoganalytics.capture(
-                get_machine_id(),
-                name,
-                {**report, "scope": "machine"},
-                groups={"instance": settings.SITE_URL},
-            )
-            posthoganalytics.group_identify("instance", settings.SITE_URL, report)
+def capture_event(
+    name: str, organization_id: str, properties: Dict[str, Any], timestamp: Optional[datetime] = None
+) -> None:
+    phcloud_client = Client("sTMFPsFhdP1Ssg")
+    if is_cloud():
+        org_owner = get_org_owner_or_first_user(organization_id)
+        phcloud_client.capture(
+            org_owner.distinct_id,  # type: ignore
+            name,
+            {**properties, "scope": "user"},
+            groups={"organization": organization_id, "instance": settings.SITE_URL},
+            timestamp=timestamp,
+        )
+        phcloud_client.group_identify("organization", organization_id, properties)
     else:
-        print(name, json.dumps(report))  # noqa: T201
+        phcloud_client.capture(
+            get_machine_id(),
+            name,
+            {**properties, "scope": "machine"},
+            groups={"instance": settings.SITE_URL},
+            timestamp=timestamp,
+        )
+        phcloud_client.group_identify("instance", settings.SITE_URL, properties)
+
+    phcloud_client.flush()
 
 
 def fetch_instance_params(report: Dict[str, Any]) -> dict:
