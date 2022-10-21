@@ -322,7 +322,7 @@ def send_all_org_usage_reports(dry_run: bool = False, at: Optional[datetime] = N
 
             org_reports.append(full_report_dict)
             if not dry_run:
-                capture_event("organization usage report", organization_id, full_report_dict, dry_run=dry_run)  # type: ignore
+                capture_event("organization usage report", organization_id, full_report_dict, dry_run=dry_run)
                 send_report(full_report_dict, org["token"])
                 time.sleep(0.25)
         except Exception as err:

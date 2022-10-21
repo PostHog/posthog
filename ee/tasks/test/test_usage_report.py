@@ -4,7 +4,6 @@ from unittest.mock import ANY, Mock, patch
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
-import pytest
 
 from ee.api.billing import build_billing_token
 from ee.api.test.base import LicensedTestMixin
@@ -100,8 +99,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
             }
 
             for key, value in minimum_expectations.items():
-                print(f"Checking {key}")
-                if value == None:
+                print(f"Checking {key}")  # noqa T201
+                if value is None:
                     assert key in report
                 else:
                     assert report[key] == value
@@ -458,14 +457,15 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
 
         all_reports = send_all_org_usage_reports(dry_run=False)
         license = License.objects.first()
-        token = build_billing_token(license, self.organization.id)  # type: ignore
+        assert license
+        token = build_billing_token(license, str(self.organization.id))
         mock_post.assert_called_once_with(
             f"{BILLING_SERVICE_URL}/api/usage", json=all_reports[0], headers={"Authorization": f"Bearer {token}"}
         )
         mock_capture.assert_any_call(
             get_machine_id(),
             "organization usage report",
-            {**all_reports[0], "scope": "machine"},  # type: ignore
+            {**all_reports[0], "scope": "machine"},
             groups={"instance": ANY},
         )
 
@@ -481,14 +481,15 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
 
             all_reports = send_all_org_usage_reports(dry_run=False)
             license = License.objects.first()
-            token = build_billing_token(license, self.organization.id)  # type: ignore
+            assert license
+            token = build_billing_token(license, str(self.organization.id))
             mock_post.assert_called_once_with(
                 f"{BILLING_SERVICE_URL}/api/usage", json=all_reports[0], headers={"Authorization": f"Bearer {token}"}
             )
             mock_capture.assert_any_call(
                 self.user.distinct_id,
                 "organization usage report",
-                {**all_reports[0], "scope": "user"},  # type: ignore
+                {**all_reports[0], "scope": "user"},
                 groups={"instance": "http://localhost:8000", "organization": str(self.organization.id)},
             )
 
