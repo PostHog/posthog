@@ -1,8 +1,8 @@
 import pprint
 
 import dateutil
-from django.core.management.base import BaseCommand
 import structlog
+from django.core.management.base import BaseCommand
 
 from ee.tasks.usage_report import send_all_org_usage_reports
 
