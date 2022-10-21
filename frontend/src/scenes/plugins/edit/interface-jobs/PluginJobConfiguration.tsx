@@ -32,9 +32,8 @@ export function PluginJobConfiguration({
     pluginId,
 }: PluginJobConfigurationProps): JSX.Element {
     const logicProps = { jobName, pluginConfigId, pluginId, jobSpecPayload: jobSpec.payload }
-    const { setIsJobModalOpen, playButtonOnClick, submitJobPayload } = useActions(interfaceJobsLogic(logicProps))
-    const { runJobAvailable, isJobModalOpen } = useValues(interfaceJobsLogic(logicProps))
-    const { user } = useValues(userLogic)
+    const { playButtonOnClick } = useActions(interfaceJobsLogic(logicProps))
+    const { runJobAvailable } = useValues(interfaceJobsLogic(logicProps))
 
     const jobHasEmptyPayload = Object.keys(jobSpec.payload || {}).length === 0
 
@@ -43,12 +42,6 @@ export function PluginJobConfiguration({
             ? `Run job`
             : `Configure and run job`
         : `You already ran this job recently.`
-
-    const shownFields = useMemo(() => {
-        return Object.entries(jobSpec.payload || {})
-            .filter(([, options]) => !options.staff_only || user?.is_staff || user?.is_impersonated)
-            .sort((a, b) => a[0].localeCompare(b[0]))
-    }, [jobSpec, user])
 
     return (
         <>
@@ -66,32 +59,54 @@ export function PluginJobConfiguration({
                 </Tooltip>
             </span>
 
-            <LemonModal
-                isOpen={isJobModalOpen}
-                onClose={() => setIsJobModalOpen(false)}
-                title={`Configuring job '${jobName}'`}
-                footer={
-                    <>
-                        <LemonButton type="secondary" className="mr-2" onClick={() => setIsJobModalOpen(false)}>
-                            Cancel
-                        </LemonButton>
-                        <LemonButton data-attr="run-job" type="primary" onClick={() => submitJobPayload()}>
-                            Run job now
-                        </LemonButton>
-                    </>
-                }
-            >
-                {shownFields.length > 0 ? (
-                    <Form logic={interfaceJobsLogic} props={logicProps} formKey="jobPayload">
-                        {shownFields.map(([key, options]) => (
-                            <Field name={key} label={options.title || key} key={key} className="mb-4">
-                                {(props) => <FieldInput options={options} {...props} />}
-                            </Field>
-                        ))}
-                    </Form>
-                ) : null}
-            </LemonModal>
+            <PluginJobModal jobName={jobName} jobSpec={jobSpec} pluginConfigId={pluginConfigId} pluginId={pluginId} />
         </>
+    )
+}
+
+export function PluginJobModal({
+    jobName,
+    jobSpec,
+    pluginConfigId,
+    pluginId,
+}: PluginJobConfigurationProps): JSX.Element {
+    const logicProps = { jobName, pluginConfigId, pluginId, jobSpecPayload: jobSpec.payload }
+    const { setIsJobModalOpen, submitJobPayload } = useActions(interfaceJobsLogic(logicProps))
+    const { isJobModalOpen } = useValues(interfaceJobsLogic(logicProps))
+    const { user } = useValues(userLogic)
+
+    const shownFields = useMemo(() => {
+        return Object.entries(jobSpec.payload || {})
+            .filter(([, options]) => !options.staff_only || user?.is_staff || user?.is_impersonated)
+            .sort((a, b) => a[0].localeCompare(b[0]))
+    }, [jobSpec, user])
+
+    return (
+        <LemonModal
+            isOpen={isJobModalOpen}
+            onClose={() => setIsJobModalOpen(false)}
+            title={`Configuring job '${jobName}'`}
+            footer={
+                <>
+                    <LemonButton type="secondary" className="mr-2" onClick={() => setIsJobModalOpen(false)}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton data-attr="run-job" type="primary" onClick={() => submitJobPayload()}>
+                        Run job now
+                    </LemonButton>
+                </>
+            }
+        >
+            {shownFields.length > 0 ? (
+                <Form logic={interfaceJobsLogic} props={logicProps} formKey="jobPayload">
+                    {shownFields.map(([key, options]) => (
+                        <Field name={key} label={options.title || key} key={key} className="mb-4">
+                            {(props) => <FieldInput options={options} {...props} />}
+                        </Field>
+                    ))}
+                </Form>
+            ) : null}
+        </LemonModal>
     )
 }
 
