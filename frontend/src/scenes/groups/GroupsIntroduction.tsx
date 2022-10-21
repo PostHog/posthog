@@ -42,19 +42,26 @@ export function GroupsIntroduction({ access }: Props): JSX.Element {
     )
 }
 
-export function GroupIntroductionFooter(): JSX.Element {
+export function GroupIntroductionFooter({ access }: Props): JSX.Element {
+    const needsToUpgrade = [GroupsAccessStatus.HasGroupTypes, GroupsAccessStatus.NoAccess].includes(access)
     return (
         <div className="text-sm bg-side rounded p-2" style={{ maxWidth: '15rem' }}>
-            Enter your payment information to use group analytics.{' '}
-            <Link
-                className="font-medium"
-                to="/organization/billing"
-                target="_blank"
-                data-attr="group-analytics-upgrade"
-            >
-                Upgrade
-            </Link>{' '}
-            or{' '}
+            {needsToUpgrade ? (
+                <>
+                    Enter your payment information to use group analytics.{' '}
+                    <Link
+                        className="font-medium"
+                        to="/organization/billing"
+                        target="_blank"
+                        data-attr="group-analytics-upgrade"
+                    >
+                        Upgrade
+                    </Link>{' '}
+                    or{' '}
+                </>
+            ) : (
+                <>You can use group analytics to aggregate events by any entity. </>
+            )}
             <Link
                 className="font-medium"
                 to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-learn-more"

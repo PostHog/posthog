@@ -28,11 +28,11 @@ export function AggregationSelect({ aggregationGroupTypeIndex, onChange }: Aggre
     ]
 
     if (
-        [GroupsAccessStatus.HasAccess, GroupsAccessStatus.HasGroupTypes, GroupsAccessStatus.NoAccess].includes(
-            groupsAccessStatus
-        )
+        groupsAccessStatus == GroupsAccessStatus.HasAccess ||
+        groupsAccessStatus == GroupsAccessStatus.HasGroupTypes ||
+        groupsAccessStatus == GroupsAccessStatus.NoAccess
     ) {
-        optionSections[0].footer = <GroupIntroductionFooter />
+        optionSections[0].footer = <GroupIntroductionFooter access={groupsAccessStatus} />
     } else {
         groupTypes.forEach((groupType) => {
             optionSections[0].options.push({

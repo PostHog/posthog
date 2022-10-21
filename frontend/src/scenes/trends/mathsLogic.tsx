@@ -458,15 +458,14 @@ export const mathsLogic = kea<mathsLogicType>({
         selectFormattedOptions: [
             (s) => [s.groupsAccessStatus, s.groupsMathFormattedSelectDefinitions],
             (groupsAccessStatus, groupsMathFormattedSelectDefinitions): LemonSelectSection<string>[] => {
-                const hasGroupAccess = [
-                    GroupsAccessStatus.HasAccess,
-                    GroupsAccessStatus.HasGroupTypes,
-                    GroupsAccessStatus.NoAccess,
-                ].includes(groupsAccessStatus)
                 const mathOptions = SELECT_FORMATTED_OPTIONS
 
-                if (hasGroupAccess) {
-                    mathOptions[0].footer = <GroupIntroductionFooter />
+                if (
+                    groupsAccessStatus == GroupsAccessStatus.HasAccess ||
+                    groupsAccessStatus == GroupsAccessStatus.HasGroupTypes ||
+                    groupsAccessStatus == GroupsAccessStatus.NoAccess
+                ) {
+                    mathOptions[0].footer = <GroupIntroductionFooter access={groupsAccessStatus} />
                 } else {
                     mathOptions[0].options.push(...groupsMathFormattedSelectDefinitions)
                 }
