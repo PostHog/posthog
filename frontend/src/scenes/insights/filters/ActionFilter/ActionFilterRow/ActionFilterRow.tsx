@@ -464,6 +464,7 @@ function useMathSelectorOptions(
                     </div>
                 ),
                 tooltip: 'Statistical analysis of event count per user.',
+                'data-attr': `math-node-count-per-actor-${index}`,
             })
         }
         options.push({
@@ -492,6 +493,7 @@ function useMathSelectorOptions(
                 </div>
             ),
             tooltip: 'Statistical analysis of property value.',
+            'data-attr': `math-node-property-value-${index}`,
         })
     }
     return [
