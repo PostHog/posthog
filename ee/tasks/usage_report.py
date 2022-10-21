@@ -120,8 +120,8 @@ class OrgMetadata:
     users_who_signed_up: Optional[List[Dict[str, Union[str, int]]]]
     users_who_signed_up_count: Optional[int]
     table_sizes: Optional[TableSizes]
-    plugins_installed: Optional["Counter"]
-    plugins_enabled: Optional["Counter"]
+    plugins_installed: Optional[Dict]
+    plugins_enabled: Optional[Dict]
 
 
 @dataclasses.dataclass
@@ -202,6 +202,7 @@ def get_org_usage_report(organization_id: str, team_ids: List[str], dry_run: boo
             org_usage_summary.event_count_in_period += team_report.event_count_in_period
             org_usage_summary.event_count_with_groups_in_period += team_report.event_count_with_groups_in_period
             org_usage_summary.recording_count_in_period += team_report.recording_count_in_period
+            org_usage_summary.group_types_total += team_report.group_types_total
             if team_report.group_types_total > 0:
                 org_usage_summary.using_groups = True
 
@@ -225,7 +226,7 @@ def get_instance_metadata(has_license: bool) -> OrgMetadata:
         deployment_infrastructure=os.getenv("DEPLOYMENT", "unknown"),
         realm=realm,
         period={"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
-        site_url=os.getenv("SITE_URL", "unknown"),
+        site_url=settings.SITE_URL,
         product=get_product_name(realm, has_license),
         # Non-cloud vars
         helm=None,
@@ -257,15 +258,15 @@ def get_instance_metadata(has_license: bool) -> OrgMetadata:
 
         plugin_configs = PluginConfig.objects.select_related("plugin").all()
 
-        metadata.plugins_installed = Counter(plugin_config.plugin.name for plugin_config in plugin_configs)
-        metadata.plugins_enabled = Counter(
-            plugin_config.plugin.name for plugin_config in plugin_configs if plugin_config.enabled
+        metadata.plugins_installed = dict(Counter(plugin_config.plugin.name for plugin_config in plugin_configs))
+        metadata.plugins_enabled = dict(
+            Counter(plugin_config.plugin.name for plugin_config in plugin_configs if plugin_config.enabled)
         )
 
     return metadata
 
 
-def send_all_org_usage_reports(dry_run: bool = False, at: Optional[datetime] = None) -> List[OrgReportFull]:
+def send_all_org_usage_reports(dry_run: bool = False, at: Optional[datetime] = None) -> List[Dict]:
     """
     Generic way to generate and send org usage reports.
     Specify Postgres or ClickHouse for event queries.
@@ -275,7 +276,7 @@ def send_all_org_usage_reports(dry_run: bool = False, at: Optional[datetime] = N
     metadata = get_instance_metadata(bool(license))
 
     org_data: Dict[str, Dict[str, Any]] = {}
-    org_reports: List[OrgReportFull] = []
+    org_reports: List[Dict] = []
 
     for team in Team.objects.exclude(organization__for_internal_metrics=True):
         org = team.organization
@@ -295,12 +296,13 @@ def send_all_org_usage_reports(dry_run: bool = False, at: Optional[datetime] = N
             }
 
     for organization_id, org in org_data.items():
-        org_owner = get_org_owner_or_first_user(organization_id)
-        if not org_owner:
-            continue
-        distinct_id = org_owner.distinct_id
-        usage = get_org_usage_report(organization_id, org["teams"], dry_run)
         try:
+            org_owner = get_org_owner_or_first_user(organization_id)
+            if not org_owner:
+                continue
+            distinct_id = org_owner.distinct_id
+            usage = get_org_usage_report(organization_id, org["teams"], dry_run)
+
             report = OrgReport(
                 admin_distinct_id=distinct_id,
                 organization_id=organization_id,
@@ -316,12 +318,10 @@ def send_all_org_usage_reports(dry_run: bool = False, at: Optional[datetime] = N
                 **dataclasses.asdict(metadata),
                 **dataclasses.asdict(usage),
             )
+            full_report_dict = dataclasses.asdict(full_report)
 
-            org_reports.append(full_report)
+            org_reports.append(full_report_dict)
             if not dry_run:
-                # TODO: Here convert to json
-                full_report_dict = dataclasses.asdict(full_report)
-
                 capture_event("organization usage report", organization_id, full_report_dict, dry_run=dry_run)  # type: ignore
                 send_report(full_report_dict, org["token"])
                 time.sleep(0.25)
