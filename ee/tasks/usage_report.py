@@ -297,6 +297,7 @@ def send_all_org_usage_reports(
             }
 
     for organization_id, org in org_data.items():
+        # NOTE: We should consider scheduling this rather than immediately invoking, that way we can have retries per org
         if only_organization_id and organization_id != only_organization_id:
             continue
         try:
