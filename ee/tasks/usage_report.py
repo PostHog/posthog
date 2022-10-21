@@ -1,7 +1,9 @@
+import dataclasses
 import json
 import os
 import time
 from collections import Counter
+from datetime import datetime
 from typing import (
     Any,
     Dict,
@@ -21,7 +23,6 @@ from django.db import connection
 from django.db.models.manager import BaseManager
 from psycopg2 import sql
 from sentry_sdk import capture_exception
-from typing_extensions import NotRequired
 
 from ee.api.billing import build_billing_token
 from ee.models.license import License
@@ -40,7 +41,10 @@ from posthog.models.event.util import (
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.person.util import count_duplicate_distinct_ids_for_team, count_total_persons_with_multiple_ids
 from posthog.models.plugin import PluginConfig
-from posthog.models.session_recording_event.util import get_recording_count_for_team_and_period
+from posthog.models.session_recording_event.util import (
+    get_recording_count_for_team,
+    get_recording_count_for_team_and_period,
+)
 from posthog.models.utils import namedtuplefetchall
 from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_day
 from posthog.version import VERSION
@@ -48,130 +52,114 @@ from posthog.version import VERSION
 logger = structlog.get_logger(__name__)
 
 Period = TypedDict("Period", {"start_inclusive": str, "end_inclusive": str})
-
-TeamUsageReport = TypedDict(
-    "TeamUsageReport",
-    {
-        "event_count_total": int,
-        "event_count_new_in_period": int,
-        "event_count_with_groups_new_in_period": int,
-        "event_count_by_lib": Dict,
-        "event_count_by_name": Dict,
-        "recording_count_new_in_period": int,
-        "duplicate_distinct_ids": Dict,
-        "multiple_ids_per_person": Dict,
-        "group_types_total": int,
-        "person_count_total": int,
-        "person_count_new_in_period": int,
-        "dashboard_count": int,
-        "dashboard_template_count": int,
-        "dashboard_shared_count": int,
-        "dashboard_tagged_count": int,
-        "ff_count": int,
-        "ff_active_count": int,
-    },
-)
-
-OrgUsageSummary = TypedDict(
-    "OrgUsageSummary",
-    {
-        "event_count_new_in_period": int,
-        "person_count_new_in_period": int,
-        "person_count_total": int,
-        "event_count_total": int,
-        "event_count_with_groups_new_in_period": int,
-        "recording_count_new_in_period": int,
-        "dashboard_count": int,
-        "ff_count": int,
-        "using_groups": bool,
-    },
-)
-
-OrgUsageReport = TypedDict(
-    "OrgUsageReport",
-    {
-        "org_usage_summary": OrgUsageSummary,
-        "teams": Dict[str, TeamUsageReport],
-    },
-)
-
 TableSizes = TypedDict("TableSizes", {"posthog_event": int, "posthog_sessionrecordingevent": int})
 
-OrgMetadata = TypedDict(
-    "OrgMetadata",
-    {
-        "posthog_version": str,
-        "deployment_infrastructure": str,
-        "realm": str,
-        "period": Period,
-        "site_url": str,
-        "product": str,
-        "helm": NotRequired[dict],
-        "clickhouse_version": NotRequired[str],
-        "users_who_logged_in": NotRequired[List[Dict[str, Union[str, int]]]],
-        "users_who_logged_in_count": NotRequired[int],
-        "users_who_signed_up": NotRequired[List[Dict[str, Union[str, int]]]],
-        "users_who_signed_up_count": NotRequired[int],
-        "table_sizes": NotRequired[TableSizes],
-        "plugins_installed": NotRequired["Counter"],
-        "plugins_enabled": NotRequired["Counter"],
-    },
-)
 
-OrgReport = TypedDict(
-    "OrgReport",
-    {
-        "date": str,
-        "admin_distinct_id": int,
-        "organization_id": str,
-        "organization_name": str,
-        "organization_created_at": str,
-        "organization_user_count": int,
-        "posthog_version": str,
-        "deployment_infrastructure": str,
-        "realm": str,
-        "period": Period,
-        "site_url": str,
-        "product": str,
-        "helm": NotRequired[dict],
-        "clickhouse_version": NotRequired[str],
-        "users_who_logged_in": NotRequired[List[Dict[str, Union[str, int]]]],
-        "users_who_logged_in_count": NotRequired[int],
-        "users_who_signed_up": NotRequired[List[Dict[str, Union[str, int]]]],
-        "users_who_signed_up_count": NotRequired[int],
-        "table_sizes": NotRequired[TableSizes],
-        "plugins_installed": NotRequired["Counter"],
-        "plugins_enabled": NotRequired["Counter"],
-        "team_count": int,
-        "org_usage_summary": OrgUsageSummary,
-        "teams": Dict[str, TeamUsageReport],
-    },
-)
+@dataclasses.dataclass
+class TeamUsageReport:
+    event_count_lifetime: int
+    event_count_in_period: int
+    event_count_with_groups_in_period: int
+    event_count_by_lib: Dict
+    event_count_by_name: Dict
+    # Recordings
+    recording_count_in_period: int
+    recording_count_lifetime: int
+    duplicate_distinct_ids: Dict
+    multiple_ids_per_person: Dict
+    # Persons and Groups
+    group_types_total: int
+    person_count_total: int
+    person_count_in_period: int
+    # Dashboards
+    dashboard_count: int
+    dashboard_template_count: int
+    dashboard_shared_count: int
+    dashboard_tagged_count: int
+    # Feature flags
+    ff_count: int
+    ff_active_count: int
 
 
-def send_all_org_usage_reports(*, dry_run: bool = False) -> List[OrgReport]:
-    """
-    Creates and sends usage reports for all teams.
-    Returns a list of all the successfully sent reports.
-    """
-    return send_all_reports(dry_run=dry_run)
+@dataclasses.dataclass
+class OrgUsageSummary:
+    # Events
+    event_count_lifetime: int
+    event_count_in_period: int
+    event_count_in_month: int
+    event_count_with_groups_in_period: int
+    event_count_with_groups_in_month: int
+    # Recordins
+    recording_count_in_period: int
+    recording_count_total: int
+    # Persons and groups
+    person_count_in_period: int
+    person_count_total: int
+    using_groups: bool
+    group_types_total: int
+    # Dashboards
+    dashboard_count: int
+    # Feature flags
+    ff_count: int
+    ff_active_count: int
+    teams: Dict[str, TeamUsageReport]
 
 
-def get_org_usage_report(organization_id: str, team_ids: List[str], dry_run: bool) -> OrgUsageReport:
+@dataclasses.dataclass
+class OrgMetadata:
+    posthog_version: str
+    deployment_infrastructure: str
+    realm: str
+    period: Period
+    site_url: str
+    product: str
+    helm: Optional[dict]
+    clickhouse_version: Optional[str]
+    users_who_logged_in: Optional[List[Dict[str, Union[str, int]]]]
+    users_who_logged_in_count: Optional[int]
+    users_who_signed_up: Optional[List[Dict[str, Union[str, int]]]]
+    users_who_signed_up_count: Optional[int]
+    table_sizes: Optional[TableSizes]
+    plugins_installed: Optional["Counter"]
+    plugins_enabled: Optional["Counter"]
+
+
+@dataclasses.dataclass
+class OrgReport:
+    date: str
+    admin_distinct_id: int
+    organization_id: str
+    organization_name: str
+    organization_created_at: str
+    organization_user_count: int
+    team_count: int
+
+
+@dataclasses.dataclass
+class OrgReportFull(OrgReport, OrgMetadata, OrgUsageSummary):
+    pass
+
+
+def get_org_usage_report(organization_id: str, team_ids: List[str], dry_run: bool) -> OrgUsageSummary:
     period_start, period_end = get_previous_day()
 
-    org_usage_summary: OrgUsageSummary = {
-        "event_count_new_in_period": 0,
-        "person_count_new_in_period": 0,
-        "person_count_total": 0,
-        "event_count_total": 0,
-        "event_count_with_groups_new_in_period": 0,
-        "recording_count_new_in_period": 0,
-        "dashboard_count": 0,
-        "ff_count": 0,
-        "using_groups": False,
-    }
-    teams: Dict[str, TeamUsageReport] = {}
+    org_usage_summary = OrgUsageSummary(
+        event_count_lifetime=0,
+        event_count_in_period=0,
+        event_count_in_month=0,
+        event_count_with_groups_in_period=0,
+        event_count_with_groups_in_month=0,
+        recording_count_in_period=0,
+        recording_count_total=0,
+        person_count_in_period=0,
+        person_count_total=0,
+        using_groups=False,
+        group_types_total=0,
+        dashboard_count=0,
+        ff_count=0,
+        ff_active_count=0,
+        teams={},
+    )
 
     for team_id in team_ids:
         try:
@@ -187,100 +175,107 @@ def get_org_usage_report(organization_id: str, team_ids: List[str], dry_run: boo
             # Feature Flags
             feature_flags = FeatureFlag.objects.filter(team_id=team_id).exclude(deleted=True)
 
-            team_report: TeamUsageReport = {
-                "event_count_total": get_event_count_for_team(team_id),
-                "event_count_new_in_period": get_event_count_for_team_and_period(team_id, period_start, period_end),
-                "event_count_with_groups_new_in_period": get_event_count_with_groups_count_for_team_and_period(
+            team_report = TeamUsageReport(
+                event_count_lifetime=get_event_count_for_team(team_id),
+                event_count_in_period=get_event_count_for_team_and_period(team_id, period_start, period_end),
+                event_count_with_groups_in_period=get_event_count_with_groups_count_for_team_and_period(
                     team_id, period_start, period_end
                 ),
-                "event_count_by_lib": get_events_count_for_team_by_client_lib(team_id, period_start, period_end),
-                "event_count_by_name": get_events_count_for_team_by_event_type(team_id, period_start, period_end),
-                "recording_count_new_in_period": get_recording_count_for_team_and_period(
-                    team_id, period_start, period_end
-                ),
-                "duplicate_distinct_ids": count_duplicate_distinct_ids_for_team(team_id),
-                "multiple_ids_per_person": count_total_persons_with_multiple_ids(team_id),
-                "group_types_total": GroupTypeMapping.objects.filter(team_id=team_id).count(),
-                "person_count_total": persons_considered_total.count(),
-                "person_count_new_in_period": persons_considered_total_new_in_period.count(),
-                "dashboard_count": team_dashboards.count(),
-                "dashboard_template_count": team_dashboards.filter(creation_mode="template").count(),
-                "dashboard_shared_count": team_dashboards.filter(sharingconfiguration__enabled=True).count(),
-                "dashboard_tagged_count": team_dashboards.exclude(tagged_items__isnull=True).count(),
-                "ff_count": feature_flags.count(),
-                "ff_active_count": feature_flags.filter(active=True).count(),
-            }
-            org_usage_summary["event_count_total"] += team_report["event_count_total"]
-            org_usage_summary["event_count_new_in_period"] += team_report["event_count_new_in_period"]
-            org_usage_summary["event_count_with_groups_new_in_period"] += team_report[
-                "event_count_with_groups_new_in_period"
-            ]
-            org_usage_summary["recording_count_new_in_period"] += team_report["recording_count_new_in_period"]
-            if team_report["group_types_total"] > 0:
-                org_usage_summary["using_groups"] = True
-            org_usage_summary["person_count_total"] += team_report["person_count_total"]
-            org_usage_summary["person_count_new_in_period"] += team_report["person_count_new_in_period"]
-            org_usage_summary["dashboard_count"] += team_report["dashboard_count"]
-            org_usage_summary["ff_count"] += team_report["ff_count"]
-            teams[team_id] = team_report
+                event_count_by_lib=get_events_count_for_team_by_client_lib(team_id, period_start, period_end),
+                event_count_by_name=get_events_count_for_team_by_event_type(team_id, period_start, period_end),
+                recording_count_in_period=get_recording_count_for_team_and_period(team_id, period_start, period_end),
+                recording_count_lifetime=get_recording_count_for_team(team_id),
+                duplicate_distinct_ids=count_duplicate_distinct_ids_for_team(team_id),
+                multiple_ids_per_person=count_total_persons_with_multiple_ids(team_id),
+                group_types_total=GroupTypeMapping.objects.filter(team_id=team_id).count(),
+                person_count_total=persons_considered_total.count(),
+                person_count_in_period=persons_considered_total_new_in_period.count(),
+                dashboard_count=team_dashboards.count(),
+                dashboard_template_count=team_dashboards.filter(creation_mode="template").count(),
+                dashboard_shared_count=team_dashboards.filter(sharingconfiguration__enabled=True).count(),
+                dashboard_tagged_count=team_dashboards.exclude(tagged_items__isnull=True).count(),
+                ff_count=feature_flags.count(),
+                ff_active_count=feature_flags.filter(active=True).count(),
+            )
+
+            org_usage_summary.event_count_lifetime += team_report.event_count_lifetime
+            org_usage_summary.event_count_in_period += team_report.event_count_in_period
+            org_usage_summary.event_count_with_groups_in_period += team_report.event_count_with_groups_in_period
+            org_usage_summary.recording_count_in_period += team_report.recording_count_in_period
+            if team_report.group_types_total > 0:
+                org_usage_summary.using_groups = True
+
+            org_usage_summary.person_count_total += team_report.person_count_total
+            org_usage_summary.person_count_in_period += team_report.person_count_in_period
+            org_usage_summary.dashboard_count += team_report.dashboard_count
+            org_usage_summary.ff_count += team_report.ff_count
+
+            org_usage_summary.teams[team_id] = team_report
         except Exception as err:
             capture_event("get org usage report failure", organization_id, {"error": str(err)}, dry_run=dry_run)
 
-    return {
-        "org_usage_summary": org_usage_summary,
-        "teams": teams,
-    }
+    return org_usage_summary
 
 
 def get_instance_metadata(has_license: bool) -> OrgMetadata:
     period_start, period_end = get_previous_day()
     realm = get_instance_realm()
-    metadata: OrgMetadata = {
-        "posthog_version": VERSION,
-        "deployment_infrastructure": os.getenv("DEPLOYMENT", "unknown"),
-        "realm": realm,
-        "period": {"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
-        "site_url": os.getenv("SITE_URL", "unknown"),
-        "product": get_product_name(realm, has_license),
-    }
+    metadata = OrgMetadata(
+        posthog_version=VERSION,
+        deployment_infrastructure=os.getenv("DEPLOYMENT", "unknown"),
+        realm=realm,
+        period={"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
+        site_url=os.getenv("SITE_URL", "unknown"),
+        product=get_product_name(realm, has_license),
+        # Non-cloud vars
+        helm=None,
+        clickhouse_version=None,
+        users_who_logged_in=None,
+        users_who_logged_in_count=None,
+        users_who_signed_up=None,
+        users_who_signed_up_count=None,
+        table_sizes=None,
+        plugins_installed=None,
+        plugins_enabled=None,
+    )
 
     if realm != "cloud":
-        metadata["helm"] = get_helm_info_env()
-        metadata["clickhouse_version"] = str(version_requirement.get_clickhouse_version())
+        metadata.helm = get_helm_info_env()
+        metadata.clickhouse_version = str(version_requirement.get_clickhouse_version())
 
-        metadata["users_who_logged_in"] = [
+        metadata.users_who_logged_in = [
             {"id": user.id, "distinct_id": user.distinct_id}
             if user.anonymize_data
             else {"id": user.id, "distinct_id": user.distinct_id, "first_name": user.first_name, "email": user.email}
             for user in User.objects.filter(is_active=True, last_login__gte=period_start)
         ]
 
-        metadata["table_sizes"] = {
+        metadata.table_sizes = {
             "posthog_event": fetch_table_size("posthog_event"),
             "posthog_sessionrecordingevent": fetch_table_size("posthog_sessionrecordingevent"),
         }
 
         plugin_configs = PluginConfig.objects.select_related("plugin").all()
 
-        metadata["plugins_installed"] = Counter(plugin_config.plugin.name for plugin_config in plugin_configs)
-        metadata["plugins_enabled"] = Counter(
+        metadata.plugins_installed = Counter(plugin_config.plugin.name for plugin_config in plugin_configs)
+        metadata.plugins_enabled = Counter(
             plugin_config.plugin.name for plugin_config in plugin_configs if plugin_config.enabled
         )
 
     return metadata
 
 
-def send_all_reports(*, dry_run: bool = False) -> List[OrgReport]:
+def send_all_org_usage_reports(dry_run: bool = False, at: Optional[datetime] = None) -> List[OrgReportFull]:
     """
     Generic way to generate and send org usage reports.
     Specify Postgres or ClickHouse for event queries.
     """
-    period_start, _ = get_previous_day()
+    period_start, _ = get_previous_day(at=at)
     license = License.objects.first_valid()
     metadata = get_instance_metadata(bool(license))
 
     org_data: Dict[str, Dict[str, Any]] = {}
-    org_reports: List[OrgReport] = []
+    org_reports: List[OrgReportFull] = []
 
     for team in Team.objects.exclude(organization__for_internal_metrics=True):
         org = team.organization
@@ -306,36 +301,46 @@ def send_all_reports(*, dry_run: bool = False) -> List[OrgReport]:
         distinct_id = org_owner.distinct_id
         usage = get_org_usage_report(organization_id, org["teams"], dry_run)
         try:
-            report: OrgReport = {
-                **metadata,  # type: ignore
-                **usage,
-                "admin_distinct_id": distinct_id,
-                "organization_id": organization_id,
-                "organization_name": org["name"],
-                "organization_created_at": org["created_at"],
-                "organization_user_count": org["user_count"],
-                "team_count": len(org["teams"]),
-                "date": period_start.strftime("%Y-%m-%d"),
-            }
-            org_reports.append(report)
+            report = OrgReport(
+                admin_distinct_id=distinct_id,
+                organization_id=organization_id,
+                organization_name=org["name"],
+                organization_created_at=org["created_at"],
+                organization_user_count=org["user_count"],
+                team_count=len(org["teams"]),
+                date=period_start.strftime("%Y-%m-%d"),
+            )
+
+            full_report = OrgReportFull(
+                **dataclasses.asdict(report),
+                **dataclasses.asdict(metadata),
+                **dataclasses.asdict(usage),
+            )
+
+            org_reports.append(full_report)
             if not dry_run:
-                capture_event("org usage report", organization_id, report, dry_run=dry_run)  # type: ignore
-                send_report(report, org["token"])
+                # TODO: Here convert to json
+                full_report_dict = dataclasses.asdict(full_report)
+
+                capture_event("organization usage report", organization_id, full_report_dict, dry_run=dry_run)  # type: ignore
+                send_report(full_report_dict, org["token"])
                 time.sleep(0.25)
         except Exception as err:
             capture_exception(err)
-            capture_event("send org report failure", organization_id, {"error": str(err)}, dry_run=dry_run)
+            capture_event("organization usage report failure", organization_id, {"error": str(err)}, dry_run=dry_run)
 
     return org_reports
 
 
-def send_report(report: OrgReport, token: str):
+def send_report(report: Dict, token: str):
     headers = {}
     if token:
         headers = {"Authorization": f"Bearer {token}"}
-    request = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers)
-    if request.status_code != 200:
-        raise Exception("Billing service request failed")
+    response = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers)
+    if response.status_code != 200:
+        capture_event(
+            "billing service usage report failure", report["organization_id"], {"code": response.status_code}, False
+        )
 
 
 def get_product_name(realm: str, has_license: bool) -> str:
@@ -380,10 +385,10 @@ def capture_event(name: str, organization_id: str, report: Dict[str, Any], dry_r
         if is_cloud():
             org_owner = get_org_owner_or_first_user(organization_id)
             posthoganalytics.capture(
-                org_owner.id,  # type: ignore
+                org_owner.distinct_id,  # type: ignore
                 name,
                 {**report, "scope": "user"},
-                groups={"organization": organization_id},
+                groups={"organization": organization_id, "instance": settings.SITE_URL},
             )
             posthoganalytics.group_identify("organization", organization_id, report)
         else:
