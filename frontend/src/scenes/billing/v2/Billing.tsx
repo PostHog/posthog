@@ -13,7 +13,7 @@ import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { dayjs } from 'lib/dayjs'
 import clsx from 'clsx'
 import { BillingGauge, BillingGaugeProps } from './BillingGauge'
-import { convertAmountToUsage, convertUsageToAmount, projectUsage, summarizeUsage } from './billing-utils'
+import { convertAmountToUsage, convertUsageToAmount, summarizeUsage } from './billing-utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -188,7 +188,6 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
     const { billing, billingLoading } = useValues(billingLogic)
     const { updateBillingLimits } = useActions(billingLogic)
 
-    const billingPeriod = billing?.billing_period
     const customLimitUsd = billing?.custom_limits_usd?.[product.type]
 
     const [tierAmountType, setTierAmountType] = useState<'individual' | 'total'>('individual')
@@ -196,7 +195,6 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
     const [billingLimit, setBillingLimit] = useState<number | undefined>(100)
     const billingLimitInputChanged = parseInt(customLimitUsd || '-1') !== billingLimit
     const billingLimitAsUsage = showBillingLimit ? convertAmountToUsage(`${billingLimit}`, product.tiers) : 0
-    const projectedUsage = projectUsage(product.current_usage, billingPeriod)
 
     const updateBillingLimit = (value: number | undefined): any => {
         const actuallyUpdateLimit = (): void => {
@@ -227,13 +225,13 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
             return
         }
 
-        if (projectedUsage && newAmountAsUsage < projectedUsage) {
+        if (product.projected_usage && newAmountAsUsage < product.projected_usage) {
             LemonDialog.open({
                 title: 'Billing limit warning',
                 description:
-                    'Your predicted usage is above your current billing limit which is likely to result in a bill. Are you sure you want to remove the limit?',
+                    'Your predicted usage is above your billing limit which is likely to result in usage being throttled.',
                 primaryButton: {
-                    children: 'Yes, remove the limit',
+                    children: 'I understand',
                     onClick: () => actuallyUpdateLimit(),
                 },
                 secondaryButton: {
@@ -250,7 +248,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
         setShowBillingLimit(!!customLimitUsd)
         setBillingLimit(
             parseInt(customLimitUsd || '0') ||
-                parseInt(convertUsageToAmount((projectedUsage || 0) * 1.5, product.tiers)) ||
+                parseInt(convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers)) ||
                 100
         )
     }, [customLimitUsd])
@@ -307,7 +305,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                     value: product.current_usage || 0,
                     top: false,
                 },
-                projectedUsage && projectedUsage > (product.current_usage || 0)
+                product.projected_usage && product.projected_usage > (product.current_usage || 0)
                     ? {
                           tooltip: (
                               <>
@@ -315,7 +313,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                               </>
                           ),
                           color: 'border',
-                          value: projectedUsage || 0,
+                          value: product.projected_usage || 0,
                           top: false,
                       }
                     : undefined,
@@ -367,7 +365,10 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                 Predicted bill
                             </LemonLabel>
                             <div className="font-bold text-muted text-2xl">
-                                ${projectedUsage ? convertUsageToAmount(projectedUsage, product.tiers) : '0.00'}
+                                $
+                                {product.projected_usage
+                                    ? convertUsageToAmount(product.projected_usage, product.tiers)
+                                    : '0.00'}
                             </div>
                         </div>
                         <div className="flex-1" />

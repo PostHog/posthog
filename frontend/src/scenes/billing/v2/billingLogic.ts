@@ -10,6 +10,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { forms } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from '@posthog/lemon-ui'
+import { projectUsage } from './billing-utils'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 
@@ -26,15 +27,19 @@ export interface BillingAlertConfig {
     message: string
 }
 
-const parseBillingResponse = (data: any): BillingV2Type => {
+const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
     if (data.billing_period) {
         data.billing_period = {
             current_period_start: dayjs(data.billing_period.current_period_start),
             current_period_end: dayjs(data.billing_period.current_period_end),
         }
+
+        data.products?.forEach((x) => {
+            x.projected_usage = projectUsage(x.current_usage, data.billing_period)
+        })
     }
 
-    return data
+    return data as BillingV2Type
 }
 
 export const billingLogic = kea<billingLogicType>([
@@ -105,9 +110,9 @@ export const billingLogic = kea<billingLogicType>([
                     }
                 }
 
-                const productApproachingLimit = billing?.products.find((x) => {
-                    return x.percentage_usage || 0 > ALLOCATION_THRESHOLD_ALERT
-                })
+                const productApproachingLimit = billing?.products.find(
+                    (x) => x.percentage_usage > ALLOCATION_THRESHOLD_ALERT
+                )
 
                 if (productApproachingLimit) {
                     return {
