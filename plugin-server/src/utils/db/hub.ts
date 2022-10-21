@@ -13,9 +13,16 @@ import { ConnectionOptions } from 'tls'
 import { getPluginServerCapabilities } from '../../capabilities'
 import { defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
+import { KAFKA_JOBS } from '../../config/kafka-topics'
 import { GraphileWorker } from '../../main/graphile-worker/graphile-worker'
 import { connectObjectStorage } from '../../main/services/object_storage'
-import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
+import {
+    EnqueuedPluginJob,
+    Hub,
+    KafkaSecurityProtocol,
+    PluginServerCapabilities,
+    PluginsServerConfig,
+} from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
@@ -223,6 +230,18 @@ export async function createHub(
     const actionManager = new ActionManager(db, capabilities)
     await actionManager.prepare()
 
+    const schedulePluginJob = async (job: EnqueuedPluginJob) => {
+        await kafkaProducer.queueMessage({
+            topic: KAFKA_JOBS,
+            messages: [
+                {
+                    key: job.pluginConfigTeam.toString(),
+                    value: JSON.stringify(job),
+                },
+            ],
+        })
+    }
+
     const hub: Partial<Hub> = {
         ...serverConfig,
         instanceId,
@@ -234,6 +253,7 @@ export async function createHub(
         kafka,
         kafkaProducer,
         statsd,
+        schedulePluginJob,
 
         plugins: new Map(),
         pluginConfigs: new Map(),

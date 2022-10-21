@@ -1,4 +1,3 @@
-import { KAFKA_JOBS } from '../../../config/kafka-topics'
 import { Hub, PluginConfig, PluginLogEntryType } from '../../../types'
 
 type JobRunner = {
@@ -48,15 +47,7 @@ export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
                 pluginConfigId: pluginConfig.id,
                 pluginConfigTeam: pluginConfig.team_id,
             }
-            await server.kafkaProducer.queueMessage({
-                topic: KAFKA_JOBS,
-                messages: [
-                    {
-                        key: pluginConfig.team_id.toString(),
-                        value: JSON.stringify(job),
-                    },
-                ],
-            })
+            await server.schedulePluginJob(job)
         } catch (e) {
             await pluginConfig.vm?.createLogEntry(
                 `Failed to enqueue job ${type} with error: ${e.message}`,
