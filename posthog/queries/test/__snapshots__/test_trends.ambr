@@ -1788,3 +1788,227 @@
   ORDER BY breakdown_value
   '
 ---
+# name: TestFOSSTrends.test_weekly_active_users_daily
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-19 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), toDateTime('2020-01-19 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC'))
+        UNION ALL SELECT counts AS total,
+                         timestamp AS day_start
+        FROM
+          (SELECT d.timestamp,
+                  COUNT(DISTINCT person_id) AS counts
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-19 23:59:59', 'UTC') - toIntervalDay(number)) AS timestamp
+              FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-19 23:59:59', 'UTC')))) d
+           CROSS JOIN
+             (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
+                     person_id
+              FROM
+                (SELECT e.timestamp as timestamp,
+                        pdi.person_id as person_id
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 WHERE team_id = 2
+                   AND event = '$pageview'
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'UTC') ) events
+              WHERE 1 = 1
+                AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'UTC')
+              GROUP BY timestamp,
+                       person_id) e
+           WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
+             AND e.timestamp > d.timestamp - INTERVAL 6 DAY
+           GROUP BY d.timestamp
+           ORDER BY d.timestamp)
+        WHERE 1 = 1
+          AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC'))
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'UTC') )
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestFOSSTrends.test_weekly_active_users_hourly
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfHour(toDateTime('2020-01-09 17:00:00', 'UTC') - toIntervalHour(number)) AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-09 06:00:00', 'UTC')), toDateTime('2020-01-09 17:00:00', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfHour(toDateTime('2020-01-09 06:00:00', 'UTC'))
+        UNION ALL SELECT counts AS total,
+                         timestamp AS day_start
+        FROM
+          (SELECT d.timestamp,
+                  COUNT(DISTINCT person_id) AS counts
+           FROM
+             (SELECT toStartOfHour(toDateTime('2020-01-09 17:00:00', 'UTC') - toIntervalHour(number)) AS timestamp
+              FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-02 06:00:00', 'UTC')), toDateTime('2020-01-09 17:00:00', 'UTC')))) d
+           CROSS JOIN
+             (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
+                     person_id
+              FROM
+                (SELECT e.timestamp as timestamp,
+                        pdi.person_id as person_id
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 WHERE team_id = 2
+                   AND event = '$pageview'
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 06:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-09 17:00:00', 'UTC') ) events
+              WHERE 1 = 1
+                AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 06:00:00', 'UTC')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-09 17:00:00', 'UTC')
+              GROUP BY timestamp,
+                       person_id) e
+           WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
+             AND e.timestamp > d.timestamp - INTERVAL 6 DAY
+           GROUP BY d.timestamp
+           ORDER BY d.timestamp)
+        WHERE 1 = 1
+          AND toDateTime(timestamp, 'UTC') >= toStartOfHour(toDateTime('2020-01-09 06:00:00', 'UTC'))
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-09 17:00:00', 'UTC') )
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestFOSSTrends.test_weekly_active_users_monthly
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfMonth(toDateTime('2020-02-29 23:59:59', 'UTC') - toIntervalMonth(number)) AS day_start
+        FROM numbers(dateDiff('month', toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC')), toDateTime('2020-02-29 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC'))
+        UNION ALL SELECT counts AS total,
+                         timestamp AS day_start
+        FROM
+          (SELECT d.timestamp,
+                  COUNT(DISTINCT person_id) AS counts
+           FROM
+             (SELECT toStartOfMonth(toDateTime('2020-02-29 23:59:59', 'UTC') - toIntervalMonth(number)) AS timestamp
+              FROM numbers(dateDiff('month', toStartOfMonth(toDateTime('2019-11-24 00:00:00', 'UTC')), toDateTime('2020-02-29 23:59:59', 'UTC')))) d
+           CROSS JOIN
+             (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
+                     person_id
+              FROM
+                (SELECT e.timestamp as timestamp,
+                        pdi.person_id as person_id
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 WHERE team_id = 2
+                   AND event = '$pageview'
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC') ) events
+              WHERE 1 = 1
+                AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'UTC')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC')
+              GROUP BY timestamp,
+                       person_id) e
+           WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
+             AND e.timestamp > d.timestamp - INTERVAL 6 DAY
+           GROUP BY d.timestamp
+           ORDER BY d.timestamp)
+        WHERE 1 = 1
+          AND toDateTime(timestamp, 'UTC') >= toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC'))
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC') )
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestFOSSTrends.test_weekly_active_users_weekly
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfWeek(toDateTime('2020-01-18 23:59:59', 'UTC') - toIntervalWeek(number), 0) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'), 0), toDateTime('2020-01-18 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'), 0)
+        UNION ALL SELECT counts AS total,
+                         timestamp AS day_start
+        FROM
+          (SELECT d.timestamp,
+                  COUNT(DISTINCT person_id) AS counts
+           FROM
+             (SELECT toStartOfWeek(toDateTime('2020-01-18 23:59:59', 'UTC') - toIntervalWeek(number), 0) AS timestamp
+              FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-22 00:00:00', 'UTC'), 0), toDateTime('2020-01-18 23:59:59', 'UTC')))) d
+           CROSS JOIN
+             (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
+                     person_id
+              FROM
+                (SELECT e.timestamp as timestamp,
+                        pdi.person_id as person_id
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 WHERE team_id = 2
+                   AND event = '$pageview'
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC') ) events
+              WHERE 1 = 1
+                AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC')
+              GROUP BY timestamp,
+                       person_id) e
+           WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
+             AND e.timestamp > d.timestamp - INTERVAL 6 DAY
+           GROUP BY d.timestamp
+           ORDER BY d.timestamp)
+        WHERE 1 = 1
+          AND toDateTime(timestamp, 'UTC') >= toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'), 0)
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC') )
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
