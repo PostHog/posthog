@@ -530,8 +530,9 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
 
 class SendUsageNoLicenseTest(APIBaseTest):
     @freeze_time("2021-10-10T23:01:00Z")
+    @patch("ee.tasks.usage_report.Client")
     @patch("requests.post")
-    def test_no_license(self, mock_post):
+    def test_no_license(self, mock_post, mock_client):
         # Same test, we just don't include the LicensedTestMixin so no license
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")
