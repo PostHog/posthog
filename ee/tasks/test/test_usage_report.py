@@ -1,5 +1,5 @@
 from typing import Dict, List
-from unittest.mock import ANY, Mock, patch
+from unittest.mock import ANY, MagicMock, Mock, patch
 
 import structlog
 from dateutil.relativedelta import relativedelta
@@ -450,13 +450,15 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         flush_persons_and_events()
 
     @freeze_time("2021-10-10T23:01:00Z")
-    @patch("posthoganalytics.capture")
+    @patch("ee.tasks.usage_report.Client")
     @patch("requests.post")
-    def test_send_usage(self, mock_post, mock_capture):
+    def test_send_usage(self, mock_post, mock_client):
         mockresponse = Mock()
         mock_post.return_value = mockresponse
         mockresponse.status_code = 200
         mockresponse.json = lambda: {"ok": True}
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
 
         all_reports = send_all_org_usage_reports(dry_run=False)
         license = License.objects.first()
@@ -465,22 +467,26 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mock_post.assert_called_once_with(
             f"{BILLING_SERVICE_URL}/api/usage", json=all_reports[0], headers={"Authorization": f"Bearer {token}"}
         )
-        mock_capture.assert_any_call(
+
+        mock_posthog.capture.assert_any_call(
             get_machine_id(),
             "organization usage report",
             {**all_reports[0], "scope": "machine"},
             groups={"instance": ANY},
+            timestamp=None,
         )
 
     @freeze_time("2021-10-10T23:01:00Z")
-    @patch("posthoganalytics.capture")
+    @patch("ee.tasks.usage_report.Client")
     @patch("requests.post")
-    def test_send_usage_cloud(self, mock_post, mock_capture):
+    def test_send_usage_cloud(self, mock_post, mock_client):
         with self.is_cloud(True):
             mockresponse = Mock()
             mock_post.return_value = mockresponse
             mockresponse.status_code = 200
             mockresponse.json = lambda: {"ok": True}
+            mock_posthog = MagicMock()
+            mock_client.return_value = mock_posthog
 
             all_reports = send_all_org_usage_reports(dry_run=False)
             license = License.objects.first()
@@ -489,17 +495,19 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             mock_post.assert_called_once_with(
                 f"{BILLING_SERVICE_URL}/api/usage", json=all_reports[0], headers={"Authorization": f"Bearer {token}"}
             )
-            mock_capture.assert_any_call(
+
+            mock_posthog.capture.assert_any_call(
                 self.user.distinct_id,
                 "organization usage report",
                 {**all_reports[0], "scope": "user"},
                 groups={"instance": "http://localhost:8000", "organization": str(self.organization.id)},
+                timestamp=None,
             )
 
     @freeze_time("2021-10-10T23:01:00Z")
-    @patch("posthoganalytics.capture")
+    @patch("ee.tasks.usage_report.Client")
     @patch("requests.post")
-    def test_send_usage_billing_service_not_reachable(self, mock_post, mock_capture):
+    def test_send_usage_billing_service_not_reachable(self, mock_post, mock_client):
         mockresponse = Mock()
         mock_post.return_value = mockresponse
         mockresponse.status_code = 404
@@ -507,13 +515,16 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mockresponse.json = lambda: {"code": "not_found"}
         mockresponse.content = ""
 
-        send_all_org_usage_reports(dry_run=False)
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
 
-        mock_capture.assert_any_call(
+        send_all_org_usage_reports(dry_run=False)
+        mock_posthog.capture.assert_any_call(
             get_machine_id(),
             "billing service usage report failure",
             {"code": 404, "scope": "machine"},
             groups={"instance": ANY},
+            timestamp=None,
         )
 
 
