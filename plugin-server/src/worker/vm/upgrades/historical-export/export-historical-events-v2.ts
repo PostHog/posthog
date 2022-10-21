@@ -172,8 +172,7 @@ export function addHistoricalEventsExportCapabilityV2(
             hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, JOB_SPEC)
         )
     }
-
-    const oldRunEveryMinute = tasks.schedule.runEveryMinute?.exec
+    const oldRunEveryMinute = tasks.schedule.runEveryMinute
 
     tasks.job[INTERFACE_JOB_NAME] = {
         name: INTERFACE_JOB_NAME,
@@ -222,9 +221,11 @@ export function addHistoricalEventsExportCapabilityV2(
         name: 'runEveryMinute',
         type: PluginTaskType.Schedule,
         exec: async () => {
-            await oldRunEveryMinute?.()
+            await oldRunEveryMinute?.exec?.()
             await coordinateHistoricalExport()
         },
+        // :TRICKY: We don't want to track app metrics for runEveryMinute for historical exports _unless_ plugin also has `runEveryMinute`
+        __ignoreForAppMetrics: !oldRunEveryMinute || !!oldRunEveryMinute.__ignoreForAppMetrics,
     }
 
     async function coordinateHistoricalExport(update?: CoordinationUpdate) {
