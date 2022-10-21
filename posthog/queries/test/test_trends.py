@@ -4078,6 +4078,24 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
+        @snapshot_clickhouse_queries
+        def test_weekly_active_users_monthly(self):
+            self._create_active_users_events()
+
+            data = {
+                "date_from": "2019-12-01",
+                "date_to": "2020-02-29",  # T'was a leap year
+                "interval": "month",
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+            }
+
+            filter = Filter(data=data)
+            result = trends().run(filter, self.team)
+            self.assertEqual(result[0]["days"], ["2019-12-01", "2020-01-01", "2020-02-01"])
+            # No users fall into the period of 7 days during or before the first day of any of those three months
+            self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0])
+
+        @snapshot_clickhouse_queries
         def test_weekly_active_users_daily(self):
             self._create_active_users_events()
 
@@ -4156,22 +4174,7 @@ def trend_test_factory(trends):
             # Same as test_weekly_active_users_daily
             self.assertEqual(result[0]["data"], [1.0, 3.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 1.0, 0.0])
 
-        def test_weekly_active_users_monthly(self):
-            self._create_active_users_events()
-
-            data = {
-                "date_from": "2019-12-01",
-                "date_to": "2020-02-29",  # T'was a leap year
-                "interval": "month",
-                "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
-            }
-
-            filter = Filter(data=data)
-            result = trends().run(filter, self.team)
-            self.assertEqual(result[0]["days"], ["2019-12-01", "2020-01-01", "2020-02-01"])
-            # No users fall into the period of 7 days during or before the first day of any of those three months
-            self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0])
-
+        @snapshot_clickhouse_queries
         def test_weekly_active_users_weekly(self):
             self._create_active_users_events()
 
@@ -4187,6 +4190,7 @@ def trend_test_factory(trends):
             self.assertEqual(result[0]["days"], ["2019-12-29", "2020-01-05", "2020-01-12"])
             self.assertEqual(result[0]["data"], [0.0, 1.0, 3.0])
 
+        @snapshot_clickhouse_queries
         def test_weekly_active_users_hourly(self):
             self._create_active_users_events()
 
