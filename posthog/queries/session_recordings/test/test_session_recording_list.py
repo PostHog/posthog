@@ -88,6 +88,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
                     "$current_url": "https://blah.com/blah",
                     "$host": "blah.com",
                     "$pathname": "/blah",
+                    "$geoip_country_code": "KR",
                 },
             )
 
@@ -101,6 +102,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(session_recordings[0]["properties"]["$current_url"], "https://blah.com/blah")
             self.assertEqual(session_recordings[0]["properties"]["$host"], "blah.com")
             self.assertEqual(session_recordings[0]["properties"]["$pathname"], "/blah")
+            self.assertEqual(session_recordings[0]["properties"]["$geoip_country_code"], "KR")
             self.assertNotIn("should_not_be_included", session_recordings[0]["properties"])
 
         @freeze_time("2021-01-21T20:00:00.000Z")
