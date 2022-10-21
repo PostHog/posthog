@@ -96,9 +96,10 @@ export const billingLogic = kea<billingLogicType>([
         billingAlert: [
             (s) => [s.billing],
             (billing): BillingAlertConfig | undefined => {
-                console.log(billing?.products)
-
-                const productOverLimit = billing?.products.find((x) => {
+                if (!billing) {
+                    return
+                }
+                const productOverLimit = billing.products.find((x) => {
                     return x.percentage_usage > 1
                 })
 
@@ -110,7 +111,7 @@ export const billingLogic = kea<billingLogicType>([
                     }
                 }
 
-                const productApproachingLimit = billing?.products.find(
+                const productApproachingLimit = billing.products.find(
                     (x) => x.percentage_usage > ALLOCATION_THRESHOLD_ALERT
                 )
 
