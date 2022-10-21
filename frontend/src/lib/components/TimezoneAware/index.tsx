@@ -11,6 +11,7 @@ import { dayjs } from 'lib/dayjs'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import clsx from 'clsx'
 import React from 'react'
+import { styles } from '../../../styles/vars'
 
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY HH:mm'
 
@@ -107,7 +108,7 @@ function TZLabelRaw({
         )
 
         return (
-            <Popover content={PopoverContent} onVisibleChange={handleVisibleChange}>
+            <Popover content={PopoverContent} onVisibleChange={handleVisibleChange} zIndex={styles.zPopup}>
                 {innerContent}
             </Popover>
         )

@@ -24,7 +24,7 @@ prompts_config = [
             {
                 "step": 0,  # step in the flow
                 "type": "tooltip",  # type of prompt, for now only tooltip
-                "title": "Welcome to PostHog!",  # title of the prompt
+                "title": "Get more from PostHog",  # title of the prompt
                 "text": "We have prepared a list of suggestions and resources to improve your experience with the tool. You can access it at any time by clicking on the question mark icon in the top right corner of the screen, and then selecting 'How to be successful with PostHog'.",
                 "placement": "bottom-start",
                 "buttons": [
@@ -106,6 +106,7 @@ prompts_config = [
         "rule": {
             "path": {"must_match": ["/*"], "exclude": ["/ingestion", "/ingestion/*"]},
             "must_be_completed": ["start-flow"],
+            "requires_opt_in": True,
         },
         "type": "one-off",
     },

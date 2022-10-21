@@ -529,7 +529,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 const oldest = [...insightTiles.map((i) => i.last_refresh)].sort((a, b) =>
                     dayjs(a).isAfter(dayjs(b)) ? 1 : -1
                 )
-                return oldest.length > 0 ? dayjs(oldest[0]) : null
+                const candidateShortest = oldest.length > 0 ? dayjs(oldest[0]) : null
+                return candidateShortest?.isValid() ? candidateShortest : null
             },
         ],
         dashboard: [

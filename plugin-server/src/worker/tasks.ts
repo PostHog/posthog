@@ -3,8 +3,9 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { Action, EnqueuedPluginJob, Hub, PluginTaskType, PostIngestionEvent, Team } from '../types'
 import { convertToProcessedPluginEvent } from '../utils/event'
 import { EventPipelineRunner } from './ingestion/event-pipeline/runner'
+import { loadSchedule } from './plugins/loadSchedule'
 import { runPluginTask, runProcessEvent } from './plugins/run'
-import { loadSchedule, setupPlugins } from './plugins/setup'
+import { setupPlugins } from './plugins/setup'
 import { teardownPlugins } from './plugins/teardown'
 
 type TaskRunner = (hub: Hub, args: any) => Promise<any> | any

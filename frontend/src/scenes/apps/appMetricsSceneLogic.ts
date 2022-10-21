@@ -35,6 +35,7 @@ export interface HistoricalExportInfo {
     finished_at?: string
     duration?: number
     progress?: number
+    failure_reason?: string
 }
 
 export interface AppMetrics {
@@ -90,12 +91,12 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
     actions({
         setActiveTab: (tab: AppMetricsTab) => ({ tab }),
         setDateFrom: (dateFrom: string) => ({ dateFrom }),
-        openErrorDetailsDrawer: (errorType: string, category: string, jobId?: string) => ({
+        openErrorDetailsModal: (errorType: string, category: string, jobId?: string) => ({
             errorType,
             category,
             jobId,
         }),
-        closeErrorDetailsDrawer: true,
+        closeErrorDetailsModal: true,
     }),
 
     reducers({
@@ -111,11 +112,11 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                 setDateFrom: (_, { dateFrom }) => dateFrom,
             },
         ],
-        errorDetailsDrawerError: [
+        errorDetailsModalError: [
             null as string | null,
             {
-                openErrorDetailsDrawer: (_, { errorType }) => errorType,
-                closeErrorDetailsDrawer: () => null,
+                openErrorDetailsModal: (_, { errorType }) => errorType,
+                closeErrorDetailsModal: () => null,
             },
         ],
     }),
@@ -156,7 +157,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
         errorDetails: [
             [] as Array<AppMetricErrorDetail>,
             {
-                openErrorDetailsDrawer: async ({ category, jobId, errorType }) => {
+                openErrorDetailsModal: async ({ category, jobId, errorType }) => {
                     const params = toParams({ category, job_id: jobId, error_type: errorType })
                     const { result } = await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}/error_details?${params}`
