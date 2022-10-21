@@ -5,11 +5,11 @@ import { BaseMathType, CountPerActorMathType, PropertyMathType } from '~/types'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 
 export enum MathCategory {
-    EventCount = 'event_count',
-    SessionCount = 'session_count',
-    ActorCount = 'actor_count',
-    EventPerActorCount = 'event_per_actor_count',
-    PropertyValue = 'property_value',
+    EventCount,
+    SessionCount,
+    ActorCount,
+    EventCountPerActor,
+    PropertyValue,
 }
 
 export interface MathDefinition {
@@ -205,43 +205,43 @@ export const COUNT_PER_ACTOR_MATH_DEFINITIONS: Record<CountPerActorMathType, Mat
         name: 'Average',
         shortName: 'average',
         description: <>Event count per actor average.</>,
-        category: MathCategory.EventPerActorCount,
+        category: MathCategory.EventCountPerActor,
     },
     [CountPerActorMathType.Minimum]: {
         name: 'Minimum',
         shortName: 'minimum',
         description: <>Event count per actor minimum.</>,
-        category: MathCategory.EventPerActorCount,
+        category: MathCategory.EventCountPerActor,
     },
     [CountPerActorMathType.Maximum]: {
         name: 'Maximum',
         shortName: 'maximum',
         description: <>Event count per actor maximum.</>,
-        category: MathCategory.EventPerActorCount,
+        category: MathCategory.EventCountPerActor,
     },
     [CountPerActorMathType.Median]: {
         name: 'Median',
         shortName: 'median',
         description: <>Event count per actor 50th percentile.</>,
-        category: MathCategory.EventPerActorCount,
+        category: MathCategory.EventCountPerActor,
     },
     [CountPerActorMathType.P90]: {
         name: '90th percentile',
         shortName: '90th percentile',
         description: <>Event count per actor 90th percentile.</>,
-        category: MathCategory.EventPerActorCount,
+        category: MathCategory.EventCountPerActor,
     },
     [CountPerActorMathType.P95]: {
         name: '95th percentile',
         shortName: '95th percentile',
         description: <>Event count per actor 95th percentile.</>,
-        category: MathCategory.EventPerActorCount,
+        category: MathCategory.EventCountPerActor,
     },
     [CountPerActorMathType.P99]: {
         name: '99th percentile',
         shortName: '99th percentile',
         description: <>Event count per actor 99th percentile.</>,
-        category: MathCategory.EventPerActorCount,
+        category: MathCategory.EventCountPerActor,
     },
 }
 
