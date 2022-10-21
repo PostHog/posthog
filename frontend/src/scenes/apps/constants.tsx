@@ -23,4 +23,8 @@ export const DescriptionColumns: Record<
         successes_on_retry: 'Events delivered on retry',
         failures: 'Failed events',
     },
+    [AppMetricsTab.ScheduledTask]: {
+        successes: 'Successes',
+        failures: 'Failures',
+    },
 }

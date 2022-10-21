@@ -49,6 +49,11 @@ export function AppMetrics(): JSX.Element {
                             <MetricsTab tab={AppMetricsTab.ExportEvents} />
                         </Tabs.TabPane>
                     )}
+                    {showTab(AppMetricsTab.ScheduledTask) && (
+                        <Tabs.TabPane tab="Scheduled tasks" key={AppMetricsTab.ScheduledTask}>
+                            <MetricsTab tab={AppMetricsTab.ScheduledTask} />
+                        </Tabs.TabPane>
+                    )}
                     {showTab(AppMetricsTab.HistoricalExports) && (
                         <Tabs.TabPane tab="Historical Exports" key={AppMetricsTab.HistoricalExports}>
                             <HistoricalExportsTab />
