@@ -81,6 +81,8 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
                 "user",
                 self.base_time,
                 properties={
+                    "$session_id": "1",
+                    "$window_id": "1",
                     "should_not_be_included": "1",
                     "$browser": "Chrome",
                     "$os": "Mac OS X",
