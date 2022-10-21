@@ -63,7 +63,7 @@ class TeamUsageReport:
     event_count_by_name: Dict
     # Recordings
     recording_count_in_period: int
-    recording_count_lifetime: int
+    recording_count_total: int
     duplicate_distinct_ids: Dict
     multiple_ids_per_person: Dict
     # Persons and Groups
@@ -182,7 +182,7 @@ def get_org_usage_report(period: Tuple[datetime, datetime], team_ids: List[str])
             event_count_by_lib=get_events_count_for_team_by_client_lib(team_id, period_start, period_end),
             event_count_by_name=get_events_count_for_team_by_event_type(team_id, period_start, period_end),
             recording_count_in_period=get_recording_count_for_team_and_period(team_id, period_start, period_end),
-            recording_count_lifetime=get_recording_count_for_team(team_id),
+            recording_count_total=get_recording_count_for_team(team_id),
             duplicate_distinct_ids=count_duplicate_distinct_ids_for_team(team_id),
             multiple_ids_per_person=count_total_persons_with_multiple_ids(team_id),
             group_types_total=GroupTypeMapping.objects.filter(team_id=team_id).count(),
@@ -263,7 +263,9 @@ def get_instance_metadata(period: Tuple[datetime, datetime], has_license: bool) 
     return metadata
 
 
-def send_all_org_usage_reports(dry_run: bool = False, at: Optional[datetime] = None) -> List[Dict]:
+def send_all_org_usage_reports(
+    dry_run: bool = False, at: Optional[datetime] = None, only_organization_id: Optional[str] = None
+) -> List[Dict]:
     """
     Generic way to generate and send org usage reports.
     Specify Postgres or ClickHouse for event queries.
@@ -295,6 +297,8 @@ def send_all_org_usage_reports(dry_run: bool = False, at: Optional[datetime] = N
             }
 
     for organization_id, org in org_data.items():
+        if only_organization_id and organization_id != only_organization_id:
+            continue
         try:
             org_owner = get_org_owner_or_first_user(organization_id)
             if not org_owner:
