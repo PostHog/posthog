@@ -36,9 +36,9 @@ export const startJobsConsumer = async ({
                 status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
                     value: message.value,
                 })
-                producer
-                    .queueMessage({ topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE, messages: [message] })
-                    .then(() => resolveOffset(message.offset))
+                // TODO: handle resolving offsets asynchronously
+                await producer.queueMessage({ topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE, messages: [message] })
+                resolveOffset(message.offset)
                 continue
             }
 
@@ -50,9 +50,9 @@ export const startJobsConsumer = async ({
                 status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
                     error,
                 })
-                producer
-                    .queueMessage({ topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE, messages: [message] })
-                    .then(() => resolveOffset(message.offset))
+                // TODO: handle resolving offsets asynchronously
+                await producer.queueMessage({ topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE, messages: [message] })
+                resolveOffset(message.offset)
                 continue
             }
 
