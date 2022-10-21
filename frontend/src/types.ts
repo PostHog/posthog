@@ -1528,9 +1528,9 @@ export interface FeatureFlagType {
 
 export interface FeatureFlagRollbackConditions {
     threshold: number
-    threshold_metric: FilterType
-    operator: 'gt' | 'lt'
     threshold_type: string
+    threshold_metric?: FilterType
+    operator?: 'gt' | 'lt'
 }
 
 export interface CombinedFeatureFlagAndValueType {
