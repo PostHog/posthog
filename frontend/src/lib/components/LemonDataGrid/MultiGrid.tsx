@@ -586,6 +586,7 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
                 overflowX: 'hidden',
                 overflowY: 'hidden',
                 position: 'absolute',
+                height: this._getBottomGridHeight(),
                 zIndex: 10,
                 ...styleBottomLeftGrid,
             }
