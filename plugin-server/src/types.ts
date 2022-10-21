@@ -660,10 +660,11 @@ export interface Group extends BaseGroup {
     version: number
 }
 
+export type GroupKey = string
 /** Clickhouse Group model */
 export interface ClickhouseGroup {
     group_type_index: GroupTypeIndex
-    group_key: string
+    group_key: GroupKey
     created_at: string
     team_id: number
     group_properties: string
