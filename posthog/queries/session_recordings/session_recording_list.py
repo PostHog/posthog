@@ -125,7 +125,7 @@ class SessionRecordingList(EventQuery):
         {core_recordings_query}
     ) AS session_recordings
     ON session_recordings.distinct_id = events.distinct_id
-    JOIN (
+    LEFT OUTER JOIN (
         {core_single_pageview_event_query}
     ) AS first_pageview_event
     ON session_recordings.session_id = first_pageview_event.pageview_session_id
@@ -156,7 +156,7 @@ class SessionRecordingList(EventQuery):
     FROM (
         {core_recordings_query}
     ) AS session_recordings
-    JOIN (
+    LEFT OUTER JOIN (
         {core_single_pageview_event_query}
     ) AS first_pageview_event
     ON session_recordings.session_id = first_pageview_event.pageview_session_id
