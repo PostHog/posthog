@@ -54,7 +54,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                     'px-3 p-1 text-xs': isFullScreen,
                 })}
             >
-                <div className="mr-2">
+                <div className="mr-2 ph-no-capture">
                     {!sessionPerson ? (
                         <LemonSkeleton.Circle className="w-12 h-12" />
                     ) : (
@@ -65,7 +65,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                         />
                     )}
                 </div>
-                <div className="flex-1 overflow-hidden">
+                <div className="flex-1 overflow-hidden ph-no-capture">
                     <div className="font-bold">
                         {!sessionPerson || !recordingStartTime ? (
                             <LemonSkeleton className="w-1/3 my-1" />
@@ -82,7 +82,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                             </div>
                         )}
                     </div>
-                    <div className=" text-muted">
+                    <div className="text-muted">
                         {loading ? <LemonSkeleton className="w-1/4 my-1" /> : <span>{description}</span>}
                     </div>
                 </div>

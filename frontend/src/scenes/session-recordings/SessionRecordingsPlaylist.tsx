@@ -136,7 +136,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                                         <div className="truncate font-medium text-primary ph-no-capture">
                                             {asDisplay(rec.person, 25)}
                                         </div>
-                                        <div className="flex flex-row flex-nowrap shrink-0 gap-2">
+                                        <div className="flex flex-row flex-nowrap shrink-0 gap-2 ph-no-capture">
                                             <PropertyIcon
                                                 className="text-muted-alt opacity-75"
                                                 property="$browser"
