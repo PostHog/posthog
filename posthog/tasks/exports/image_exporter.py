@@ -1,5 +1,4 @@
 import json
-import logging
 import os
 import time
 import uuid
@@ -16,7 +15,7 @@ from selenium.webdriver.support.wait import WebDriverWait
 from sentry_sdk import capture_exception, configure_scope
 from statshog.defaults.django import statsd
 from webdriver_manager.chrome import ChromeDriverManager
-from webdriver_manager.utils import ChromeType
+from webdriver_manager.core.utils import ChromeType
 
 from posthog.internal_metrics import incr, timing
 from posthog.logging.timing import timed
@@ -47,7 +46,7 @@ def get_driver() -> webdriver.Chrome:
         return webdriver.Chrome(os.environ["CHROMEDRIVER_BIN"], options=options)
 
     return webdriver.Chrome(
-        service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE, log_level=logging.ERROR).install()),
+        service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE).install()),
         options=options,
     )
 

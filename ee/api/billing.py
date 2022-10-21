@@ -82,7 +82,7 @@ def get_cached_current_usage(organization: Organization) -> Dict[str, int]:
     """
     Calculate the actual current usage for an organization - only used if a subscription does not exist
     """
-    cache_key: str = f"monthly_usage_{organization.id}"
+    cache_key: str = f"monthly_usage_breakdown_{organization.id}"
     usage: Optional[Dict[str, int]] = cache.get(cache_key)
 
     if usage is None:
@@ -131,12 +131,12 @@ class BillingViewset(viewsets.GenericViewSet):
 
         # If on Cloud and we have the property billing - return 404 as we always use legacy billing it it exists
         if hasattr(org, "billing"):
-            if org.billing:  # type: ignore
-                raise NotFound("Billing V2 is not enabled for this organization")
+            if org.billing.stripe_subscription_id:  # type: ignore
+                raise NotFound("Billing V1 is active for this organization")
 
         response: Dict[str, Any] = {}
 
-        if license:
+        if org and license and license.is_v2_license:
             response["license"] = {"plan": license.plan}
             billing_service_token = build_billing_token(license, str(org.id))
 
@@ -164,11 +164,12 @@ class BillingViewset(viewsets.GenericViewSet):
         # The default response is used if there is no subscription
         if not response.get("products"):
             products = self._get_products()
-            calculated_usage = get_cached_current_usage(org)
+            calculated_usage = get_cached_current_usage(org) if org else None
 
-            for product in products:
-                if product["type"] in calculated_usage:
-                    product["current_usage"] = calculated_usage[product["type"]]
+            if calculated_usage is not None:
+                for product in products:
+                    if product["type"] in calculated_usage:
+                        product["current_usage"] = calculated_usage[product["type"]]
             response["products"] = products
 
         return Response(response)
@@ -178,7 +179,7 @@ class BillingViewset(viewsets.GenericViewSet):
         license = License.objects.first_valid()
         if not license:
             raise Exception("There is no license configured for this instance yet.")
-        org = self._get_org()
+        org = self._get_org_required()
 
         billing_service_token = build_billing_token(license, str(org.id))
 
@@ -201,7 +202,7 @@ class BillingViewset(viewsets.GenericViewSet):
     @action(methods=["GET"], detail=False)
     def activation(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = License.objects.first_valid()
-        organization = self._get_org()
+        organization = self._get_org_required()
 
         redirect_uri = f"{settings.SITE_URL or request.headers.get('Host')}/organization/billing"
         url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}"
@@ -221,7 +222,8 @@ class BillingViewset(viewsets.GenericViewSet):
                 "A valid license key already exists. This must be removed before a new one can be added."
             )
 
-        organization = self._get_org()
+        organization = self._get_org_required()
+
         serializer = LicenseKeySerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -243,8 +245,13 @@ class BillingViewset(viewsets.GenericViewSet):
         self._update_license_details(license, data["license"])
         return Response({"success": True})
 
-    def _get_org(self) -> Organization:
+    def _get_org(self) -> Optional[Organization]:
         org = None if self.request.user.is_anonymous else self.request.user.organization
+
+        return org
+
+    def _get_org_required(self) -> Organization:
+        org = self._get_org()
 
         if not org:
             raise Exception("You cannot setup billing without an organization configured.")

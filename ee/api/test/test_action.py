@@ -4,6 +4,7 @@ import pytest
 from django.utils import timezone
 from rest_framework import status
 
+from posthog.cloud_utils import is_cloud
 from posthog.models import Action, Tag
 from posthog.test.base import APIBaseTest
 
@@ -58,13 +59,16 @@ class TestActionApi(APIBaseTest):
             key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
         )
 
+        # Ensure the cloud check is cached to not affect the number of queries
+        assert not is_cloud()
+
         tag = Tag.objects.create(name="tag", team=self.team)
         for i in range(20):
             action = Action.objects.create(team=self.team, name=f"action_{i}")
             action.tagged_items.create(tag=tag)
 
-        # django_session + user + team + organizationmembership + organization + action + taggeditem + actionstep + cloud license check
-        with self.assertNumQueries(9):
+        # django_session + user + team + organizationmembership + organization + action + taggeditem + actionstep
+        with self.assertNumQueries(8):
             response = self.client.get(f"/api/projects/{self.team.id}/actions")
         self.assertEqual(response.json()["results"][0]["tags"][0], "tag")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

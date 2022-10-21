@@ -20,7 +20,7 @@ Error handling:
 
 Note:
 - parallelism is only settable by superusers to avoid abuse.
-- Double-processing might be possible if a task is queued in graphile for a long time
+- Double-processing might be possible if a task is queued in graphile worker for a long time
 */
 
 import { Plugin, PluginEvent, PluginMeta, RetryError } from '@posthog/plugin-scaffold'
@@ -179,28 +179,26 @@ export function addHistoricalEventsExportCapabilityV2(
         name: INTERFACE_JOB_NAME,
         type: PluginTaskType.Job,
         exec: async (payload: ExportHistoricalEventsUIPayload) => {
+            const id = payload.$job_id || String(Math.floor(Math.random() * 10000 + 1))
+            const parallelism = Number(payload.parallelism ?? 1)
+            const [dateFrom, dateTo] = getTimestampBoundaries(payload)
+            const params: ExportParams = {
+                id,
+                parallelism,
+                dateFrom,
+                dateTo,
+            }
+
             // only let one export run at a time
             const alreadyRunningExport = await getExportParameters()
             if (!!alreadyRunningExport) {
-                createLog('Export already running, not starting another.', {
-                    type: PluginLogEntryType.Warn,
-                })
+                await stopExport(params, 'Export already running, not starting another.', 'fail', { keepEntry: true })
                 return
             }
 
             // Clear old (conflicting) storage
             await meta.storage.del(EXPORT_COORDINATION_KEY)
-
-            const id = payload.$job_id || String(Math.floor(Math.random() * 10000 + 1))
-            const parallelism = Number(payload.parallelism ?? 1)
-            const [dateFrom, dateTo] = getTimestampBoundaries(payload)
-
-            await meta.storage.set(EXPORT_PARAMETERS_KEY, {
-                id,
-                parallelism,
-                dateFrom,
-                dateTo,
-            } as ExportParams)
+            await meta.storage.set(EXPORT_PARAMETERS_KEY, params)
 
             createLog(`Starting export ${dateFrom} - ${dateTo}. id=${id}, parallelism=${parallelism}`, {
                 type: PluginLogEntryType.Info,
@@ -284,13 +282,13 @@ export function addHistoricalEventsExportCapabilityV2(
                     await startChunk(payload, payload.progress)
                 })
             )
-
-            await meta.storage.set(EXPORT_COORDINATION_KEY, {
-                done: update.done,
-                running: update.running,
-                progress: update.progress,
-            })
         }
+
+        await meta.storage.set(EXPORT_COORDINATION_KEY, {
+            done: update.done,
+            running: update.running,
+            progress: update.progress,
+        })
     }
 
     async function calculateCoordination(
@@ -529,8 +527,17 @@ export function addHistoricalEventsExportCapabilityV2(
         }
     }
 
-    async function stopExport(params: ExportParams, message: string, status: 'success' | 'fail') {
-        await meta.storage.del(EXPORT_PARAMETERS_KEY)
+    async function stopExport(
+        params: ExportParams,
+        message: string,
+        status: 'success' | 'fail',
+        options: { keepEntry?: boolean } = {}
+    ) {
+        if (!options.keepEntry) {
+            await meta.storage.del(EXPORT_PARAMETERS_KEY)
+        }
+
+        const payload = status == 'success' ? params : { ...params, failure_reason: message }
         await createPluginActivityLog(
             hub,
             pluginConfig.team_id,
@@ -540,7 +547,7 @@ export function addHistoricalEventsExportCapabilityV2(
                 trigger: {
                     job_id: params.id.toString(),
                     job_type: INTERFACE_JOB_NAME,
-                    payload: params,
+                    payload,
                 },
             }
         )

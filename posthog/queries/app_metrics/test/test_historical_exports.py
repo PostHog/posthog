@@ -103,7 +103,9 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                 activity="export_fail",
                 detail=Detail(
                     name="Some export plugin",
-                    trigger=Trigger(job_type="Export historical events V2", job_id="1234", payload={}),
+                    trigger=Trigger(
+                        job_type="Export historical events V2", job_id="1234", payload={"failure_reason": "foobar"}
+                    ),
                 ),
             )
 
@@ -119,6 +121,7 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                 "payload": SAMPLE_PAYLOAD,
                 "duration": 2 * 60 * 60,
                 "created_by": mock.ANY,
+                "failure_reason": "foobar",
             },
         )
 
