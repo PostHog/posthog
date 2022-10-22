@@ -10,6 +10,7 @@ import { actionToUrl, urlToAction } from 'kea-router'
 import { toParams } from 'lib/utils'
 import { HISTORICAL_EXPORT_JOB_NAME_V2 } from 'scenes/plugins/edit/interface-jobs/PluginJobConfiguration'
 import { interfaceJobsLogic, InterfaceJobsProps } from '../plugins/edit/interface-jobs/interfaceJobsLogic'
+import { dayjs } from 'lib/dayjs'
 
 export interface AppMetricsLogicProps {
     /** Used as the logic's key */
@@ -111,8 +112,8 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
-        dateFrom: [
-            DEFAULT_DATE_FROM as string,
+        selectedDateFrom: [
+            null as string | null,
             {
                 setDateFrom: (_, { dateFrom }) => dateFrom,
             },
@@ -141,10 +142,12 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             null as AppMetricsResponse | null,
             {
                 loadMetrics: async () => {
-                    const params = toParams({ category: values.activeTab, date_from: values.dateFrom })
-                    return await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}?${params}`
-                    )
+                    if (values.activeTab && values.dateFrom) {
+                        const params = toParams({ category: values.activeTab, date_from: values.dateFrom })
+                        return await api.get(
+                            `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}?${params}`
+                        )
+                    }
                 },
             },
         ],
@@ -189,6 +192,32 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
         ],
 
         defaultTab: [(s) => [s.pluginConfig], () => INITIAL_TABS.filter((tab) => values.showTab(tab))[0]],
+
+        currentTime: [() => [], () => dayjs()],
+
+        defaultDateFrom: [
+            (s) => [s.pluginConfig, s.currentTime],
+            (pluginConfig, currentTime) => {
+                if (!pluginConfig?.created_at) {
+                    return DEFAULT_DATE_FROM
+                }
+
+                const installedAt = dayjs.utc(pluginConfig.created_at)
+                const daysSinceInstall = currentTime.diff(installedAt, 'days', true)
+                if (daysSinceInstall <= 1) {
+                    return '-24h'
+                } else if (daysSinceInstall <= 7) {
+                    return '-7d'
+                } else {
+                    return DEFAULT_DATE_FROM
+                }
+            },
+        ],
+
+        dateFrom: [
+            (s) => [s.selectedDateFrom, s.defaultDateFrom],
+            (selectedDateFrom, defaultDateFrom) => selectedDateFrom ?? defaultDateFrom ?? DEFAULT_DATE_FROM,
+        ],
 
         showTab: [
             () => [],
@@ -306,8 +335,8 @@ function getUrl(values: appMetricsSceneLogicType['values'], props: appMetricsSce
     if (values.activeTab && values.activeTab !== values.defaultTab) {
         params['tab'] = values.activeTab
     }
-    if (values.dateFrom !== DEFAULT_DATE_FROM) {
-        params['from'] = values.dateFrom
+    if (values.selectedDateFrom) {
+        params['from'] = values.selectedDateFrom
     }
 
     return urls.appMetrics(props.pluginConfigId, params)
