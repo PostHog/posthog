@@ -188,6 +188,8 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             ],
         ],
 
+        defaultTab: [(s) => [s.pluginConfig], () => INITIAL_TABS.filter((tab) => values.showTab(tab))[0]],
+
         showTab: [
             () => [],
             () =>
@@ -245,8 +247,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
         loadPluginConfigSuccess: () => {
             // Delay showing of tabs until we know what is relevant for _this_ plugin
             if (!values.activeTab) {
-                const [firstAppropriateTab] = INITIAL_TABS.filter((tab) => values.showTab(tab))
-                actions.setActiveTab(firstAppropriateTab)
+                actions.setActiveTab(values.defaultTab)
             }
         },
         setActiveTab: ({ tab }) => {
@@ -284,6 +285,8 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                 } else {
                     if (params.tab && INITIAL_TABS.includes(params.tab as any)) {
                         actions.setActiveTab(params.tab as AppMetricsTab)
+                    } else if (values.defaultTab) {
+                        actions.setActiveTab(values.defaultTab)
                     }
                     if (params.from) {
                         actions.setDateFrom(params.from)
@@ -300,7 +303,7 @@ function getUrl(values: appMetricsSceneLogicType['values'], props: appMetricsSce
     }
 
     const params = {}
-    if (values.activeTab) {
+    if (values.activeTab && values.activeTab !== values.defaultTab) {
         params['tab'] = values.activeTab
     }
     if (values.dateFrom !== DEFAULT_DATE_FROM) {
