@@ -29,6 +29,7 @@ export interface ExtraDatabaseRows {
 
 export const POSTGRES_DELETE_TABLES_QUERY = `
     BEGIN;
+    DELETE FROM ee_hook;
     DELETE FROM posthog_action_events;
     DELETE FROM posthog_action;
     DELETE FROM posthog_actionstep;
@@ -72,9 +73,6 @@ export async function resetTestDatabase(
 ): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig }
     const db = new Pool({ connectionString: config.DATABASE_URL!, max: 1 })
-    try {
-        await db.query('TRUNCATE TABLE ee_hook CASCADE')
-    } catch {}
 
     await db.query(POSTGRES_DELETE_TABLES_QUERY)
     const mocks = makePluginObjects(code)
