@@ -16,6 +16,7 @@ services:
             POSTGRES_USER: posthog
             POSTGRES_DB: posthog
             POSTGRES_PASSWORD: posthog
+        command: -c fsync=off
         ports:
             - '5432:5432'
 
