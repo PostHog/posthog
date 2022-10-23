@@ -301,6 +301,8 @@ jobs:
             - name: Run demo ingestion
               run: |
                   cd plugin-server
+                  ./manage.py migrate --noinput
+                  ./manage.py migrate_clickhouse --noinput
                   yarn start:dev &
                   cd ..
                   ./manage.py generate_demo_data --seed 1
