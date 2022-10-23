@@ -27,39 +27,40 @@ export interface ExtraDatabaseRows {
     pluginAttachments?: Omit<PluginAttachmentDB, 'id'>[]
 }
 
-export const POSTGRES_TRUNCATE_TABLES_QUERY = `
-TRUNCATE TABLE
-    posthog_personalapikey,
-    posthog_featureflag,
-    posthog_featureflaghashkeyoverride,
-    posthog_annotation,
-    posthog_activitylog,
-    posthog_dashboarditem,
-    posthog_dashboard,
-    posthog_cohortpeople,
-    posthog_cohort,
-    posthog_actionstep,
-    posthog_action_events,
-    posthog_action,
-    posthog_instancesetting,
-    posthog_sessionrecordingevent,
-    posthog_persondistinctid,
-    posthog_person,
-    posthog_event,
-    posthog_pluginstorage,
-    posthog_pluginattachment,
-    posthog_pluginconfig,
-    posthog_pluginsourcefile,
-    posthog_plugin,
-    posthog_eventdefinition,
-    posthog_propertydefinition,
-    posthog_grouptypemapping,
-    posthog_team,
-    posthog_organizationmembership,
-    posthog_organization,
-    posthog_user,
-    posthog_eventbuffer
-CASCADE
+export const POSTGRES_DELETE_TABLES_QUERY = `
+    BEGIN;
+    DELETE FROM posthog_action_events;
+    DELETE FROM posthog_action;
+    DELETE FROM posthog_actionstep;
+    DELETE FROM posthog_activitylog;
+    DELETE FROM posthog_annotation;
+    DELETE FROM posthog_cohort;
+    DELETE FROM posthog_cohortpeople;
+    DELETE FROM posthog_dashboard;
+    DELETE FROM posthog_dashboarditem;
+    DELETE FROM posthog_event;
+    DELETE FROM posthog_eventbuffer;
+    DELETE FROM posthog_eventdefinition;
+    DELETE FROM posthog_eventproperty;
+    DELETE FROM posthog_featureflag;
+    DELETE FROM posthog_featureflaghashkeyoverride;
+    DELETE FROM posthog_grouptypemapping;
+    DELETE FROM posthog_instancesetting;
+    DELETE FROM posthog_organization;
+    DELETE FROM posthog_organizationmembership;
+    DELETE FROM posthog_person;
+    DELETE FROM posthog_personalapikey;
+    DELETE FROM posthog_persondistinctid;
+    DELETE FROM posthog_plugin;
+    DELETE FROM posthog_pluginattachment;
+    DELETE FROM posthog_pluginconfig;
+    DELETE FROM posthog_pluginsourcefile;
+    DELETE FROM posthog_pluginstorage;
+    DELETE FROM posthog_propertydefinition;
+    DELETE FROM posthog_sessionrecordingevent;
+    DELETE FROM posthog_team;
+    DELETE FROM posthog_user;
+    COMMIT;
 `
 
 export async function resetTestDatabase(
@@ -69,12 +70,12 @@ export async function resetTestDatabase(
     { withExtendedTestData = true }: { withExtendedTestData?: boolean } = {}
 ): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig }
-    const db = new Pool({ connectionString: config.DATABASE_URL! })
+    const db = new Pool({ connectionString: config.DATABASE_URL!, max: 1 })
     try {
         await db.query('TRUNCATE TABLE ee_hook CASCADE')
     } catch {}
 
-    await db.query(POSTGRES_TRUNCATE_TABLES_QUERY)
+    await db.query(POSTGRES_DELETE_TABLES_QUERY)
     const mocks = makePluginObjects(code)
     const teamIds = mocks.pluginConfigRows.map((c) => c.team_id)
     const teamIdToCreate = teamIds[0]
