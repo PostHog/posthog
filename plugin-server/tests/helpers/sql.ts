@@ -44,6 +44,7 @@ export const POSTGRES_DELETE_TABLES_QUERY = `
     DELETE FROM posthog_eventproperty;
     DELETE FROM posthog_featureflag;
     DELETE FROM posthog_featureflaghashkeyoverride;
+    DELETE FROM posthog_group;
     DELETE FROM posthog_grouptypemapping;
     DELETE FROM posthog_instancesetting;
     DELETE FROM posthog_organization;
