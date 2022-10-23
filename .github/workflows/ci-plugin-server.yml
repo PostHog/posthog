@@ -237,9 +237,9 @@ jobs:
             REDIS_URL: 'redis://localhost'
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_DATABASE: 'posthog_test'
+            CLICKHOUSE_SECURE: 'false'
             KAFKA_HOSTS: 'kafka:9092'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-            SKIP_SERVICE_VERSION_REQUIREMENTS: 'true'
 
         steps:
             - name: Code check out
