@@ -303,6 +303,7 @@ jobs:
                   ./manage.py migrate --noinput
                   ./manage.py migrate_clickhouse
                   cd plugin-server
+                  yarn start:dev --migrate
                   yarn start:dev &
                   cd ..
                   ./manage.py generate_demo_data --seed 1
