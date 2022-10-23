@@ -239,6 +239,7 @@ jobs:
             CLICKHOUSE_DATABASE: 'posthog_test'
             KAFKA_HOSTS: 'kafka:9092'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+            SKIP_SERVICE_VERSION_REQUIREMENTS: 'true'
 
         steps:
             - name: Code check out
@@ -302,4 +303,4 @@ jobs:
                   cd plugin-server
                   yarn start:dev &
                   cd ..
-                  ./manage.py generate_demo_data
+                  ./manage.py generate_demo_data --seed 1
