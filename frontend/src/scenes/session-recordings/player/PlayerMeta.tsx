@@ -97,7 +97,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                         ) : listIcons != 'none' ? (
                             iconProperties ? (
                                 <div className="flex flex-row flex-nowrap shrink-0 gap-2 text-muted-alt">
-                                    <span className="flex items-center gap-1">
+                                    <span className="flex items-center gap-1 whitespace-nowrap">
                                         <PropertyIcon
                                             noTooltip={!isFullScreen}
                                             property="$browser"
@@ -105,7 +105,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                                         />
                                         {!isFullScreen ? iconProperties['$browser'] : null}
                                     </span>
-                                    <span className="flex items-center gap-1">
+                                    <span className="flex items-center gap-1 whitespace-nowrap">
                                         <PropertyIcon
                                             noTooltip={!isFullScreen}
                                             property="$device_type"
@@ -117,7 +117,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                                             ? iconProperties['$device_type'] || iconProperties['$initial_device_type']
                                             : null}
                                     </span>
-                                    <span className="flex items-center gap-1">
+                                    <span className="flex items-center gap-1 whitespace-nowrap">
                                         <PropertyIcon
                                             noTooltip={!isFullScreen}
                                             property="$os"
@@ -125,7 +125,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                                         />
                                         {!isFullScreen ? iconProperties['$os'] : null}
                                     </span>
-                                    <span className="flex items-center gap-1">
+                                    <span className="flex items-center gap-1 whitespace-nowrap">
                                         <PropertyIcon
                                             noTooltip={!isFullScreen}
                                             property="$geoip_country_code"

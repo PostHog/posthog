@@ -39,7 +39,7 @@ const SessionRecordingPlaylistItem = ({
 
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const listIcons = featureFlags[FEATURE_FLAGS.RECORDING_LIST_ICONS]
+    const listIcons = featureFlags[FEATURE_FLAGS.RECORDING_LIST_ICONS] || 'none'
 
     const propertyIcons = (
         <div className="flex flex-row flex-nowrap shrink-0 gap-1">
@@ -65,7 +65,7 @@ const SessionRecordingPlaylistItem = ({
                 'SessionRecordingsPlaylist__list-item',
                 'p-2 px-4 cursor-pointer relative overflow-hidden',
                 isActive && 'bg-primary-highlight font-semibold',
-                !recording.viewed && listIcons === 'top' && 'SessionRecordingsPlaylist__list-item--unwatched'
+                !recording.viewed && listIcons !== 'none' && 'SessionRecordingsPlaylist__list-item--unwatched'
             )}
             onClick={() => onClick()}
         >
@@ -75,17 +75,17 @@ const SessionRecordingPlaylistItem = ({
                 {listIcons === 'top' && propertyIcons}
                 {!recording.viewed && (
                     <>
-                        {listIcons === 'top' ? (
+                        {listIcons === 'none' ? (
                             <Tooltip title={'Indicates the recording has not been watched yet'}>
                                 <div
-                                    className="absolute top-0 right-0 w-3 h-3 bg-transparent z-10"
+                                    className="w-2 h-2 rounded bg-primary-light"
                                     aria-label="unwatched-recording-label"
                                 />
                             </Tooltip>
                         ) : (
                             <Tooltip title={'Indicates the recording has not been watched yet'}>
                                 <div
-                                    className="w-2 h-2 rounded bg-primary-light"
+                                    className="absolute top-0 right-0 w-3 h-3 bg-transparent z-10"
                                     aria-label="unwatched-recording-label"
                                 />
                             </Tooltip>
