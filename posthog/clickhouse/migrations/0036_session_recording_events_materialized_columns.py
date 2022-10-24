@@ -11,6 +11,7 @@ def create_events_summary_mat_columns(database):
         "events_summary",
         "click_count",
         "keypress_count",
+        "timestamps_summary",
         "first_event_timestamp",
         "last_event_timestamp",
         "urls",
