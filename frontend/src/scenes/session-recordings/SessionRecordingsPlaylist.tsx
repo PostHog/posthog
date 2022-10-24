@@ -16,31 +16,105 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { LemonTableLoader } from 'lib/components/LemonTable/LemonTableLoader'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
     isPersonPage?: boolean
 }
 
-const DurationDisplay = ({ duration }: { duration: number }): JSX.Element => {
-    const formattedDuration = colonDelimitedDuration(duration)
-    const parts = formattedDuration.split(':')
+const SessionRecordingPlaylistItem = ({
+    recording,
+    isActive,
+    onClick,
+}: {
+    recording: SessionRecordingType
+    isActive: boolean
+    onClick: () => void
+}): JSX.Element => {
+    const iconClassnames = isActive ? 'text-lg text-muted-alt' : 'text-lg text-muted-alt opacity-75'
+    const formattedDuration = colonDelimitedDuration(recording.recording_duration)
+    const durationParts = formattedDuration.split(':')
+
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const listIcons = featureFlags[FEATURE_FLAGS.RECORDING_LIST_ICONS]
+
+    const propertyIcons = (
+        <div className="flex flex-row flex-nowrap shrink-0 gap-1">
+            <PropertyIcon className={iconClassnames} property="$browser" value={recording.properties?.['$browser']} />
+            <PropertyIcon
+                className={iconClassnames}
+                property="$device_type"
+                value={recording.properties?.['$device_type']}
+            />
+            <PropertyIcon className={iconClassnames} property="$os" value={recording.properties?.['$os']} />
+            <PropertyIcon
+                className={iconClassnames}
+                property="$geoip_country_code"
+                value={recording.properties?.['$geoip_country_code']}
+            />
+        </div>
+    )
 
     return (
-        <span className="flex items-center gap-1">
-            <IconSchedule className="text-lg" />
-            <span>
-                <span className={clsx(parts[0] === '00' && 'opacity-50')}>{parts[0]}:</span>
-                <span
-                    className={clsx({
-                        'opacity-50': parts[0] === '00' && parts[1] === '00',
-                    })}
-                >
-                    {parts[1]}:
-                </span>
-                {parts[2]}
-            </span>
-        </span>
+        <li
+            key={recording.id}
+            className={clsx(
+                'SessionRecordingsPlaylist__list-item',
+                'p-2 px-4 cursor-pointer relative overflow-hidden',
+                isActive && 'bg-primary-highlight font-semibold',
+                !recording.viewed && 'SessionRecordingsPlaylist__list-item--unwatched'
+            )}
+            onClick={() => onClick()}
+        >
+            <div className="flex justify-between items-center">
+                <div className="truncate font-medium text-primary ph-no-capture">{asDisplay(recording.person, 25)}</div>
+
+                {listIcons === 'top' && propertyIcons}
+                {!recording.viewed && (
+                    <>
+                        {listIcons === 'top' ? (
+                            <Tooltip title={'Indicates the recording has not been watched yet'}>
+                                <div
+                                    className="absolute top-0 right-0 w-3 h-3 bg-transparent z-10"
+                                    aria-label="unwatched-recording-label"
+                                />
+                            </Tooltip>
+                        ) : (
+                            <Tooltip title={'Indicates the recording has not been watched yet'}>
+                                <div
+                                    className="w-2 h-2 rounded bg-primary-light"
+                                    aria-label="unwatched-recording-label"
+                                />
+                            </Tooltip>
+                        )}
+                    </>
+                )}
+            </div>
+
+            <div className="flex justify-between items-center">
+                <TZLabel time={recording.start_time} formatDate="MMMM DD, YYYY" formatTime="h:mm A" />
+                <div className="flex items-center gap-2">
+                    {listIcons === 'bottom' && propertyIcons}
+                    <span className="flex items-center font-normal">
+                        <IconSchedule className={iconClassnames} />
+                        <span>
+                            <span className={clsx(durationParts[0] === '00' && 'opacity-50')}>{durationParts[0]}:</span>
+                            <span
+                                className={clsx({
+                                    'opacity-50': durationParts[0] === '00' && durationParts[1] === '00',
+                                })}
+                            >
+                                {durationParts[1]}:
+                            </span>
+                            {durationParts[2]}
+                        </span>
+                    </span>
+                </div>
+            </div>
+        </li>
     )
 }
 
@@ -121,58 +195,15 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                     ) : (
                         <ul className={clsx(sessionRecordingsResponseLoading ? 'opacity-50' : '')}>
                             {sessionRecordings.map((rec, i) => (
-                                <li
-                                    key={rec.id}
-                                    className={clsx(
-                                        'SessionRecordingsPlaylist__list-item',
-                                        'p-2 px-4 cursor-pointer relative overflow-hidden',
-                                        activeSessionRecording?.id === rec.id && 'bg-primary-highlight font-semibold',
-                                        i !== 0 && 'border-t',
-                                        !rec.viewed && 'SessionRecordingsPlaylist__list-item--unwatched'
-                                    )}
-                                    onClick={() => onRecordingClick(rec)}
-                                >
-                                    <div className="flex justify-between items-center">
-                                        <div className="truncate font-medium text-primary ph-no-capture">
-                                            {asDisplay(rec.person, 25)}
-                                        </div>
-                                        <div className="flex flex-row flex-nowrap shrink-0 gap-2 ph-no-capture">
-                                            <PropertyIcon
-                                                className="text-muted-alt opacity-75"
-                                                property="$browser"
-                                                value={rec.properties?.['$browser']}
-                                            />
-                                            <PropertyIcon
-                                                className="text-muted-alt opacity-75"
-                                                property="$device_type"
-                                                value={rec.properties?.['$device_type']}
-                                            />
-                                            <PropertyIcon
-                                                className="text-muted-alt opacity-75"
-                                                property="$os"
-                                                value={rec.properties?.['$os']}
-                                            />
-                                            <PropertyIcon
-                                                className="text-muted-alt opacity-75"
-                                                property="$geoip_country_code"
-                                                value={rec.properties?.['$geoip_country_code']}
-                                            />
-                                        </div>
-                                    </div>
-                                    {!rec.viewed && (
-                                        <Tooltip title={'Indicates the recording has not been watched yet'}>
-                                            <div
-                                                className="absolute top-0 right-0 w-3 h-3 bg-transparent z-10"
-                                                aria-label="unwatched-recording-label"
-                                            />
-                                        </Tooltip>
-                                    )}
-
-                                    <div className="flex justify-between">
-                                        <TZLabel time={rec.start_time} formatDate="MMMM DD, YYYY" formatTime="h:mm A" />
-                                        <DurationDisplay duration={rec.recording_duration} />
-                                    </div>
-                                </li>
+                                <>
+                                    {i > 0 && <div className="border-t" />}
+                                    <SessionRecordingPlaylistItem
+                                        key={rec.id}
+                                        recording={rec}
+                                        onClick={() => onRecordingClick(rec)}
+                                        isActive={activeSessionRecording?.id === rec.id}
+                                    />
+                                </>
                             ))}
                         </ul>
                     )}
