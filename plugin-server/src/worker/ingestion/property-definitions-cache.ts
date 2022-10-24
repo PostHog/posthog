@@ -27,11 +27,13 @@ export class PropertyDefinitionsCache {
     private readonly propertyDefinitionsCache: Map<TeamId, LRU<string, PropertyDefinitionsCacheValue>>
     private readonly statsd?: StatsD
     private readonly lruCacheSize: number
+    private readonly statKey: string
 
-    constructor(serverConfig: PluginsServerConfig, statsd?: StatsD) {
+    constructor(serverConfig: PluginsServerConfig, statsd?: StatsD, statKey?: string) {
         this.lruCacheSize = serverConfig.EVENT_PROPERTY_LRU_SIZE
         this.statsd = statsd
         this.propertyDefinitionsCache = new Map()
+        this.statKey = statKey ?? 'propertyDefinitionsCache'
     }
 
     initialize(
@@ -53,7 +55,7 @@ export class PropertyDefinitionsCache {
 
         this.propertyDefinitionsCache.set(teamId, teamPropertyDefinitionsCache)
 
-        this.statsd?.gauge('propertyDefinitionsCache.length', teamPropertyDefinitionsCache.length ?? 0, {
+        this.statsd?.gauge(`${this.statKey}.length`, teamPropertyDefinitionsCache.length ?? 0, {
             team_id: teamId.toString(),
         })
     }
@@ -71,7 +73,7 @@ export class PropertyDefinitionsCache {
         const teamCache = this.propertyDefinitionsCache.get(teamId)
         teamCache?.set(key, detectedPropertyType ?? NULL_AFTER_PROPERTY_TYPE_DETECTION)
 
-        this.statsd?.gauge('propertyDefinitionsCache.length', teamCache?.length ?? 0, {
+        this.statsd?.gauge(`${this.statKey}.length`, teamCache?.length ?? 0, {
             team_id: teamId.toString(),
         })
     }

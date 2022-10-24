@@ -60,12 +60,51 @@ class PropertyDefinition(UUIDModel):
             else []
         )  # This index breaks the --no-migrations option when running tests
         constraints = [
-            models.CheckConstraint(name="property_type_is_valid", check=models.Q(property_type__in=PropertyType.values))
+            models.CheckConstraint(
+                name="person_property_type_is_valid", check=models.Q(property_type__in=PropertyType.values)
+            )
         ]
 
     def __str__(self) -> str:
         return f"{self.name} / {self.team.name}"
 
     # This is a dynamically calculated field in api/property_definition.py. Defaults to `True` here to help serializers.
+    # This is true if the property has ever been sent with an event, which we're filtering for in `event_names`
     def is_event_property(self) -> None:
         return None
+
+
+class PersonPropertyDefinition(UUIDModel):
+    team: models.ForeignKey = models.ForeignKey(
+        Team, on_delete=models.CASCADE, related_name="person_property_definitions", related_query_name="team"
+    )
+    name: models.CharField = models.CharField(max_length=400)
+    is_numerical: models.BooleanField = models.BooleanField(
+        default=False
+    )  # whether the property can be interpreted as a number, and therefore used for math aggregation operations
+    query_usage_30_day: models.IntegerField = models.IntegerField(
+        default=None, null=True
+    )  # Number of times the event has been used in a query in the last 30 rolling days (computed asynchronously)
+
+    property_type = models.CharField(max_length=50, choices=PropertyType.choices, blank=True, null=True)
+
+    class Meta:
+        unique_together = ("team", "name")
+        indexes = (
+            [
+                GinIndex(
+                    # can't belonger than 30 characters
+                    name="index_per_prop_def_name",
+                    fields=["name"],
+                    opclasses=["gin_trgm_ops"],
+                )  # To speed up DB-based fuzzy searching
+            ]
+            if not os.environ.get("SKIP_TRIGRAM_INDEX_FOR_TESTS")
+            else []
+        )  # This index breaks the --no-migrations option when running tests
+        constraints = [
+            models.CheckConstraint(name="property_type_is_valid", check=models.Q(property_type__in=PropertyType.values))
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} / {self.team.name}"

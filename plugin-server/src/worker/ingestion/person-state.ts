@@ -13,6 +13,7 @@ import { status } from '../../utils/status'
 import { NoRowsUpdatedError, UUIDT } from '../../utils/utils'
 import { LazyPersonContainer } from './lazy-person-container'
 import { PersonManager } from './person-manager'
+import { TeamManager } from './team-manager'
 import { captureIngestionWarning } from './utils'
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
@@ -51,6 +52,7 @@ export class PersonState {
     private db: DB
     private statsd: StatsD | undefined
     private personManager: PersonManager
+    private teamManager: TeamManager
     private updateIsIdentified: boolean
 
     constructor(
@@ -61,6 +63,7 @@ export class PersonState {
         db: DB,
         statsd: StatsD | undefined,
         personManager: PersonManager,
+        teamManager: TeamManager,
         personContainer: LazyPersonContainer,
         uuid: UUIDT | undefined = undefined
     ) {
@@ -74,6 +77,7 @@ export class PersonState {
         this.db = db
         this.statsd = statsd
         this.personManager = personManager
+        this.teamManager = teamManager
 
         // Used to avoid unneeded person fetches and to respond with updated person details
         // :KLUDGE: May change through these flows.
@@ -225,6 +229,7 @@ export class PersonState {
 
         if (Object.keys(update).length > 0) {
             const [updatedPerson] = await this.db.updatePersonDeprecated(personFound, update)
+            await this.teamManager.syncPersonPropertyDefinitions(update.properties ?? {}, this.teamId)
             return updatedPerson
         } else {
             return null

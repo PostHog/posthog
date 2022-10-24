@@ -22,6 +22,7 @@ export async function processPersonsStep(
         runner.hub.db,
         runner.hub.statsd,
         runner.hub.personManager,
+        runner.hub.teamManager,
         personContainer
     )
 

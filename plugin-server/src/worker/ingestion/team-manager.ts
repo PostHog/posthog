@@ -36,6 +36,7 @@ export class TeamManager {
     eventPropertiesCache: LRU<string, Set<string>> // Map<JSON.stringify([TeamId, Event], Set<Property>>
     eventLastSeenCache: LRU<string, number> // key: JSON.stringify([team_id, event]); value: parseInt(YYYYMMDD)
     propertyDefinitionsCache: PropertyDefinitionsCache
+    personPropertyDefinitionsCache: PropertyDefinitionsCache
     instanceSiteUrl: string
     statsd?: StatsD
     private readonly lruCacheSize: number
@@ -56,7 +57,12 @@ export class TeamManager {
             maxAge: ONE_HOUR * 24, // cache up to 24h
             updateAgeOnGet: true,
         })
-        this.propertyDefinitionsCache = new PropertyDefinitionsCache(serverConfig, statsd)
+        this.propertyDefinitionsCache = new PropertyDefinitionsCache(serverConfig, statsd, 'propertyDefinitionsCache')
+        this.personPropertyDefinitionsCache = new PropertyDefinitionsCache(
+            serverConfig,
+            statsd,
+            'personPropertyDefinitionsCache'
+        )
         this.instanceSiteUrl = serverConfig.SITE_URL || 'unknown'
     }
 
@@ -180,6 +186,31 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
         )
     }
 
+    public async syncPersonPropertyDefinitions(properties: Properties, teamId: number) {
+        const toInsert: Array<[string, string, boolean, null, TeamId, PropertyType | null]> = []
+        for (const key of this.getPropertyKeys(properties)) {
+            const value = properties[key]
+            if (this.personPropertyDefinitionsCache.shouldUpdate(teamId, key)) {
+                const propertyType = detectPropertyDefinitionTypes(value, key)
+                const isNumerical = propertyType == PropertyType.Numeric
+                this.personPropertyDefinitionsCache.set(teamId, key, propertyType)
+
+                toInsert.push([new UUIDT().toString(), key, isNumerical, null, teamId, propertyType])
+            }
+        }
+
+        await this.db.postgresBulkInsert(
+            `
+            INSERT INTO posthog_personpropertydefinition (id, name, is_numerical, query_usage_30_day, team_id, property_type)
+            VALUES {VALUES}
+            ON CONFLICT ON CONSTRAINT posthog_personpropertydefinition_team_id_name_3f1dedcb_uniq
+            DO UPDATE SET property_type=EXCLUDED.property_type WHERE posthog_personpropertydefinition.property_type IS NULL
+            `,
+            toInsert,
+            'insertPropertyDefinition'
+        )
+    }
+
     private async setTeamIngestedEvent(team: Team, properties: Properties) {
         if (team && !team.ingested_event) {
             await this.db.postgresQuery(
@@ -235,6 +266,15 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
             )
 
             this.propertyDefinitionsCache.initialize(teamId, eventProperties.rows)
+        }
+
+        if (!this.personPropertyDefinitionsCache.has(teamId)) {
+            const personProperties = await this.db.postgresQuery(
+                'SELECT name, property_type FROM posthog_personpropertydefinition WHERE team_id = $1',
+                [teamId],
+                'fetchPropertyDefinitions'
+            )
+            this.personPropertyDefinitionsCache.initialize(teamId, personProperties.rows)
         }
 
         const cacheKey = JSON.stringify([teamId, event])
