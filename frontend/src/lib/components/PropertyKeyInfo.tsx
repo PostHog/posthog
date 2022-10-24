@@ -200,6 +200,10 @@ export const keyMapping: KeyMappingInterface = {
             description: 'User interactions that were automatically captured.',
             examples: ['clicked button'],
         },
+        $screen: {
+            label: 'Screen',
+            description: 'When a user loads a screen in a mobile app.',
+        },
         $feature_flag_called: {
             label: 'Feature Flag Called',
             description: (
