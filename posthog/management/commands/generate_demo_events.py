@@ -2,13 +2,16 @@ import dataclasses
 import datetime as dt
 import logging
 import secrets
+import time
 from itertools import chain
 
 import structlog
 from django.core.management.base import BaseCommand
+from kafka import KafkaAdminClient, KafkaConsumer, TopicPartition
 
 from posthog.api.capture import capture_internal
 from posthog.demo.products.hedgebox import HedgeboxMatrix
+from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 
 logging.getLogger("kafka").setLevel(logging.WARNING)  # Hide kafka-python's logspam
 
@@ -56,6 +59,11 @@ class Command(BaseCommand):
         ordered_events = sorted(
             chain.from_iterable(person.all_events for person in matrix.people), key=lambda e: e.timestamp
         )
+
+        admin = KafkaAdminClient(bootstrap_servers="localhost:9092")
+        consumer = KafkaConsumer(KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, bootstrap_servers="localhost:9092")
+
+        start_time = time.monotonic()
         for event in ordered_events:
             capture_internal(
                 event={
@@ -69,3 +77,15 @@ class Command(BaseCommand):
                 now=event.timestamp,
                 sent_at=event.timestamp,
             )
+
+        while True:
+            offsets = admin.list_consumer_group_offsets(group_id="clickhouse-ingestion")
+            end_offsets = consumer.end_offsets([TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)])
+            endOffset = end_offsets[TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)]
+            offset = offsets[TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)].offset
+            logger.debug(f"Offset: {offset} / {endOffset}")
+            if endOffset == offset:
+                break
+            time.sleep(1)
+
+        logger.info(f"Time taken: {time.monotonic() - start_time}")
