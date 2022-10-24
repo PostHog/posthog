@@ -94,8 +94,13 @@ const SessionRecordingPlaylistItem = ({
                 )}
             </div>
 
-            <div className="flex justify-between items-center">
-                <TZLabel time={recording.start_time} formatDate="MMMM DD, YYYY" formatTime="h:mm A" />
+            <div className="flex justify-between items-center gap-2">
+                <TZLabel
+                    className="overflow-hidden text-ellipsis"
+                    time={recording.start_time}
+                    formatDate="MMMM DD, YYYY"
+                    formatTime="h:mm A"
+                />
                 <div className="flex items-center gap-2">
                     {listIcons === 'bottom' && propertyIcons}
                     <span className="flex items-center font-normal">
