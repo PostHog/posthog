@@ -11,7 +11,7 @@
          groupUniqArrayIf(100)((events.timestamp,
                                 events.uuid,
                                 events.session_id,
-                                events.window_id), events.event = '$pageview') as matching_events_0
+                                events.window_id), event = '$pageview') as matching_events_0
   FROM
     (SELECT uuid,
             distinct_id,
@@ -49,19 +49,6 @@
      AND timestamp <= '2021-01-22 11:59:59'
      GROUP BY pageview_session_id) AS first_pageview_event ON session_recordings.session_id = first_pageview_event.pageview_session_id
   JOIN
-    (SELECT uuid,
-            distinct_id,
-            event,
-            team_id,
-            timestamp,
-            properties
-     FROM events
-     WHERE team_id = 2
-       AND event IN ['$pageview']
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 11:59:59'
-     LIMIT 1) AS first_pageview_event ON session_recordings.distinct_id = first_pageview_event.distinct_id
-  JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
@@ -94,7 +81,7 @@
          groupUniqArrayIf(100)((events.timestamp,
                                 events.uuid,
                                 events.session_id,
-                                events.window_id), events.event = '$autocapture') as matching_events_0
+                                events.window_id), event = '$autocapture') as matching_events_0
   FROM
     (SELECT uuid,
             distinct_id,
@@ -131,19 +118,6 @@
      AND timestamp >= '2021-01-13 12:00:00'
      AND timestamp <= '2021-01-22 11:59:59'
      GROUP BY pageview_session_id) AS first_pageview_event ON session_recordings.session_id = first_pageview_event.pageview_session_id
-  JOIN
-    (SELECT uuid,
-            distinct_id,
-            event,
-            team_id,
-            timestamp,
-            properties
-     FROM events
-     WHERE team_id = 2
-       AND event IN ['$pageview']
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 11:59:59'
-     LIMIT 1) AS first_pageview_event ON session_recordings.distinct_id = first_pageview_event.distinct_id
   JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -229,19 +203,6 @@
      AND timestamp <= '2021-08-22 11:59:59'
      GROUP BY pageview_session_id) AS first_pageview_event ON session_recordings.session_id = first_pageview_event.pageview_session_id
   JOIN
-    (SELECT uuid,
-            distinct_id,
-            event,
-            team_id,
-            timestamp,
-            properties
-     FROM events
-     WHERE team_id = 2
-       AND event IN ['$pageview']
-       AND timestamp >= '2021-08-13 12:00:00'
-       AND timestamp <= '2021-08-22 11:59:59'
-     LIMIT 1) AS first_pageview_event ON session_recordings.distinct_id = first_pageview_event.distinct_id
-  JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
@@ -284,7 +245,7 @@
          groupUniqArrayIf(100)((events.timestamp,
                                 events.uuid,
                                 events.session_id,
-                                events.window_id), events.event = '$pageview') as matching_events_0
+                                events.window_id), event = '$pageview') as matching_events_0
   FROM
     (SELECT uuid,
             distinct_id,
@@ -322,19 +283,6 @@
      AND timestamp <= '2021-01-22 11:59:59'
      GROUP BY pageview_session_id) AS first_pageview_event ON session_recordings.session_id = first_pageview_event.pageview_session_id
   JOIN
-    (SELECT uuid,
-            distinct_id,
-            event,
-            team_id,
-            timestamp,
-            properties
-     FROM events
-     WHERE team_id = 2
-       AND event IN ['$pageview']
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 11:59:59'
-     LIMIT 1) AS first_pageview_event ON session_recordings.distinct_id = first_pageview_event.distinct_id
-  JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
@@ -367,7 +315,7 @@
          groupUniqArrayIf(100)((events.timestamp,
                                 events.uuid,
                                 events.session_id,
-                                events.window_id), events.event = '$autocapture') as matching_events_0
+                                events.window_id), event = '$autocapture') as matching_events_0
   FROM
     (SELECT uuid,
             distinct_id,
@@ -404,19 +352,6 @@
      AND timestamp >= '2021-01-13 12:00:00'
      AND timestamp <= '2021-01-22 11:59:59'
      GROUP BY pageview_session_id) AS first_pageview_event ON session_recordings.session_id = first_pageview_event.pageview_session_id
-  JOIN
-    (SELECT uuid,
-            distinct_id,
-            event,
-            team_id,
-            timestamp,
-            properties
-     FROM events
-     WHERE team_id = 2
-       AND event IN ['$pageview']
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 11:59:59'
-     LIMIT 1) AS first_pageview_event ON session_recordings.distinct_id = first_pageview_event.distinct_id
   JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
