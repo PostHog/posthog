@@ -319,7 +319,7 @@ sniffio==1.2.0
     # via trio
 social-auth-app-django==5.0.0
     # via -r requirements.in
-social-auth-core==4.1.0
+social-auth-core==4.3.0
     # via
     #   -r requirements.in
     #   social-auth-app-django
