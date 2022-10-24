@@ -616,7 +616,7 @@ def clickhouse_mark_all_materialized():
             mark_all_materialized()
 
 
-@app.task(max_retries=3, retry_backoff=True, acks_late=True)
+@app.task(autoretry_for=(Exception,), max_retries=3, retry_backoff=True, acks_late=True)
 def send_org_usage_report_task(organization_id: str, dry_run: bool = False, at: Optional[str] = None):
     try:
         from ee.tasks.usage_report import send_org_usage_report
