@@ -64,7 +64,9 @@ class NormalizedTrendResult:
 # parameterize tests to reuse in EE
 def stickiness_test_factory(stickiness, event_factory, person_factory, action_factory, get_earliest_timestamp):
     class TestStickiness(APIBaseTest):
-        def _create_multiple_people(self, period=timedelta(days=1), event_properties=lambda index: {}):
+        def _create_multiple_people(self, period=None, event_properties=lambda index: {}):
+            if period is None:
+                period = timedelta(days=1)
             base_time = datetime.fromisoformat("2020-01-01T12:00:00.000000")
             p1 = person_factory(team_id=self.team.id, distinct_ids=["person1"], properties={"name": "person1"})
             event_factory(

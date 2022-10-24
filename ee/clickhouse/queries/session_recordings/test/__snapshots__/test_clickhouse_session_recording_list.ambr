@@ -5,7 +5,8 @@
          any(session_recordings.start_time) as start_time,
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
-         any(session_recordings.distinct_id) as distinct_id ,
+         any(session_recordings.distinct_id) as distinct_id,
+         any(first_pageview_event.pageview_properties) as first_pageview_event_properties ,
          countIf(event = '$pageview') as count_event_match_0 ,
          groupUniqArrayIf(100)((events.timestamp,
                                 events.uuid,
@@ -39,6 +40,14 @@
      HAVING full_snapshots > 0
      AND start_time >= '2021-01-14 00:00:00'
      AND start_time <= '2021-01-21 23:59:59') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
+  LEFT OUTER JOIN
+    (SELECT $session_id as pageview_session_id,
+            any(properties) as pageview_properties
+     FROM events PREWHERE team_id = 2
+     AND event IN ['$pageview']
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 11:59:59'
+     GROUP BY pageview_session_id) AS first_pageview_event ON session_recordings.session_id = first_pageview_event.pageview_session_id
   JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -66,7 +75,8 @@
          any(session_recordings.start_time) as start_time,
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
-         any(session_recordings.distinct_id) as distinct_id ,
+         any(session_recordings.distinct_id) as distinct_id,
+         any(first_pageview_event.pageview_properties) as first_pageview_event_properties ,
          countIf(event = '$autocapture') as count_event_match_0 ,
          groupUniqArrayIf(100)((events.timestamp,
                                 events.uuid,
@@ -100,6 +110,14 @@
      HAVING full_snapshots > 0
      AND start_time >= '2021-01-14 00:00:00'
      AND start_time <= '2021-01-21 23:59:59') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
+  LEFT OUTER JOIN
+    (SELECT $session_id as pageview_session_id,
+            any(properties) as pageview_properties
+     FROM events PREWHERE team_id = 2
+     AND event IN ['$pageview']
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 11:59:59'
+     GROUP BY pageview_session_id) AS first_pageview_event ON session_recordings.session_id = first_pageview_event.pageview_session_id
   JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -159,7 +177,8 @@
          any(session_recordings.start_time) as start_time,
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
-         any(session_recordings.distinct_id) as distinct_id
+         any(session_recordings.distinct_id) as distinct_id,
+         any(first_pageview_event.pageview_properties) as first_pageview_event_properties
   FROM
     (SELECT session_id,
             any(window_id) as window_id,
@@ -175,6 +194,14 @@
      HAVING full_snapshots > 0
      AND start_time >= '2021-08-14 00:00:00'
      AND start_time <= '2021-08-21 23:59:59') AS session_recordings
+  LEFT OUTER JOIN
+    (SELECT $session_id as pageview_session_id,
+            any(properties) as pageview_properties
+     FROM events PREWHERE team_id = 2
+     AND event IN ['$pageview']
+     AND timestamp >= '2021-08-13 12:00:00'
+     AND timestamp <= '2021-08-22 11:59:59'
+     GROUP BY pageview_session_id) AS first_pageview_event ON session_recordings.session_id = first_pageview_event.pageview_session_id
   JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -212,7 +239,8 @@
          any(session_recordings.start_time) as start_time,
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
-         any(session_recordings.distinct_id) as distinct_id ,
+         any(session_recordings.distinct_id) as distinct_id,
+         any(first_pageview_event.pageview_properties) as first_pageview_event_properties ,
          countIf(event = '$pageview') as count_event_match_0 ,
          groupUniqArrayIf(100)((events.timestamp,
                                 events.uuid,
@@ -246,6 +274,14 @@
      HAVING full_snapshots > 0
      AND start_time >= '2021-01-14 00:00:00'
      AND start_time <= '2021-01-21 23:59:59') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
+  LEFT OUTER JOIN
+    (SELECT $session_id as pageview_session_id,
+            any(properties) as pageview_properties
+     FROM events PREWHERE team_id = 2
+     AND event IN ['$pageview']
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 11:59:59'
+     GROUP BY pageview_session_id) AS first_pageview_event ON session_recordings.session_id = first_pageview_event.pageview_session_id
   JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -273,7 +309,8 @@
          any(session_recordings.start_time) as start_time,
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
-         any(session_recordings.distinct_id) as distinct_id ,
+         any(session_recordings.distinct_id) as distinct_id,
+         any(first_pageview_event.pageview_properties) as first_pageview_event_properties ,
          countIf(event = '$autocapture') as count_event_match_0 ,
          groupUniqArrayIf(100)((events.timestamp,
                                 events.uuid,
@@ -307,6 +344,14 @@
      HAVING full_snapshots > 0
      AND start_time >= '2021-01-14 00:00:00'
      AND start_time <= '2021-01-21 23:59:59') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
+  LEFT OUTER JOIN
+    (SELECT $session_id as pageview_session_id,
+            any(properties) as pageview_properties
+     FROM events PREWHERE team_id = 2
+     AND event IN ['$pageview']
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 11:59:59'
+     GROUP BY pageview_session_id) AS first_pageview_event ON session_recordings.session_id = first_pageview_event.pageview_session_id
   JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -334,7 +379,8 @@
          any(session_recordings.start_time) as start_time,
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
-         any(session_recordings.distinct_id) as distinct_id
+         any(session_recordings.distinct_id) as distinct_id,
+         any(first_pageview_event.pageview_properties) as first_pageview_event_properties
   FROM
     (SELECT session_id,
             any(window_id) as window_id,
@@ -350,6 +396,14 @@
      HAVING full_snapshots > 0
      AND start_time >= '2021-01-14 00:00:00'
      AND start_time <= '2021-01-21 23:59:59') AS session_recordings
+  LEFT OUTER JOIN
+    (SELECT $session_id as pageview_session_id,
+            any(properties) as pageview_properties
+     FROM events PREWHERE team_id = 2
+     AND event IN ['$pageview']
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 11:59:59'
+     GROUP BY pageview_session_id) AS first_pageview_event ON session_recordings.session_id = first_pageview_event.pageview_session_id
   JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id

@@ -758,6 +758,7 @@ class TestPluginAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "plugin_info": None,
                 "delivery_rate_24h": None,
+                "created_at": mock.ANY,
             },
         )
         plugin_config = PluginConfig.objects.first()
@@ -790,6 +791,7 @@ class TestPluginAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "plugin_info": None,
                 "delivery_rate_24h": None,
+                "created_at": mock.ANY,
             },
         )
         self.client.delete(f"/api/plugin_config/{plugin_config_id}")
@@ -1054,6 +1056,7 @@ class TestPluginAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "plugin_info": None,
                 "delivery_rate_24h": None,
+                "created_at": mock.ANY,
             },
         )
 
@@ -1078,6 +1081,7 @@ class TestPluginAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "plugin_info": None,
                 "delivery_rate_24h": None,
+                "created_at": mock.ANY,
             },
         )
 
@@ -1100,6 +1104,7 @@ class TestPluginAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "plugin_info": None,
                 "delivery_rate_24h": None,
+                "created_at": mock.ANY,
             },
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
@@ -1135,6 +1140,7 @@ class TestPluginAPI(APIBaseTest):
                     "team_id": self.team.pk,
                     "plugin_info": None,
                     "delivery_rate_24h": 0.5,
+                    "created_at": mock.ANY,
                 },
                 {
                     "id": plugin_config2.pk,
@@ -1146,6 +1152,7 @@ class TestPluginAPI(APIBaseTest):
                     "team_id": self.team.pk,
                     "plugin_info": None,
                     "delivery_rate_24h": None,
+                    "created_at": mock.ANY,
                 },
             ],
         )

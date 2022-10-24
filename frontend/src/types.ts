@@ -1036,6 +1036,7 @@ export interface PluginConfigType {
     config: Record<string, any>
     error?: PluginErrorType
     delivery_rate_24h?: number | null
+    created_at?: string
 }
 
 export interface PluginConfigWithPluginInfo extends PluginConfigType {
