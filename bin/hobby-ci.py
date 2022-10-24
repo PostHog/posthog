@@ -12,25 +12,25 @@ import time
 import digitalocean
 import requests
 
-
 letters = string.ascii_lowercase
-random_bit = ''.join(random.choice(letters) for i in range(4))
+random_bit = "".join(random.choice(letters) for i in range(4))
 name = f"do-ci-hobby-deploy-{random_bit}"
-region = 'sfo3'
-image = 'ubuntu-22-04-x64'
-size = 's-4vcpu-8gb'
-release_tag = 'latest-release'
-branch_regex = re.compile('release-*.*')
+region = "sfo3"
+image = "ubuntu-22-04-x64"
+size = "s-4vcpu-8gb"
+release_tag = "latest-release"
+branch_regex = re.compile("release-*.*")
 branch = sys.argv[1]
 if branch_regex.match(branch):
     release_tag = f"{branch}-unstable"
-hostname = f'{name}.posthog.cc'
-user_data = f'#!/bin/bash \n' \
-            f'wget https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/deploy-hobby \n' \
-            f'chmod +x deploy-hobby \n' \
-            f'./deploy-hobby {release_tag} {hostname} 1 \n'
+hostname = f"{name}.posthog.cc"
+user_data = (
+    f"#!/bin/bash \n"
+    f"wget https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/deploy-hobby \n"
+    f"chmod +x deploy-hobby \n"
+    f"./deploy-hobby {release_tag} {hostname} 1 \n"
+)
 token = os.getenv("DIGITALOCEAN_TOKEN")
-
 
 
 class HobbyTester:
@@ -47,7 +47,7 @@ class HobbyTester:
         while not up:
             for action in actions:
                 action.load()
-                if action.status == 'completed':
+                if action.status == "completed":
                     up = True
                     print(action.status)
                 else:
@@ -78,7 +78,7 @@ class HobbyTester:
             size_slug=size,
             user_data=user_data,
             ssh_keys=keys,
-            tags=['ci']
+            tags=["ci"],
         )
         droplet.create()
         return droplet
@@ -125,7 +125,7 @@ class HobbyTester:
         while attempts <= retries:
             attempts += 1
             try:
-                domain.delete_domain_record(id=record['domain_record']['id'])
+                domain.delete_domain_record(id=record["domain_record"]["id"])
                 break
             except Exception as e:
                 print(f"Could not destroy the dns entry because\n{e}")
@@ -140,11 +140,7 @@ def main():
     HobbyTester.block_until_droplet_is_started(droplet)
     public_ip = HobbyTester.get_public_ip(droplet)
     domain = digitalocean.Domain(token=token, name="posthog.cc")
-    record = domain.create_new_domain_record(
-        type='A',
-        name=name,
-        data=public_ip
-    )
+    record = domain.create_new_domain_record(type="A", name=name, data=public_ip)
 
     hobby_tester = HobbyTester(domain, droplet, record)
     signal.signal(signal.SIGINT, hobby_tester.handle_sigint)
