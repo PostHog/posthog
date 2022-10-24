@@ -98,11 +98,16 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                             iconProperties ? (
                                 <div className="flex flex-row flex-nowrap shrink-0 gap-2 text-muted-alt">
                                     <span className="flex items-center gap-1">
-                                        <PropertyIcon property="$browser" value={iconProperties['$browser']} />
+                                        <PropertyIcon
+                                            noTooltip
+                                            property="$browser"
+                                            value={iconProperties['$browser']}
+                                        />
                                         {iconProperties['$browser']}
                                     </span>
                                     <span className="flex items-center gap-1">
                                         <PropertyIcon
+                                            noTooltip
                                             property="$device_type"
                                             value={
                                                 iconProperties['$device_type'] || iconProperties['$initial_device_type']
@@ -111,11 +116,12 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                                         {iconProperties['$device_type'] || iconProperties['$initial_device_type']}
                                     </span>
                                     <span className="flex items-center gap-1">
-                                        <PropertyIcon property="$os" value={iconProperties['$os']} />
+                                        <PropertyIcon noTooltip property="$os" value={iconProperties['$os']} />
                                         {iconProperties['$os']}
                                     </span>
                                     <span className="flex items-center gap-1">
                                         <PropertyIcon
+                                            noTooltip
                                             property="$geoip_country_code"
                                             value={iconProperties['$geoip_country_code']}
                                         />
