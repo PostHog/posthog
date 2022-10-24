@@ -1131,11 +1131,14 @@ def get_week_start_for_country_code(country_code: str) -> int:
     return 1  # Monday
 
 
-def wait_for_parallel_celery_group(task: Any, max_timeout: datetime.timedelta = datetime.timedelta(minutes=5)) -> Any:
+def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.timedelta] = None) -> Any:
     """
     Wait for a group of celery tasks to finish, but don't wait longer than max_timeout.
     For parallel tasks, this is the only way to await the entire group.
     """
+    if not max_timeout:
+        max_timeout = datetime.timedelta(minutes=5)
+
     start_time = timezone.now()
     while not task.ready():
         if timezone.now() - start_time > max_timeout:
