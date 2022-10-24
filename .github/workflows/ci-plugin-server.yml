@@ -302,8 +302,10 @@ jobs:
               run: |
                   ./manage.py migrate --noinput
                   ./manage.py migrate_clickhouse
+
+                  ./manage.py generate_demo_data --n-clusters 1  # This is literally just so we have a team id 1 in the db
                   cd plugin-server
                   yarn start:dev --migrate
-                  yarn start:dev &
+                  NODE_ENV=production yarn start:dev &
                   cd ..
-                  ./manage.py generate_demo_data --seed 1
+                  ./manage.py generate_demo_events --seed 1 --days-future 0 --n-clusters 500 --team-id 1
