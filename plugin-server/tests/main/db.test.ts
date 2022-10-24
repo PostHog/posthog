@@ -621,14 +621,17 @@ describe('DB', () => {
                 expect(redisGetSpy).toHaveBeenCalled()
                 expect(fetchGroupSpy).not.toHaveBeenCalled()
 
-                expect(res).toEqual({ group0_properties: { foo: 'bar' }, group0_created_at: '2020-01-01' })
+                expect(res).toEqual({
+                    group0_properties: JSON.stringify({ foo: 'bar' }),
+                    group0_created_at: '2020-01-01',
+                })
             })
 
             it('tries to fetch data from Postgres if Redis is down', async () => {
                 const fetchGroupSpy = jest.spyOn(db, 'fetchGroup').mockImplementationOnce(
                     jest.fn(() =>
                         Promise.resolve({
-                            group_properties: { foo: 'bar' },
+                            group_properties: JSON.stringify({ foo: 'bar' }),
                             created_at: DateTime.fromISO('2022-01-01T00:00:00.000Z'),
                         } as any)
                     )
@@ -644,7 +647,7 @@ describe('DB', () => {
                 expect(redisGetSpy).toHaveBeenCalled()
                 expect(fetchGroupSpy).toHaveBeenCalled()
                 expect(res).toEqual({
-                    group0_properties: { foo: 'bar' },
+                    group0_properties: JSON.stringify({ foo: 'bar' }),
                     group0_created_at: '2022-01-01T00:00:00.000Z',
                 })
             })
@@ -667,7 +670,7 @@ describe('DB', () => {
                 expect(redisGetSpy).toHaveBeenCalled()
                 expect(fetchGroupSpy).toHaveBeenCalled()
                 expect(res).toEqual({
-                    group0_properties: { foo: 'bar' },
+                    group0_properties: JSON.stringify({ foo: 'bar' }),
                     group0_created_at: '2022-01-01T00:00:00.000Z',
                 })
             })
@@ -730,25 +733,25 @@ describe('DB', () => {
                 // verify that the first and fourth calls have cached=true and all other have cached=false
                 expect(res).toEqual({
                     group0_created_at: '2020-01-01',
-                    group0_properties: {
+                    group0_properties: JSON.stringify({
                         cached: true,
-                    },
+                    }),
                     group1_created_at: '2022-01-01T00:00:00.000Z',
-                    group1_properties: {
+                    group1_properties: JSON.stringify({
                         cached: false,
-                    },
+                    }),
                     group2_created_at: '2022-01-01T00:00:00.000Z',
-                    group2_properties: {
+                    group2_properties: JSON.stringify({
                         cached: false,
-                    },
+                    }),
                     group3_created_at: '2020-01-01',
-                    group3_properties: {
+                    group3_properties: JSON.stringify({
                         cached: true,
-                    },
+                    }),
                     group4_created_at: '2022-01-01T00:00:00.000Z',
-                    group4_properties: {
+                    group4_properties: JSON.stringify({
                         cached: false,
-                    },
+                    }),
                 })
             })
         })
