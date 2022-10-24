@@ -1,13 +1,13 @@
 import { AppMetricsTab } from './appMetricsSceneLogic'
 
 interface Description {
-    successes: React.ReactNode | string
+    successes: string
     successes_tooltip?: React.ReactNode | string
 
-    successes_on_retry?: React.ReactNode | string
+    successes_on_retry?: string
     successes_on_retry_tooltip?: React.ReactNode | string
 
-    failures: React.ReactNode | string
+    failures: string
     failures_tooltip?: React.ReactNode | string
 }
 
