@@ -1,6 +1,5 @@
 import dataclasses
 import os
-import time
 from collections import Counter
 from datetime import datetime
 from typing import (
@@ -265,7 +264,7 @@ def get_instance_metadata(period: Tuple[datetime, datetime], has_license: bool) 
 
 def send_all_org_usage_reports(
     dry_run: bool = False, at: Optional[datetime] = None, only_organization_id: Optional[str] = None
-) -> List[Dict]:
+) -> Tuple[List[Dict], List[Tuple[str, Exception]]]:
     """
     Generic way to generate and send org usage reports.
     Specify Postgres or ClickHouse for event queries.
@@ -278,6 +277,7 @@ def send_all_org_usage_reports(
 
     org_data: Dict[str, Dict[str, Any]] = {}
     org_reports: List[Dict] = []
+    exceptions_for_org: List[Tuple[str, Exception]] = []
 
     for team in Team.objects.exclude(organization__for_internal_metrics=True):
         org = team.organization
@@ -304,6 +304,9 @@ def send_all_org_usage_reports(
             org_owner = get_org_owner_or_first_user(organization_id)
             if not org_owner:
                 continue
+
+            logger.info("Sending usage report for organization %s ...", organization_id)
+
             distinct_id = org_owner.distinct_id
             usage = get_org_usage_report(period, org["teams"])
 
@@ -328,15 +331,17 @@ def send_all_org_usage_reports(
             if not dry_run:
                 capture_event("organization usage report", organization_id, full_report_dict, timestamp=at)
                 send_report(full_report_dict, org["token"])
-                time.sleep(0.25)
+
+            logger.info("Usage report for organization %s sent!", organization_id)
+
         except Exception as err:
-            if dry_run:
-                raise err
-            else:
+            logger.error("Usage report for organization %s failed!", organization_id)
+            exceptions_for_org.append((str(organization_id), err))
+            if not dry_run:
                 capture_exception(err)
                 capture_event("organization usage report failure", organization_id, {"error": str(err)})
 
-    return org_reports
+    return org_reports, exceptions_for_org
 
 
 def send_report(report: Dict, token: str):

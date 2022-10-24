@@ -11,6 +11,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--dry-run", type=bool, help="Print information instead of sending it")
+        parser.add_argument("--print-reports", type=bool, help="Print the reports in full")
         parser.add_argument("--date", type=str, help="The date to be ran in format YYYY-MM-DD")
         parser.add_argument("--org-id", type=str, help="The organization ID if only one report should be sent")
 
@@ -23,13 +24,21 @@ class Command(BaseCommand):
         if date:
             date_parsed = dateutil.parser.parse(date)
 
-        reports = send_all_org_usage_reports(dry_run, date_parsed, only_organization_id=options["org_id"])
+        reports, errors = send_all_org_usage_reports(dry_run, date_parsed, only_organization_id=options["org_id"])
 
         if dry_run:
-            print("Reports")  # noqa T201
-            print("")  # noqa T201
-            pprint.pprint(reports)  # noqa T203
-            print("")  # noqa T201
+            if options["print_reports"]:
+                print("")  # noqa T201
+                pprint.pprint(reports)  # noqa T203
+                print("")  # noqa T201
+
+            if errors:
+                print("")  # noqa T201
+                pprint.pprint(errors)  # noqa T203
+                print("")  # noqa T201
+                print("Dry run so not sent.")  # noqa T201
+
+            print(f"{len(reports)} Reports sent!")  # noqa T201
             print("Dry run so not sent.")  # noqa T201
         else:
             print("Done!")  # noqa T201
