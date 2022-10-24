@@ -15,7 +15,7 @@ from posthog.models.event.sql import NULL_SQL
 from posthog.models.filters import Filter
 from posthog.models.team import Team
 from posthog.queries.trends.sql import (
-    ACTIVE_USER_SQL,
+    ACTIVE_USERS_SQL,
     AGGREGATE_SQL,
     CUMULATIVE_SQL,
     SESSION_DURATION_AGGREGATE_SQL,
@@ -54,6 +54,7 @@ class TrendsTotalVolume:
             "aggregate_operation": aggregate_operation,
             "timestamp": "e.timestamp",
             "interval": trunc_func,
+            "interval_func": interval_func,
         }
         params: Dict = {"team_id": team.id, "timezone": team.timezone}
         params = {**params, **math_params, **event_query_params}
@@ -76,12 +77,13 @@ class TrendsTotalVolume:
         else:
 
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
-                content_sql = ACTIVE_USER_SQL.format(
+                content_sql = ACTIVE_USERS_SQL.format(
                     event_query=event_query,
                     **content_sql_params,
                     parsed_date_to=trend_event_query.parsed_date_to,
                     parsed_date_from=trend_event_query.parsed_date_from,
                     aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
+                    start_of_week_fix=start_of_week_fix(filter.interval),
                     **trend_event_query.active_user_params,
                 )
             elif filter.display == TRENDS_CUMULATIVE and entity.math == UNIQUE_USERS:

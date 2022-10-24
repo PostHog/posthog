@@ -23,6 +23,7 @@ export enum AppMetricsTab {
     ProcessEvent = 'processEvent',
     OnEvent = 'onEvent',
     ExportEvents = 'exportEvents',
+    ScheduledTask = 'scheduledTask',
     HistoricalExports = 'historical_exports',
 }
 
@@ -81,6 +82,7 @@ const INITIAL_TABS: Array<AppMetricsTab> = [
     AppMetricsTab.ProcessEvent,
     AppMetricsTab.OnEvent,
     AppMetricsTab.ExportEvents,
+    AppMetricsTab.ScheduledTask,
 ]
 
 export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
@@ -91,12 +93,12 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
     actions({
         setActiveTab: (tab: AppMetricsTab) => ({ tab }),
         setDateFrom: (dateFrom: string) => ({ dateFrom }),
-        openErrorDetailsDrawer: (errorType: string, category: string, jobId?: string) => ({
+        openErrorDetailsModal: (errorType: string, category: string, jobId?: string) => ({
             errorType,
             category,
             jobId,
         }),
-        closeErrorDetailsDrawer: true,
+        closeErrorDetailsModal: true,
     }),
 
     reducers({
@@ -112,11 +114,11 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                 setDateFrom: (_, { dateFrom }) => dateFrom,
             },
         ],
-        errorDetailsDrawerError: [
+        errorDetailsModalError: [
             null as string | null,
             {
-                openErrorDetailsDrawer: (_, { errorType }) => errorType,
-                closeErrorDetailsDrawer: () => null,
+                openErrorDetailsModal: (_, { errorType }) => errorType,
+                closeErrorDetailsModal: () => null,
             },
         ],
     }),
@@ -157,7 +159,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
         errorDetails: [
             [] as Array<AppMetricErrorDetail>,
             {
-                openErrorDetailsDrawer: async ({ category, jobId, errorType }) => {
+                openErrorDetailsModal: async ({ category, jobId, errorType }) => {
                     const params = toParams({ category, job_id: jobId, error_type: errorType })
                     const { result } = await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}/error_details?${params}`
@@ -187,17 +189,34 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             () => [],
             () =>
                 (tab: AppMetricsTab): boolean => {
-                    if (values.pluginConfigLoading || !values.pluginConfig) {
+                    if (
+                        values.pluginConfigLoading ||
+                        !values.pluginConfig ||
+                        !values.pluginConfig.plugin_info.capabilities
+                    ) {
                         return false
                     }
-                    const capableMethods = values.pluginConfig.plugin_info.capabilities?.methods || []
+                    const capabilities = values.pluginConfig.plugin_info.capabilities
+                    const isExportEvents = capabilities.methods.includes('exportEvents')
+
                     if (tab === AppMetricsTab.HistoricalExports) {
-                        return capableMethods.includes('exportEvents')
-                    } else if (tab === AppMetricsTab.OnEvent && capableMethods.includes('exportEvents')) {
+                        return isExportEvents
+                    } else if (tab === AppMetricsTab.OnEvent && isExportEvents) {
                         // Hide onEvent tab for plugins using exportEvents
+                        // :KLUDGE: if plugin has `onEvent` in source, that's called/tracked but we can't check that here.
                         return false
+                    } else if (tab === AppMetricsTab.ScheduledTask) {
+                        // Show scheduled tasks summary if plugin has appropriate tasks.
+                        // We hide scheduled tasks for plugins using exportEvents as it's automatically added.
+                        // :KLUDGE: if plugin has `onEvent` in source, that's called/tracked but we can't check that here.
+                        return (
+                            !isExportEvents &&
+                            ['runEveryMinute', 'runEveryHour', 'runEveryDay'].some((method) =>
+                                capabilities.scheduled_tasks.includes(method)
+                            )
+                        )
                     } else {
-                        return capableMethods.includes(tab)
+                        return capabilities.methods.includes(tab)
                     }
                 },
         ],

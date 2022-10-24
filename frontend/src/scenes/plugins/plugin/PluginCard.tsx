@@ -96,7 +96,7 @@ export function PluginCard({
         showPluginLogs,
         showPluginHistory,
     } = useActions(pluginsLogic)
-    const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer, shouldShowAppMetrics } =
+    const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer, showAppMetricsForPlugin } =
         useValues(pluginsLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { user } = useValues(userLogic)
@@ -157,7 +157,7 @@ export function PluginCard({
                     <Col style={{ flex: 1 }}>
                         <div>
                             <strong style={{ marginRight: 8 }}>
-                                {shouldShowAppMetrics && pluginConfig?.id && (
+                                {showAppMetricsForPlugin(plugin) && pluginConfig?.id && (
                                     <DeliveryRateBadge
                                         deliveryRate={pluginConfig.delivery_rate_24h ?? null}
                                         pluginConfigId={pluginConfig.id}
@@ -225,7 +225,7 @@ export function PluginCard({
                                 />
                             ) : pluginId ? (
                                 <>
-                                    {shouldShowAppMetrics && pluginConfig?.id ? (
+                                    {showAppMetricsForPlugin(plugin) && pluginConfig?.id ? (
                                         <Tooltip title="App metrics">
                                             <Button
                                                 className="padding-under-500"

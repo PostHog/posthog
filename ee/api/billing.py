@@ -134,34 +134,32 @@ class BillingViewset(viewsets.GenericViewSet):
             if org.billing.stripe_subscription_id:  # type: ignore
                 raise NotFound("Billing V1 is active for this organization")
 
+        billing_service_response: Dict[str, Any] = {}
         response: Dict[str, Any] = {}
 
+        # Load Billing info if we have a V2 license
         if org and license and license.is_v2_license:
             response["license"] = {"plan": license.plan}
-            billing_service_token = build_billing_token(license, str(org.id))
-
-            res = requests.get(
-                f"{BILLING_SERVICE_URL}/api/billing",
-                headers={"Authorization": f"Bearer {billing_service_token}"},
-            )
-
-            handle_billing_service_error(res)
-
-            data = res.json()
-
-            if data.get("license"):
-                self._update_license_details(license, data["license"])
-
-            if data.get("customer"):
-                response.update(data["customer"])
+            billing_service_response = self._get_billing(license, org)
 
         # If there isn't a valid v2 subscription then we only return sucessfully if BILLING_V2_ENABLED
-        if not response.get("has_active_subscription") and not settings.BILLING_V2_ENABLED:
+        if (
+            not billing_service_response.get("customer", {}).get("has_active_subscription")
+            and not settings.BILLING_V2_ENABLED
+        ):
             distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
             if not (distinct_id and posthoganalytics.get_feature_flag("billing-v2-enabled", distinct_id)):
                 raise NotFound("Billing V2 is not enabled for this organization")
 
-        # The default response is used if there is no subscription
+        # Sync the License and Org if we have a valid response
+        if license and billing_service_response.get("license"):
+            self._update_license_details(license, billing_service_response["license"])
+
+        if org and billing_service_response.get("customer"):
+            self._update_org_details(org, billing_service_response["customer"])
+            response.update(billing_service_response["customer"])
+
+        # If we don't have products then get the default ones with our local usage calculation
         if not response.get("products"):
             products = self._get_products()
             calculated_usage = get_cached_current_usage(org) if org else None
@@ -171,6 +169,11 @@ class BillingViewset(viewsets.GenericViewSet):
                     if product["type"] in calculated_usage:
                         product["current_usage"] = calculated_usage[product["type"]]
             response["products"] = products
+
+        # Either way calculate the percentage_used for each product
+        for product in response["products"]:
+            usage_limit = product.get("usage_limit", product.get("free_allocation"))
+            product["percentage_usage"] = product["current_usage"] / usage_limit if usage_limit else 0
 
         return Response(response)
 
@@ -191,13 +194,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
         handle_billing_service_error(res)
 
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/billing/",
-            headers={"Authorization": f"Bearer {billing_service_token}"},
-        )
-
-        handle_billing_service_error(res)
-        return Response(res.json()["customer"])
+        return self.list(request, *args, **kwargs)
 
     @action(methods=["GET"], detail=False)
     def activation(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -267,12 +264,52 @@ class BillingViewset(viewsets.GenericViewSet):
 
         return res.json()["products"]
 
+    def _get_billing(self, license: License, organization: Organization) -> Dict[str, Any]:
+        """
+        Retrieves billing info and updates local models if necessary
+        """
+        billing_service_token = build_billing_token(license, str(organization.id))
+
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing",
+            headers={"Authorization": f"Bearer {billing_service_token}"},
+        )
+
+        handle_billing_service_error(res)
+
+        data = res.json()
+
+        return data
+
     def _update_license_details(self, license: License, data: Dict[str, Any]) -> License:
         """
         Ensure the license details are up-to-date locally
         """
-        license.valid_until = data["valid_until"]
-        license.plan = data["type"]
-        license.save()
+        license_modified = False
+
+        if license.valid_until != data["valid_until"]:
+            license.valid_until = data["valid_until"]
+            license_modified = True
+        if license.plan != data["type"]:
+            license.plan = data["type"]
+            license_modified = True
+
+        if license_modified:
+            license.save()
 
         return license
+
+    def _update_org_details(self, organization: Organization, data: Dict[str, Any]) -> Organization:
+        """
+        Ensure the relevant organization details are up-to-date locally
+        """
+        org_modified = False
+
+        if data["available_features"] != organization.available_features:
+            organization.available_features = data["available_features"]
+            org_modified = True
+
+        if org_modified:
+            organization.save()
+
+        return organization
