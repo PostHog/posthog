@@ -71,6 +71,16 @@ export function HistoricalExportsTab(): JSX.Element {
                 }}
                 useURLForSorting={false}
                 noSortingCancellation
+                emptyState={
+                    <div className="">
+                        <b>Nothing has been exported yet!</b>
+                        {interfaceJobsProps && (
+                            <p className="m-0">
+                                Use "Start new export" button above to export historical data in a given time range.
+                            </p>
+                        )}
+                    </div>
+                }
             />
 
             {interfaceJobsProps && <PluginJobModal {...interfaceJobsProps} />}
