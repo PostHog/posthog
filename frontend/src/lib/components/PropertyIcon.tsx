@@ -59,9 +59,10 @@ interface PropertyIconProps {
     property: string
     value?: string
     className?: string
+    noTooltip?: boolean
 }
 
-export function PropertyIcon({ property, value, className }: PropertyIconProps): JSX.Element {
+export function PropertyIcon({ property, value, className, noTooltip }: PropertyIconProps): JSX.Element {
     if (!property || !(property in PROPERTIES_ICON_MAP)) {
         return <></>
     }
@@ -75,9 +76,7 @@ export function PropertyIcon({ property, value, className }: PropertyIconProps):
         icon = countryCodeToFlag(value)
     }
 
-    return (
-        <Tooltip title={value}>
-            <span className={clsx('inline-flex items-center text-lg', className)}>{icon}</span>
-        </Tooltip>
-    )
+    const content = <span className={clsx('inline-flex items-center text-lg', className)}>{icon}</span>
+
+    return noTooltip ? content : <Tooltip title={value}>{content}</Tooltip>
 }

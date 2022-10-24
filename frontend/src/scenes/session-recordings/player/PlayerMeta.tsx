@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import { TZLabel } from 'lib/components/TimezoneAware'
-import { percentage, truncate } from 'lib/utils'
+import { percentage } from 'lib/utils'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { SessionRecordingPlayerProps } from '~/types'
@@ -17,13 +17,16 @@ import { IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { CSSTransition } from 'react-transition-group'
 import { Tooltip } from 'lib/components/Tooltip'
+import { PropertyIcon } from 'lib/components/PropertyIcon'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const {
         sessionPerson,
         description,
         resolution,
-        currentUrl,
+        lastPageviewEvent,
         scale,
         currentWindowIndex,
         recordingStartTime,
@@ -33,6 +36,12 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
 
     const { isFullScreen, isMetadataExpanded } = useValues(playerSettingsLogic)
     const { setIsMetadataExpanded } = useActions(playerSettingsLogic)
+
+    const iconProperties = lastPageviewEvent?.properties || sessionPerson?.properties
+
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const listIcons = featureFlags[FEATURE_FLAGS.RECORDING_LIST_ICONS] || 'none'
 
     return (
         <div
@@ -49,7 +58,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
             )}
 
             <div
-                className={clsx('flex items-center gap-2', {
+                className={clsx('flex items-center gap-2 shrink-0', {
                     'p-3 border-b': !isFullScreen,
                     'px-3 p-1 text-xs': isFullScreen,
                 })}
@@ -83,7 +92,40 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                         )}
                     </div>
                     <div className="text-muted">
-                        {loading ? <LemonSkeleton className="w-1/4 my-1" /> : <span>{description}</span>}
+                        {loading ? (
+                            <LemonSkeleton className="w-1/4 my-1" />
+                        ) : listIcons != 'none' ? (
+                            iconProperties ? (
+                                <div className="flex flex-row flex-nowrap shrink-0 gap-2 text-muted-alt">
+                                    <span className="flex items-center gap-1">
+                                        <PropertyIcon property="$browser" value={iconProperties['$browser']} />
+                                        {iconProperties['$browser']}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                        <PropertyIcon
+                                            property="$device_type"
+                                            value={
+                                                iconProperties['$device_type'] || iconProperties['$initial_device_type']
+                                            }
+                                        />
+                                        {iconProperties['$device_type'] || iconProperties['$initial_device_type']}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                        <PropertyIcon property="$os" value={iconProperties['$os']} />
+                                        {iconProperties['$os']}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                        <PropertyIcon
+                                            property="$geoip_country_code"
+                                            value={iconProperties['$geoip_country_code']}
+                                        />
+                                        {iconProperties['$geoip_city_name']}
+                                    </span>
+                                </div>
+                            ) : null
+                        ) : (
+                            description
+                        )}
                     </div>
                 </div>
                 <Tooltip
@@ -117,8 +159,8 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                 </CSSTransition>
             )}
             <div
-                className={clsx('flex items-center justify-between gap-2 whitespace-nowrap', {
-                    'p-3 flex-wrap': !isFullScreen,
+                className={clsx('flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden', {
+                    'p-3': !isFullScreen,
                     'p-1 px-3 text-xs h-12': isFullScreen,
                 })}
             >
@@ -128,20 +170,27 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                     <>
                         <IconWindow value={currentWindowIndex + 1} className="text-muted" />
                         {!isSmallPlayer && <div className="window-number">Window {currentWindowIndex + 1}</div>}
-                        {currentUrl && (
-                            <>
-                                {'· '}
-                                <Link to={currentUrl} target="_blank">
-                                    {truncate(currentUrl, 32)}
+                        {lastPageviewEvent?.properties?.['$current_url'] && (
+                            <span className="flex items-center gap-2 truncate">
+                                <span>·</span>
+                                <Link
+                                    to={lastPageviewEvent?.properties['$current_url']}
+                                    target="_blank"
+                                    className="truncate"
+                                >
+                                    {lastPageviewEvent?.properties['$current_url']}
                                 </Link>
                                 <span className="flex items-center">
-                                    <CopyToClipboardInline description="current url" explicitValue={currentUrl} />
+                                    <CopyToClipboardInline
+                                        description="current url"
+                                        explicitValue={lastPageviewEvent?.properties['$current_url']}
+                                    />
                                 </span>
-                            </>
+                            </span>
                         )}
                     </>
                 )}
-                <div className="flex-1" />
+                <div className="flex-1 min-w-20" />
                 {loading ? (
                     <LemonSkeleton className="w-1/3" />
                 ) : (
