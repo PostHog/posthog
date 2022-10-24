@@ -62,19 +62,18 @@ exclude =
 
 per-file-ignores =
     __init__.py:F401
-    ./posthog/queries/column_optimizer/column_optimizer.py:F401
-    ./posthog/queries/cohort_query.py:F401
+    ./bin/hobby-ci.py: T201
     ./cypress/wait.py: T201
     ./docker-compose-config.py: T201
-    ./posthog/client.py: T201
     ./ee/clickhouse/generate_local.py: T201
+    ./gunicorn.config.py: T201
     ./posthog/management/commands/migrate_clickhouse.py: T201
     ./posthog/management/commands/run_async_migrations.py: T201
     ./posthog/management/commands/backfill_persons_and_groups_on_events.py: T201
-    ./gunicorn.config.py: T201
     ./posthog/api/capture.py: T201
     ./posthog/apps.py: T201
     ./posthog/celery.py: T201
+    ./posthog/client.py: T201
     ./posthog/demo/matrix/manager.py: T201
     ./posthog/demo/matrix/matrix.py: T201
     ./posthog/email.py: T201
@@ -88,6 +87,8 @@ per-file-ignores =
     ./posthog/management/commands/test_migrations_are_safe.py: T201
     ./posthog/migrations/0027_move_elements_to_group.py: T201
     ./posthog/migrations/0038_migrate_actions_to_precalculate_events.py: T201
+    ./posthog/queries/column_optimizer/column_optimizer.py:F401
+    ./posthog/queries/cohort_query.py:F401
     ./posthog/models/plugin.py: T201
     ./posthog/settings/overrides.py: T201
     ./posthog/utils.py: T201
