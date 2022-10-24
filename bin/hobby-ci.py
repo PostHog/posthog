@@ -61,7 +61,7 @@ class HobbyTester:
             time.sleep(1)
             droplet.load()
             ip = droplet.ip_address
-        print(f"Public IP found: {ip}")
+        print(f"Public IP found: {ip}")  # type: ignore
         return ip
 
     @staticmethod
@@ -143,8 +143,8 @@ def main():
     record = domain.create_new_domain_record(type="A", name=name, data=public_ip)
 
     hobby_tester = HobbyTester(domain, droplet, record)
-    signal.signal(signal.SIGINT, hobby_tester.handle_sigint)
-    signal.signal(signal.SIGHUP, hobby_tester.handle_sigint)
+    signal.signal(signal.SIGINT, hobby_tester.handle_sigint)  # type: ignore
+    signal.signal(signal.SIGHUP, hobby_tester.handle_sigint)  # type: ignore
     print("Instance has started. You will be able to access it here after PostHog boots (~15 minutes):")
     print(f"https://{hostname}")
     health_success = HobbyTester.wait_for_instance(hostname)

@@ -97,7 +97,7 @@ class SocketMonitor(threading.Thread):
             # socket backlog, so if we're not on Linux, we return immediately.
             return
 
-        backlog_gauge = Gauge(
+        backlog_gauge = Gauge(  # type: ignore
             "gunicorn_pending_connections",
             "The number of pending connections on all sockets. Linux only.",
             registry=self.registry,
