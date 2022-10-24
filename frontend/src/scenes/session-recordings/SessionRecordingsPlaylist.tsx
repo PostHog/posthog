@@ -65,7 +65,7 @@ const SessionRecordingPlaylistItem = ({
                 'SessionRecordingsPlaylist__list-item',
                 'p-2 px-4 cursor-pointer relative overflow-hidden',
                 isActive && 'bg-primary-highlight font-semibold',
-                !recording.viewed && 'SessionRecordingsPlaylist__list-item--unwatched'
+                !recording.viewed && listIcons === 'top' && 'SessionRecordingsPlaylist__list-item--unwatched'
             )}
             onClick={() => onClick()}
         >
