@@ -12,8 +12,8 @@ from typing import (
     Union,
     cast,
 )
-import dateutil
 
+import dateutil
 import requests
 import structlog
 from django.conf import settings
@@ -410,7 +410,7 @@ def send_org_usage_report(
         full_report_dict = dataclasses.asdict(full_report)
 
         if not dry_run:
-            capture_event("organization usage report", organization_id, full_report_dict, timestamp=at)
+            capture_event("organization usage report", organization_id, full_report_dict, timestamp=at_date)
             billing_service_token = build_billing_token(license, organization_id) if license else None
             send_report_to_billing_service(full_report_dict, billing_service_token)
 
