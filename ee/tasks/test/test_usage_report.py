@@ -37,8 +37,8 @@ logger = structlog.get_logger(__name__)
 
 def send_all_org_usage_reports_with_wait(*args, **kwargs):
     job = send_all_org_usage_reports(*args, **kwargs)
-
-    return wait_for_parallel_celery_group(job)
+    wait_for_parallel_celery_group(job)
+    return job.get()
 
 
 @freeze_time("2021-08-25T22:09:14.252Z")
