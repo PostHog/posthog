@@ -442,8 +442,19 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PluginConfig
-        fields = ["id", "plugin", "enabled", "order", "config", "error", "team_id", "plugin_info", "delivery_rate_24h"]
-        read_only_fields = ["id", "team_id", "plugin_info", "delivery_rate_24h"]
+        fields = [
+            "id",
+            "plugin",
+            "enabled",
+            "order",
+            "config",
+            "error",
+            "team_id",
+            "plugin_info",
+            "delivery_rate_24h",
+            "created_at",
+        ]
+        read_only_fields = ["id", "team_id", "plugin_info", "delivery_rate_24h", "created_at"]
 
     def get_config(self, plugin_config: PluginConfig):
         attachments = PluginAttachment.objects.filter(plugin_config=plugin_config).only(

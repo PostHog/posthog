@@ -24,7 +24,7 @@ export function AppMetrics(): JSX.Element {
         <div>
             <PageHeader
                 title={pluginConfig ? pluginConfig.plugin_info.name : <LemonSkeleton />}
-                caption="An overview of metrics and export for this app."
+                caption="An overview of metrics and exports for this app."
             />
 
             {pluginConfigLoading || !activeTab ? (
