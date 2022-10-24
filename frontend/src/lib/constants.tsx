@@ -119,7 +119,6 @@ export const FEATURE_FLAGS = {
     CANCEL_RUNNING_QUERIES: 'cancel-running-queries', // owner @timgl
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     ACTOR_ON_EVENTS_QUERYING: 'person-on-events-enabled', //owner: @EDsCODE
-    FEATURE_FLAGS_UX: 'feature-flags-ux', //owner: @liyiy
     REGION_SELECT: 'region-select', //owner: @kappa90
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @macobo
     HOG_BOOK: 'hog-book', // owner: @pauldambra
@@ -130,6 +129,7 @@ export const FEATURE_FLAGS = {
     APP_METRICS: 'app-metrics', // owner: @macobo
     FEEDBACK_BUTTON: 'feedback-button', // owner: @luke
     RECORDING_LIST_ICONS: 'recording-list-icons', // owner: @benjackwhite
+    RECORDINGS_ON_FEATURE_FLAGS: 'recordings-on-feature-flags', // owner: @EDsCODE
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
