@@ -8,6 +8,8 @@ import api from 'lib/api'
 import { teamLogic } from '../teamLogic'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { toParams } from 'lib/utils'
+import { HISTORICAL_EXPORT_JOB_NAME_V2 } from 'scenes/plugins/edit/interface-jobs/PluginJobConfiguration'
+import { interfaceJobsLogic, InterfaceJobsProps } from '../plugins/edit/interface-jobs/interfaceJobsLogic'
 
 export interface AppMetricsLogicProps {
     /** Used as the logic's key */
@@ -99,6 +101,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             jobId,
         }),
         closeErrorDetailsModal: true,
+        openHistoricalExportModal: true,
     }),
 
     reducers({
@@ -170,7 +173,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
         ],
     })),
 
-    selectors(({ values }) => ({
+    selectors(({ values, actions }) => ({
         breadcrumbs: [
             (s) => [s.pluginConfig, (_, props) => props.pluginConfigId],
             (pluginConfig, pluginConfigId: number): Breadcrumb[] => [
@@ -220,6 +223,22 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                     }
                 },
         ],
+
+        interfaceJobsProps: [
+            (s) => [s.pluginConfig],
+            (pluginConfig): InterfaceJobsProps | null => {
+                if (!pluginConfig || !pluginConfig.plugin_info.public_jobs || !pluginConfig?.enabled) {
+                    return null
+                }
+                return {
+                    jobName: HISTORICAL_EXPORT_JOB_NAME_V2,
+                    jobSpec: pluginConfig.plugin_info.public_jobs[HISTORICAL_EXPORT_JOB_NAME_V2],
+                    pluginConfigId: pluginConfig.id,
+                    pluginId: pluginConfig.plugin,
+                    onSubmit: actions.loadHistoricalExports,
+                }
+            },
+        ],
     })),
 
     listeners(({ values, actions }) => ({
@@ -239,6 +258,12 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
         },
         setDateFrom: () => {
             actions.loadMetrics()
+        },
+
+        openHistoricalExportModal: () => {
+            if (values.interfaceJobsProps) {
+                interfaceJobsLogic(values.interfaceJobsProps).actions.setIsJobModalOpen(true)
+            }
         },
     })),
 
