@@ -11,14 +11,12 @@ from ee.api.billing import build_billing_token
 from ee.api.test.base import LicensedTestMixin
 from ee.models.license import License
 from ee.settings import BILLING_SERVICE_URL
-from posthog.client import sync_execute
+from ee.tasks.usage_report import send_all_org_usage_reports
 from posthog.models import Organization, Plugin, Team, User
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
-from posthog.models.person.util import create_person_distinct_id
 from posthog.models.plugin import PluginConfig
-from posthog.models.utils import UUIDT
 from posthog.session_recordings.test.test_factory import create_snapshot
 from posthog.tasks.usage_report import send_all_org_usage_reports
 from posthog.test.base import (
