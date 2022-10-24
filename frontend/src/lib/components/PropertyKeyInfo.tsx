@@ -37,6 +37,11 @@ export const keyMapping: KeyMappingInterface = {
             description: 'The operating system that the user first used (first-touch).',
             examples: ['Windows', 'Mac OS X'],
         },
+        $browser_language: {
+            label: 'Browser Language',
+            description: 'Language.',
+            examples: ['en', 'en-US', 'cn', 'pl-PL'],
+        },
         $current_url: {
             label: 'Current URL',
             description: 'The URL visited for this event, including all the trimings.',
