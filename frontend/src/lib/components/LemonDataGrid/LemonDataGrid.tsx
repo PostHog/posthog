@@ -4,7 +4,7 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { MultiGrid } from './MultiGrid'
 import { GridCellRenderer } from 'react-virtualized/dist/es/Grid'
-import { ReactNode, useMemo } from 'react'
+import { ReactNode, useEffect, useMemo, useRef } from 'react'
 import clsx from 'clsx'
 import './LemonDataGrid.scss'
 
@@ -31,6 +31,10 @@ export function LemonDataGrid<T extends Record<string, any>>(props: LemonDataGri
             }),
         []
     )
+    const multiGridRef = useRef<MultiGrid | null>(null)
+    useEffect(() => {
+        multiGridRef.current?.forceUpdateGrids()
+    }, [props.dataSource, props.columns])
 
     const cellRenderer: GridCellRenderer = ({ columnIndex, key, parent, rowIndex, style }) => {
         let content: string | ReactNode
@@ -82,6 +86,9 @@ export function LemonDataGrid<T extends Record<string, any>>(props: LemonDataGri
                     className={clsx('LemonDataGrid', props.className)}
                 >
                     <MultiGrid
+                        ref={(ref) => {
+                            multiGridRef.current = ref
+                        }}
                         columnCount={props.columns.length}
                         columnWidth={cache.columnWidth}
                         deferredMeasurementCache={cache}

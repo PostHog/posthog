@@ -699,6 +699,9 @@ export class MultiGrid extends React.PureComponent<MultiGridProps, MultiGridStat
 
     _handleWindowScrollResize = (): void => {
         const { scrollTop, headerState, windowHeight } = this.state
+        if (!this._container) {
+            return
+        }
         const containerY = this._container?.getBoundingClientRect()?.y ?? 0
         const newScrollTop = containerY < FLOAT_HEADER_AT ? FLOAT_HEADER_AT - containerY : 0
         const newHeaderState = containerY > FLOAT_HEADER_AT ? HeaderState.Top : HeaderState.Fixed
