@@ -8,6 +8,8 @@ import { useActions, useValues } from 'kea'
 import { LemonTable } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { Link } from 'lib/components/Link'
+import { Tooltip } from 'lib/components/Tooltip'
+import { IconInfo } from 'lib/components/icons'
 
 export interface MetricsTabProps {
     tab: AppMetricsTab
@@ -83,19 +85,38 @@ export function MetricsOverview({
         <div className="space-y-4">
             <div className="flex items-start gap-8 flex-wrap">
                 <div>
-                    <div className="text-muted font-semibold mb-2">{DescriptionColumns[tab].successes}</div>
+                    <div className="text-muted font-semibold mb-2">
+                        {DescriptionColumns[tab].successes}{' '}
+                        {DescriptionColumns[tab].successes_tooltip && (
+                            <Tooltip title={DescriptionColumns[tab].successes_tooltip}>
+                                <IconInfo />
+                            </Tooltip>
+                        )}
+                    </div>
                     <div className="text-4xl">{renderNumber(metrics?.totals?.successes)}</div>
                 </div>
                 {DescriptionColumns[tab].successes_on_retry && (
                     <div>
                         <div className="text-muted font-semibold mb-2">
-                            {DescriptionColumns[tab].successes_on_retry}
+                            {DescriptionColumns[tab].successes_on_retry}{' '}
+                            {DescriptionColumns[tab].successes_on_retry_tooltip && (
+                                <Tooltip title={DescriptionColumns[tab].successes_on_retry_tooltip}>
+                                    <IconInfo />
+                                </Tooltip>
+                            )}
                         </div>
                         <div className="text-4xl">{renderNumber(metrics?.totals?.successes_on_retry)}</div>
                     </div>
                 )}
                 <div>
-                    <div className="text-muted font-semibold mb-2">{DescriptionColumns[tab].failures}</div>
+                    <div className="text-muted font-semibold mb-2">
+                        {DescriptionColumns[tab].failures}{' '}
+                        {DescriptionColumns[tab].failures_tooltip && (
+                            <Tooltip title={DescriptionColumns[tab].failures_tooltip}>
+                                <IconInfo />
+                            </Tooltip>
+                        )}
+                    </div>
                     <div className="text-4xl">{renderNumber(metrics?.totals?.failures)}</div>
                 </div>
                 {exportDuration && (
