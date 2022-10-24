@@ -20,6 +20,7 @@ export interface AppMetricsLogicProps {
 export interface AppMetricsUrlParams {
     tab?: AppMetricsTab
     from?: string
+    error?: [string, string]
 }
 
 export enum AppMetricsTab {
@@ -166,7 +167,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             [] as Array<AppMetricErrorDetail>,
             {
                 openErrorDetailsModal: async ({ category, jobId, errorType }) => {
-                    const params = toParams({ category, job_id: jobId, error_type: errorType })
+                    const params = toParams({ category: category, job_id: jobId, error_type: errorType })
                     const { result } = await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}/error_details?${params}`
                     )
@@ -300,6 +301,8 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
     actionToUrl(({ values, props }) => ({
         setActiveTab: () => getUrl(values, props),
         setDateFrom: () => getUrl(values, props),
+        openErrorDetailsModal: () => getUrl(values, props),
+        closeErrorDetailsModal: () => getUrl(values, props),
     })),
 
     urlToAction(({ values, actions, props }) => ({
@@ -312,13 +315,22 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                 if (url.page === AppMetricsTab.HistoricalExports) {
                     actions.setActiveTab(AppMetricsTab.HistoricalExports)
                 } else {
-                    if (params.tab && INITIAL_TABS.includes(params.tab as any)) {
+                    if (params.tab && INITIAL_TABS.includes(params.tab as any) && params.tab !== values.activeTab) {
                         actions.setActiveTab(params.tab as AppMetricsTab)
-                    } else if (values.defaultTab) {
+                    } else if (values.defaultTab && values.activeTab !== values.defaultTab) {
                         actions.setActiveTab(values.defaultTab)
                     }
-                    if (params.from) {
+                    if (params.from && values.selectedDateFrom !== params.from) {
                         actions.setDateFrom(params.from)
+                    }
+                    if (params.error) {
+                        const [error, category] = params.error
+                        if (values.errorDetailsModalError !== error) {
+                            actions.setActiveTab(category as AppMetricsTab)
+                            actions.openErrorDetailsModal(error, category)
+                        }
+                    } else {
+                        actions.closeErrorDetailsModal()
                     }
                 }
             }
@@ -331,12 +343,15 @@ function getUrl(values: appMetricsSceneLogicType['values'], props: appMetricsSce
         return urls.appHistoricalExports(props.pluginConfigId)
     }
 
-    const params = {}
+    const params: AppMetricsUrlParams = {}
     if (values.activeTab && values.activeTab !== values.defaultTab) {
-        params['tab'] = values.activeTab
+        params.tab = values.activeTab
     }
     if (values.selectedDateFrom) {
-        params['from'] = values.selectedDateFrom
+        params.from = values.selectedDateFrom
+    }
+    if (values.errorDetailsModalError && values.activeTab) {
+        params.error = [values.errorDetailsModalError, values.activeTab]
     }
 
     return urls.appMetrics(props.pluginConfigId, params)
