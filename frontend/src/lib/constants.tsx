@@ -129,6 +129,7 @@ export const FEATURE_FLAGS = {
     CURRENCY_UNITS: 'currency-units', // owner: @pauldambra
     APP_METRICS: 'app-metrics', // owner: @macobo
     FEEDBACK_BUTTON: 'feedback-button', // owner: @luke
+    RECORDING_LIST_ICONS: 'recording-list-icons', // owner: @benjackwhite
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

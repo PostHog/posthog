@@ -28,6 +28,15 @@ function TZConversionHeader(): JSX.Element {
     )
 }
 
+interface TZLabelRawProps {
+    time: string | dayjs.Dayjs
+    showSeconds?: boolean
+    formatDate?: string
+    formatTime?: string
+    showPopover?: boolean
+    className?: string
+}
+
 /** Return a simple label component with timezone conversion UI. */
 function TZLabelRaw({
     time,
@@ -35,13 +44,8 @@ function TZLabelRaw({
     formatDate,
     formatTime,
     showPopover = true,
-}: {
-    time: string | dayjs.Dayjs
-    showSeconds?: boolean
-    formatDate?: string
-    formatTime?: string
-    showPopover?: boolean
-}): JSX.Element {
+    className,
+}: TZLabelRawProps): JSX.Element {
     usePeriodicRerender(1000)
 
     const parsedTime = dayjs.isDayjs(time) ? time : dayjs(time)
@@ -53,7 +57,7 @@ function TZLabelRaw({
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
 
     const innerContent = (
-        <span className={clsx('tz-label', showPopover && 'tz-label--hoverable')}>
+        <span className={clsx('tz-label', showPopover && 'tz-label--hoverable', className)}>
             {formatDate || formatTime
                 ? humanFriendlyDetailedTime(parsedTime, formatDate, formatTime)
                 : parsedTime.fromNow()}

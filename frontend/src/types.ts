@@ -775,6 +775,7 @@ export interface SessionRecordingType {
     distinct_id?: string
     email?: string
     person?: PersonType
+    properties?: Record<string, any>
 }
 
 export interface SessionRecordingEvents {
