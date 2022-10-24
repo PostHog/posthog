@@ -625,16 +625,14 @@ describe('DB', () => {
             })
 
             it('tries to fetch data from Postgres if Redis is down', async () => {
-                const fetchGroupSpy = jest
-                    .spyOn(db, 'fetchGroup')
-                    .mockImplementationOnce(
-                        jest.fn(() =>
-                            Promise.resolve({
-                                group_properties: { foo: 'bar' },
-                                created_at: DateTime.fromISO('2022-01-01T00:00:00.000Z'),
-                            } as any)
-                        )
+                const fetchGroupSpy = jest.spyOn(db, 'fetchGroup').mockImplementationOnce(
+                    jest.fn(() =>
+                        Promise.resolve({
+                            group_properties: { foo: 'bar' },
+                            created_at: DateTime.fromISO('2022-01-01T00:00:00.000Z'),
+                        } as any)
                     )
+                )
                 const redisGetSpy = jest.spyOn(db, 'redisGet').mockImplementationOnce(
                     jest.fn(() => {
                         throw new Error()
@@ -652,16 +650,14 @@ describe('DB', () => {
             })
 
             it('tries to fetch data from Postgres if there is no cached data', async () => {
-                const fetchGroupSpy = jest
-                    .spyOn(db, 'fetchGroup')
-                    .mockImplementationOnce(
-                        jest.fn(() =>
-                            Promise.resolve({
-                                group_properties: { foo: 'bar' },
-                                created_at: DateTime.fromISO('2022-01-01T00:00:00.000Z'),
-                            } as any)
-                        )
+                const fetchGroupSpy = jest.spyOn(db, 'fetchGroup').mockImplementationOnce(
+                    jest.fn(() =>
+                        Promise.resolve({
+                            group_properties: { foo: 'bar' },
+                            created_at: DateTime.fromISO('2022-01-01T00:00:00.000Z'),
+                        } as any)
                     )
+                )
                 const redisGetSpy = jest
                     .spyOn(db, 'redisGet')
                     .mockImplementationOnce(jest.fn(() => Promise.resolve(null)))
@@ -698,8 +694,62 @@ describe('DB', () => {
         })
 
         describe('multiple groups', () => {
-            it.skip('fetches data from cache for one group and postgres for another', () => {
-                expect(true).toEqual(true)
+            it('fetches data from cache for some groups and postgres for others', async () => {
+                const fetchGroupSpy = jest.spyOn(db, 'fetchGroup').mockImplementation(
+                    jest.fn(() =>
+                        Promise.resolve({
+                            group_properties: { cached: false },
+                            created_at: DateTime.fromISO('2022-01-01T00:00:00.000Z'),
+                        } as any)
+                    )
+                )
+
+                let call = 0
+                const redisGetSpy = jest.spyOn(db, 'redisGet').mockImplementation(
+                    jest.fn(() => {
+                        // return a cached result on the first and fourth calls and null otherwise
+                        // we should fetch data from postgres for the non-cached results
+                        ++call
+                        if (call === 1 || call === 4) {
+                            return Promise.resolve({ properties: { cached: true }, created_at: '2020-01-01' })
+                        }
+                        return Promise.resolve(null)
+                    })
+                )
+                const res = await db.getGroupsColumns(1, [
+                    [0, '0'],
+                    [1, '1'],
+                    [2, '2'],
+                    [3, '3'],
+                    [4, '4'],
+                ])
+
+                expect(redisGetSpy).toHaveBeenCalledTimes(5)
+                expect(fetchGroupSpy).toHaveBeenCalledTimes(3)
+
+                // verify that the first and fourth calls have cached=true and all other have cached=false
+                expect(res).toEqual({
+                    group0_created_at: '2020-01-01',
+                    group0_properties: {
+                        cached: true,
+                    },
+                    group1_created_at: '2022-01-01T00:00:00.000Z',
+                    group1_properties: {
+                        cached: false,
+                    },
+                    group2_created_at: '2022-01-01T00:00:00.000Z',
+                    group2_properties: {
+                        cached: false,
+                    },
+                    group3_created_at: '2020-01-01',
+                    group3_properties: {
+                        cached: true,
+                    },
+                    group4_created_at: '2022-01-01T00:00:00.000Z',
+                    group4_properties: {
+                        cached: false,
+                    },
+                })
             })
         })
     })
