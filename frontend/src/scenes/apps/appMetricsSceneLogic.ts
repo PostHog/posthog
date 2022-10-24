@@ -271,6 +271,11 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                 }
             },
         ],
+
+        hasRunningExports: [
+            (s) => [s.historicalExports],
+            (historicalExports) => historicalExports.some((e) => e.status == 'not_finished'),
+        ],
     })),
 
     listeners(({ values, actions }) => ({
