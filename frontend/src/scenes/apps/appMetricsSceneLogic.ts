@@ -8,6 +8,9 @@ import api from 'lib/api'
 import { teamLogic } from '../teamLogic'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { toParams } from 'lib/utils'
+import { HISTORICAL_EXPORT_JOB_NAME_V2 } from 'scenes/plugins/edit/interface-jobs/PluginJobConfiguration'
+import { interfaceJobsLogic, InterfaceJobsProps } from '../plugins/edit/interface-jobs/interfaceJobsLogic'
+import { dayjs } from 'lib/dayjs'
 
 export interface AppMetricsLogicProps {
     /** Used as the logic's key */
@@ -17,12 +20,14 @@ export interface AppMetricsLogicProps {
 export interface AppMetricsUrlParams {
     tab?: AppMetricsTab
     from?: string
+    error?: [string, string]
 }
 
 export enum AppMetricsTab {
     ProcessEvent = 'processEvent',
     OnEvent = 'onEvent',
     ExportEvents = 'exportEvents',
+    ScheduledTask = 'scheduledTask',
     HistoricalExports = 'historical_exports',
 }
 
@@ -35,6 +40,7 @@ export interface HistoricalExportInfo {
     finished_at?: string
     duration?: number
     progress?: number
+    failure_reason?: string
 }
 
 export interface AppMetrics {
@@ -80,6 +86,7 @@ const INITIAL_TABS: Array<AppMetricsTab> = [
     AppMetricsTab.ProcessEvent,
     AppMetricsTab.OnEvent,
     AppMetricsTab.ExportEvents,
+    AppMetricsTab.ScheduledTask,
 ]
 
 export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
@@ -90,12 +97,13 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
     actions({
         setActiveTab: (tab: AppMetricsTab) => ({ tab }),
         setDateFrom: (dateFrom: string) => ({ dateFrom }),
-        openErrorDetailsDrawer: (errorType: string, category: string, jobId?: string) => ({
+        openErrorDetailsModal: (errorType: string, category: string, jobId?: string) => ({
             errorType,
             category,
             jobId,
         }),
-        closeErrorDetailsDrawer: true,
+        closeErrorDetailsModal: true,
+        openHistoricalExportModal: true,
     }),
 
     reducers({
@@ -105,17 +113,17 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
-        dateFrom: [
-            DEFAULT_DATE_FROM as string,
+        selectedDateFrom: [
+            null as string | null,
             {
                 setDateFrom: (_, { dateFrom }) => dateFrom,
             },
         ],
-        errorDetailsDrawerError: [
+        errorDetailsModalError: [
             null as string | null,
             {
-                openErrorDetailsDrawer: (_, { errorType }) => errorType,
-                closeErrorDetailsDrawer: () => null,
+                openErrorDetailsModal: (_, { errorType }) => errorType,
+                closeErrorDetailsModal: () => null,
             },
         ],
     }),
@@ -135,10 +143,12 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             null as AppMetricsResponse | null,
             {
                 loadMetrics: async () => {
-                    const params = toParams({ category: values.activeTab, date_from: values.dateFrom })
-                    return await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}?${params}`
-                    )
+                    if (values.activeTab && values.dateFrom) {
+                        const params = toParams({ category: values.activeTab, date_from: values.dateFrom })
+                        return await api.get(
+                            `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}?${params}`
+                        )
+                    }
                 },
             },
         ],
@@ -156,8 +166,8 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
         errorDetails: [
             [] as Array<AppMetricErrorDetail>,
             {
-                openErrorDetailsDrawer: async ({ category, jobId, errorType }) => {
-                    const params = toParams({ category, job_id: jobId, error_type: errorType })
+                openErrorDetailsModal: async ({ category, jobId, errorType }) => {
+                    const params = toParams({ category: category, job_id: jobId, error_type: errorType })
                     const { result } = await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.pluginConfigId}/error_details?${params}`
                     )
@@ -167,7 +177,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
         ],
     })),
 
-    selectors(({ values }) => ({
+    selectors(({ values, actions }) => ({
         breadcrumbs: [
             (s) => [s.pluginConfig, (_, props) => props.pluginConfigId],
             (pluginConfig, pluginConfigId: number): Breadcrumb[] => [
@@ -182,23 +192,89 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             ],
         ],
 
+        defaultTab: [(s) => [s.pluginConfig], () => INITIAL_TABS.filter((tab) => values.showTab(tab))[0]],
+
+        currentTime: [() => [], () => Date.now()],
+
+        defaultDateFrom: [
+            (s) => [s.pluginConfig, s.currentTime],
+            (pluginConfig, currentTime) => {
+                if (!pluginConfig?.created_at) {
+                    return DEFAULT_DATE_FROM
+                }
+
+                const installedAt = dayjs.utc(pluginConfig.created_at)
+                const daysSinceInstall = dayjs(currentTime).diff(installedAt, 'days', true)
+                if (daysSinceInstall <= 1) {
+                    return '-24h'
+                } else if (daysSinceInstall <= 7) {
+                    return '-7d'
+                } else {
+                    return DEFAULT_DATE_FROM
+                }
+            },
+        ],
+
+        dateFrom: [
+            (s) => [s.selectedDateFrom, s.defaultDateFrom],
+            (selectedDateFrom, defaultDateFrom) => selectedDateFrom ?? defaultDateFrom ?? DEFAULT_DATE_FROM,
+        ],
+
         showTab: [
             () => [],
             () =>
                 (tab: AppMetricsTab): boolean => {
-                    if (values.pluginConfigLoading || !values.pluginConfig) {
+                    if (
+                        values.pluginConfigLoading ||
+                        !values.pluginConfig ||
+                        !values.pluginConfig.plugin_info.capabilities
+                    ) {
                         return false
                     }
-                    const capableMethods = values.pluginConfig.plugin_info.capabilities?.methods || []
+                    const capabilities = values.pluginConfig.plugin_info.capabilities
+                    const isExportEvents = capabilities.methods.includes('exportEvents')
+
                     if (tab === AppMetricsTab.HistoricalExports) {
-                        return capableMethods.includes('exportEvents')
-                    } else if (tab === AppMetricsTab.OnEvent && capableMethods.includes('exportEvents')) {
+                        return isExportEvents
+                    } else if (tab === AppMetricsTab.OnEvent && isExportEvents) {
                         // Hide onEvent tab for plugins using exportEvents
+                        // :KLUDGE: if plugin has `onEvent` in source, that's called/tracked but we can't check that here.
                         return false
+                    } else if (tab === AppMetricsTab.ScheduledTask) {
+                        // Show scheduled tasks summary if plugin has appropriate tasks.
+                        // We hide scheduled tasks for plugins using exportEvents as it's automatically added.
+                        // :KLUDGE: if plugin has `onEvent` in source, that's called/tracked but we can't check that here.
+                        return (
+                            !isExportEvents &&
+                            ['runEveryMinute', 'runEveryHour', 'runEveryDay'].some((method) =>
+                                capabilities.scheduled_tasks.includes(method)
+                            )
+                        )
                     } else {
-                        return capableMethods.includes(tab)
+                        return capabilities.methods.includes(tab)
                     }
                 },
+        ],
+
+        interfaceJobsProps: [
+            (s) => [s.pluginConfig],
+            (pluginConfig): InterfaceJobsProps | null => {
+                if (!pluginConfig || !pluginConfig.plugin_info.public_jobs || !pluginConfig?.enabled) {
+                    return null
+                }
+                return {
+                    jobName: HISTORICAL_EXPORT_JOB_NAME_V2,
+                    jobSpec: pluginConfig.plugin_info.public_jobs[HISTORICAL_EXPORT_JOB_NAME_V2],
+                    pluginConfigId: pluginConfig.id,
+                    pluginId: pluginConfig.plugin,
+                    onSubmit: actions.loadHistoricalExports,
+                }
+            },
+        ],
+
+        hasRunningExports: [
+            (s) => [s.historicalExports],
+            (historicalExports) => historicalExports.some((e) => e.status == 'not_finished'),
         ],
     })),
 
@@ -206,8 +282,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
         loadPluginConfigSuccess: () => {
             // Delay showing of tabs until we know what is relevant for _this_ plugin
             if (!values.activeTab) {
-                const [firstAppropriateTab] = INITIAL_TABS.filter((tab) => values.showTab(tab))
-                actions.setActiveTab(firstAppropriateTab)
+                actions.setActiveTab(values.defaultTab)
             }
         },
         setActiveTab: ({ tab }) => {
@@ -220,11 +295,19 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
         setDateFrom: () => {
             actions.loadMetrics()
         },
+
+        openHistoricalExportModal: () => {
+            if (values.interfaceJobsProps) {
+                interfaceJobsLogic(values.interfaceJobsProps).actions.setIsJobModalOpen(true)
+            }
+        },
     })),
 
     actionToUrl(({ values, props }) => ({
         setActiveTab: () => getUrl(values, props),
         setDateFrom: () => getUrl(values, props),
+        openErrorDetailsModal: () => getUrl(values, props),
+        closeErrorDetailsModal: () => getUrl(values, props),
     })),
 
     urlToAction(({ values, actions, props }) => ({
@@ -237,11 +320,22 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                 if (url.page === AppMetricsTab.HistoricalExports) {
                     actions.setActiveTab(AppMetricsTab.HistoricalExports)
                 } else {
-                    if (params.tab && INITIAL_TABS.includes(params.tab as any)) {
+                    if (params.tab && INITIAL_TABS.includes(params.tab as any) && params.tab !== values.activeTab) {
                         actions.setActiveTab(params.tab as AppMetricsTab)
+                    } else if (values.defaultTab && values.activeTab !== values.defaultTab) {
+                        actions.setActiveTab(values.defaultTab)
                     }
-                    if (params.from) {
+                    if (params.from && values.selectedDateFrom !== params.from) {
                         actions.setDateFrom(params.from)
+                    }
+                    if (params.error) {
+                        const [error, category] = params.error
+                        if (values.errorDetailsModalError !== error) {
+                            actions.setActiveTab(category as AppMetricsTab)
+                            actions.openErrorDetailsModal(error, category)
+                        }
+                    } else {
+                        actions.closeErrorDetailsModal()
                     }
                 }
             }
@@ -254,12 +348,15 @@ function getUrl(values: appMetricsSceneLogicType['values'], props: appMetricsSce
         return urls.appHistoricalExports(props.pluginConfigId)
     }
 
-    const params = {}
-    if (values.activeTab) {
-        params['tab'] = values.activeTab
+    const params: AppMetricsUrlParams = {}
+    if (values.activeTab && values.activeTab !== values.defaultTab) {
+        params.tab = values.activeTab
     }
-    if (values.dateFrom !== DEFAULT_DATE_FROM) {
-        params['from'] = values.dateFrom
+    if (values.selectedDateFrom) {
+        params.from = values.selectedDateFrom
+    }
+    if (values.errorDetailsModalError && values.activeTab) {
+        params.error = [values.errorDetailsModalError, values.activeTab]
     }
 
     return urls.appMetrics(props.pluginConfigId, params)

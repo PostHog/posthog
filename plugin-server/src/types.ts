@@ -77,7 +77,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     WORKER_CONCURRENCY: number
     TASKS_PER_WORKER: number
     TASK_TIMEOUT: number
-    DATABASE_URL: string | null
+    DATABASE_URL: string
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
     POSTHOG_DB_PASSWORD: string
@@ -154,7 +154,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
     OBJECT_STORAGE_BUCKET: string
-    PLUGIN_SERVER_MODE: 'ingestion' | 'async' | null
+    PLUGIN_SERVER_MODE: 'ingestion' | 'async' | 'exports' | 'jobs' | 'scheduler' | null
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     HISTORICAL_EXPORTS_ENABLED: boolean
     HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
@@ -396,6 +396,8 @@ export interface PluginTask {
     name: string
     type: PluginTaskType
     exec: (payload?: Record<string, any>) => Promise<any>
+
+    __ignoreForAppMetrics?: boolean
 }
 
 export type WorkerMethods = {

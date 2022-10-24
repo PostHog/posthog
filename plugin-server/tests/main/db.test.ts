@@ -607,6 +607,38 @@ describe('DB', () => {
         })
     })
 
+    describe('fetchGroupDataAndUpdateCache()', () => {
+        it('generates the right sql', async () => {
+            const postgresQuerySpy = jest
+                .spyOn(db, 'postgresQuery')
+                .mockImplementationOnce(jest.fn(() => ({ rows: [] } as any)))
+            await db.fetchGroupDataAndUpdateCache(999, [{ index: 1, key: '1' }])
+            expect(postgresQuerySpy).toHaveBeenCalledWith(
+                'SELECT group_type_index, group_key, group_properties, created_at FROM posthog_group WHERE team_id=$1 AND ((group_type_index = $2 AND group_key = $3))',
+                [999, 1, '1'],
+                'getGroupProperties'
+            )
+
+            await db.fetchGroupDataAndUpdateCache(999, [
+                { index: 1, key: '1' },
+                { index: 2, key: '2' },
+            ])
+            expect(postgresQuerySpy).toHaveBeenLastCalledWith(
+                'SELECT group_type_index, group_key, group_properties, created_at FROM posthog_group WHERE team_id=$1 AND ((group_type_index = $2 AND group_key = $3) OR (group_type_index = $4 AND group_key = $5))',
+                [999, 1, '1', 2, '2'],
+                'getGroupProperties'
+            )
+        })
+
+        it('doesnt query postgres if no group identifiers', async () => {
+            const postgresQuerySpy = jest
+                .spyOn(db, 'postgresQuery')
+                .mockImplementationOnce(jest.fn(() => ({ rows: [] } as any)))
+            await db.fetchGroupDataAndUpdateCache(999, [])
+            expect(postgresQuerySpy).not.toHaveBeenCalled()
+        })
+    })
+
     describe('addOrUpdatePublicJob', () => {
         it('updates the column if the job name is new', async () => {
             await insertRow(db.postgres, 'posthog_plugin', { ...plugin60, id: 88 })

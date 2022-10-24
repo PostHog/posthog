@@ -300,7 +300,15 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
+        "week_start": 1,  # Monday
     }
+
+    from posthog.api.geoip import get_geoip_properties  # avoids circular import
+
+    geoip_properties = get_geoip_properties(get_ip_address(request))
+    country_code = geoip_properties.get("$geoip_country_code", None)
+    if country_code:
+        posthog_app_context["week_start"] = get_week_start_for_country_code(country_code)
 
     posthog_bootstrap: Dict[str, Any] = {}
     posthog_distinct_id: Optional[str] = None
@@ -1054,3 +1062,86 @@ def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
 def generate_short_id():
     """Generate securely random 8 characters long alphanumeric ID."""
     return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(8))
+
+
+def get_week_start_for_country_code(country_code: str) -> int:
+    # Data from https://github.com/unicode-cldr/cldr-core/blob/master/supplemental/weekData.json
+    if country_code in [
+        "AG",
+        "AS",
+        "AU",
+        "BD",
+        "BR",
+        "BS",
+        "BT",
+        "BW",
+        "BZ",
+        "CA",
+        "CN",
+        "CO",
+        "DM",
+        "DO",
+        "ET",
+        "GT",
+        "GU",
+        "HK",
+        "HN",
+        "ID",
+        "IL",
+        "IN",
+        "JM",
+        "JP",
+        "KE",
+        "KH",
+        "KR",
+        "LA",
+        "MH",
+        "MM",
+        "MO",
+        "MT",
+        "MX",
+        "MZ",
+        "NI",
+        "NP",
+        "PA",
+        "PE",
+        "PH",
+        "PK",
+        "PR",
+        "PT",
+        "PY",
+        "SA",
+        "SG",
+        "SV",
+        "TH",
+        "TT",
+        "TW",
+        "UM",
+        "US",
+        "VE",
+        "VI",
+        "WS",
+        "YE",
+        "ZA",
+        "ZW",
+    ]:
+        return 0  # Sunday
+    if country_code in ["AE", "AF", "BH", "DJ", "DZ", "EG", "IQ", "IR", "JO", "KW", "LY", "OM", "QA", "SD", "SY"]:
+        return 6  # Saturday
+    return 1  # Monday
+
+
+def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.timedelta] = None) -> Any:
+    """
+    Wait for a group of celery tasks to finish, but don't wait longer than max_timeout.
+    For parallel tasks, this is the only way to await the entire group.
+    """
+    if not max_timeout:
+        max_timeout = datetime.timedelta(minutes=5)
+
+    start_time = timezone.now()
+    while not task.ready():
+        if timezone.now() - start_time > max_timeout:
+            raise TimeoutError("Timed out waiting for celery task to finish")
+        time.sleep(0.1)
+    return task.get()

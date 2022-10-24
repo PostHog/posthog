@@ -4,8 +4,8 @@ from rest_framework import serializers
 class AppMetricsRequestSerializer(serializers.Serializer):
     category = serializers.ChoiceField(
         # Keep in sync with plugin-server/src/worker/ingestion/app-metrics.ts
-        choices=["processEvent", "onEvent", "exportEvents"],
-        help_text="What app method to gather metrics for",
+        choices=["processEvent", "onEvent", "exportEvents", "scheduledTask"],
+        help_text="What to gather metrics for",
         required=True,
     )
     date_from = serializers.CharField(
@@ -22,8 +22,8 @@ class AppMetricsRequestSerializer(serializers.Serializer):
 class AppMetricsErrorsRequestSerializer(serializers.Serializer):
     category = serializers.ChoiceField(
         # Keep in sync with plugin-server/src/worker/ingestion/app-metrics.ts
-        choices=["processEvent", "onEvent", "exportEvents"],
-        help_text="What app method to gather metrics for",
+        choices=["processEvent", "onEvent", "exportEvents", "scheduledTask"],
+        help_text="What to gather errors for",
         required=True,
     )
     error_type = serializers.CharField(required=True, help_text="What error type to filter for.")

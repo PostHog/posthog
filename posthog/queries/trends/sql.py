@@ -36,14 +36,25 @@ SELECT {aggregate_operation} as data FROM (
 )
 """
 
-ACTIVE_USER_SQL = """
-SELECT counts as total, timestamp as day_start FROM (
-    SELECT d.timestamp, COUNT(DISTINCT {aggregator}) counts FROM (
-        SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as timestamp FROM events WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
+ACTIVE_USERS_SQL = """
+SELECT counts AS total, timestamp AS day_start FROM (
+    SELECT d.timestamp, COUNT(DISTINCT {aggregator}) AS counts FROM (
+        /* We generate a table of periods to match events against. This has to be synthesized from `numbers`
+           and not `events`, because we cannot rely on there being an event for each period (this assumption previously
+           caused active user counts to be off for sparse events). */
+        SELECT {interval}(toDateTime(%(date_to)s, %(timezone)s) - {interval_func}(number) {start_of_week_fix}) AS timestamp
+        FROM numbers(dateDiff(%(interval)s, {interval}(toDateTime(%(date_from_active_users_adjusted)s, %(timezone)s) {start_of_week_fix}), toDateTime(%(date_to)s, %(timezone)s)))
     ) d
+    /* In Postgres we'd be able to do a non-cross join with multiple inequalities (in this case, <= along with >),
+       but this is not possible in ClickHouse as of 2022.10 (ASOF JOIN isn't fit for this either). */
     CROSS JOIN (
-        SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as timestamp, {aggregator} FROM ({event_query}) events WHERE 1 = 1 {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp, {aggregator}
-    ) e WHERE e.timestamp <= d.timestamp AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
+        SELECT
+            toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) AS timestamp,
+            {aggregator}
+        FROM ({event_query}) events
+        WHERE 1 = 1 {parsed_date_from_prev_range} {parsed_date_to}
+        GROUP BY timestamp, {aggregator}
+    ) e WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
     GROUP BY d.timestamp
     ORDER BY d.timestamp
 ) WHERE 1 = 1 {parsed_date_from} {parsed_date_to}

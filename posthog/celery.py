@@ -1,9 +1,9 @@
 import os
 import time
 from random import randrange
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from celery import Celery
+from celery import Celery, group
 from celery.schedules import crontab
 from celery.signals import setup_logging, task_postrun, task_prerun, worker_process_init
 from django.conf import settings
@@ -79,12 +79,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s()  # check twice a week
     )
 
+    # Send all instance usage to the Billing service
     sender.add_periodic_task(
-        crontab(
-            hour=0, minute=randrange(0, 40)
-        ),  # every day at a random minute past midnight. Sends data from the preceding whole day to the billing service.
-        send_instance_usage_report.s(),
-        name="send instance usage report",
+        crontab(hour=0, minute=0), send_all_org_usage_reports.s(), name="send instance usage report"
     )
 
     # PostHog Cloud cron jobs
@@ -128,7 +125,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(
         crontab(minute=0, hour="*"), pg_plugin_server_query_timing.s(), name="PG plugin server query timing"
     )
-    sender.add_periodic_task(120, graphile_queue_size.s(), name="Graphile queue size")
+    sender.add_periodic_task(120, graphile_worker_queue_size.s(), name="Graphile Worker queue size")
 
     sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_cohort_ids_in_feature_flags_task.s())
 
@@ -328,7 +325,7 @@ def ingestion_lag():
 
 
 @app.task(ignore_result=True)
-def graphile_queue_size():
+def graphile_worker_queue_size():
     from django.db import connections
 
     from posthog.internal_metrics import gauge
@@ -346,7 +343,7 @@ def graphile_queue_size():
         )
 
         queue_size = cursor.fetchone()[0]
-        gauge("graphile_queue_size", queue_size)
+        gauge("graphile_worker_queue_size", queue_size)
 
         # Track the number of jobs that will still be run at least once or are currently running based on job type (i.e. task_identifier)
         # Completed jobs are deleted and "permanently failed" jobs have attempts == max_attempts
@@ -619,14 +616,23 @@ def clickhouse_mark_all_materialized():
             mark_all_materialized()
 
 
-@app.task(ignore_result=True)
-def send_instance_usage_report():
+@app.task(autoretry_for=(Exception,), max_retries=3, retry_backoff=True, acks_late=True)
+def send_org_usage_report_task(organization_id: str, dry_run: bool = False, at: Optional[str] = None):
     try:
-        from ee.tasks.usage_report import send_all_org_usage_reports
+        from ee.tasks.usage_report import send_org_usage_report
     except ImportError:
         pass
     else:
-        send_all_org_usage_reports()
+        return send_org_usage_report(organization_id, dry_run=dry_run, at=at)
+
+
+@app.task(ignore_result=True)
+def send_all_org_usage_reports(dry_run: bool = False, at: Optional[str] = None):
+    from posthog.models.organization import Organization
+
+    all_orgs = Organization.objects.exclude(for_internal_metrics=True).values("id")
+    tasks = [send_org_usage_report_task.s(org["id"], dry_run=dry_run, at=at) for org in all_orgs]
+    return group(tasks).apply_async()
 
 
 @app.task(ignore_result=True)

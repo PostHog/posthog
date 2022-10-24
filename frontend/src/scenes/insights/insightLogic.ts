@@ -941,8 +941,8 @@ export const insightLogic = kea<insightLogicType>([
 
             dashboardsModel.actions.updateDashboardInsight(savedInsight)
 
+            const mountedInsightSceneLogic = insightSceneLogic.findMounted()
             if (redirectToViewMode) {
-                const mountedInsightSceneLogic = insightSceneLogic.findMounted()
                 if (!insightNumericId && dashboards?.length === 1) {
                     // redirect new insights added to dashboard to the dashboard
                     router.actions.push(urls.dashboard(dashboards[0], savedInsight.short_id))
@@ -951,6 +951,10 @@ export const insightLogic = kea<insightLogicType>([
                 } else {
                     router.actions.push(urls.insightView(savedInsight.short_id))
                 }
+            } else if (!insightNumericId) {
+                // If we've just saved a new insight without redirecting to view mode, we need to redirect to edit mode
+                // so that we aren't stuck on /insights/new
+                router.actions.push(urls.insightEdit(savedInsight.short_id))
             }
         },
         saveAs: async () => {

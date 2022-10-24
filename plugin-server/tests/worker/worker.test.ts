@@ -9,8 +9,9 @@ import { delay, UUIDT } from '../../src/utils/utils'
 import { ActionManager } from '../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../src/worker/ingestion/action-matcher'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
+import { loadSchedule } from '../../src/worker/plugins/loadSchedule'
 import { runPluginTask } from '../../src/worker/plugins/run'
-import { loadSchedule, setupPlugins } from '../../src/worker/plugins/setup'
+import { setupPlugins } from '../../src/worker/plugins/setup'
 import { teardownPlugins } from '../../src/worker/plugins/teardown'
 import { createTaskRunner } from '../../src/worker/worker'
 import { resetTestDatabase } from '../helpers/sql'
@@ -23,6 +24,8 @@ jest.mock('../../src/utils/status')
 jest.mock('../../src/worker/plugins/run')
 jest.mock('../../src/worker/plugins/setup')
 jest.mock('../../src/worker/plugins/teardown')
+jest.mock('../../src/worker/plugins/loadPluginsFromDB')
+jest.mock('../../src/worker/plugins/loadSchedule')
 jest.setTimeout(600000) // 600 sec timeout
 
 function createEvent(index = 0): PluginEvent {

@@ -7,11 +7,11 @@ from django.conf import settings
 from django.core import exceptions
 
 from posthog.client import query_with_columns, sync_execute
-from posthog.demo.graphile import (
-    GraphileJob,
-    bulk_queue_graphile_jobs,
-    copy_graphile_jobs_between_teams,
-    erase_graphile_jobs_of_team,
+from posthog.demo.graphile_worker import (
+    GraphileWorkerJob,
+    bulk_queue_graphile_worker_jobs,
+    copy_graphile_worker_jobs_between_teams,
+    erase_graphile_worker_jobs_for_team,
 )
 from posthog.models import (
     Cohort,
@@ -174,7 +174,7 @@ class MatrixManager:
             [AsyncDeletion(team_id=cls.MASTER_TEAM_ID, key=cls.MASTER_TEAM_ID, deletion_type=DeletionType.Team)]
         )
         GroupTypeMapping.objects.filter(team_id=cls.MASTER_TEAM_ID).delete()
-        erase_graphile_jobs_of_team(cls.MASTER_TEAM_ID)
+        erase_graphile_worker_jobs_for_team(cls.MASTER_TEAM_ID)
 
     @classmethod
     def _copy_analytics_data_from_master_team(cls, target_team: Team):
@@ -182,7 +182,7 @@ class MatrixManager:
         from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
         from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 
-        copy_graphile_jobs_between_teams(cls.MASTER_TEAM_ID, target_team.pk)
+        copy_graphile_worker_jobs_between_teams(cls.MASTER_TEAM_ID, target_team.pk)
         copy_params = {"source_team_id": cls.MASTER_TEAM_ID, "target_team_id": target_team.pk}
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
@@ -270,7 +270,7 @@ class MatrixManager:
     @staticmethod
     def _save_future_sim_events(team: Team, events: List[SimEvent]):
         """Future events are not saved immediately, instead they're scheduled for ingestion via event buffer."""
-        graphile_jobs: List[GraphileJob] = []
+        graphile_jobs: List[GraphileWorkerJob] = []
         for event in events:
             event_uuid = UUIDT(unix_time_ms=int(event.timestamp.timestamp() * 1000))
             timestamp_iso = event.timestamp.isoformat()
@@ -285,11 +285,11 @@ class MatrixManager:
                 }
             }
             graphile_jobs.append(
-                GraphileJob(
+                GraphileWorkerJob(
                     task_identifier="bufferJob", payload=payload, run_at=event.timestamp, flags={"team_id": team.pk}
                 )
             )
-        bulk_queue_graphile_jobs(graphile_jobs)
+        bulk_queue_graphile_worker_jobs(graphile_jobs)
 
     @staticmethod
     def _save_sim_group(
