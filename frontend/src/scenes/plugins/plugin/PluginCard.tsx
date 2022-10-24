@@ -31,7 +31,7 @@ import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { PluginsAccessLevel } from 'lib/constants'
 import { urls } from 'scenes/urls'
-import { DeliveryRateBadge } from './DeliveryRateBadge'
+import { SuccessRateBadge } from './SuccessRateBadge'
 
 export function PluginAboutButton({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
@@ -96,7 +96,7 @@ export function PluginCard({
         showPluginLogs,
         showPluginHistory,
     } = useActions(pluginsLogic)
-    const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer, shouldShowAppMetrics } =
+    const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer, showAppMetricsForPlugin } =
         useValues(pluginsLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { user } = useValues(userLogic)
@@ -157,8 +157,8 @@ export function PluginCard({
                     <Col style={{ flex: 1 }}>
                         <div>
                             <strong style={{ marginRight: 8 }}>
-                                {shouldShowAppMetrics && pluginConfig?.id && (
-                                    <DeliveryRateBadge
+                                {showAppMetricsForPlugin(plugin) && pluginConfig?.id && (
+                                    <SuccessRateBadge
                                         deliveryRate={pluginConfig.delivery_rate_24h ?? null}
                                         pluginConfigId={pluginConfig.id}
                                     />
@@ -225,7 +225,7 @@ export function PluginCard({
                                 />
                             ) : pluginId ? (
                                 <>
-                                    {shouldShowAppMetrics && pluginConfig?.id ? (
+                                    {showAppMetricsForPlugin(plugin) && pluginConfig?.id ? (
                                         <Tooltip title="App metrics">
                                             <Button
                                                 className="padding-under-500"

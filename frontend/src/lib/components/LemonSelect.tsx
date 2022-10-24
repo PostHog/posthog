@@ -5,6 +5,7 @@ import { LemonButton, LemonButtonWithPopup, LemonButtonWithPopupProps } from './
 import { PopupProps } from './Popup/Popup'
 import './LemonSelect.scss'
 import clsx from 'clsx'
+import { TooltipProps } from './Tooltip'
 
 export interface LemonSelectOption<T> {
     value: T
@@ -12,7 +13,7 @@ export interface LemonSelectOption<T> {
     icon?: React.ReactElement
     sideIcon?: React.ReactElement
     disabled?: boolean
-    tooltip?: string
+    tooltip?: string | JSX.Element
     'data-attr'?: string
     element?: React.ReactElement // TODO: Unify with `label`
 }
@@ -32,7 +33,11 @@ export interface LemonSelectProps<T>
     > {
     options: LemonSelectOptions<T>
     value?: T
+    /** Callback fired when a value different from the one currently set is selected. */
     onChange?: (newValue: T | null) => void
+    /** Callback fired when a value is selected, even if it already is set. */
+    onSelect?: (newValue: T) => void
+    optionTooltipPlacement?: TooltipProps['placement']
     dropdownMatchSelectWidth?: boolean
     dropdownMaxContentWidth?: boolean
     dropdownPlacement?: PopupProps['placement']
@@ -85,8 +90,10 @@ export const boxToSections = <T,>(
 export function LemonSelect<T>({
     value,
     onChange,
+    onSelect,
     options,
     placeholder = 'Select a value',
+    optionTooltipPlacement,
     dropdownMatchSelectWidth = true,
     dropdownMaxContentWidth = false,
     dropdownPlacement,
@@ -128,11 +135,13 @@ export function LemonSelect<T>({
                                     icon={option.icon}
                                     sideIcon={option.sideIcon}
                                     tooltip={option.tooltip}
+                                    tooltipPlacement={optionTooltipPlacement}
                                     onClick={() => {
                                         if (option.value !== localValue) {
-                                            onChange?.(option.value ?? null)
+                                            onChange?.(option.value)
                                             setLocalValue(option.value)
                                         }
+                                        onSelect?.(option.value)
                                     }}
                                     status="stealth"
                                     active={option.value === localValue}

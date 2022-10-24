@@ -68,7 +68,7 @@ export function addHistoricalEventsExportCapability(
 
     const oldSetupPlugin = methods.setupPlugin
 
-    const oldRunEveryMinute = tasks.schedule.runEveryMinute?.exec
+    const oldRunEveryMinute = tasks.schedule.runEveryMinute
 
     methods.setupPlugin = async () => {
         await meta.utils.cursor.init(BATCH_ID_CURSOR_KEY)
@@ -84,7 +84,7 @@ export function addHistoricalEventsExportCapability(
         name: 'runEveryMinute',
         type: PluginTaskType.Schedule,
         exec: async () => {
-            await oldRunEveryMinute?.()
+            await oldRunEveryMinute?.exec?.()
 
             const lastRun = await meta.storage.get(RUN_EVERY_MINUTE_LAST_RUN_KEY, 0)
             const exportShouldBeRunning = await meta.storage.get(EXPORT_RUNNING_KEY, false)
@@ -115,6 +115,9 @@ export function addHistoricalEventsExportCapability(
 
             await meta.storage.set(RUN_EVERY_MINUTE_LAST_RUN_KEY, Date.now())
         },
+
+        // :TRICKY: We don't want to track app metrics for runEveryMinute for historical exports _unless_ plugin also has `runEveryMinute`
+        __ignoreForAppMetrics: !oldRunEveryMinute || !!oldRunEveryMinute.__ignoreForAppMetrics,
     }
 
     tasks.job['exportHistoricalEvents'] = {

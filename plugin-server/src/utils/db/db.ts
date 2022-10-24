@@ -716,9 +716,9 @@ export class DB {
             group_properties: Properties
             created_at: string
         }>(
-            'SELECT group_type_index, group_key, group_properties, created_at FROM posthog_group WHERE team_id=$1 AND '.concat(
+            'SELECT group_type_index, group_key, group_properties, created_at FROM posthog_group WHERE team_id=$1 AND ('.concat(
                 queryOptions.join(' OR ')
-            ),
+            ) + ')',
             args,
             'getGroupProperties'
         )
@@ -745,7 +745,7 @@ export class DB {
     }
 
     public async fetchGroupColumnsValues(teamId: number, groups: GroupIdentifier[]): Promise<Record<string, string>> {
-        if (!groups) {
+        if (groups.length === 0) {
             return {}
         }
         const cachedResults = await Promise.all(

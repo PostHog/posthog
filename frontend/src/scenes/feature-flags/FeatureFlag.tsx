@@ -43,6 +43,7 @@ import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
 import { cohortsModel } from '~/models/cohortsModel'
 import { FeatureFlagRecordings } from './FeatureFlagRecordingsCard'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -91,7 +92,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         loadFeatureFlag,
     } = useActions(featureFlagLogic)
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
-    const { hasAvailableFeature, upgradeLink } = useValues(userLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const { upgradeLink } = useValues(billingLogic)
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
@@ -875,7 +877,8 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
     const { distributeVariantsEqually, addVariant, removeVariant, setMultivariateEnabled } =
         useActions(featureFlagLogic)
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
-    const { hasAvailableFeature, upgradeLink } = useValues(userLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const { upgradeLink } = useValues(billingLogic)
 
     return (
         <>
