@@ -125,6 +125,7 @@ export class EventPipelineRunner {
                 }
             } catch (error) {
                 await this.handleError(error, currentStepName, currentArgs)
+                throw error
                 return {
                     lastStep: currentStepName,
                     args: currentArgs.map((arg: any) => this.serialize(arg)),

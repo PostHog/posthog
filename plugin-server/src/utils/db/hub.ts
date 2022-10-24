@@ -231,7 +231,13 @@ export async function createHub(
     await actionManager.prepare()
 
     const schedulePluginJob = async (job: EnqueuedPluginJob) => {
-        await kafkaProducer.queueMessage({
+        // NOTE: we use the producer directly here rather than using the wrapper
+        // such that we can a response immediately on error, and thus bubble up
+        // any errors in producing. It's important that we ensure that we have
+        // an acknowledgement as for instance there are some jobs that are
+        // chained, and if we do not manage to produce then the chain will be
+        // broken.
+        await kafkaProducer.producer.send({
             topic: KAFKA_JOBS,
             messages: [
                 {

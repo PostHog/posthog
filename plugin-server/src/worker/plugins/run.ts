@@ -20,24 +20,7 @@ export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise
                         key: 'plugin',
                         tag: pluginConfig.plugin?.name || '?',
                     },
-                    () =>
-                        runRetriableFunction({
-                            hub,
-                            metricName: 'plugin.on_event',
-                            metricTags: {
-                                plugin: pluginConfig.plugin?.name ?? '?',
-                                teamId: event.team_id.toString(),
-                            },
-                            tryFn: async () => await onEvent!(event),
-                            catchFn: async (error) => await processError(hub, pluginConfig, error, event),
-                            payload: event,
-                            appMetric: {
-                                teamId: event.team_id,
-                                pluginConfigId: pluginConfig.id,
-                                category: 'onEvent',
-                            },
-                            appMetricErrorContext: { event },
-                        })
+                    async () => await onEvent!(event)
                 )
             )
     )

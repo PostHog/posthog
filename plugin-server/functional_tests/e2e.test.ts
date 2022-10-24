@@ -504,7 +504,7 @@ const capture = async (
     })
 }
 
-const createPlugin = async (pgClient: Pool, plugin: Omit<Plugin, 'id'>) => {
+export const createPlugin = async (pgClient: Pool, plugin: Omit<Plugin, 'id'>) => {
     return await insertRow(pgClient, 'posthog_plugin', {
         ...plugin,
         config_schema: {},
@@ -517,7 +517,7 @@ const createPlugin = async (pgClient: Pool, plugin: Omit<Plugin, 'id'>) => {
     })
 }
 
-const createPluginConfig = async (
+export const createPluginConfig = async (
     pgClient: Pool,
     pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config' | 'has_error'>
 ) => {
@@ -531,7 +531,12 @@ const createPluginConfig = async (
     })
 }
 
-const createAndReloadPluginConfig = async (pgClient: Pool, teamId: number, pluginId: number, redis: Redis.Redis) => {
+export const createAndReloadPluginConfig = async (
+    pgClient: Pool,
+    teamId: number,
+    pluginId: number,
+    redis: Redis.Redis
+) => {
     const pluginConfig = await createPluginConfig(postgres, { team_id: teamId, plugin_id: pluginId })
     // Make sure the plugin server reloads the newly created plugin config.
     // TODO: avoid reaching into the pluginsServer internals and rather use
@@ -574,7 +579,7 @@ const fetchPluginLogEntries = async (clickHouseClient: ClickHouse, pluginConfigI
     return logEntries.map((entry) => ({ ...entry, message: JSON.parse(entry.message) }))
 }
 
-const createOrganization = async (pgClient: Pool) => {
+export const createOrganization = async (pgClient: Pool) => {
     const organizationId = new UUIDT().toString()
     await insertRow(pgClient, 'posthog_organization', {
         id: organizationId,
@@ -593,7 +598,7 @@ const createOrganization = async (pgClient: Pool) => {
     return organizationId
 }
 
-const createTeam = async (pgClient: Pool, organizationId: string) => {
+export const createTeam = async (pgClient: Pool, organizationId: string) => {
     const team = await insertRow(pgClient, 'posthog_team', {
         organization_id: organizationId,
         app_urls: [],
