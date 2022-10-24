@@ -127,33 +127,6 @@ export interface CreatePersonalApiKeyPayload {
     created_at: Date
 }
 
-// export type GroupIdentifier = {
-//     index: number
-//     key: string
-// }
-
-// type GroupCacheData = {
-//     identifier: GroupIdentifier
-//     data: {
-//         properties: Properties
-//         created_at: DateTime
-//     } | null
-//     cached?: boolean
-// }
-
-// export interface GroupColumns {
-//     group0_properties: Properties
-//     group1_properties: Properties
-//     group2_properties: Properties
-//     group3_properties: Properties
-//     group4_properties: Properties
-//     group0_created_at: string
-//     group1_created_at: string
-//     group2_created_at: string
-//     group3_created_at: string
-//     group4_created_at: string
-// }
-
 export type GroupType = number
 
 export type GroupId = [GroupType, GroupKey]
