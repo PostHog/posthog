@@ -5,7 +5,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, extend_schema_field  # # noqa: F401 for easy import
 from rest_framework import fields, serializers
 
-from posthog.models.entity import MATH_TYPE
+from posthog.models.entity import MathType
 from posthog.models.property import OperatorType, PropertyType
 
 
@@ -132,7 +132,7 @@ class FilterEventSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Name of the event to filter on. For example `$pageview` or `user sign up`.")
     properties = PropertySerializer(many=True, required=False)
     math = serializers.ChoiceField(
-        help_text=math_help_text, choices=get_args(MATH_TYPE), default="total", required=False
+        help_text=math_help_text, choices=get_args(MathType), default="total", required=False
     )
 
 
@@ -140,7 +140,7 @@ class FilterActionSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="ID of the action to filter on. For example `2841`.")
     properties = PropertySerializer(many=True, required=False)
     math = serializers.ChoiceField(
-        help_text=math_help_text, choices=get_args(MATH_TYPE), default="total", required=False
+        help_text=math_help_text, choices=get_args(MathType), default="total", required=False
     )
 
 

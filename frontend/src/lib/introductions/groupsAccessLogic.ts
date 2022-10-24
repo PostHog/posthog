@@ -41,5 +41,14 @@ export const groupsAccessLogic = kea<groupsAccessLogicType>({
                 }
             },
         ],
+        needsUpgradeForGroups: [
+            (s) => [s.groupsAccessStatus],
+            (groupsAccessStatus) =>
+                [GroupsAccessStatus.NoAccess, GroupsAccessStatus.HasGroupTypes].includes(groupsAccessStatus),
+        ],
+        canStartUsingGroups: [
+            (s) => [s.groupsAccessStatus],
+            (groupsAccessStatus) => groupsAccessStatus === GroupsAccessStatus.HasAccess,
+        ],
     },
 })

@@ -1984,10 +1984,10 @@ export interface InstanceSetting {
 }
 
 export enum BaseMathType {
-    Total = 'total',
-    DailyActive = 'dau',
-    WeeklyActive = 'weekly_active',
-    MonthlyActive = 'monthly_active',
+    TotalCount = 'total',
+    UniqueUsers = 'dau',
+    WeeklyActiveUsers = 'weekly_active',
+    MonthlyActiveUsers = 'monthly_active',
     UniqueSessions = 'unique_session',
 }
 
@@ -2000,6 +2000,16 @@ export enum PropertyMathType {
     P90 = 'p90',
     P95 = 'p95',
     P99 = 'p99',
+}
+
+export enum CountPerActorMathType {
+    Average = 'avg_count_per_actor',
+    Minimum = 'min_count_per_actor',
+    Maximum = 'max_count_per_actor',
+    Median = 'median_count_per_actor',
+    P90 = 'p90_count_per_actor',
+    P95 = 'p95_count_per_actor',
+    P99 = 'p99_count_per_actor',
 }
 
 export enum ActorGroupType {

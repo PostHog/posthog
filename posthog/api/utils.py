@@ -14,7 +14,7 @@ from statshog.defaults.django import statsd
 from posthog.constants import EventDefinitionType
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Entity, EventDefinition
-from posthog.models.entity import MATH_TYPE
+from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
@@ -61,7 +61,7 @@ def entity_from_order(order: Optional[str], entities: List[Entity]) -> Optional[
 
 
 def retrieve_entity_from(
-    entity_id: str, entity_type: Optional[str], entity_math: MATH_TYPE, events: List[Entity], actions: List[Entity]
+    entity_id: str, entity_type: Optional[str], entity_math: MathType, events: List[Entity], actions: List[Entity]
 ) -> Optional[Entity]:
     """
     Retrieves the entity from the events and actions.
