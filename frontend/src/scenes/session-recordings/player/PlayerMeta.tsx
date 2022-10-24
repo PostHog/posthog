@@ -99,33 +99,39 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                                 <div className="flex flex-row flex-nowrap shrink-0 gap-2 text-muted-alt">
                                     <span className="flex items-center gap-1">
                                         <PropertyIcon
-                                            noTooltip
+                                            noTooltip={!isFullScreen}
                                             property="$browser"
                                             value={iconProperties['$browser']}
                                         />
-                                        {iconProperties['$browser']}
+                                        {!isFullScreen ? iconProperties['$browser'] : null}
                                     </span>
                                     <span className="flex items-center gap-1">
                                         <PropertyIcon
-                                            noTooltip
+                                            noTooltip={!isFullScreen}
                                             property="$device_type"
                                             value={
                                                 iconProperties['$device_type'] || iconProperties['$initial_device_type']
                                             }
                                         />
-                                        {iconProperties['$device_type'] || iconProperties['$initial_device_type']}
-                                    </span>
-                                    <span className="flex items-center gap-1">
-                                        <PropertyIcon noTooltip property="$os" value={iconProperties['$os']} />
-                                        {iconProperties['$os']}
+                                        {!isFullScreen
+                                            ? iconProperties['$device_type'] || iconProperties['$initial_device_type']
+                                            : null}
                                     </span>
                                     <span className="flex items-center gap-1">
                                         <PropertyIcon
-                                            noTooltip
+                                            noTooltip={!isFullScreen}
+                                            property="$os"
+                                            value={iconProperties['$os']}
+                                        />
+                                        {!isFullScreen ? iconProperties['$os'] : null}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                        <PropertyIcon
+                                            noTooltip={!isFullScreen}
                                             property="$geoip_country_code"
                                             value={iconProperties['$geoip_country_code']}
                                         />
-                                        {iconProperties['$geoip_city_name']}
+                                        {!isFullScreen ? iconProperties['$geoip_city_name'] : null}
                                     </span>
                                 </div>
                             ) : null
