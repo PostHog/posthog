@@ -7,11 +7,30 @@ import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { Progress } from 'antd'
 import { LemonButton } from 'lib/components/LemonButton'
 import { PluginJobModal } from 'scenes/plugins/edit/interface-jobs/PluginJobConfiguration'
+import { useEffect } from 'react'
+
+const RELOAD_HISTORICAL_EXPORTS_FREQUENCY_MS = 20000
 
 export function HistoricalExportsTab(): JSX.Element {
-    const { historicalExports, historicalExportsLoading, pluginConfig, interfaceJobsProps } =
+    const { historicalExports, historicalExportsLoading, pluginConfig, interfaceJobsProps, hasRunningExports } =
         useValues(appMetricsSceneLogic)
-    const { openHistoricalExportModal } = useActions(appMetricsSceneLogic)
+    const { openHistoricalExportModal, loadHistoricalExports } = useActions(appMetricsSceneLogic)
+
+    useEffect(() => {
+        let timer: NodeJS.Timeout | undefined
+
+        function updateTimer(): void {
+            if (hasRunningExports) {
+                timer = setTimeout(() => {
+                    loadHistoricalExports()
+                    updateTimer()
+                }, RELOAD_HISTORICAL_EXPORTS_FREQUENCY_MS)
+            }
+        }
+
+        updateTimer()
+        return () => timer && clearTimeout(timer)
+    }, [hasRunningExports])
 
     return (
         <div className="space-y-2">
@@ -71,6 +90,16 @@ export function HistoricalExportsTab(): JSX.Element {
                 }}
                 useURLForSorting={false}
                 noSortingCancellation
+                emptyState={
+                    <div className="">
+                        <b>Nothing has been exported yet!</b>
+                        {interfaceJobsProps && (
+                            <p className="m-0">
+                                Use "Start new export" button above to export historical data in a given time range.
+                            </p>
+                        )}
+                    </div>
+                }
             />
 
             {interfaceJobsProps && <PluginJobModal {...interfaceJobsProps} />}

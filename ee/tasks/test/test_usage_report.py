@@ -40,6 +40,7 @@ def send_all_org_usage_reports_with_wait(*args, **kwargs):
     return wait_for_parallel_celery_group(job)
 
 
+@freeze_time("2021-08-25T22:09:14.252Z")
 class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
     def _create_new_org_and_team(
         self, for_internal_metrics: bool = False, org_owner_email: str = "test@posthog.com"
@@ -58,7 +59,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
         plugin = Plugin.objects.create(organization_id=self.team.organization.pk, name=name)
         PluginConfig.objects.create(plugin=plugin, enabled=enabled, order=1)
 
-    @freeze_time("2022-10-21T12:00:00.252Z")
     @patch("os.environ", {"DEPLOYMENT": "tests"})
     def test_usage_report(self) -> None:
         with self.settings(SITE_URL="http://test.posthog.com"):
@@ -90,8 +90,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                 "deployment_infrastructure": "tests",
                 "realm": "hosted-clickhouse",
                 "period": {
-                    "start_inclusive": "2022-10-20T00:00:00+00:00",
-                    "end_inclusive": "2022-10-20T23:59:59.999999+00:00",
+                    "start_inclusive": "2021-08-24T00:00:00+00:00",
+                    "end_inclusive": "2021-08-24T23:59:59.999999+00:00",
                 },
                 "site_url": "http://test.posthog.com",
                 "product": "open source",
@@ -99,7 +99,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                 "users_who_logged_in_count": None,
                 "users_who_signed_up": None,
                 "users_who_signed_up_count": None,
-                "date": "2022-10-20",
+                "date": "2021-08-24",
                 "admin_distinct_id": self.user.distinct_id,
                 "organization_id": str(self.organization.id),
                 "organization_name": self.organization.name,
