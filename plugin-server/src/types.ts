@@ -396,6 +396,8 @@ export interface PluginTask {
     name: string
     type: PluginTaskType
     exec: (payload?: Record<string, any>) => Promise<any>
+
+    __ignoreForAppMetrics?: boolean
 }
 
 export type WorkerMethods = {

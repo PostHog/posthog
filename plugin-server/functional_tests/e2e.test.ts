@@ -66,14 +66,6 @@ const startMultiServer = async () => {
     return await Promise.all([ingestionServer, asyncServer, jobsServer, schedulerServer])
 }
 
-const startIngestionAsyncSplit = async () => {
-    // A split of ingestion and all other tasks
-    const ingestionServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'ingestion' })
-    const asyncServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'async' })
-
-    return await Promise.all([ingestionServer, asyncServer])
-}
-
 const startSingleServer = async () => {
     return [await startPluginsServer(extraServerConfig)]
 }
@@ -126,7 +118,7 @@ afterAll(async () => {
     await Promise.all([producer.disconnect(), postgres.end(), redis.disconnect()])
 })
 
-describe.each([[startSingleServer], [startMultiServer], [startIngestionAsyncSplit]])('E2E', (pluginServer) => {
+describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) => {
     let pluginsServers: ServerInstance[]
 
     beforeAll(async () => {

@@ -79,12 +79,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s()  # check twice a week
     )
 
+    # Send all instance usage to the Billing service
     sender.add_periodic_task(
-        crontab(
-            hour=0, minute=randrange(0, 40)
-        ),  # every day at a random minute past midnight. Sends data from the preceding whole day to the billing service.
-        send_instance_usage_report.s(),
-        name="send instance usage report",
+        crontab(hour=0, minute=0), send_instance_usage_report.s(), name="send instance usage report"
     )
 
     # PostHog Cloud cron jobs

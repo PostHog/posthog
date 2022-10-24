@@ -52,6 +52,18 @@ def create_session_recording_event(
     return str(uuid)
 
 
+def get_recording_count_for_team(team_id: Union[str, int]) -> int:
+    result = sync_execute(
+        """
+        SELECT count(distinct session_id) as count
+        FROM session_recording_events
+        WHERE team_id = %(team_id)s
+    """,
+        {"team_id": str(team_id)},
+    )[0][0]
+    return result
+
+
 def get_recording_count_for_team_and_period(
     team_id: Union[str, int], begin: timezone.datetime, end: timezone.datetime
 ) -> int:

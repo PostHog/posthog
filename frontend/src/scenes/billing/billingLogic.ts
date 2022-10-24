@@ -37,7 +37,7 @@ export const billingLogic = kea<billingLogicType>([
         referer: (referer: string) => ({ referer }),
     }),
     connect({
-        values: [featureFlagLogic, ['featureFlags'], billingLogicV2, ['billingVersion']],
+        values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags'], billingLogicV2, ['billingVersion']],
         actions: [eventUsageLogic, ['reportIngestionBillingCancelled']],
     }),
     reducers({
@@ -127,6 +127,13 @@ export const billingLogic = kea<billingLogicType>([
         ],
     })),
     selectors({
+        upgradeLink: [
+            (s) => [s.preflight, s.billingVersion],
+            (preflight, billingVersion): string =>
+                billingVersion === 'v2' || preflight?.cloud
+                    ? '/organization/billing'
+                    : 'https://license.posthog.com?utm_medium=in-product&utm_campaign=in-product-upgrade',
+        ],
         eventAllocation: [(s) => [s.billing], (billing: BillingType) => billing?.event_allocation],
         percentage: [
             (s) => [s.eventAllocation, s.billing],
