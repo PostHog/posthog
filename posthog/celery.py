@@ -632,6 +632,7 @@ def send_all_org_usage_reports(dry_run: bool = False, at: Optional[str] = None):
 
     all_orgs = Organization.objects.exclude(for_internal_metrics=True).values("id")
     tasks = [send_org_usage_report_task.s(org["id"], dry_run=dry_run, at=at) for org in all_orgs]
+
     return group(tasks).apply_async()
 
 

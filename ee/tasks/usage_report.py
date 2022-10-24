@@ -362,7 +362,6 @@ def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
 def send_org_usage_report(
     organization_id: Optional[str] = None, dry_run: bool = False, at: Optional[str] = None
 ) -> Dict:
-
     at_date = dateutil.parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
     period_start, period_end = period
