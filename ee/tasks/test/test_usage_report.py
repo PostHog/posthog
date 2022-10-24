@@ -80,8 +80,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                 "event_count_with_groups_in_month": None,
                 "recording_count_in_period": None,
                 "recording_count_total": None,
-                "person_count_in_period": None,
-                "person_count_total": None,
+                # "person_count_in_period": None,
+                # "person_count_total": None,
                 "using_groups": False,
                 "group_types_total": None,
                 "dashboard_count": None,
@@ -134,8 +134,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(org_report["teams"][team_id]["group_types_total"], 0)
             self.assertEqual(org_report["teams"][team_id]["event_count_by_lib"], {"$mobile": 1, "$web": 2})
             self.assertEqual(org_report["teams"][team_id]["event_count_by_name"], {"$event1": 1, "$event2": 2})
-            self.assertEqual(org_report["person_count_total"], 4)
-            self.assertEqual(org_report["person_count_in_period"], 2)
+            # self.assertEqual(org_report["person_count_total"], 4)
+            # self.assertEqual(org_report["person_count_in_period"], 2)
 
         with self.settings(USE_TZ=False):
             with freeze_time("2020-11-10"):
