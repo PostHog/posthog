@@ -58,8 +58,7 @@ def parse_kafka_event_data(
 
 
 def log_event(data: Dict, event_name: str, partition_key: str) -> None:
-    if settings.DEBUG:
-        print(f"Logging event {event_name} to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC}")
+    logger.debug(f"Logging event {event_name} to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC}")
 
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:

@@ -83,7 +83,7 @@ class Command(BaseCommand):
             end_offsets = consumer.end_offsets([TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)])
             endOffset = end_offsets[TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)]
             offset = offsets[TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)].offset
-            logger.debug(f"Offset: {offset} / {endOffset}")
+            logger.info(f"Offset: {offset} / {endOffset}")
             if endOffset == offset:
                 break
             time.sleep(1)
