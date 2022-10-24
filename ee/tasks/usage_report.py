@@ -12,6 +12,7 @@ from typing import (
     Union,
     cast,
 )
+import dateutil
 
 import requests
 import structlog
@@ -27,7 +28,7 @@ from ee.models.license import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog import version_requirement
 from posthog.cloud_utils import is_cloud
-from posthog.models import GroupTypeMapping, OrganizationMembership, Person, Team, User
+from posthog.models import GroupTypeMapping, OrganizationMembership, Person, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.event.util import (
     get_event_count_for_team,
@@ -37,6 +38,7 @@ from posthog.models.event.util import (
     get_events_count_for_team_by_event_type,
 )
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.organization import Organization
 from posthog.models.person.util import count_duplicate_distinct_ids_for_team, count_total_persons_with_multiple_ids
 from posthog.models.plugin import PluginConfig
 from posthog.models.session_recording_event.util import (
@@ -100,7 +102,7 @@ class OrgUsageSummary:
     # Feature flags
     ff_count: int
     ff_active_count: int
-    teams: Dict[str, TeamUsageReport]
+    teams: Dict[int, TeamUsageReport]
 
 
 @dataclasses.dataclass
@@ -138,7 +140,7 @@ class OrgReportFull(OrgReport, OrgMetadata, OrgUsageSummary):
     pass
 
 
-def get_org_usage_report(period: Tuple[datetime, datetime], team_ids: List[str]) -> OrgUsageSummary:
+def get_org_usage_report(period: Tuple[datetime, datetime], team_ids: List[int]) -> OrgUsageSummary:
     period_start, period_end = period
 
     org_usage_summary = OrgUsageSummary(
@@ -162,9 +164,9 @@ def get_org_usage_report(period: Tuple[datetime, datetime], team_ids: List[str])
     for team_id in team_ids:
         # pull person stats and the rest here from Postgres always
         persons_considered_total = Person.objects.filter(team_id=team_id)
-        persons_considered_total_new_in_period = persons_considered_total.filter(
+        persons_considered_total_new_in_period_count = persons_considered_total.filter(
             created_at__gte=period_start, created_at__lte=period_end
-        )
+        ).count()
 
         # Dashboards
         team_dashboards = Dashboard.objects.filter(team_id=team_id).exclude(deleted=True)
@@ -186,7 +188,7 @@ def get_org_usage_report(period: Tuple[datetime, datetime], team_ids: List[str])
             multiple_ids_per_person=count_total_persons_with_multiple_ids(team_id),
             group_types_total=GroupTypeMapping.objects.filter(team_id=team_id).count(),
             person_count_total=persons_considered_total.count(),
-            person_count_in_period=persons_considered_total_new_in_period.count(),
+            person_count_in_period=persons_considered_total_new_in_period_count,
             dashboard_count=team_dashboards.count(),
             dashboard_template_count=team_dashboards.filter(creation_mode="template").count(),
             dashboard_shared_count=team_dashboards.filter(sharingconfiguration__enabled=True).count(),
@@ -262,89 +264,7 @@ def get_instance_metadata(period: Tuple[datetime, datetime], has_license: bool) 
     return metadata
 
 
-def send_all_org_usage_reports(
-    dry_run: bool = False, at: Optional[datetime] = None, only_organization_id: Optional[str] = None
-) -> Tuple[List[Dict], List[Tuple[str, Exception]]]:
-    """
-    Generic way to generate and send org usage reports.
-    Specify Postgres or ClickHouse for event queries.
-    """
-    period = get_previous_day(at=at)
-    period_start, _ = period
-
-    license = License.objects.first_valid()
-    metadata = get_instance_metadata(period, bool(license))
-
-    org_data: Dict[str, Dict[str, Any]] = {}
-    org_reports: List[Dict] = []
-    exceptions_for_org: List[Tuple[str, Exception]] = []
-
-    for team in Team.objects.exclude(organization__for_internal_metrics=True):
-        org = team.organization
-        organization_id = str(org.id)
-        billing_service_token = None
-        if license:
-            billing_service_token = build_billing_token(license, organization_id)
-        if organization_id in org_data:
-            org_data[organization_id]["teams"].append(team.id)
-        else:
-            org_data[organization_id] = {
-                "teams": [team.id],
-                "user_count": get_org_user_count(organization_id),
-                "name": org.name,
-                "created_at": str(org.created_at),
-                "token": billing_service_token,
-            }
-
-    for organization_id, org in org_data.items():
-        # NOTE: We should consider scheduling this rather than immediately invoking, that way we can have retries per org
-        if only_organization_id and organization_id != only_organization_id:
-            continue
-        try:
-            org_owner = get_org_owner_or_first_user(organization_id)
-            if not org_owner:
-                continue
-
-            logger.info("Sending usage report for organization %s ...", organization_id)
-
-            distinct_id = org_owner.distinct_id
-            usage = get_org_usage_report(period, org["teams"])
-
-            report = OrgReport(
-                admin_distinct_id=distinct_id,
-                organization_id=organization_id,
-                organization_name=org["name"],
-                organization_created_at=org["created_at"],
-                organization_user_count=org["user_count"],
-                team_count=len(org["teams"]),
-                date=period_start.strftime("%Y-%m-%d"),
-            )
-
-            full_report = OrgReportFull(
-                **dataclasses.asdict(report),
-                **dataclasses.asdict(metadata),
-                **dataclasses.asdict(usage),
-            )
-            full_report_dict = dataclasses.asdict(full_report)
-
-            org_reports.append(full_report_dict)
-            if not dry_run:
-                capture_event("organization usage report", organization_id, full_report_dict, timestamp=at)
-                send_report(full_report_dict, org["token"])
-
-            logger.info("Usage report for organization %s sent!", organization_id)
-
-        except Exception as err:
-            logger.error("Usage report for organization %s failed!", organization_id)
-            exceptions_for_org.append((str(organization_id), err))
-            if not dry_run:
-                capture_exception(err)
-                capture_event("organization usage report failure", organization_id, {"error": str(err)})
-
-    return org_reports, exceptions_for_org
-
-
-def send_report(report: Dict, token: str):
+def send_report_to_billing_service(report: Dict, token: str):
     headers = {}
     if token:
         headers = {"Authorization": f"Bearer {token}"}
@@ -435,3 +355,73 @@ def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
     with connection.cursor() as cursor:
         cursor.execute(sql.SQL(sql_), params)
         return namedtuplefetchall(cursor)
+
+
+def send_org_usage_report(
+    organization_id: Optional[str] = None, dry_run: bool = False, at: Optional[str] = None
+) -> Dict:
+
+    at_date = None
+
+    if at:
+        at_date = dateutil.parser.parse(at)
+
+    """
+    Generic way to generate and send org usage reports.
+    Specify Postgres or ClickHouse for event queries.
+    """
+    period = get_previous_day(at=at_date)
+    period_start, _ = period
+
+    license = License.objects.first_valid()
+    metadata = get_instance_metadata(period, bool(license))
+
+    organization = Organization.objects.get(id=organization_id)
+    organization_id = str(organization.id)
+    teams = organization.teams.all()
+    team_ids = [team.id for team in teams]
+
+    try:
+        org_owner = get_org_owner_or_first_user(organization_id)
+
+        if not org_owner:
+            raise Exception("No owner found for organization")
+
+        logger.info("Sending usage report for organization %s ...", organization_id)
+
+        distinct_id = org_owner.distinct_id
+        usage = get_org_usage_report(period, team_ids)
+
+        report = OrgReport(
+            admin_distinct_id=distinct_id,
+            organization_id=organization_id,
+            organization_name=organization.name,
+            organization_created_at=organization.created_at.isoformat(),
+            organization_user_count=get_org_user_count(organization_id),
+            team_count=len(team_ids),
+            date=period_start.strftime("%Y-%m-%d"),
+        )
+
+        full_report = OrgReportFull(
+            **dataclasses.asdict(report),
+            **dataclasses.asdict(metadata),
+            **dataclasses.asdict(usage),
+        )
+        full_report_dict = dataclasses.asdict(full_report)
+
+        if not dry_run:
+            capture_event("organization usage report", organization_id, full_report_dict, timestamp=at)
+            billing_service_token = build_billing_token(license, organization_id) if license else None
+            send_report_to_billing_service(full_report_dict, billing_service_token)
+
+        logger.info("Usage report for organization %s sent!", organization_id)
+
+        return full_report_dict
+
+    except Exception as err:
+        logger.error("Usage report for organization %s failed!", organization_id)
+        if not dry_run:
+            capture_exception(err)
+            capture_event("organization usage report failure", organization_id, {"error": str(err)})
+
+        raise err

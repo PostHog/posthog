@@ -1,9 +1,9 @@
 import pprint
 
-import dateutil
 from django.core.management.base import BaseCommand
 
-from ee.tasks.usage_report import send_all_org_usage_reports
+from posthog.celery import send_all_org_usage_reports, send_org_usage_report_task
+from posthog.utils import wait_for_parallel_celery_group
 
 
 class Command(BaseCommand):
@@ -18,27 +18,21 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
         date = options["date"]
+        org_id = options["org_id"]
 
-        date_parsed = None
-
-        if date:
-            date_parsed = dateutil.parser.parse(date)
-
-        reports, errors = send_all_org_usage_reports(dry_run, date_parsed, only_organization_id=options["org_id"])
+        if org_id:
+            results = send_org_usage_report_task(only_organization_id=options["org_id"], dry_run=dry_run, date=date)
+        else:
+            job = send_all_org_usage_reports(dry_run, date)
+            results = wait_for_parallel_celery_group(job)
 
         if dry_run:
             if options["print_reports"]:
                 print("")  # noqa T201
-                pprint.pprint(reports)  # noqa T203
+                pprint.pprint(results)  # noqa T203
                 print("")  # noqa T201
 
-            if errors:
-                print("")  # noqa T201
-                pprint.pprint(errors)  # noqa T203
-                print("")  # noqa T201
-                print("Dry run so not sent.")  # noqa T201
-
-            print(f"{len(reports)} Reports sent!")  # noqa T201
+            print(f"{len(results)} Reports sent!")  # noqa T201
             print("Dry run so not sent.")  # noqa T201
         else:
             print("Done!")  # noqa T201
