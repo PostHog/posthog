@@ -367,11 +367,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 <Col span={11} className="pl-4">
                                                     <RecentFeatureFlagInsights />
                                                     <div className="my-4" />
-                                                    <FeatureFlagInstructions
-                                                        featureFlagKey={featureFlag.key || 'my-flag'}
-                                                    />
-                                                    <div className="my-4" />
-                                                    <FeatureFlagRecordings key={featureFlag.key || 'my-flag'} />
+                                                    <FeatureFlagRecordings flagKey={featureFlag.key || 'my-flag'} />
                                                 </Col>
                                             </Row>
                                         </Tabs.TabPane>

@@ -52,6 +52,30 @@ export const DEFAULT_ENTITY_FILTERS = {
     ],
 }
 
+export const defaultEntityFilterOnFlag = (flagKey: string): Partial<FilterType> => ({
+    events: [
+        {
+            id: '$feature_flag_called',
+            name: '$feature_flag_called',
+            type: 'events',
+            properties: [
+                {
+                    key: '$feature/' + flagKey,
+                    type: 'event',
+                    value: ['true'],
+                    operator: 'exact',
+                },
+                {
+                    key: '$feature_flag',
+                    type: 'event',
+                    value: flagKey,
+                    operator: 'exact',
+                },
+            ],
+        },
+    ],
+})
+
 export interface SessionRecordingTableLogicProps {
     personUUID?: PersonUUID
     key?: string
@@ -115,30 +139,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
     }),
     events: ({ actions, props }) => ({
         afterMount: () => {
-            console.log('HERE:', props.flagKey)
             if (props.flagKey) {
-                actions.setEntityFilters({
-                    events: [
-                        {
-                            name: '$feature_flag_called',
-                            type: 'events',
-                            properties: [
-                                {
-                                    key: '$feature/' + props.flagKey,
-                                    type: 'event',
-                                    value: ['true'],
-                                    operator: 'exact',
-                                },
-                                {
-                                    key: '$feature_flag',
-                                    type: 'event',
-                                    value: [props.flagKey],
-                                    operator: 'exact',
-                                },
-                            ],
-                        },
-                    ],
-                })
+                actions.setEntityFilters(defaultEntityFilterOnFlag(props.flagKey))
             } else {
                 actions.getSessionRecordings()
             }

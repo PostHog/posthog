@@ -8,20 +8,22 @@ import { teamLogic } from 'scenes/teamLogic'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/sessionRecordingsListLogic'
 
 interface FeatureFlagRecordingsProps {
-    key: string
+    flagKey: string
 }
 
-export function FeatureFlagRecordings({ key }: FeatureFlagRecordingsProps): JSX.Element {
+export function FeatureFlagRecordings({ flagKey }: FeatureFlagRecordingsProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const sessionRecordingsListLogicInstance = sessionRecordingsListLogic({ key: 'feature-flag', flagKey: key })
-    const { sessionRecordings, sessionRecordingsResponseLoading } = useValues(sessionRecordingsListLogicInstance)
+    const sessionRecordingsListLogicInstance = sessionRecordingsListLogic({ key: 'feature-flag', flagKey: flagKey })
+    const { sessionRecordings, sessionRecordingsResponseLoading, entityFilters } = useValues(
+        sessionRecordingsListLogicInstance
+    )
 
     return (
         <>
             <SessionPlayerModal />
             <CompactList
                 title="Recordings with current feature flag"
-                viewAllURL={urls.sessionRecordings()}
+                viewAllURL={urls.sessionRecordings(entityFilters)}
                 loading={sessionRecordingsResponseLoading}
                 emptyMessage={
                     currentTeam?.session_recording_opt_in
