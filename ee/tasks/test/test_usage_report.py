@@ -34,6 +34,7 @@ from posthog.version import VERSION
 logger = structlog.get_logger(__name__)
 
 
+@freeze_time("2021-08-25T22:09:14.252Z")
 class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
     def _create_new_org_and_team(
         self, for_internal_metrics: bool = False, org_owner_email: str = "test@posthog.com"
@@ -83,8 +84,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                 "deployment_infrastructure": "tests",
                 "realm": "hosted-clickhouse",
                 "period": {
-                    "start_inclusive": "2022-10-20T00:00:00+00:00",
-                    "end_inclusive": "2022-10-20T23:59:59.999999+00:00",
+                    "start_inclusive": "2021-08-24T00:00:00+00:00",
+                    "end_inclusive": "2021-08-24T23:59:59.999999+00:00",
                 },
                 "site_url": "http://test.posthog.com",
                 "product": "open source",
@@ -92,7 +93,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                 "users_who_logged_in_count": None,
                 "users_who_signed_up": None,
                 "users_who_signed_up_count": None,
-                "date": "2022-10-20",
+                "date": "2021-08-24",
                 "admin_distinct_id": self.user.distinct_id,
                 "organization_id": str(self.organization.id),
                 "organization_name": self.organization.name,
