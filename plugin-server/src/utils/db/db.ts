@@ -678,7 +678,7 @@ export class DB {
 
                 if (cachedGroupData) {
                     this.statsd?.increment('group_info_cache.hit')
-                    groupColumns[propertiesColumnName] = cachedGroupData.properties
+                    groupColumns[propertiesColumnName] = JSON.stringify(cachedGroupData.properties)
                     groupColumns[createdAtColumnName] = cachedGroupData.created_at
                     continue
                 }
@@ -692,7 +692,7 @@ export class DB {
             const storedGroupData = await this.fetchGroup(teamId, groupTypeIndex as GroupTypeIndex, groupKey)
 
             if (storedGroupData) {
-                groupColumns[propertiesColumnName] = storedGroupData.group_properties
+                groupColumns[propertiesColumnName] = JSON.stringify(storedGroupData.group_properties)
 
                 const createdAt = castTimestampOrNow(storedGroupData.created_at)
                 groupColumns[createdAtColumnName] = createdAt
@@ -712,7 +712,7 @@ export class DB {
                 this.statsd?.increment('groups_data_missing_entirely')
                 captureException(new Error('Missing groups data entirely'), { extra: { groupCacheKey } })
 
-                groupColumns[propertiesColumnName] = {}
+                groupColumns[propertiesColumnName] = '{}'
                 groupColumns[createdAtColumnName] = castTimestampOrNow()
             }
         }
