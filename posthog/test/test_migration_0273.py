@@ -66,7 +66,6 @@ class MarkInactiveExportsAsFinished(TestMigrations):
                     "job_id": "2",
                     "job_type": "Export historical events V2",
                     "payload": {},
-                    "failure_reason": "Export was killed after too much inactivity",
                 }
             },
         )
