@@ -61,6 +61,7 @@ export function MetricsTab({ tab }: MetricsTabProps): JSX.Element {
                     category={tab}
                     errors={appMetricsResponse?.errors || []}
                     loading={appMetricsResponseLoading}
+                    showExtendedEmptyState
                 />
             </div>
         </div>
@@ -119,11 +120,13 @@ export function ErrorsOverview({
     loading,
     category,
     jobId,
+    showExtendedEmptyState,
 }: {
     errors: Array<AppErrorSummary>
     loading?: boolean
     category: string
     jobId?: string
+    showExtendedEmptyState?: boolean
 }): JSX.Element {
     const { openErrorDetailsModal } = useActions(appMetricsSceneLogic)
 
@@ -177,10 +180,12 @@ export function ErrorsOverview({
             emptyState={
                 <div className="">
                     <b>No errors! 🥳</b>
-                    <p className="m-0">
-                        If this app has any errors in the future, this table will contain information to help solve the
-                        issue.
-                    </p>
+                    {showExtendedEmptyState && (
+                        <p className="m-0">
+                            If this app has any errors in the future, this table will contain information to help solve
+                            the issue.
+                        </p>
+                    )}
                 </div>
             }
         />
