@@ -1,6 +1,7 @@
 from typing import Dict, List
 from unittest.mock import ANY, MagicMock, Mock, patch
 
+import pytest
 import structlog
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -36,8 +37,8 @@ logger = structlog.get_logger(__name__)
 
 def send_all_org_usage_reports_with_wait(*args, **kwargs):
     job = send_all_org_usage_reports(*args, **kwargs)
-
-    return wait_for_parallel_celery_group(job)
+    wait_for_parallel_celery_group(job)
+    return job.get()
 
 
 @freeze_time("2021-08-25T22:09:14.252Z")
@@ -532,6 +533,33 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             {"code": 404, "scope": "machine"},
             groups={"instance": ANY},
             timestamp=None,
+        )
+
+    @freeze_time("2021-10-10T23:01:00Z")
+    @patch("ee.tasks.usage_report.get_org_usage_report")
+    @patch("ee.tasks.usage_report.Client")
+    @patch("requests.post")
+    def test_send_usage_backup(self, mock_post, mock_client, mock_get_org_usage_report):
+        mockresponse = Mock()
+        mock_post.return_value = mockresponse
+        mockresponse.status_code = 200
+        mockresponse.json = lambda: {"ok": True}
+        mock_get_org_usage_report.side_effect = Exception("something went wrong")
+
+        with pytest.raises(Exception):
+            send_all_org_usage_reports_with_wait(dry_run=False)
+        license = License.objects.first()
+        assert license
+        token = build_billing_token(license, str(self.organization.id))
+        mock_post.assert_called_once_with(
+            f"{BILLING_SERVICE_URL}/api/usage",
+            json={
+                "organization_id": str(self.organization.id),
+                "date": "2021-10-09",
+                "event_count_in_period": 4,
+                "recording_count_in_period": 0,
+            },
+            headers={"Authorization": f"Bearer {token}"},
         )
 
 

@@ -21,10 +21,11 @@ class Command(BaseCommand):
         org_id = options["org_id"]
 
         if org_id:
-            results = send_org_usage_report_task(only_organization_id=options["org_id"], dry_run=dry_run, date=date)
+            results = [send_org_usage_report_task(options["org_id"], dry_run=dry_run, at=date)]
         else:
             job = send_all_org_usage_reports(dry_run, date)
-            results = wait_for_parallel_celery_group(job)
+            job = wait_for_parallel_celery_group(job)
+            results = job.get()
 
         if dry_run:
             if options["print_reports"]:
