@@ -229,6 +229,8 @@ export class EventsProcessor {
             ...groupsColumns,
         }
 
+        console.log(rawEvent)
+
         await this.kafkaProducer.queueMessage({
             topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
             messages: [
