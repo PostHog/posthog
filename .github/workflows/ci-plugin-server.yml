@@ -305,7 +305,9 @@ jobs:
 
                   ./manage.py generate_demo_data --n-clusters 1  # This is literally just so we have a team id 1 in the db
                   cd plugin-server
-                  yarn start:dev --migrate
-                  NODE_ENV=production yarn start:dev &
+                  yarn build
+                  export NODE_ENV=production
+                  yarn start:dist --migrate
+                  yarn start:dist &
                   cd ..
                   ./manage.py generate_demo_events --seed 1 --days-future 0 --n-clusters 500 --team-id 1
