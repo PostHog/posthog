@@ -1,4 +1,5 @@
 #!/usr/local/bin/python
+# type: ignore
 
 import datetime
 import os
@@ -130,7 +131,7 @@ class HobbyTester:
             except Exception as e:
                 print(f"Could not destroy the dns entry because\n{e}")
 
-    def handle_sigint(self):
+    def handle_sigint(self, signum, frame):
         self.destroy_environment(self.droplet, self.domain, self.record)
 
 
