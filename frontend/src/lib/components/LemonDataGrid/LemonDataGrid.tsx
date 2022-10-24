@@ -18,22 +18,24 @@ interface LemonDataGridProps<T extends Record<string, any>> {
 }
 
 /** Defaults for calculation if nothing overrides */
-const rowHeight = 48
+const defaultHeight = 48
 const defaultWidth = 100
 
 export function LemonDataGrid<T extends Record<string, any>>(props: LemonDataGridProps<T>): JSX.Element {
-    const cache = useMemo(
-        () =>
-            new CellMeasurerCache({
-                defaultHeight: rowHeight,
-                defaultWidth,
-                // fixedHeight: true,
-            }),
-        []
-    )
+    const cache = useMemo(() => new CellMeasurerCache({ defaultHeight, defaultWidth }), [])
     const multiGridRef = useRef<MultiGrid | null>(null)
+
+    const lastDataSource = useRef(props.dataSource)
+    const lastColumns = useRef(props.columns)
     useEffect(() => {
-        multiGridRef.current?.forceUpdateGrids()
+        if (
+            JSON.stringify(lastDataSource.current) !== JSON.stringify(props.dataSource) ||
+            lastColumns.current !== props.columns
+        ) {
+            lastDataSource.current = props.dataSource
+            lastColumns.current = props.columns
+            multiGridRef.current?.forceUpdateGrids()
+        }
     }, [props.dataSource, props.columns])
 
     const cellRenderer: GridCellRenderer = ({ columnIndex, key, parent, rowIndex, style }) => {
@@ -91,6 +93,7 @@ export function LemonDataGrid<T extends Record<string, any>>(props: LemonDataGri
                         }}
                         columnCount={props.columns.length}
                         columnWidth={cache.columnWidth}
+                        rowHeight={cache.rowHeight}
                         deferredMeasurementCache={cache}
                         fixedColumnCount={props.fixedColumnCount ?? 0}
                         fixedRowCount={1}
@@ -98,7 +101,6 @@ export function LemonDataGrid<T extends Record<string, any>>(props: LemonDataGri
                         overscanRowCount={0}
                         cellRenderer={cellRenderer}
                         rowCount={props.dataSource.length + 1}
-                        rowHeight={rowHeight}
                         width={width}
                         height={0} /** not used */
                     />
