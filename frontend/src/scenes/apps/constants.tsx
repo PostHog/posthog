@@ -49,8 +49,13 @@ export const DescriptionColumns: Record<AppMetricsTab, Description> = {
     },
     [AppMetricsTab.ExportEvents]: {
         successes: 'Events delivered',
-        successes_tooltip: <>These events were successfully delivered to the configured destination.</>,
+        successes_tooltip: (
+            <>These events were successfully delivered to the configured destination on the first try.</>
+        ),
         successes_on_retry: 'Events delivered on retry',
+        successes_on_retry_tooltip: (
+            <>These events were successfully delivered to the configured destination after being retried.</>
+        ),
         failures: 'Failed events',
         failures_tooltip: <>These events failed to be delivered to the configured destination due to errors.</>,
     },
