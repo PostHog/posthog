@@ -31,6 +31,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.models import GroupTypeMapping, OrganizationMembership, Person, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.event.util import (
+    get_agg_event_count_for_teams_and_period,
     get_event_count_for_team,
     get_event_count_for_team_and_period,
     get_event_count_with_groups_count_for_team_and_period,
@@ -42,6 +43,7 @@ from posthog.models.organization import Organization
 from posthog.models.person.util import count_duplicate_distinct_ids_for_team, count_total_persons_with_multiple_ids
 from posthog.models.plugin import PluginConfig
 from posthog.models.session_recording_event.util import (
+    get_agg_recording_count_for_teams_and_period,
     get_recording_count_for_team,
     get_recording_count_for_team_and_period,
 )
@@ -363,7 +365,7 @@ def send_org_usage_report(
 
     at_date = dateutil.parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
-    period_start, _ = period
+    period_start, period_end = period
 
     license = License.objects.first_valid()
     metadata = get_instance_metadata(period, bool(license))
@@ -371,7 +373,7 @@ def send_org_usage_report(
     organization = Organization.objects.get(id=organization_id)
     organization_id = str(organization.id)
     teams = organization.teams.all()
-    team_ids = [team.id for team in teams]
+    team_ids: List[int] = [team.id for team in teams]
 
     try:
         org_owner = get_org_owner_or_first_user(organization_id)
@@ -413,6 +415,18 @@ def send_org_usage_report(
     except Exception as err:
         logger.error("Usage report for organization %s failed!", organization_id)
         if not dry_run:
+            # If we except we still want to capture the minimum amount of info for the Billing Service
+            minimal_report_dict = {
+                "organization_id": organization_id,
+                "date": period_start.strftime("%Y-%m-%d"),
+                "event_count_in_period": get_agg_event_count_for_teams_and_period(team_ids, period_start, period_end),
+                "recording_count_in_period": get_agg_recording_count_for_teams_and_period(
+                    team_ids, period_start, period_end
+                ),
+            }
+            billing_service_token = build_billing_token(license, organization_id) if license else None
+            send_report_to_billing_service(minimal_report_dict, billing_service_token)
+
             capture_exception(err)
             capture_event("organization usage report failure", organization_id, {"error": str(err)})
 

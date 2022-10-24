@@ -353,7 +353,7 @@ def get_agg_event_count_for_teams(team_ids: List[Union[str, int]]) -> int:
 
 
 def get_agg_event_count_for_teams_and_period(
-    team_ids: List[Union[str, int]], begin: timezone.datetime, end: timezone.datetime
+    team_ids: List[int], begin: timezone.datetime, end: timezone.datetime
 ) -> int:
     result = sync_execute(
         """
