@@ -194,7 +194,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
 
         defaultTab: [(s) => [s.pluginConfig], () => INITIAL_TABS.filter((tab) => values.showTab(tab))[0]],
 
-        currentTime: [() => [], () => dayjs()],
+        currentTime: [() => [], () => Date.now()],
 
         defaultDateFrom: [
             (s) => [s.pluginConfig, s.currentTime],
@@ -204,7 +204,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                 }
 
                 const installedAt = dayjs.utc(pluginConfig.created_at)
-                const daysSinceInstall = currentTime.diff(installedAt, 'days', true)
+                const daysSinceInstall = dayjs(currentTime).diff(installedAt, 'days', true)
                 if (daysSinceInstall <= 1) {
                     return '-24h'
                 } else if (daysSinceInstall <= 7) {
