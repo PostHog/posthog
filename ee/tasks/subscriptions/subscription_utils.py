@@ -1,5 +1,4 @@
-from datetime import datetime, timedelta
-from time import sleep
+from datetime import timedelta
 from typing import List, Tuple, Union
 
 import structlog
