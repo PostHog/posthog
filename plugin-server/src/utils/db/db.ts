@@ -694,7 +694,7 @@ export class DB {
             if (storedGroupData) {
                 groupColumns[propertiesColumnName] = JSON.stringify(storedGroupData.group_properties)
 
-                const createdAt = castTimestampOrNow(storedGroupData.created_at)
+                const createdAt = castTimestampOrNow(storedGroupData.created_at, TimestampFormat.ClickHouse)
                 groupColumns[createdAtColumnName] = createdAt
 
                 // We found data in Postgres, so update the cache
@@ -713,7 +713,10 @@ export class DB {
                 captureException(new Error('Missing groups data entirely'), { extra: { groupCacheKey } })
 
                 groupColumns[propertiesColumnName] = '{}'
-                groupColumns[createdAtColumnName] = castTimestampOrNow()
+                groupColumns[createdAtColumnName] = castTimestampOrNow(
+                    new Date(0).toISOString(),
+                    TimestampFormat.ClickHouse
+                )
             }
         }
 
