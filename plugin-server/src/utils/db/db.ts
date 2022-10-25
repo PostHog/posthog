@@ -658,11 +658,10 @@ export class DB {
         teamId: number,
         groupTypeIndex: number,
         groupKey: string,
-        groupData: CachedGroupData,
-        ttlSeconds?: number
+        groupData: CachedGroupData
     ): Promise<void> {
         const groupCacheKey = this.getGroupDataCacheKey(teamId, groupTypeIndex, groupKey)
-        await this.redisSet(groupCacheKey, groupData, ttlSeconds)
+        await this.redisSet(groupCacheKey, groupData)
     }
 
     public async getGroupsColumns(teamId: number, groupIds: GroupId[]): Promise<Record<string, any>> {
@@ -717,28 +716,11 @@ export class DB {
                 // We couldn't find the data from the cache nor Postgres, so record this in a metric and in Sentry
                 this.statsd?.increment('groups_data_missing_entirely')
                 captureException(new Error('Missing groups data entirely'), { extra: { groupCacheKey } })
-                status.debug('🔍', `Could not find group data for group ${groupCacheKey} in cache or storage`)
-
-                const createdAt = castTimestampOrNow(
-                    DateTime.fromJSDate(new Date(0)).toUTC(),
-                    TimestampFormat.ClickHouse
-                )
 
                 groupColumns[propertiesColumnName] = '{}'
-                groupColumns[createdAtColumnName] = createdAt
-
-                // Store default values if data for a group is missing to prevent us from
-                // hammering Postgres too hard in the event the group never gets created.
-                // However, keep the TTL low in case a group gets created soon after
-                await this.updateGroupCache(
-                    teamId,
-                    groupTypeIndex,
-                    groupKey,
-                    {
-                        properties: {},
-                        created_at: createdAt,
-                    },
-                    30
+                groupColumns[createdAtColumnName] = castTimestampOrNow(
+                    DateTime.fromJSDate(new Date(0)).toUTC(),
+                    TimestampFormat.ClickHouse
                 )
             }
         }
