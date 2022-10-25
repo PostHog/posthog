@@ -43,19 +43,19 @@ def mocked_plugin_requests_get(*args, **kwargs):
         def ok(self):
             return self.status_code < 300
 
-    if args[0] == "https://api.github.com/repos/PostHog/posthog/commits":
+    if args[0] == "https://api.github.com/repos/PostHog/posthog/commits?sha=&path=":
         return MockJSONResponse(
             [{"sha": "MOCKLATESTCOMMIT", "html_url": "https://www.github.com/PostHog/posthog/commit/MOCKLATESTCOMMIT"}],
             200,
         )
 
-    if args[0] == "https://api.github.com/repos/PostHog/posthog/branches/main":
+    if args[0] == "https://api.github.com/repos/PostHog/posthog/branches/main?sha=&path=":
         return MockJSONResponse(
             {"commit": {"sha": "MOCKLATESTCOMMIT"}},
             200,
         )
 
-    if args[0] == "https://api.github.com/repos/PostHog/helloworldplugin/commits":
+    if args[0] == "https://api.github.com/repos/PostHog/helloworldplugin/commits?sha=&path=":
         return MockJSONResponse(
             [
                 {
@@ -68,7 +68,7 @@ def mocked_plugin_requests_get(*args, **kwargs):
             200,
         )
 
-    if args[0] == "https://api.github.com/repos/PostHog/helloworldplugin/branches/main":
+    if args[0] == "https://api.github.com/repos/PostHog/helloworldplugin/commits?sha=main&path=":
         return MockJSONResponse(
             {"commit": {"sha": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}},
             200,

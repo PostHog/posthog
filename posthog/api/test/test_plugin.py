@@ -366,7 +366,7 @@ class TestPluginAPI(APIBaseTest):
                     "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False}
                 },
                 "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
-                "latest_tag": None,
+                "latest_tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                 "is_global": False,
                 "organization_id": response.json()["organization_id"],
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
@@ -404,7 +404,7 @@ class TestPluginAPI(APIBaseTest):
                     "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False}
                 },
                 "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
-                "latest_tag": None,
+                "latest_tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                 "is_global": False,
                 "organization_id": response.json()["organization_id"],
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
@@ -440,7 +440,7 @@ class TestPluginAPI(APIBaseTest):
                     "foodb": {"name": "Upload your database", "type": "attachment", "required": False},
                 },
                 "tag": HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0],
-                "latest_tag": None,
+                "latest_tag": HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0],
                 "is_global": False,
                 "organization_id": response2.json()["organization_id"],
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
