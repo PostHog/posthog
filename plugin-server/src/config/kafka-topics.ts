@@ -18,3 +18,4 @@ export const KAFKA_BUFFER = `${prefix}conversion_events_buffer${suffix}`
 export const KAFKA_INGESTION_WARNINGS = `${prefix}clickhouse_ingestion_warnings${suffix}`
 export const KAFKA_APP_METRICS = `${prefix}clickhouse_app_metrics${suffix}`
 export const KAFKA_JOBS = `${prefix}jobs${suffix}`
+export const KAFKA_JOBS_DLQ = `${prefix}jobs_dlq${suffix}`

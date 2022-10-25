@@ -1,7 +1,7 @@
 import { StatsD } from 'hot-shots'
 import { EachBatchHandler, Kafka, Producer } from 'kafkajs'
 
-import { KAFKA_EVENTS_DEAD_LETTER_QUEUE, KAFKA_JOBS } from '../../config/kafka-topics'
+import { KAFKA_JOBS, KAFKA_JOBS_DLQ } from '../../config/kafka-topics'
 import { EnqueuedPluginJob, JobName } from '../../types'
 import { status } from '../../utils/status'
 import { GraphileWorker } from '../graphile-worker/graphile-worker'
@@ -36,7 +36,7 @@ export const startJobsConsumer = async ({
                     value: message.value,
                 })
                 // TODO: handle resolving offsets asynchronously
-                await producer.send({ topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE, messages: [message] })
+                await producer.send({ topic: KAFKA_JOBS_DLQ, messages: [message] })
                 resolveOffset(message.offset)
                 continue
             }
@@ -50,7 +50,7 @@ export const startJobsConsumer = async ({
                     error,
                 })
                 // TODO: handle resolving offsets asynchronously
-                await producer.send({ topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE, messages: [message] })
+                await producer.send({ topic: KAFKA_JOBS_DLQ, messages: [message] })
                 resolveOffset(message.offset)
                 continue
             }
