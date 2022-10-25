@@ -43,8 +43,12 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
         headers = {"Authorization": "Bearer {}".format(token)} if token else {}
 
         try:
-            if parsed["ref_type"] is None:
-                commits_url = "https://api.github.com/repos/{}/{}/commits".format(parsed["user"], parsed["repo"])
+            if parsed["ref_type"] == "releases/tag":
+                parsed["tag"] = "refs/tags/{}".format(parsed["tag"])
+            else:
+                commits_url = "https://api.github.com/repos/{}/{}/commits?sha={}&path={}".format(
+                    parsed["user"], parsed["repo"], parsed["tag"] or "", parsed["path"] or ""
+                )
                 commits = requests.get(commits_url, headers=headers).json()
 
                 if isinstance(commits, dict):
@@ -53,28 +57,6 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
                     parsed["tag"] = commits[0]["sha"]
                 else:
                     raise Exception(f"Could not find a commit with a hash in {commits}")
-
-            elif parsed["ref_type"] == "releases/tag":
-                parsed["tag"] = "refs/tags/{}".format(parsed["tag"])
-
-            # fetch the latest commit on the branch, as long as the provided tag isn't a full commit hash
-            elif parsed["ref_type"] == "tree" and parsed["tag"] and not re.match(r"^[a-f0-9]{40}$", parsed["tag"]):
-                branch_url = "https://api.github.com/repos/{}/{}/branches/{}".format(
-                    parsed["user"], parsed["repo"], parsed["tag"]
-                )
-                branch = requests.get(branch_url, headers=headers).json()
-
-                if not isinstance(branch, dict):
-                    raise Exception(f"Could not fetch branch {parsed['tag']} from {parsed['root_url']}")
-
-                if branch["commit"].get("sha", None):
-                    parsed["tag"] = branch["commit"]["sha"]
-                else:
-                    raise Exception(
-                        "Could not fetch the latest commit on branch {} from https://github.com/{}/{}".format(
-                            parsed["tag"], parsed["user"], parsed["repo"]
-                        )
-                    )
 
         except Exception as e:
             raise Exception(f"Could not get latest commit for {parsed['root_url']}. Reason: {e}")
