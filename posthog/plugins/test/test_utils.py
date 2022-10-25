@@ -41,7 +41,7 @@ class TestPluginsUtils(BaseTest):
         self.assertEqual(parsed_url["tag"], "MOCKLATESTCOMMIT")
         self.assertEqual(parsed_url.get("path", None), None)
         self.assertEqual(mock_get.call_count, 1)
-        mock_get.assert_called_with("https://api.github.com/repos/PostHog/posthog/commits", headers={})
+        mock_get.assert_called_with("https://api.github.com/repos/PostHog/posthog/commits?sha=&path=", headers={})
         mock_get.reset_mock()
 
         parsed_url = parse_url("https://github.com/PostHog/posthog/tree/82c9218ee40f561b7f37a22d6b6a0ca82887ee3e")
@@ -83,7 +83,7 @@ class TestPluginsUtils(BaseTest):
         self.assertEqual(parsed_url["tag"], "MOCKLATESTCOMMIT")
         self.assertEqual(parsed_url.get("path", None), None)
         self.assertEqual(mock_get.call_count, 1)
-        mock_get.assert_called_with("https://api.github.com/repos/PostHog/posthog/branches/main", headers={})
+        mock_get.assert_called_with("https://api.github.com/repos/PostHog/posthog/commits?sha=main&path=", headers={})
         mock_get.reset_mock()
 
         parsed_url = parse_url(
@@ -95,7 +95,9 @@ class TestPluginsUtils(BaseTest):
         self.assertEqual(parsed_url["tag"], "MOCKLATESTCOMMIT")
         self.assertEqual(parsed_url["path"], "test/path/in/repo")
         self.assertEqual(mock_get.call_count, 1)
-        mock_get.assert_called_with("https://api.github.com/repos/PostHog/posthog/branches/main", headers={})
+        mock_get.assert_called_with(
+            "https://api.github.com/repos/PostHog/posthog/commits?sha=main&path=test/path/in/repo", headers={}
+        )
         mock_get.reset_mock()
 
         parsed_url = parse_url("https://www.github.com/PostHog/posthog/commit/82c9218ee40f561b7f37a22d6b6a0ca82887ee3e")
@@ -170,7 +172,7 @@ class TestPluginsUtils(BaseTest):
         self.assertEqual(parsed_url["tag"], "MOCKLATESTCOMMIT")
         self.assertEqual(parsed_url.get("path", None), None)
         mock_get.assert_called_with(
-            "https://api.github.com/repos/PostHog/posthog/commits", headers={"Authorization": "Bearer TOKEN"}
+            "https://api.github.com/repos/PostHog/posthog/commits?sha=&path=", headers={"Authorization": "Bearer TOKEN"}
         )
         self.assertEqual(mock_get.call_count, 1)
         mock_get.reset_mock()
@@ -197,7 +199,7 @@ class TestPluginsUtils(BaseTest):
             self.assertEqual(parsed_url.get("path", None), None)
             self.assertEqual(parsed_url.get("private_token", None), None)
             mock_get.assert_called_with(
-                "https://api.github.com/repos/PostHog/posthog/commits",
+                "https://api.github.com/repos/PostHog/posthog/commits?sha=&path=",
                 headers={"Authorization": "Bearer MY_GITHUB_TOKEN"},
             )
             self.assertEqual(mock_get.call_count, 1)
@@ -211,7 +213,8 @@ class TestPluginsUtils(BaseTest):
             self.assertEqual(parsed_url.get("path", None), None)
             self.assertEqual(parsed_url["private_token"], "TOKEN")
             mock_get.assert_called_with(
-                "https://api.github.com/repos/PostHog/posthog/commits", headers={"Authorization": "Bearer TOKEN"}
+                "https://api.github.com/repos/PostHog/posthog/commits?sha=&path=",
+                headers={"Authorization": "Bearer TOKEN"},
             )
             self.assertEqual(mock_get.call_count, 1)
             mock_get.reset_mock()

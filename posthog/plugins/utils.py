@@ -45,7 +45,7 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
         try:
             if parsed["ref_type"] == "releases/tag":
                 parsed["tag"] = "refs/tags/{}".format(parsed["tag"])
-            else:
+            elif not re.match(r"^[a-f0-9]{40}$", parsed["tag"] or ""):
                 commits_url = "https://api.github.com/repos/{}/{}/commits?sha={}&path={}".format(
                     parsed["user"], parsed["repo"], parsed["tag"] or "", parsed["path"] or ""
                 )
