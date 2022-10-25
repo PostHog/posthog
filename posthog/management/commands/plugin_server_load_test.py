@@ -2,10 +2,12 @@ import dataclasses
 import datetime as dt
 import logging
 import secrets
+import sys
 import time
 from itertools import chain
 
 import structlog
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from kafka import KafkaAdminClient, KafkaConsumer, TopicPartition
 
@@ -19,7 +21,12 @@ logger = structlog.get_logger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Generate events using a method that should generate roughly realistic data."
+    help = """
+        Uses the HedgeboxMatrix to generate a realistic dataset and sends it to
+        Kafka for ingestion by the plugin server, and waits for offset lag to be
+        0. You'll need to run the plugin-server and it's dependencies separately
+        from running this script.
+    """
 
     def add_arguments(self, parser):
         parser.add_argument("--seed", type=str, help="Simulation seed for deterministic output")
@@ -46,7 +53,18 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         seed = options.get("seed") or secrets.token_hex(16)
         now = options.get("now") or dt.datetime.now(dt.timezone.utc)
-        logger.info("Instantiating the Matrix...")
+
+        admin = KafkaAdminClient(bootstrap_servers=settings.KAFKA_HOSTS)
+        consumer = KafkaConsumer(KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, bootstrap_servers=settings.KAFKA_HOSTS)
+
+        logger.info(
+            "creating_data",
+            seed=seed,
+            now=now,
+            days_past=options["days_past"],
+            days_future=options["days_future"],
+            n_clusters=options["n_clusters"],
+        )
         matrix = HedgeboxMatrix(
             seed,
             now=now,
@@ -54,14 +72,13 @@ class Command(BaseCommand):
             days_future=options["days_future"],
             n_clusters=options["n_clusters"],
         )
-        logger.info("Running simulation...")
         matrix.simulate()
+
+        # Make sure events are ordered by time to simulate how they would be
+        # ingested in real life.
         ordered_events = sorted(
             chain.from_iterable(person.all_events for person in matrix.people), key=lambda e: e.timestamp
         )
-
-        admin = KafkaAdminClient(bootstrap_servers="localhost:9092")
-        consumer = KafkaConsumer(KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, bootstrap_servers="localhost:9092")
 
         start_time = time.monotonic()
         for event in ordered_events:
@@ -81,11 +98,15 @@ class Command(BaseCommand):
         while True:
             offsets = admin.list_consumer_group_offsets(group_id="clickhouse-ingestion")
             end_offsets = consumer.end_offsets([TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)])
-            endOffset = end_offsets[TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)]
+            if end_offsets is None:
+                logger.error("no_end_offsets", topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)
+                sys.exit(1)
+
+            end_offset = end_offsets[TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)]
             offset = offsets[TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)].offset
-            logger.info(f"Offset: {offset} / {endOffset}")
-            if endOffset == offset:
+            logger.info("offset_lag", offset=offset, end_offset=end_offset)
+            if end_offset == offset:
                 break
             time.sleep(1)
 
-        logger.info(f"Time taken: {time.monotonic() - start_time}")
+        logger.info("load_test_completed", time_taken=time.monotonic() - start_time)
