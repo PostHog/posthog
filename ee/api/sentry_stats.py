@@ -4,13 +4,21 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import requests
 from django.http import HttpRequest, JsonResponse
 from rest_framework.decorators import api_view
+from rest_framework.exceptions import ValidationError
 
-TOKEN = "419b86cfcf824c6c9cbc3f07207db59e50a4b83a155e4ed3b877f4e6375c65f4"
+from posthog.models.instance_setting import get_instance_settings
 
 
 def get_sentry_stats(start_time: str, end_time: str) -> Tuple[dict, int]:
-    url = f"https://sentry.io/api/0/organizations/posthog/issues/"
-    token = TOKEN
+    sentry_config: Dict[str, str] = get_instance_settings(["SENTRY_AUTH_TOKEN", "SENTRY_ORGANIZATION"])
+
+    org_slug = sentry_config.get("SENTRY_ORGANIZATION")
+    token = sentry_config.get("SENTRY_AUTH_TOKEN")
+
+    if not org_slug or not token:
+        raise ValidationError("Sentry integration not configured")
+
+    url = f"https://sentry.io/api/0/organizations/{org_slug}/issues/"
     headers = {"Authorization": f"Bearer {token}"}
 
     params = {"start": start_time, "end": end_time, "sort": "freq", "utc": "true"}
@@ -35,8 +43,16 @@ def get_sentry_stats(start_time: str, end_time: str) -> Tuple[dict, int]:
 def get_tagged_issues_stats(
     start_time: str, end_time: str, tags: Dict[str, str], target_issues: List[str]
 ) -> Dict[str, Any]:
-    url = f"https://sentry.io/api/0/organizations/posthog/issues-stats/"
-    token = TOKEN
+
+    sentry_config: Dict[str, str] = get_instance_settings(["SENTRY_AUTH_TOKEN", "SENTRY_ORGANIZATION"])
+
+    org_slug = sentry_config.get("SENTRY_ORGANIZATION")
+    token = sentry_config.get("SENTRY_AUTH_TOKEN")
+
+    if not org_slug or not token:
+        raise ValidationError("Sentry integration not configured")
+
+    url = f"https://sentry.io/api/0/organizations/{org_slug}/issues-stats/"
     headers = {"Authorization": f"Bearer {token}"}
 
     query = "is:unresolved"
