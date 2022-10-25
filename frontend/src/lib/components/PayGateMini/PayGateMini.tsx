@@ -9,14 +9,14 @@ import { FEATURE_MINIMUM_PLAN, POSTHOG_CLOUD_STANDARD_PLAN } from 'lib/constants
 import { capitalizeFirstLetter } from 'lib/utils'
 
 export interface PayGateMiniProps {
-    feature: AvailableFeature.DASHBOARD_PERMISSIONING | AvailableFeature.SSO_ENFORCEMENT // TODO: Add support for other features as we go
+    feature: AvailableFeature.DASHBOARD_PERMISSIONING | AvailableFeature.SSO_ENFORCEMENT | AvailableFeature.FEATURE_FLAG_PERMISSIONING // TODO: Add support for other features as we go
     style?: React.CSSProperties
     children: React.ReactNode
     overrideShouldShowGate?: boolean
 }
 
 const FEATURE_SUMMARIES: Record<
-    AvailableFeature.DASHBOARD_PERMISSIONING | AvailableFeature.SSO_ENFORCEMENT,
+    AvailableFeature.DASHBOARD_PERMISSIONING | AvailableFeature.SSO_ENFORCEMENT | AvailableFeature.FEATURE_FLAG_PERMISSIONING,
     {
         icon: React.ReactElement
         description: string
@@ -35,6 +35,12 @@ const FEATURE_SUMMARIES: Record<
             'Enable SAML single sign-on, enforce login with SSO, automatic user provisioning, and advanced authentication controls.',
         umbrella: 'advanced authentication',
     },
+    [AvailableFeature.FEATURE_FLAG_PERMISSIONING]: {
+        icon: <IconEmojiPeople />,
+        description:
+            'Collaborate on feature flags, manage permissions, and make decisions with your team.',
+        umbrella: 'advanced permissioning',
+    }
 }
 
 /** A sort of paywall for premium features.

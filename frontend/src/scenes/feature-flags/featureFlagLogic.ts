@@ -22,6 +22,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urlToAction } from 'kea-router'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
+import { FeatureFlagPrivilegeLevel, OrganizationMembershipLevel } from 'lib/constants'
+import { userLogic } from 'scenes/userLogic'
 
 const NEW_FLAG: FeatureFlagType = {
     id: null,
@@ -36,6 +38,10 @@ const NEW_FLAG: FeatureFlagType = {
     rollout_percentage: null,
     ensure_experience_continuity: false,
     experiment_set: null,
+    restriction_level: 37,
+    effective_restriction_level: 37,
+    effective_privilege_level: 37,
+
 }
 const NEW_VARIANT = {
     key: '',
@@ -394,6 +400,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
                 ...(featureFlag ? [{ name: featureFlag.key || 'Unnamed' }] : []),
             ],
+        ],
+        canEditFeatureFlagAccess: [
+            (s) => [s.featureFlag],
+            (featureFlag) => !!featureFlag && featureFlag.effective_privilege_level >= FeatureFlagPrivilegeLevel.CanEdit,
+        ],
+        canRestrictFeatureFlag: [
+            // Sync conditions with backend can_user_restrict
+            (s) => [s.featureFlag, userLogic.selectors.user, teamLogic.selectors.currentTeam],
+            (featureFlag, user, currentTeam): boolean =>
+                !!featureFlag &&
+                !!user &&
+                (user.uuid === featureFlag.created_by?.uuid ||
+                    (!!currentTeam?.effective_membership_level &&
+                        currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin)),
         ],
     }),
     urlToAction(({ actions, props }) => ({

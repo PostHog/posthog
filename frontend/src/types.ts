@@ -8,6 +8,8 @@ import {
     FunnelLayout,
     BIN_COUNT_AUTO,
     TeamMembershipLevel,
+    FeatureFlagPrivilegeLevel,
+    FeatureFlagRestrictionLevel,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
@@ -49,6 +51,7 @@ export enum AvailableFeature {
     WHITE_LABELLING = 'white_labelling',
     SUBSCRIPTIONS = 'subscriptions',
     APP_METRICS = 'app_metrics',
+    FEATURE_FLAG_PERMISSIONING = 'feature_flag_permissioning',
 }
 
 export enum LicensePlan {
@@ -963,6 +966,17 @@ export interface DashboardCollaboratorType {
     updated_at: string
 }
 
+export interface FeatureFlagCollaboratorType {
+    id: string
+    feature_flag_id: FeatureFlagType['id']
+    user: UserBasicType
+    level: FeatureFlagPrivilegeLevel
+    added_at: string
+    updated_at: string
+}
+
+export type FusedFeatureFlagCollaboratorType = Pick<FeatureFlagCollaboratorType, 'user' | 'level'>
+
 /** Explicit (dashboard privilege) OR implicit (project admin) dashboard collaborator. */
 export type FusedDashboardCollaboratorType = Pick<DashboardCollaboratorType, 'user' | 'level'>
 export interface OrganizationInviteType {
@@ -1525,6 +1539,9 @@ export interface FeatureFlagType {
     rollout_percentage: number | null
     ensure_experience_continuity: boolean | null
     experiment_set: string[] | null
+    restriction_level: FeatureFlagRestrictionLevel
+    effective_restriction_level: FeatureFlagRestrictionLevel
+    effective_privilege_level: FeatureFlagPrivilegeLevel
 }
 
 export interface CombinedFeatureFlagAndValueType {

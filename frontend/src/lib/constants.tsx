@@ -49,6 +49,22 @@ export enum DashboardPrivilegeLevel {
     _Owner = 999,
 }
 
+/** Collaboration restriction level (which is a feature flag setting). Sync with FeatureFlagPrivilegeLevel. */
+export enum FeatureFlagRestrictionLevel {
+    EveryoneInProjectCanEdit = 21,
+    OnlyCollaboratorsCanEdit = 37,
+}
+
+/** Collaboration privilege level (which is a user property). Sync with FeatureFlagRestrictionLevel. */
+export enum FeatureFlagPrivilegeLevel {
+    CanView = 21,
+    CanEdit = 37,
+    /** This is not a value that can be set in the DB – it's inferred. */
+    _ProjectAdmin = 888,
+    /** This is not a value that can be set in the DB – it's inferred. */
+    _Owner = 999,
+}
+
 export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
     [DashboardPrivilegeLevel.CanView]: 'can view',
     [DashboardPrivilegeLevel.CanEdit]: 'can edit',
@@ -154,6 +170,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
     [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
     [AvailableFeature.APP_METRICS]: LicensePlan.Scale,
+    [AvailableFeature.FEATURE_FLAG_PERMISSIONING]: LicensePlan.Enterprise,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

@@ -41,6 +41,7 @@ import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
 import { cohortsModel } from '~/models/cohortsModel'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { FeatureFlagSettings } from './FeatureFlagSettings'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -334,6 +335,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 />
                                             </Col>
                                         </Row>
+                                    </Tabs.TabPane>
+                                    <Tabs.TabPane tab="Settings" key="settings">
+                                        <FeatureFlagSettings />
                                     </Tabs.TabPane>
                                     {featureFlag.id && (
                                         <Tabs.TabPane tab="History" key="history">
