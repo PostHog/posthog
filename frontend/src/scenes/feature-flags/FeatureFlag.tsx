@@ -336,9 +336,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             </Col>
                                         </Row>
                                     </Tabs.TabPane>
-                                    <Tabs.TabPane tab="Settings" key="settings">
-                                        <FeatureFlagSettings />
-                                    </Tabs.TabPane>
+                                    {featureFlag.id && <Tabs.TabPane tab="Settings" key="settings">
+                                        <FeatureFlagSettings id={featureFlag.id} />
+                                    </Tabs.TabPane>}
                                     {featureFlag.id && (
                                         <Tabs.TabPane tab="History" key="history">
                                             <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />

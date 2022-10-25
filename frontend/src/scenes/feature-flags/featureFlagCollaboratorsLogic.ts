@@ -6,15 +6,15 @@ import {
     UserType,
     FusedFeatureFlagCollaboratorType,
     UserBasicType,
-    FeatureFlagType,
     FeatureFlagCollaboratorType,
 } from '~/types'
 import { featureFlagLogic } from './featureFlagLogic'
 
 import type { featureFlagCollaboratorsLogicType } from './featureFlagCollaboratorsLogicType'
+import { teamLogic } from 'scenes/teamLogic'
 
 export interface FeatureFlagCollaboratorsLogicProps {
-    featureFlagId: FeatureFlagType['id']
+    featureFlagId: number
 }
 
 export const featureFlagCollaboratorsLogic = kea<featureFlagCollaboratorsLogicType>({
@@ -25,6 +25,8 @@ export const featureFlagCollaboratorsLogic = kea<featureFlagCollaboratorsLogicTy
         values: [
             teamMembersLogic,
             ['admins', 'plainMembers', 'allMembers', 'allMembersLoading'],
+            teamLogic,
+            ['currentTeamId'],
             featureFlagLogic({ id: props.featureFlagId }),
             ['featureFlag'],
         ],
@@ -61,11 +63,10 @@ export const featureFlagCollaboratorsLogic = kea<featureFlagCollaboratorsLogicTy
                         explicitCollaboratorsToBeAdded.map(
                             async (userUuid) =>
                                 // Currently only CanEdit can be explicitly granted, as CanView is the base level
-                                await api.dashboards.collaborators.create(
-                                    props.dashboardId,
-                                    userUuid,
-                                    FeatureFlagPrivilegeLevel.CanEdit
-                                )
+                                await api.create(`/api/projects/${values.currentTeamId}/feature_flags/${props.featureFlagId}/collaborators`, {
+                                    user_uuid: userUuid,
+                                    level: FeatureFlagPrivilegeLevel.CanEdit
+                                })
                         )
                     )
                     const allCollaborators = [...explicitCollaborators, ...newCollaborators]
@@ -73,7 +74,7 @@ export const featureFlagCollaboratorsLogic = kea<featureFlagCollaboratorsLogicTy
                     return allCollaborators
                 },
                 deleteExplicitCollaborator: async ({ userUuid }) => {
-                    await api.dashboards.collaborators.delete(props.dashboardId, userUuid)
+                    await api.dashboards.collaborators.delete(props.featureFlagId, userUuid)
                     return values.explicitCollaborators.filter((collaborator) => collaborator.user.uuid !== userUuid)
                 },
             },

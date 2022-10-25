@@ -8,7 +8,7 @@ import { ProfilePicture } from "lib/components/ProfilePicture";
 import { Tooltip } from "lib/components/Tooltip";
 import { usersLemonSelectOptions } from "lib/components/UserSelectItem";
 import { FeatureFlagPrivilegeLevel, FeatureFlagRestrictionLevel, privilegeLevelToName } from "lib/constants";
-import { AvailableFeature, FeatureFlagType, FusedFeatureFlagCollaboratorType, UserType } from "~/types";
+import { AvailableFeature, FusedFeatureFlagCollaboratorType, UserType } from "~/types";
 import { featureFlagCollaboratorsLogic } from "./featureFlagCollaboratorsLogic";
 import { featureFlagLogic } from "./featureFlagLogic";
 
@@ -25,23 +25,15 @@ export const FEATURE_FLAG_RESTRICTION_OPTIONS: LemonSelectOptions<FeatureFlagRes
     },
 ]
 
-export function FeatureFlagSettings(): JSX.Element {
+export function FeatureFlagSettings({ id }: { id: number }): JSX.Element {
     return (
-        // <PayGateMini feature={AvailableFeature.FEATURE_FLAG_PERMISSIONING}>
-        //     <LemonSelect
-        //         // value={value}
-        //         // onChange={onChange}
-        //         options={FEATURE_FLAG_RESTRICTION_OPTIONS}
-        //         fullWidth
-        //     />
-        // </PayGateMini>
-        <FeatureFlagCollaboration featureFlagId={4} />
+        <FeatureFlagCollaboration featureFlagId={id} />
     )
 }
 
-export function FeatureFlagCollaboration({ featureFlagId }: { featureFlagId: FeatureFlagType['id'] }): JSX.Element | null {
+export function FeatureFlagCollaboration({ featureFlagId }: { featureFlagId: number }): JSX.Element | null {
     const {
-        featureFlag, // dashboard but directly on dashboardLogic not via dashboardsModel
+        featureFlag,
         featureFlagLoading,
         canEditFeatureFlagAccess,
         canRestrictFeatureFlag,
@@ -56,72 +48,72 @@ export function FeatureFlagCollaboration({ featureFlagId }: { featureFlagId: Fea
     return (
         featureFlag && (
             <>
-                {/* <PayGateMini feature={AvailableFeature.FEATURE_FLAG_PERMISSIONING}> */}
-                {(!canEditFeatureFlagAccess || !canRestrictFeatureFlag) && (
-                    <AlertMessage type="info">
-                        {canEditFeatureFlagAccess
-                            ? "You aren't allowed to change the restriction level – only the feature flag owner and project admins can."
-                            : "You aren't allowed to change sharing settings – only feature flag collaborators with edit settings can."}
-                    </AlertMessage>
-                )}
-                <LemonSelect
-                    value={featureFlag.effective_restriction_level}
-                    onChange={(newValue) => { }
-                        // saveFeatureFlag({
-                        //     ...featureFlag,
-                        //     restriction_level: newValue,
-                        // })
-                    }
-                    options={FEATURE_FLAG_RESTRICTION_OPTIONS}
-                    loading={featureFlagLoading}
-                    fullWidth
-                    disabled={!canRestrictFeatureFlag}
-                />
-                {featureFlag.restriction_level > FeatureFlagRestrictionLevel.EveryoneInProjectCanEdit && (
-                    <div className="mt-4">
-                        <h5>Collaborators</h5>
-                        {canEditFeatureFlagAccess && (
-                            <div className="flex gap-2">
-                                <div className="flex-1">
-                                    <LemonSelectMultiple
-                                        placeholder="Search for team members to add…"
-                                        value={explicitCollaboratorsToBeAdded}
+                <PayGateMini feature={AvailableFeature.FEATURE_FLAG_PERMISSIONING}>
+                    {(!canEditFeatureFlagAccess || !canRestrictFeatureFlag) && (
+                        <AlertMessage type="info">
+                            {canEditFeatureFlagAccess
+                                ? "You aren't allowed to change the restriction level – only the feature flag owner and project admins can."
+                                : "You aren't allowed to change sharing settings – only feature flag collaborators with edit settings can."}
+                        </AlertMessage>
+                    )}
+                    <LemonSelect
+                        value={featureFlag.effective_restriction_level || FeatureFlagRestrictionLevel.EveryoneInProjectCanEdit}
+                        onChange={(newValue) =>
+                            saveFeatureFlag({
+                                ...featureFlag,
+                                restriction_level: newValue,
+                            })
+                        }
+                        options={FEATURE_FLAG_RESTRICTION_OPTIONS}
+                        loading={featureFlagLoading}
+                        fullWidth
+                        disabled={!canRestrictFeatureFlag}
+                    />
+                    {featureFlag.restriction_level > FeatureFlagRestrictionLevel.EveryoneInProjectCanEdit && (
+                        <div className="mt-4">
+                            <h5>Collaborators</h5>
+                            {canEditFeatureFlagAccess && (
+                                <div className="flex gap-2">
+                                    <div className="flex-1">
+                                        <LemonSelectMultiple
+                                            placeholder="Search for team members to add…"
+                                            value={explicitCollaboratorsToBeAdded}
+                                            loading={explicitCollaboratorsLoading}
+                                            onChange={(newValues) => setExplicitCollaboratorsToBeAdded(newValues)}
+                                            filterOption={true}
+                                            mode="multiple"
+                                            data-attr="subscribed-emails"
+                                            options={usersLemonSelectOptions(addableMembers, 'uuid')}
+                                        />
+                                    </div>
+                                    <LemonButton
+                                        type="primary"
                                         loading={explicitCollaboratorsLoading}
-                                        onChange={(newValues) => setExplicitCollaboratorsToBeAdded(newValues)}
-                                        filterOption={true}
-                                        mode="multiple"
-                                        data-attr="subscribed-emails"
-                                        options={usersLemonSelectOptions(addableMembers, 'uuid')}
-                                    />
+                                        disabled={explicitCollaboratorsToBeAdded.length === 0}
+                                        onClick={() => addExplicitCollaborators()}
+                                    >
+                                        Add
+                                    </LemonButton>
                                 </div>
-                                <LemonButton
-                                    type="primary"
-                                    loading={explicitCollaboratorsLoading}
-                                    disabled={explicitCollaboratorsToBeAdded.length === 0}
-                                    onClick={() => addExplicitCollaborators()}
-                                >
-                                    Add
-                                </LemonButton>
+                            )}
+                            <h5 className="mt-4">Project members with access</h5>
+                            <div
+                                className="mt-2 pb-2 rounded overflow-y-auto"
+                                style={{
+                                    maxHeight: 300,
+                                }}
+                            >
+                                {allCollaborators.map((collaborator) => (
+                                    <CollaboratorRow
+                                        key={collaborator.user.uuid}
+                                        collaborator={collaborator}
+                                        deleteCollaborator={canEditFeatureFlagAccess ? deleteExplicitCollaborator : undefined}
+                                    />
+                                ))}
                             </div>
-                        )}
-                        <h5 className="mt-4">Project members with access</h5>
-                        <div
-                            className="mt-2 pb-2 rounded overflow-y-auto"
-                            style={{
-                                maxHeight: 300,
-                            }}
-                        >
-                            {allCollaborators.map((collaborator) => (
-                                <CollaboratorRow
-                                    key={collaborator.user.uuid}
-                                    collaborator={collaborator}
-                                    deleteCollaborator={canEditFeatureFlagAccess ? deleteExplicitCollaborator : undefined}
-                                />
-                            ))}
                         </div>
-                    </div>
-                )}
-                {/* </PayGateMini> */}
+                    )}
+                </PayGateMini>
             </>
         )
     )
