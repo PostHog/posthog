@@ -62,6 +62,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
         validated_data["plugin_type"] = "local"
         validated_data["url"] = url
         validated_data["tag"] = None
+        validated_data["latest_tag"] = None
         validated_data["archive"] = None
         validated_data["name"] = plugin_json.get("name", plugin_json_path.split("/")[-2])
         validated_data["description"] = plugin_json.get("description", "")
@@ -74,6 +75,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
         if parsed_url:
             validated_data["url"] = url
             validated_data["tag"] = parsed_url.get("tag", None)
+            validated_data["latest_tag"] = parsed_url.get("tag", None)
             validated_data["archive"] = download_plugin_archive(validated_data["url"], validated_data["tag"])
             plugin_json = cast(
                 Optional[Dict[str, Any]],
