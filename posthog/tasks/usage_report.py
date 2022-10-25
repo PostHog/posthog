@@ -31,7 +31,6 @@ from posthog.models import GroupTypeMapping, OrganizationMembership, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.event.util import (
     get_agg_event_count_for_teams_and_period,
-    get_event_count_for_last_month,
     get_event_count_for_team,
     get_event_count_for_team_and_period,
     get_event_count_with_groups_count_for_team_and_period,

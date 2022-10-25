@@ -30,7 +30,6 @@ from posthog.test.base import (
     flush_persons_and_events,
 )
 from posthog.utils import get_machine_id, wait_for_parallel_celery_group
-from posthog.version import VERSION
 
 logger = structlog.get_logger(__name__)
 
