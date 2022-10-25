@@ -401,7 +401,7 @@ class TrendsBreakdown:
     ) -> Callable:
         def _parse(result: List) -> List:
             parsed_results = []
-            for idx, stats in enumerate(result):
+            for stats in result:
                 result_descriptors = self._breakdown_result_descriptors(stats[1], filter, entity)
                 filter_params = filter.to_params()
                 extra_params = {
@@ -429,7 +429,7 @@ class TrendsBreakdown:
     def _parse_trend_result(self, filter: Filter, entity: Entity) -> Callable:
         def _parse(result: List) -> List:
             parsed_results = []
-            for idx, stats in enumerate(result):
+            for stats in result:
                 result_descriptors = self._breakdown_result_descriptors(stats[2], filter, entity)
                 parsed_result = parse_response(stats, filter, additional_values=result_descriptors)
                 parsed_result.update(

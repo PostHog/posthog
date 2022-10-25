@@ -1,18 +1,19 @@
 import { useValues } from 'kea'
-import { LemonButton } from 'lib/components/LemonButton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Realm } from '~/types'
+import './FeedbackButton.scss'
 
 export function FeedbackButton(): JSX.Element {
     const { realm } = useValues(preflightLogic)
 
     if (realm && realm === Realm.Cloud) {
         return (
-            <LemonButton data-attr="posthog-feedback-button">
-                <span className="text-default grow" data-attr="posthog-feedback-button">
-                    Feedback
-                </span>
-            </LemonButton>
+            <div
+                data-attr="posthog-feedback-button"
+                className="h-10 items-center cursor-pointer flex text-primary-alt font-semibold"
+            >
+                Feedback
+            </div>
         )
     }
     return <></>

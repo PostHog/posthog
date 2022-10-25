@@ -1,5 +1,4 @@
-from datetime import datetime, timedelta
-from time import sleep
+from datetime import timedelta
 from typing import List, Tuple, Union
 
 import structlog
@@ -11,6 +10,7 @@ from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.subscription import Subscription
 from posthog.tasks import exporter
+from posthog.utils import wait_for_parallel_celery_group
 
 logger = structlog.get_logger(__name__)
 
@@ -41,10 +41,6 @@ def generate_assets(
     tasks = [exporter.export_asset.s(asset.id) for asset in assets]
     parallel_job = group(tasks).apply_async()
 
-    start_time = datetime.now()
-    while not parallel_job.ready():
-        sleep(1)
-        if datetime.now() > start_time + ASSET_GENERATION_MAX_TIMEOUT:
-            raise Exception("Timed out waiting for exports")
+    wait_for_parallel_celery_group(parallel_job, max_timeout=ASSET_GENERATION_MAX_TIMEOUT)
 
     return insights, assets

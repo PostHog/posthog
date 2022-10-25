@@ -1,6 +1,5 @@
 import dataclasses
 import os
-import time
 from collections import Counter
 from datetime import datetime
 from typing import (
@@ -14,8 +13,10 @@ from typing import (
     cast,
 )
 
+import dateutil
 import requests
 import structlog
+from celery import group
 from django.conf import settings
 from django.db import connection
 from django.db.models.manager import BaseManager
@@ -23,14 +24,13 @@ from posthoganalytics.client import Client
 from psycopg2 import sql
 from sentry_sdk import capture_exception
 
-from ee.api.billing import build_billing_token
-from ee.models.license import License
-from ee.settings import BILLING_SERVICE_URL
 from posthog import version_requirement
+from posthog.celery import app
 from posthog.cloud_utils import is_cloud
-from posthog.models import GroupTypeMapping, OrganizationMembership, Person, Team, User
+from posthog.models import GroupTypeMapping, OrganizationMembership, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.event.util import (
+    get_agg_event_count_for_teams_and_period,
     get_event_count_for_team,
     get_event_count_for_team_and_period,
     get_event_count_with_groups_count_for_team_and_period,
@@ -38,9 +38,11 @@ from posthog.models.event.util import (
     get_events_count_for_team_by_event_type,
 )
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.organization import Organization
 from posthog.models.person.util import count_duplicate_distinct_ids_for_team, count_total_persons_with_multiple_ids
 from posthog.models.plugin import PluginConfig
 from posthog.models.session_recording_event.util import (
+    get_agg_recording_count_for_teams_and_period,
     get_recording_count_for_team,
     get_recording_count_for_team_and_period,
 )
@@ -58,6 +60,7 @@ TableSizes = TypedDict("TableSizes", {"posthog_event": int, "posthog_sessionreco
 class TeamUsageReport:
     event_count_lifetime: int
     event_count_in_period: int
+    event_count_in_month: int
     event_count_with_groups_in_period: int
     event_count_by_lib: Dict
     event_count_by_name: Dict
@@ -68,8 +71,8 @@ class TeamUsageReport:
     multiple_ids_per_person: Dict
     # Persons and Groups
     group_types_total: int
-    person_count_total: int
-    person_count_in_period: int
+    # person_count_total: int
+    # person_count_in_period: int
     # Dashboards
     dashboard_count: int
     dashboard_template_count: int
@@ -92,8 +95,8 @@ class OrgUsageSummary:
     recording_count_in_period: int
     recording_count_total: int
     # Persons and groups
-    person_count_in_period: int
-    person_count_total: int
+    # person_count_in_period: int
+    # person_count_total: int
     using_groups: bool
     group_types_total: int
     # Dashboards
@@ -101,7 +104,7 @@ class OrgUsageSummary:
     # Feature flags
     ff_count: int
     ff_active_count: int
-    teams: Dict[str, TeamUsageReport]
+    teams: Dict[int, TeamUsageReport]
 
 
 @dataclasses.dataclass
@@ -139,7 +142,7 @@ class OrgReportFull(OrgReport, OrgMetadata, OrgUsageSummary):
     pass
 
 
-def get_org_usage_report(period: Tuple[datetime, datetime], team_ids: List[str]) -> OrgUsageSummary:
+def get_org_usage_report(period: Tuple[datetime, datetime], team_ids: List[int]) -> OrgUsageSummary:
     period_start, period_end = period
 
     org_usage_summary = OrgUsageSummary(
@@ -150,8 +153,8 @@ def get_org_usage_report(period: Tuple[datetime, datetime], team_ids: List[str])
         event_count_with_groups_in_month=0,
         recording_count_in_period=0,
         recording_count_total=0,
-        person_count_in_period=0,
-        person_count_total=0,
+        # person_count_in_period=0,
+        # person_count_total=0,
         using_groups=False,
         group_types_total=0,
         dashboard_count=0,
@@ -161,12 +164,6 @@ def get_org_usage_report(period: Tuple[datetime, datetime], team_ids: List[str])
     )
 
     for team_id in team_ids:
-        # pull person stats and the rest here from Postgres always
-        persons_considered_total = Person.objects.filter(team_id=team_id)
-        persons_considered_total_new_in_period = persons_considered_total.filter(
-            created_at__gte=period_start, created_at__lte=period_end
-        )
-
         # Dashboards
         team_dashboards = Dashboard.objects.filter(team_id=team_id).exclude(deleted=True)
 
@@ -176,6 +173,7 @@ def get_org_usage_report(period: Tuple[datetime, datetime], team_ids: List[str])
         team_report = TeamUsageReport(
             event_count_lifetime=get_event_count_for_team(team_id),
             event_count_in_period=get_event_count_for_team_and_period(team_id, period_start, period_end),
+            event_count_in_month=get_event_count_for_team_and_period(team_id, period_start.replace(day=1), period_end),
             event_count_with_groups_in_period=get_event_count_with_groups_count_for_team_and_period(
                 team_id, period_start, period_end
             ),
@@ -186,8 +184,9 @@ def get_org_usage_report(period: Tuple[datetime, datetime], team_ids: List[str])
             duplicate_distinct_ids=count_duplicate_distinct_ids_for_team(team_id),
             multiple_ids_per_person=count_total_persons_with_multiple_ids(team_id),
             group_types_total=GroupTypeMapping.objects.filter(team_id=team_id).count(),
-            person_count_total=persons_considered_total.count(),
-            person_count_in_period=persons_considered_total_new_in_period.count(),
+            # NOTE: Below is disabled until we figure out a CH query - Postgres count is far too slow
+            # person_count_total=get_person_count_for_team(team_id),
+            # person_count_in_period=get_person_count_for_team_and_period(team_id, period_start, period_end),
             dashboard_count=team_dashboards.count(),
             dashboard_template_count=team_dashboards.filter(creation_mode="template").count(),
             dashboard_shared_count=team_dashboards.filter(sharingconfiguration__enabled=True).count(),
@@ -196,25 +195,32 @@ def get_org_usage_report(period: Tuple[datetime, datetime], team_ids: List[str])
             ff_active_count=feature_flags.filter(active=True).count(),
         )
 
-        org_usage_summary.event_count_lifetime += team_report.event_count_lifetime
-        org_usage_summary.event_count_in_period += team_report.event_count_in_period
-        org_usage_summary.event_count_with_groups_in_period += team_report.event_count_with_groups_in_period
-        org_usage_summary.recording_count_in_period += team_report.recording_count_in_period
-        org_usage_summary.group_types_total += team_report.group_types_total
+        # Iterate on all fields of the OrgusageSummary and add the values from the team report
+        for field in dataclasses.fields(OrgUsageSummary):
+            if hasattr(team_report, field.name):
+                setattr(
+                    org_usage_summary,
+                    field.name,
+                    getattr(org_usage_summary, field.name) + getattr(team_report, field.name),
+                )
+
         if team_report.group_types_total > 0:
             org_usage_summary.using_groups = True
-
-        org_usage_summary.person_count_total += team_report.person_count_total
-        org_usage_summary.person_count_in_period += team_report.person_count_in_period
-        org_usage_summary.dashboard_count += team_report.dashboard_count
-        org_usage_summary.ff_count += team_report.ff_count
 
         org_usage_summary.teams[team_id] = team_report
 
     return org_usage_summary
 
 
-def get_instance_metadata(period: Tuple[datetime, datetime], has_license: bool) -> OrgMetadata:
+def get_instance_metadata(period: Tuple[datetime, datetime]) -> OrgMetadata:
+    has_license = False
+
+    if settings.EE_AVAILABLE:
+        from ee.models.license import License
+
+        license = License.objects.first_valid()
+        has_license = license is not None
+
     period_start, period_end = period
 
     realm = get_instance_realm()
@@ -263,83 +269,17 @@ def get_instance_metadata(period: Tuple[datetime, datetime], has_license: bool) 
     return metadata
 
 
-def send_all_org_usage_reports(
-    dry_run: bool = False, at: Optional[datetime] = None, only_organization_id: Optional[str] = None
-) -> List[Dict]:
-    """
-    Generic way to generate and send org usage reports.
-    Specify Postgres or ClickHouse for event queries.
-    """
-    period = get_previous_day(at=at)
-    period_start, _ = period
+def send_report_to_billing_service(organization_id: str, report: Dict) -> None:
+    if not settings.EE_AVAILABLE:
+        return
+
+    from ee.api.billing import build_billing_token
+    from ee.models.license import License
+    from ee.settings import BILLING_SERVICE_URL
 
     license = License.objects.first_valid()
-    metadata = get_instance_metadata(period, bool(license))
+    token = build_billing_token(license, organization_id) if license else None
 
-    org_data: Dict[str, Dict[str, Any]] = {}
-    org_reports: List[Dict] = []
-
-    for team in Team.objects.exclude(organization__for_internal_metrics=True):
-        org = team.organization
-        organization_id = str(org.id)
-        billing_service_token = None
-        if license:
-            billing_service_token = build_billing_token(license, organization_id)
-        if organization_id in org_data:
-            org_data[organization_id]["teams"].append(team.id)
-        else:
-            org_data[organization_id] = {
-                "teams": [team.id],
-                "user_count": get_org_user_count(organization_id),
-                "name": org.name,
-                "created_at": str(org.created_at),
-                "token": billing_service_token,
-            }
-
-    for organization_id, org in org_data.items():
-        # NOTE: We should consider scheduling this rather than immediately invoking, that way we can have retries per org
-        if only_organization_id and organization_id != only_organization_id:
-            continue
-        try:
-            org_owner = get_org_owner_or_first_user(organization_id)
-            if not org_owner:
-                continue
-            distinct_id = org_owner.distinct_id
-            usage = get_org_usage_report(period, org["teams"])
-
-            report = OrgReport(
-                admin_distinct_id=distinct_id,
-                organization_id=organization_id,
-                organization_name=org["name"],
-                organization_created_at=org["created_at"],
-                organization_user_count=org["user_count"],
-                team_count=len(org["teams"]),
-                date=period_start.strftime("%Y-%m-%d"),
-            )
-
-            full_report = OrgReportFull(
-                **dataclasses.asdict(report),
-                **dataclasses.asdict(metadata),
-                **dataclasses.asdict(usage),
-            )
-            full_report_dict = dataclasses.asdict(full_report)
-
-            org_reports.append(full_report_dict)
-            if not dry_run:
-                capture_event("organization usage report", organization_id, full_report_dict, timestamp=at)
-                send_report(full_report_dict, org["token"])
-                time.sleep(0.25)
-        except Exception as err:
-            if dry_run:
-                raise err
-            else:
-                capture_exception(err)
-                capture_event("organization usage report failure", organization_id, {"error": str(err)})
-
-    return org_reports
-
-
-def send_report(report: Dict, token: str):
     headers = {}
     if token:
         headers = {"Authorization": f"Bearer {token}"}
@@ -430,3 +370,81 @@ def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
     with connection.cursor() as cursor:
         cursor.execute(sql.SQL(sql_), params)
         return namedtuplefetchall(cursor)
+
+
+@app.task(autoretry_for=(Exception,), max_retries=3, retry_backoff=True, acks_late=True)
+def send_org_usage_report(
+    organization_id: Optional[str] = None, dry_run: bool = False, at: Optional[str] = None
+) -> Dict:
+    at_date = dateutil.parser.parse(at) if at else None
+    period = get_previous_day(at=at_date)
+    period_start, period_end = period
+
+    metadata = get_instance_metadata(period)
+    organization = Organization.objects.get(id=organization_id)
+    organization_id = str(organization.id)
+    teams = organization.teams.all()
+    team_ids: List[int] = [team.id for team in teams]
+
+    try:
+        org_owner = get_org_owner_or_first_user(organization_id)
+
+        if not org_owner:
+            raise Exception("No owner found for organization")
+
+        logger.info("Sending usage report for organization %s ...", organization_id)
+
+        distinct_id = org_owner.distinct_id
+        usage = get_org_usage_report(period, team_ids)
+
+        report = OrgReport(
+            admin_distinct_id=distinct_id,
+            organization_id=organization_id,
+            organization_name=organization.name,
+            organization_created_at=organization.created_at.isoformat(),
+            organization_user_count=get_org_user_count(organization_id),
+            team_count=len(team_ids),
+            date=period_start.strftime("%Y-%m-%d"),
+        )
+
+        full_report = OrgReportFull(
+            **dataclasses.asdict(report),
+            **dataclasses.asdict(metadata),
+            **dataclasses.asdict(usage),
+        )
+        full_report_dict = dataclasses.asdict(full_report)
+
+        if not dry_run:
+            capture_event("organization usage report", organization_id, full_report_dict, timestamp=at_date)
+            send_report_to_billing_service(organization_id, full_report_dict)
+
+        logger.info("Usage report for organization %s sent!", organization_id)
+
+        return full_report_dict
+
+    except Exception as err:
+        logger.error("Usage report for organization %s failed!", organization_id)
+        if not dry_run:
+            # If we except we still want to capture the minimum amount of info for the Billing Service
+            minimal_report_dict = {
+                "organization_id": organization_id,
+                "date": period_start.strftime("%Y-%m-%d"),
+                "event_count_in_period": get_agg_event_count_for_teams_and_period(team_ids, period_start, period_end),
+                "recording_count_in_period": get_agg_recording_count_for_teams_and_period(
+                    team_ids, period_start, period_end
+                ),
+            }
+            send_report_to_billing_service(organization_id, minimal_report_dict)
+            capture_exception(err)
+            capture_event("organization usage report failure", organization_id, {"error": str(err)})
+
+        raise err
+
+
+@app.task(ignore_result=True)
+def send_all_org_usage_reports(dry_run: bool = False, at: Optional[str] = None) -> Any:
+
+    all_orgs = Organization.objects.exclude(for_internal_metrics=True).values("id")
+    tasks = [send_org_usage_report.s(org["id"], dry_run=dry_run, at=at) for org in all_orgs]
+
+    return group(tasks).apply_async()

@@ -95,10 +95,6 @@ export enum ShownAsValue {
 export const RETENTION_RECURRING = 'retention_recurring'
 export const RETENTION_FIRST_TIME = 'retention_first_time'
 
-// Properties constants
-export const PROPERTY_MATH_TYPE = 'property'
-export const EVENT_MATH_TYPE = 'event'
-
 export const WEBHOOK_SERVICES: Record<string, string> = {
     Slack: 'slack.com',
     Discord: 'discord.com',
@@ -123,7 +119,6 @@ export const FEATURE_FLAGS = {
     CANCEL_RUNNING_QUERIES: 'cancel-running-queries', // owner @timgl
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     ACTOR_ON_EVENTS_QUERYING: 'person-on-events-enabled', //owner: @EDsCODE
-    FEATURE_FLAGS_UX: 'feature-flags-ux', //owner: @liyiy
     REGION_SELECT: 'region-select', //owner: @kappa90
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @macobo
     HOG_BOOK: 'hog-book', // owner: @pauldambra
@@ -133,6 +128,8 @@ export const FEATURE_FLAGS = {
     CURRENCY_UNITS: 'currency-units', // owner: @pauldambra
     APP_METRICS: 'app-metrics', // owner: @macobo
     FEEDBACK_BUTTON: 'feedback-button', // owner: @luke
+    RECORDING_LIST_ICONS: 'recording-list-icons', // owner: @benjackwhite
+    RECORDINGS_ON_FEATURE_FLAGS: 'recordings-on-feature-flags', // owner: @EDsCODE
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -168,8 +165,6 @@ export enum FunnelLayout {
 }
 
 export const BIN_COUNT_AUTO = 'auto' as const
-
-export const EVENT_COUNT_PER_ACTOR = '__event_count_per_actor' as const
 
 // Cohort types
 export enum CohortTypeEnum {

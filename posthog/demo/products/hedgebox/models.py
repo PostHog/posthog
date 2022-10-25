@@ -459,7 +459,7 @@ class HedgeboxPerson(SimPerson):
         if success:
             self.active_client.capture(EVENT_LOGGED_IN)
             self.advance_timer(self.cluster.random.uniform(0.1, 0.2))
-            self.active_client.identify(self.person_id)
+            self.active_client.identify(self.in_product_id)
             self.go_to_files()  # Redirect
 
     def go_to_files(self):
@@ -586,7 +586,7 @@ class HedgeboxPerson(SimPerson):
         )
         self.active_client.capture(EVENT_SIGNED_UP, {"from_invite": False})
         self.advance_timer(self.cluster.random.uniform(0.1, 0.2))
-        self.active_client.identify(self.person_id, {"email": self.email, "name": self.name})
+        self.active_client.identify(self.in_product_id, {"email": self.email, "name": self.name})
         self.active_client.group(
             GROUP_TYPE_ACCOUNT,
             self.account.id,
@@ -716,7 +716,7 @@ class HedgeboxPerson(SimPerson):
             self.cluster.matrix.server_client.capture(
                 EVENT_PAID_BILL,
                 {"amount_usd": self.account.current_monthly_bill_usd, "plan": self.account.plan},
-                distinct_id=self.person_id,
+                distinct_id=self.in_product_id,
             )
 
     def enter_app(self):

@@ -715,8 +715,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         }) => {
             // namesCount -> Number of invitees for which a name was provided
             posthog.capture('bulk invite attempted', { invitees_count: inviteesCount, name_count: namesCount })
+            for (let i = 0; i < inviteesCount; i++) {
+                posthog.capture('team member invited')
+            }
         },
         reportInviteAttempted: async ({ nameProvided, instanceEmailAvailable }) => {
+            posthog.capture('team member invited')
             posthog.capture('team invite attempted', {
                 name_provided: nameProvided,
                 instance_email_available: instanceEmailAvailable,
