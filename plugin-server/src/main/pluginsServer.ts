@@ -215,7 +215,7 @@ export async function startPluginsServer(
         if (hub.capabilities.processPluginJobs) {
             jobsConsumer = await startJobsConsumer({
                 kafka: hub.kafka,
-                producer: hub.kafkaProducer,
+                producer: hub.kafkaProducer.producer,
                 graphileWorker: hub.graphileWorker,
                 statsd: hub.statsd,
             })
