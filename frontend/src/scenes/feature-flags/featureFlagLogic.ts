@@ -48,6 +48,7 @@ const NEW_FLAG: FeatureFlagType = {
             threshold_type: 'insight',
         },
         {
+            operator: 'gt',
             threshold_type: 'sentry',
             threshold: 30,
         },
@@ -340,6 +341,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         return response.results
                     }
                     return []
+                },
+            },
+        ],
+        sentryErrorCount: [
+            undefined as number | undefined,
+            {
+                loadSentryErrorCount: async () => {
+                    const response = await api.get(`api/sentry_errors/`)
+                    return response.total_count
                 },
             },
         ],

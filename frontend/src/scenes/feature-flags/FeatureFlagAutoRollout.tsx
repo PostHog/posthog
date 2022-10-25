@@ -3,6 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Field } from 'lib/forms/Field'
+import { humanFriendlyNumber } from 'lib/utils'
 import { useState } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
@@ -11,8 +12,8 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { featureFlagLogic } from './featureFlagLogic'
 
 export function FeatureFlagAutoRollback(): JSX.Element {
-    const { featureFlagRollbackInsight, featureFlag } = useValues(featureFlagLogic)
-    const { createFeatureFlagRollbackInsight, setFilters } = useActions(featureFlagLogic)
+    const { featureFlagRollbackInsight, featureFlag, sentryErrorCount } = useValues(featureFlagLogic)
+    const { createFeatureFlagRollbackInsight, setFilters, loadSentryErrorCount } = useActions(featureFlagLogic)
     console.log(featureFlagRollbackInsight)
     const { insightProps } = useValues(
         insightLogic({
@@ -151,8 +152,24 @@ export function FeatureFlagAutoRollback(): JSX.Element {
                                     )}
                                 </Field>
                             </Group>
-                            in errors
+                            in errors.
                         </div>
+                        {sentryErrorCount && (
+                            <div className="mb-2 mt-2">
+                                <b>Sentry errors in the past 24 hours:</b> {humanFriendlyNumber(sentryErrorCount)}.
+                                <p>
+                                    This condition will trigger when the errors{' '}
+                                    {featureFlag.rollback_conditions[1].operator === 'gt'
+                                        ? 'increase above'
+                                        : 'fall below'}{' '}
+                                    {humanFriendlyNumber(
+                                        Math.ceil(
+                                            (sentryErrorCount * featureFlag.rollback_conditions[1].threshold) / 100
+                                        )
+                                    )}{' '}
+                                </p>
+                            </div>
+                        )}
                     </div>
                 </>
             )}
@@ -162,6 +179,7 @@ export function FeatureFlagAutoRollback(): JSX.Element {
                     onClick={() => {
                         setHasCondition(true)
                         createFeatureFlagRollbackInsight()
+                        loadSentryErrorCount()
                     }}
                 >
                     Add condition
