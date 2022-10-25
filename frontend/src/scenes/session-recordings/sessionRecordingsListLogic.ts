@@ -96,6 +96,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             id,
         }),
         setEntityFilters: (filters: Partial<FilterType>) => ({ filters }),
+        setEntityFiltersNoRefresh: (filters: Partial<FilterType>) => ({ filters }),
         setPropertyFilters: (filters: AnyPropertyFilter[]) => {
             return { filters }
         },
@@ -140,10 +141,9 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
     events: ({ actions, props }) => ({
         afterMount: () => {
             if (props.flagKey) {
-                actions.setEntityFilters(defaultEntityFilterOnFlag(props.flagKey))
-            } else {
-                actions.getSessionRecordings()
+                actions.setEntityFiltersNoRefresh(defaultEntityFilterOnFlag(props.flagKey))
             }
+            actions.getSessionRecordings()
         },
     }),
     reducers: ({}) => ({
@@ -185,6 +185,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             DEFAULT_ENTITY_FILTERS as FilterType,
             {
                 setEntityFilters: (_, { filters }) => ({ ...filters }),
+                setEntityFiltersNoRefresh: (_, { filters }) => ({ ...filters }),
             },
         ],
         propertyFilters: [
