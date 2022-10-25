@@ -54,7 +54,7 @@ def _update_plugin_attachments(request: request.Request, plugin_config: PluginCo
         match = re.match(r"^add_attachment\[([^]]+)\]$", key)
         if match:
             _update_plugin_attachment(plugin_config, match.group(1), file, user)
-    for key, file in request.POST.items():
+    for key, _file in request.POST.items():
         match = re.match(r"^remove_attachment\[([^]]+)\]$", key)
         if match:
             _update_plugin_attachment(plugin_config, match.group(1), None, user)
@@ -334,7 +334,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     sources[key].error = None
                     sources[key].save()
         response: Dict[str, str] = {}
-        for key, source in sources.items():
+        for _, source in sources.items():
             response[source.filename] = source.source
 
         # Update values from plugin.json, if one exists
