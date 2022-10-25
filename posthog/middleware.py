@@ -147,7 +147,7 @@ class AutoProjectMiddleware:
                     user.current_organization_id = actual_item_team.organization_id
                     user.save()
                     # Information for POSTHOG_APP_CONTEXT
-                    request.switched_team = current_team.id
+                    request.switched_team = current_team.id  # type: ignore
 
 
 class CHQueries:
