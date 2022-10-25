@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Any, Dict, List
 from unittest.mock import ANY, MagicMock, Mock, patch
 
 import pytest
@@ -11,7 +11,6 @@ from ee.api.billing import build_billing_token
 from ee.api.test.base import LicensedTestMixin
 from ee.models.license import License
 from ee.settings import BILLING_SERVICE_URL
-from posthog.celery import send_all_org_usage_reports
 from posthog.client import sync_execute
 from posthog.models import Organization, Plugin, Team, User
 from posthog.models.group.util import create_group
@@ -21,6 +20,7 @@ from posthog.models.person.util import create_person_distinct_id
 from posthog.models.plugin import PluginConfig
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.test.test_factory import create_snapshot
+from posthog.tasks.usage_report import send_all_org_usage_reports
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseDestroyTablesMixin,
@@ -35,7 +35,7 @@ from posthog.version import VERSION
 logger = structlog.get_logger(__name__)
 
 
-def send_all_org_usage_reports_with_wait(*args, **kwargs):
+def send_all_org_usage_reports_with_wait(*args: Any, **kwargs: Any) -> List[Dict]:
     job = send_all_org_usage_reports(*args, **kwargs)
     wait_for_parallel_celery_group(job)
     return job.get()
@@ -439,7 +439,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
 
 
 class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
 
         self.team2 = Team.objects.create(organization=self.organization)
@@ -458,9 +458,9 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         flush_persons_and_events()
 
     @freeze_time("2021-10-10T23:01:00Z")
-    @patch("ee.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
-    def test_send_usage(self, mock_post, mock_client):
+    def test_send_usage(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
         mockresponse = Mock()
         mock_post.return_value = mockresponse
         mockresponse.status_code = 200
@@ -485,9 +485,9 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         )
 
     @freeze_time("2021-10-10T23:01:00Z")
-    @patch("ee.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
-    def test_send_usage_cloud(self, mock_post, mock_client):
+    def test_send_usage_cloud(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
         with self.is_cloud(True):
             mockresponse = Mock()
             mock_post.return_value = mockresponse
@@ -513,9 +513,9 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             )
 
     @freeze_time("2021-10-10T23:01:00Z")
-    @patch("ee.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
-    def test_send_usage_billing_service_not_reachable(self, mock_post, mock_client):
+    def test_send_usage_billing_service_not_reachable(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
         mockresponse = Mock()
         mock_post.return_value = mockresponse
         mockresponse.status_code = 404
@@ -536,10 +536,12 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         )
 
     @freeze_time("2021-10-10T23:01:00Z")
-    @patch("ee.tasks.usage_report.get_org_usage_report")
-    @patch("ee.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.get_org_usage_report")
+    @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
-    def test_send_usage_backup(self, mock_post, mock_client, mock_get_org_usage_report):
+    def test_send_usage_backup(
+        self, mock_post: MagicMock, mock_client: MagicMock, mock_get_org_usage_report: MagicMock
+    ) -> None:
         mockresponse = Mock()
         mock_post.return_value = mockresponse
         mockresponse.status_code = 200
@@ -565,9 +567,9 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
 
 class SendUsageNoLicenseTest(APIBaseTest):
     @freeze_time("2021-10-10T23:01:00Z")
-    @patch("ee.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
-    def test_no_license(self, mock_post, mock_client):
+    def test_no_license(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
         # Same test, we just don't include the LicensedTestMixin so no license
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")

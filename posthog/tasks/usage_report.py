@@ -16,6 +16,7 @@ from typing import (
 import dateutil
 import requests
 import structlog
+from celery import group
 from django.conf import settings
 from django.db import connection
 from django.db.models.manager import BaseManager
@@ -23,10 +24,8 @@ from posthoganalytics.client import Client
 from psycopg2 import sql
 from sentry_sdk import capture_exception
 
-from ee.api.billing import build_billing_token
-from ee.models.license import License
-from ee.settings import BILLING_SERVICE_URL
 from posthog import version_requirement
+from posthog.celery import app
 from posthog.cloud_utils import is_cloud
 from posthog.models import GroupTypeMapping, OrganizationMembership, User
 from posthog.models.dashboard import Dashboard
@@ -212,7 +211,15 @@ def get_org_usage_report(period: Tuple[datetime, datetime], team_ids: List[int])
     return org_usage_summary
 
 
-def get_instance_metadata(period: Tuple[datetime, datetime], has_license: bool) -> OrgMetadata:
+def get_instance_metadata(period: Tuple[datetime, datetime]) -> OrgMetadata:
+    has_license = False
+
+    if settings.EE_AVAILABLE:
+        from ee.models.license import License
+
+        license = License.objects.first_valid()
+        has_license = license is not None
+
     period_start, period_end = period
 
     realm = get_instance_realm()
@@ -261,7 +268,17 @@ def get_instance_metadata(period: Tuple[datetime, datetime], has_license: bool) 
     return metadata
 
 
-def send_report_to_billing_service(report: Dict, token: str):
+def send_report_to_billing_service(organization_id: str, report: Dict) -> None:
+    if not settings.EE_AVAILABLE:
+        return
+
+    from ee.api.billing import build_billing_token
+    from ee.models.license import License
+    from ee.settings import BILLING_SERVICE_URL
+
+    license = License.objects.first_valid()
+    token = build_billing_token(license, organization_id) if license else None
+
     headers = {}
     if token:
         headers = {"Authorization": f"Bearer {token}"}
@@ -354,6 +371,7 @@ def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
         return namedtuplefetchall(cursor)
 
 
+@app.task(autoretry_for=(Exception,), max_retries=3, retry_backoff=True, acks_late=True)
 def send_org_usage_report(
     organization_id: Optional[str] = None, dry_run: bool = False, at: Optional[str] = None
 ) -> Dict:
@@ -361,9 +379,7 @@ def send_org_usage_report(
     period = get_previous_day(at=at_date)
     period_start, period_end = period
 
-    license = License.objects.first_valid()
-    metadata = get_instance_metadata(period, bool(license))
-
+    metadata = get_instance_metadata(period)
     organization = Organization.objects.get(id=organization_id)
     organization_id = str(organization.id)
     teams = organization.teams.all()
@@ -399,8 +415,7 @@ def send_org_usage_report(
 
         if not dry_run:
             capture_event("organization usage report", organization_id, full_report_dict, timestamp=at_date)
-            billing_service_token = build_billing_token(license, organization_id) if license else None
-            send_report_to_billing_service(full_report_dict, billing_service_token)
+            send_report_to_billing_service(organization_id, full_report_dict)
 
         logger.info("Usage report for organization %s sent!", organization_id)
 
@@ -418,10 +433,17 @@ def send_org_usage_report(
                     team_ids, period_start, period_end
                 ),
             }
-            billing_service_token = build_billing_token(license, organization_id) if license else None
-            send_report_to_billing_service(minimal_report_dict, billing_service_token)
-
+            send_report_to_billing_service(organization_id, minimal_report_dict)
             capture_exception(err)
             capture_event("organization usage report failure", organization_id, {"error": str(err)})
 
         raise err
+
+
+@app.task(ignore_result=True)
+def send_all_org_usage_reports(dry_run: bool = False, at: Optional[str] = None) -> Any:
+
+    all_orgs = Organization.objects.exclude(for_internal_metrics=True).values("id")
+    tasks = [send_org_usage_report.s(org["id"], dry_run=dry_run, at=at) for org in all_orgs]
+
+    return group(tasks).apply_async()

@@ -2,7 +2,7 @@ import pprint
 
 from django.core.management.base import BaseCommand
 
-from posthog.celery import send_all_org_usage_reports, send_org_usage_report_task
+from posthog.tasks.usage_report import send_all_org_usage_reports, send_org_usage_report
 from posthog.utils import wait_for_parallel_celery_group
 
 
@@ -21,7 +21,7 @@ class Command(BaseCommand):
         org_id = options["org_id"]
 
         if org_id:
-            results = [send_org_usage_report_task(options["org_id"], dry_run=dry_run, at=date)]
+            results = [send_org_usage_report(options["org_id"], dry_run=dry_run, at=date)]
         else:
             job = send_all_org_usage_reports(dry_run, date)
             job = wait_for_parallel_celery_group(job)
