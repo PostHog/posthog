@@ -9,7 +9,7 @@ from django.forms.models import model_to_dict
 
 def hash_elements(elements) -> str:
     elements_list = []
-    for index, element in enumerate(elements):
+    for _index, element in enumerate(elements):
         el_dict = model_to_dict(element)
         [el_dict.pop(key) for key in ["event", "id", "group"]]
         elements_list.append(el_dict)

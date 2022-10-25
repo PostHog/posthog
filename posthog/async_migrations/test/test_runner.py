@@ -120,7 +120,7 @@ class TestRunner(AsyncMigrationBaseTest):
 
         self.assertEqual(res, ("a", "b"))
 
-        for i in range(5):
+        for _ in range(5):
             run_async_migration_next_op("test_migration", sm)
 
         sm.refresh_from_db()
