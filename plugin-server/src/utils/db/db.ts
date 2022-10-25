@@ -679,7 +679,11 @@ export class DB {
                 if (cachedGroupData) {
                     this.statsd?.increment('group_info_cache.hit')
                     groupColumns[propertiesColumnName] = JSON.stringify(cachedGroupData.properties)
-                    groupColumns[createdAtColumnName] = cachedGroupData.created_at
+                    groupColumns[createdAtColumnName] = castTimestampOrNow(
+                        cachedGroupData.created_at,
+                        TimestampFormat.ClickHouse
+                    )
+
                     continue
                 }
             } catch (error) {
@@ -694,7 +698,8 @@ export class DB {
             if (storedGroupData) {
                 groupColumns[propertiesColumnName] = JSON.stringify(storedGroupData.group_properties)
 
-                const createdAt = castTimestampOrNow(storedGroupData.created_at, TimestampFormat.ClickHouse)
+                const createdAt = castTimestampOrNow(storedGroupData.created_at.toUTC(), TimestampFormat.ClickHouse)
+
                 groupColumns[createdAtColumnName] = createdAt
 
                 // We found data in Postgres, so update the cache
@@ -714,7 +719,7 @@ export class DB {
 
                 groupColumns[propertiesColumnName] = '{}'
                 groupColumns[createdAtColumnName] = castTimestampOrNow(
-                    new Date(0).toISOString(),
+                    DateTime.fromJSDate(new Date(0)).toUTC(),
                     TimestampFormat.ClickHouse
                 )
             }
