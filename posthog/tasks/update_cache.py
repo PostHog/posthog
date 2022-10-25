@@ -330,14 +330,34 @@ def _cache_includes_latest_events(
 
     last_refresh = payload.get("last_refresh", None)
     if last_refresh:
-        event_ids = [e.id for e in filter.events]
+        event_ids = _event_ids_from_filter(filter)
+
         event_last_seen_at = list(
             EventDefinition.objects.filter(name__in=event_ids).values_list("last_seen_at", flat=True)
         )
-        if len(event_ids) == len(event_last_seen_at):
+        if len(event_ids) > 0 and len(event_ids) == len(event_last_seen_at):
             return all(last_refresh >= last_seen_at for last_seen_at in event_last_seen_at)
 
     return False
+
+
+def _event_ids_from_filter(filter: Union[RetentionFilter, StickinessFilter, PathFilter, Filter]) -> List[str]:
+    try:
+        if isinstance(filter, RetentionFilter):
+            event_ids = [
+                str(filter.target_entity.id),
+                str(filter.returning_entity.id),
+            ]
+
+        elif isinstance(filter, PathFilter):
+            event_ids = filter.target_events
+
+        else:
+            event_ids = [str(e.id) for e in filter.events]
+
+        return event_ids
+    except:
+        return []
 
 
 def _update_cache_for_queryset(

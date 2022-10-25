@@ -1146,6 +1146,87 @@ class TestUpdateCacheForSharedInsights(APIBaseTest):
     @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
     @patch("posthog.tasks.update_cache.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
+    def test_events_not_recently_ingested_are_not_queried_for_retention_insight(
+        self,
+        patch_update_cache_item: MagicMock,
+        _patch_apply_async: MagicMock,
+        patch_calculate_by_filter: MagicMock,
+        _patched_cache_set: MagicMock,
+    ) -> None:
+        shared_insight = create_shared_insight(
+            self.team,
+            is_enabled=True,
+            filters={
+                "period": "Week",
+                "insight": "RETENTION",
+                "target_entity": {"id": "$pageview-start", "type": "events"},
+                "retention_type": "retention_first_time",
+                "returning_entity": {"id": "$pageview-finish", "type": "events"},
+            },
+            last_refresh=datetime.now(pytz.utc) - timedelta(days=6),
+        )
+        SharingConfiguration.objects.create(team=self.team, insight=shared_insight, enabled=True)
+
+        EventDefinition.objects.create(
+            team=self.team,
+            name="$pageview-start",
+            last_seen_at=datetime.now(pytz.utc) - timedelta(days=7),
+        )
+        EventDefinition.objects.create(
+            team=self.team,
+            name="$pageview-finish",
+            last_seen_at=datetime.now(pytz.utc) - timedelta(days=7),
+        )
+
+        run_cache_update(patch_update_cache_item)
+        shared_insight.refresh_from_db()
+
+        patch_calculate_by_filter.assert_not_called()
+
+    @patch("posthog.tasks.update_cache.cache.set")
+    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
+    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.celery.update_cache_item_task.s")
+    def test_events_not_recently_ingested_are_not_queried_for_paths_insight(
+        self,
+        patch_update_cache_item: MagicMock,
+        _patch_apply_async: MagicMock,
+        patch_calculate_by_filter: MagicMock,
+        _patched_cache_set: MagicMock,
+    ) -> None:
+        shared_insight = create_shared_insight(
+            self.team,
+            is_enabled=True,
+            filters={
+                "insight": "PATHS",
+                "properties": [],
+                "step_limit": 5,
+                "start_point": "https://example.dev/",
+                "funnel_filter": {},
+                "exclude_events": [],
+                "path_groupings": [],
+                "include_event_types": ["$pageview"],
+                "local_path_cleaning_filters": [],
+            },
+            last_refresh=datetime.now(pytz.utc) - timedelta(days=6),
+        )
+        SharingConfiguration.objects.create(team=self.team, insight=shared_insight, enabled=True)
+
+        EventDefinition.objects.create(
+            team=self.team,
+            name="$pageview",
+            last_seen_at=datetime.now(pytz.utc) - timedelta(days=7),
+        )
+
+        run_cache_update(patch_update_cache_item)
+        shared_insight.refresh_from_db()
+
+        patch_calculate_by_filter.assert_not_called()
+
+    @patch("posthog.tasks.update_cache.cache.set")
+    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
+    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.celery.update_cache_item_task.s")
     def test_only_one_of_several_events_not_recently_ingested_still_runs_cache_update(
         self,
         patch_update_cache_item: MagicMock,
