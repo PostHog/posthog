@@ -366,7 +366,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             immediate=True,
         )
 
-        self.client.patch(f"/api/person/{person.uuid}", {"properties": {"foo": "bar"}})
+        self.client.post(f"/api/person/{person.uuid}/update_property", {"key": "foo", "value": "bar"})
 
         mock_capture.assert_called_once_with(
             distinct_id="some_distinct_id",
