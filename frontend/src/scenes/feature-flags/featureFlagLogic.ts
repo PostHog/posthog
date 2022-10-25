@@ -48,7 +48,7 @@ const NEW_FLAG: FeatureFlagType = {
             threshold_type: 'insight',
         },
         {
-            threshold_type: 'error',
+            threshold_type: 'sentry',
             threshold: 30,
         },
     ],

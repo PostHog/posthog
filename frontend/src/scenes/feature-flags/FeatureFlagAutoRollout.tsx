@@ -84,12 +84,16 @@ export function FeatureFlagAutoRollback(): JSX.Element {
                                 </Field>
                                 is
                                 <Field name="operator">
-                                    <LemonSelect
-                                        options={[
-                                            { label: 'greater than', value: 'gt' },
-                                            { label: 'less than', value: 'lt' },
-                                        ]}
-                                    />
+                                    {({ value, onChange }) => (
+                                        <LemonSelect
+                                            value={value}
+                                            onChange={onChange}
+                                            options={[
+                                                { label: 'greater than', value: 'gt' },
+                                                { label: 'less than', value: 'lt' },
+                                            ]}
+                                        />
+                                    )}
                                 </Field>
                                 <Field name="threshold">
                                     <LemonInput min={0} type="number" />
@@ -134,8 +138,20 @@ export function FeatureFlagAutoRollback(): JSX.Element {
                                         />
                                     )}
                                 </Field>
+                                <Field name="operator">
+                                    {({ value, onChange }) => (
+                                        <LemonSelect
+                                            options={[
+                                                { label: 'increase', value: 'gt' },
+                                                { label: 'decrease', value: 'lt' },
+                                            ]}
+                                            value={value}
+                                            onChange={onChange}
+                                        />
+                                    )}
+                                </Field>
                             </Group>
-                            increase in errors
+                            in errors
                         </div>
                     </div>
                 </>
