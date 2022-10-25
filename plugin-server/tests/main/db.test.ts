@@ -631,7 +631,7 @@ describe('DB', () => {
                 const fetchGroupSpy = jest.spyOn(db, 'fetchGroup').mockImplementationOnce(
                     jest.fn(() =>
                         Promise.resolve({
-                            group_properties: JSON.stringify({ foo: 'bar' }),
+                            group_properties: { foo: 'bar' },
                             created_at: DateTime.fromISO('2022-01-01T00:00:00.000Z'),
                         } as any)
                     )
