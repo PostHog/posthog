@@ -454,6 +454,7 @@ export interface RecordingConsoleLog extends RecordingTimeMixinType {
     previewContent?: React.ReactNode // Content to show in first line
     fullContent?: React.ReactNode // Full content to show when item is expanded
     traceContent?: React.ReactNode // Url content to show on right side
+    rawString: string // Raw text used for fuzzy search
     level: LogLevel
 }
 
@@ -1238,6 +1239,10 @@ export interface FilterType {
 }
 
 export interface RecordingEventsFilters {
+    query: string
+}
+
+export interface RecordingConsoleLogsFilters {
     query: string
 }
 

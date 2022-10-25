@@ -9,25 +9,29 @@ import { sharedListLogic, WindowOption } from 'scenes/session-recordings/player/
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { eventsListLogic } from 'scenes/session-recordings/player/list/eventsListLogic'
+import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
 
 export function PlayerFilter({ sessionRecordingId, playerKey, matching }: SessionRecordingPlayerProps): JSX.Element {
     const logicProps = { sessionRecordingId, playerKey }
     const { windowIdFilter, showOnlyMatching, tab } = useValues(sharedListLogic(logicProps))
     const { setWindowIdFilter, setShowOnlyMatching } = useActions(sharedListLogic(logicProps))
-    const { localFilters } = useValues(eventsListLogic(logicProps))
-    const { setLocalFilters } = useActions(eventsListLogic(logicProps))
+    const { eventListLocalFilters } = useValues(eventsListLogic(logicProps))
+    const { setEventListLocalFilters } = useActions(eventsListLogic(logicProps))
+    const { consoleListLocalFilters } = useValues(consoleLogsListLogic(logicProps))
+    const { setConsoleListLocalFilters } = useActions(consoleLogsListLogic(logicProps))
     const { windowIds } = useValues(playerMetaLogic(logicProps))
 
     return (
         <div className="PlayerFilter flex justify-between gap-2 bg-side p-2 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
-                {tab === SessionRecordingTab.EVENTS && (
+                {tab === SessionRecordingTab.EVENTS ? (
                     <>
                         <LemonInput
-                            onChange={(query) => setLocalFilters({ query })}
+                            key="event-list-search-input"
+                            onChange={(query) => setEventListLocalFilters({ query })}
                             placeholder="Search events"
                             type="search"
-                            value={localFilters.query}
+                            value={eventListLocalFilters.query}
                         />
                         {matching?.length ? (
                             <LemonSwitch
@@ -48,6 +52,14 @@ export function PlayerFilter({ sessionRecordingId, playerKey, matching }: Sessio
                             />
                         ) : null}
                     </>
+                ) : (
+                    <LemonInput
+                        key="console-list-search-input"
+                        onChange={(query) => setConsoleListLocalFilters({ query })}
+                        placeholder="Search console logs"
+                        type="search"
+                        value={consoleListLocalFilters.query}
+                    />
                 )}
             </div>
 
