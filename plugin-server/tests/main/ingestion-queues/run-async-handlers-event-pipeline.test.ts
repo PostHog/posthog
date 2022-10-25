@@ -60,7 +60,7 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
         // to ensure that these are bubbled up to the main consumer loop. Note
         // that the `KafkaJSError` is translated to a generic `DependencyError`.
         // This is to allow the specific decision of whether the error is
-        // retryable to happen as close to the dependency as possible.
+        // retriable to happen as close to the dependency as possible.
         const organizationId = await createOrganization(hub.postgres)
         const plugin = await createPlugin(hub.postgres, {
             organization_id: organizationId,
