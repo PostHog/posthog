@@ -191,7 +191,7 @@ class TestPluginAPI(APIBaseTest):
                 self.organization.plugins_access_level = level
                 self.organization.save()
                 response = self.client.patch(
-                    f"/api/organizations/@current/plugins/{install_response.json()['id']}/", {"is_global": False}
+                    f"/api/organizations/@current/plugins/{install_response.json()['id']}/", {"is_global": is_global}
                 )
                 self.assertEqual(
                     response.status_code, 403, "Plugin was not 403 for org despite it having no plugin install access"
@@ -758,6 +758,7 @@ class TestPluginAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "plugin_info": None,
                 "delivery_rate_24h": None,
+                "created_at": mock.ANY,
             },
         )
         plugin_config = PluginConfig.objects.first()
@@ -790,6 +791,7 @@ class TestPluginAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "plugin_info": None,
                 "delivery_rate_24h": None,
+                "created_at": mock.ANY,
             },
         )
         self.client.delete(f"/api/plugin_config/{plugin_config_id}")
@@ -1054,6 +1056,7 @@ class TestPluginAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "plugin_info": None,
                 "delivery_rate_24h": None,
+                "created_at": mock.ANY,
             },
         )
 
@@ -1078,6 +1081,7 @@ class TestPluginAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "plugin_info": None,
                 "delivery_rate_24h": None,
+                "created_at": mock.ANY,
             },
         )
 
@@ -1100,6 +1104,7 @@ class TestPluginAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "plugin_info": None,
                 "delivery_rate_24h": None,
+                "created_at": mock.ANY,
             },
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
@@ -1135,6 +1140,7 @@ class TestPluginAPI(APIBaseTest):
                     "team_id": self.team.pk,
                     "plugin_info": None,
                     "delivery_rate_24h": 0.5,
+                    "created_at": mock.ANY,
                 },
                 {
                     "id": plugin_config2.pk,
@@ -1146,6 +1152,7 @@ class TestPluginAPI(APIBaseTest):
                     "team_id": self.team.pk,
                     "plugin_info": None,
                     "delivery_rate_24h": None,
+                    "created_at": mock.ANY,
                 },
             ],
         )

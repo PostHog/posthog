@@ -44,14 +44,17 @@ export function ClickToInspectActors({
 
 function renderDatumToTableCell(
     datumMathProperty: string | undefined,
-    datumValue: number,
+    datumValue: number | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction,
     renderCount: (value: number) => React.ReactNode
 ): ReactNode {
-    return (
+    // Value can be undefined if the datum's series doesn't have ANY value for the breakdown value being rendered
+    return datumValue !== undefined ? (
         <div className="series-data-cell">
             {formatAggregationValue(datumMathProperty, datumValue, renderCount, formatPropertyValueForDisplay)}
         </div>
+    ) : (
+        '–'
     )
 }
 
@@ -118,10 +121,9 @@ export function InsightTooltip({
 
         if (numDataPoints > 0) {
             const indexOfLongestSeries = dataSource.findIndex((ds) => ds?.seriesData?.length === numDataPoints)
-            const truncatedCols = dataSource?.[indexOfLongestSeries !== -1 ? indexOfLongestSeries : 0].seriesData.slice(
-                0,
-                colCutoff
-            )
+            const truncatedCols = dataSource?.[indexOfLongestSeries !== -1 ? indexOfLongestSeries : 0].seriesData
+                .slice(0, colCutoff)
+                .sort((a, b) => a.datasetIndex - b.datasetIndex)
             truncatedCols.forEach((seriesColumn, colIdx) => {
                 columns.push({
                     key: `series-column-data-${colIdx}`,

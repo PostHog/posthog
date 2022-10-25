@@ -16,14 +16,7 @@ export enum GroupsAccessStatus {
 export const groupsAccessLogic = kea<groupsAccessLogicType>({
     path: ['lib', 'introductions', 'groupsAccessLogic'],
     connect: {
-        values: [
-            teamLogic,
-            ['currentTeam'],
-            preflightLogic,
-            ['preflight'],
-            userLogic,
-            ['hasAvailableFeature', 'upgradeLink'],
-        ],
+        values: [teamLogic, ['currentTeam'], preflightLogic, ['preflight'], userLogic, ['hasAvailableFeature']],
     },
     selectors: {
         groupsEnabled: [
@@ -47,6 +40,15 @@ export const groupsAccessLogic = kea<groupsAccessLogicType>({
                     return GroupsAccessStatus.NoAccess
                 }
             },
+        ],
+        needsUpgradeForGroups: [
+            (s) => [s.groupsAccessStatus],
+            (groupsAccessStatus) =>
+                [GroupsAccessStatus.NoAccess, GroupsAccessStatus.HasGroupTypes].includes(groupsAccessStatus),
+        ],
+        canStartUsingGroups: [
+            (s) => [s.groupsAccessStatus],
+            (groupsAccessStatus) => groupsAccessStatus === GroupsAccessStatus.HasAccess,
         ],
     },
 })

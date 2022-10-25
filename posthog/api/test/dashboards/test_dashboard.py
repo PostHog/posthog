@@ -163,7 +163,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         queries.append(qs)
 
         # add insights to the dashboard and count how many queries to read the dashboard afterwards
-        for i in range(5):
+        for _ in range(5):
             self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
             count, qs = self._get_dashboard_counting_queries(dashboard_id)
             query_counts.append(count)

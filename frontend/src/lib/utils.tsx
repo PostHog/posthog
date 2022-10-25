@@ -1409,6 +1409,7 @@ export function convertPropertiesToPropertyGroup(
     return { type: FilterLogicalOperator.And, values: [] }
 }
 
+/** Flatten a filter group into an array of filters. NB: Logical operators (AND/OR) are lost in the process. */
 export function convertPropertyGroupToProperties(
     properties?: PropertyGroupFilter | AnyPropertyFilter[]
 ): PropertyFilter[] | undefined {

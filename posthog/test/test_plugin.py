@@ -76,6 +76,27 @@ class TestPlugin(BaseTest):
                 is_staff=False,
             )
         validate_plugin_job_payload(
+            Plugin(
+                public_jobs={"foo_job": {"payload": {"param": {"type": "number", "staff_only": True, "default": 5}}}}
+            ),
+            "foo_job",
+            {"param": 5},
+            is_staff=False,
+        )
+
+        with self.assertRaises(ValidationError):
+            validate_plugin_job_payload(
+                Plugin(
+                    public_jobs={
+                        "foo_job": {"payload": {"param": {"type": "number", "staff_only": True, "default": 1}}}
+                    }
+                ),
+                "foo_job",
+                {"param": 5},
+                is_staff=False,
+            )
+
+        validate_plugin_job_payload(
             Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number", "staff_only": True}}}}),
             "foo_job",
             {},

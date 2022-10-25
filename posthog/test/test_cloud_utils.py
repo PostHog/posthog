@@ -15,7 +15,7 @@ class TestCloudUtils(BaseTest):
     def test_is_cloud_returns_correctly(self):
         TEST_clear_cloud_cache()
         with self.settings(MULTI_TENANCY=True):
-            assert is_cloud()
+            assert is_cloud() is True
 
         TEST_clear_cloud_cache()
         with self.settings(MULTI_TENANCY=False):
@@ -24,6 +24,14 @@ class TestCloudUtils(BaseTest):
         TEST_clear_cloud_cache()
         with self.settings(MULTI_TENANCY=False):
             assert not is_cloud()
+
+        TEST_clear_cloud_cache()
+        with self.settings(MULTI_TENANCY="True"):
+            assert is_cloud() is True
+
+        TEST_clear_cloud_cache()
+        with self.settings(MULTI_TENANCY="False"):
+            assert is_cloud() is False
 
     @pytest.mark.ee
     def test_is_cloud_checks_license(self):

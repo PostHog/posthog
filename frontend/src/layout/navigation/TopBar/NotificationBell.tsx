@@ -48,7 +48,7 @@ export function NotificationBell(): JSX.Element {
             className="NotificationsBell-Popup"
         >
             <div
-                className={clsx('h-10 items-center cursor-pointer flex color-primary-alt text-2xl')}
+                className={clsx('h-10 items-center cursor-pointer flex text-primary-alt text-2xl')}
                 onClick={toggleNotificationsPopover}
                 data-attr="notifications-button"
             >

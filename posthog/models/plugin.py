@@ -398,7 +398,12 @@ def validate_plugin_job_payload(plugin: Plugin, job_type: str, payload: Dict[str
     for key, field_options in payload_spec.items():
         if field_options.get("required", False) and key not in payload:
             raise ValidationError(f"Missing required job field: {key}")
-        if field_options.get("staff_only", False) and not is_staff and key in payload:
+        if (
+            field_options.get("staff_only", False)
+            and not is_staff
+            and key in payload
+            and payload.get(key) != field_options.get("default")
+        ):
             raise ValidationError(f"Field is only settable for admins: {key}")
 
     for key in payload:

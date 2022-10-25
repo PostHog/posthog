@@ -4,7 +4,7 @@ import { IconArrowDropDown, IconChevronRight } from '../icons'
 import { Link } from '../Link'
 import { Popup, PopupProps, PopupContext } from '../Popup/Popup'
 import { Spinner } from '../Spinner/Spinner'
-import { Tooltip } from '../Tooltip'
+import { Tooltip, TooltipProps } from '../Tooltip'
 import './LemonButton.scss'
 
 export interface LemonButtonPopup extends Omit<PopupProps, 'children'> {
@@ -36,7 +36,8 @@ export interface LemonButtonPropsBase
     htmlType?: 'button' | 'submit' | 'reset'
     loading?: boolean
     /** Tooltip to display on hover. */
-    tooltip?: any
+    tooltip?: TooltipProps['title']
+    tooltipPlacement?: TooltipProps['placement']
     /** Whether the row should take up the parent's full width. */
     fullWidth?: boolean
     center?: boolean
@@ -68,6 +69,7 @@ function LemonButtonInternal(
         center,
         size,
         tooltip,
+        tooltipPlacement,
         htmlType = 'button',
         noPadding,
         to,
@@ -121,7 +123,11 @@ function LemonButtonInternal(
     )
 
     if (tooltip) {
-        workingButton = <Tooltip title={tooltip}>{workingButton}</Tooltip>
+        workingButton = (
+            <Tooltip title={tooltip} placement={tooltipPlacement}>
+                {workingButton}
+            </Tooltip>
+        )
     }
 
     return workingButton

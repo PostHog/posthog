@@ -45,7 +45,7 @@ from posthog.constants import (
     TRENDS_WORLD_MAP,
     BreakdownAttributionType,
 )
-from posthog.models.entity import MATH_TYPE, Entity, ExclusionEntity
+from posthog.models.entity import Entity, ExclusionEntity, MathType
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
 from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
@@ -452,7 +452,7 @@ class EntityTypeMixin(BaseParamMixin):
 
 class EntityMathMixin(BaseParamMixin):
     @cached_property
-    def target_entity_math(self) -> Optional[MATH_TYPE]:
+    def target_entity_math(self) -> Optional[MathType]:
         return self._data.get("entity_math", None)
 
     @include_dict

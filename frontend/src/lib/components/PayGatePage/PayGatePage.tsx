@@ -1,10 +1,10 @@
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 import { identifierToHuman } from 'lib/utils'
 import { IconOpenInNew } from '../icons'
 import './PayGatePage.scss'
 import { AvailableFeature } from '~/types'
 import { LemonButton } from '../LemonButton'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
 interface PayGatePageInterface {
     header: string | JSX.Element
@@ -21,7 +21,7 @@ export function PayGatePage({
     docsLink,
     featureKey,
 }: PayGatePageInterface): JSX.Element {
-    const { upgradeLink } = useValues(userLogic)
+    const { upgradeLink } = useValues(billingLogic)
     const featureName = identifierToHuman(featureKey, 'title')
 
     return (

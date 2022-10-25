@@ -9,7 +9,7 @@ export function InsightSaveButton({
     addingToDashboard,
 }: {
     saveAs: () => void
-    saveInsight: (redirect: boolean) => void
+    saveInsight: (redirectToViewMode?: boolean) => void
     isSaved: boolean | undefined
     insightSaving: boolean
     insightChanged: boolean

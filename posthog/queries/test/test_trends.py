@@ -4019,8 +4019,11 @@ def trend_test_factory(trends):
             self.assertEqual(len(response), 1)
             self.assertEqual(response[0]["breakdown_value"], "test2@posthog.com")
 
-        def _create_active_user_events(self):
+        def _create_active_users_events(self):
             _create_person(team_id=self.team.pk, distinct_ids=["p0"], properties={"name": "p1"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -4029,7 +4032,6 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -4037,6 +4039,14 @@ def trend_test_factory(trends):
                 timestamp="2020-01-09T12:00:00Z",
                 properties={"key": "val"},
             )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p2",
+                timestamp="2020-01-09T12:00:00Z",
+                properties={"key": "val"},
+            )
+
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -4044,6 +4054,7 @@ def trend_test_factory(trends):
                 timestamp="2020-01-10T12:00:00Z",
                 properties={"key": "val"},
             )
+
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -4051,15 +4062,6 @@ def trend_test_factory(trends):
                 timestamp="2020-01-11T12:00:00Z",
                 properties={"key": "val"},
             )
-
-            _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p2",
-                timestamp="2020-01-09T12:00:00Z",
-                properties={"key": "val"},
-            )
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -4068,40 +4070,170 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-        def test_active_user_math(self):
-            self._create_active_user_events()
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p0",
+                timestamp="2020-01-12T12:00:00Z",
+                properties={"key": "val"},
+            )
+
+        @snapshot_clickhouse_queries
+        def test_weekly_active_users_monthly(self):
+            self._create_active_users_events()
 
             data = {
-                "date_from": "2020-01-09T00:00:00Z",
-                "date_to": "2020-01-16T00:00:00Z",
+                "date_from": "2019-12-01",
+                "date_to": "2020-02-29",  # T'was a leap year
+                "interval": "month",
                 "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
             }
 
             filter = Filter(data=data)
             result = trends().run(filter, self.team)
-            self.assertEqual(result[0]["data"], [3.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+            self.assertEqual(result[0]["days"], ["2019-12-01", "2020-01-01", "2020-02-01"])
+            # No users fall into the period of 7 days during or before the first day of any of those three months
+            self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0])
 
-        def test_active_user_math_action(self):
-            action = _create_action(name="$pageview", team=self.team)
-            self._create_active_user_events()
+        @snapshot_clickhouse_queries
+        def test_weekly_active_users_daily(self):
+            self._create_active_users_events()
 
             data = {
-                "date_from": "2020-01-09T00:00:00Z",
-                "date_to": "2020-01-16T00:00:00Z",
+                "date_from": "2020-01-08",
+                "date_to": "2020-01-19",
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+            }
+
+            filter = Filter(data=data)
+            result = trends().run(filter, self.team)
+            self.assertEqual(
+                result[0]["days"],
+                [
+                    "2020-01-08",
+                    "2020-01-09",
+                    "2020-01-10",
+                    "2020-01-11",
+                    "2020-01-12",
+                    "2020-01-13",
+                    "2020-01-14",
+                    "2020-01-15",
+                    "2020-01-16",
+                    "2020-01-17",
+                    "2020-01-18",
+                    "2020-01-19",
+                ],
+            )
+            self.assertEqual(
+                result[0]["data"],
+                [
+                    1.0,  # 2020-01-08 - p0 only
+                    3.0,  # 2020-01-09 - p0, p1, and p2
+                    2.0,  # 2020-01-10 - p1, and p2
+                    2.0,  # 2020-01-11 - p1 and p2
+                    3.0,  # 2020-01-12 - p0, p1, and p2
+                    3.0,  # 2020-01-13 - p0, p1, and p2
+                    3.0,  # 2020-01-14 - p0, p1, and p2
+                    3.0,  # 2020-01-15 - p0, p1, and p2
+                    3.0,  # 2020-01-16 - p0, p1, and p2
+                    3.0,  # 2020-01-17 - p0, p1, and p2
+                    1.0,  # 2020-01-18 - p0 only
+                    0.0,  # 2020-01-19 - nobody
+                ],
+            )
+
+        def test_weekly_active_users_daily_based_on_action(self):
+            action = _create_action(name="$pageview", team=self.team)
+            self._create_active_users_events()
+
+            data = {
+                "date_from": "2020-01-08",
+                "date_to": "2020-01-19",
                 "actions": [{"id": action.id, "type": "actions", "order": 0, "math": "weekly_active"}],
             }
 
             filter = Filter(data=data)
             result = trends().run(filter, self.team)
-            self.assertEqual(result[0]["data"], [3.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+            self.assertEqual(
+                result[0]["days"],
+                [
+                    "2020-01-08",
+                    "2020-01-09",
+                    "2020-01-10",
+                    "2020-01-11",
+                    "2020-01-12",
+                    "2020-01-13",
+                    "2020-01-14",
+                    "2020-01-15",
+                    "2020-01-16",
+                    "2020-01-17",
+                    "2020-01-18",
+                    "2020-01-19",
+                ],
+            )
+            # Same as test_weekly_active_users_daily
+            self.assertEqual(result[0]["data"], [1.0, 3.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 1.0, 0.0])
 
-        def test_active_user_math_action_with_zero_person_ids(self):
+        @snapshot_clickhouse_queries
+        def test_weekly_active_users_weekly(self):
+            self._create_active_users_events()
+
+            data = {
+                "date_from": "2019-12-29",
+                "date_to": "2020-01-18",
+                "interval": "week",
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+            }
+
+            filter = Filter(data=data)
+            result = trends().run(filter, self.team)
+            self.assertEqual(result[0]["days"], ["2019-12-29", "2020-01-05", "2020-01-12"])
+            self.assertEqual(result[0]["data"], [0.0, 1.0, 3.0])
+
+        @snapshot_clickhouse_queries
+        def test_weekly_active_users_hourly(self):
+            self._create_active_users_events()
+
+            data = {
+                "date_from": "2020-01-09T06:00:00Z",
+                "date_to": "2020-01-09T17:00:00Z",
+                "interval": "hour",
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+            }
+
+            filter = Filter(data=data)
+            result = trends().run(filter, self.team)
+            self.assertEqual(
+                result[0]["days"],
+                [
+                    "2020-01-09 06:00:00",
+                    "2020-01-09 07:00:00",
+                    "2020-01-09 08:00:00",
+                    "2020-01-09 09:00:00",
+                    "2020-01-09 10:00:00",
+                    "2020-01-09 11:00:00",
+                    "2020-01-09 12:00:00",
+                    "2020-01-09 13:00:00",
+                    "2020-01-09 14:00:00",
+                    "2020-01-09 15:00:00",
+                    "2020-01-09 16:00:00",
+                    "2020-01-09 17:00:00",
+                ],
+            )
+            # p0 falls out of the window at noon, p1 and p2 are counted because the next 24 hours are included.
+            # FIXME: This is isn't super intuitive, in particular for hour-by-hour queries, but currently
+            # necessary, because there's a presentation issue: in monthly/weekly graphs data points are formatted as
+            # D-MMM-YYYY, so if a user sees e.g. 1-Jan-2077, they'll likely expect the active users count to be for
+            # the first day of the month, and not the last. If they saw just Jan-2077, the more general case would work.
+            self.assertEqual(result[0]["data"], [3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0])
+
+        def test_weekly_active_users_based_on_action_with_zero_person_ids(self):
             # only a person-on-event test
             if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
                 return True
 
             action = _create_action(name="$pageview", team=self.team)
-            self._create_active_user_events()
+            self._create_active_users_events()
 
             _create_event(
                 team=self.team,
@@ -4131,7 +4263,7 @@ def trend_test_factory(trends):
             self.assertEqual(result[0]["data"], [3.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
         @test_with_materialized_columns(["key"])
-        def test_breakdown_active_user_math(self):
+        def test_breakdown_weekly_active_users(self):
 
             _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             _create_event(
@@ -4184,8 +4316,7 @@ def trend_test_factory(trends):
             self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
 
         @snapshot_clickhouse_queries
-        def test_breakdown_active_user_math_with_actions(self):
-
+        def test_breakdown_weekly_active_users_based_on_action(self):
             _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             _create_event(
                 team=self.team,
@@ -4701,7 +4832,7 @@ def trend_test_factory(trends):
                     self.team,
                 )
 
-            self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0])
+            self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
             self.assertEqual(
                 response[0]["labels"],
                 [
@@ -4886,7 +5017,7 @@ def trend_test_factory(trends):
                 Filter(
                     data={
                         "display": TRENDS_LINEAR,
-                        "events": [{"id": "viewed video", "math": "avg", "math_property": "__event_count_per_actor"}],
+                        "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
                         "date_from": "2020-01-01",
                         "date_to": "2020-01-07",
                     }
@@ -4914,7 +5045,7 @@ def trend_test_factory(trends):
                 Filter(
                     data={
                         "display": TRENDS_LINEAR,
-                        "events": [{"id": "viewed video", "math": "avg", "math_property": "__event_count_per_actor"}],
+                        "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
                         "date_from": "2020-01-01",
                         "date_to": "2020-01-07",
                         "interval": "week",
@@ -4934,7 +5065,7 @@ def trend_test_factory(trends):
                 Filter(
                     data={
                         "display": TRENDS_TABLE,
-                        "events": [{"id": "viewed video", "math": "avg", "math_property": "__event_count_per_actor"}],
+                        "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
                         "date_from": "2020-01-01",
                         "date_to": "2020-01-07",
                     }
@@ -4952,7 +5083,7 @@ def trend_test_factory(trends):
                 Filter(
                     data={
                         "display": TRENDS_LINEAR,
-                        "events": [{"id": "viewed video", "math": "max", "math_property": "__event_count_per_actor"}],
+                        "events": [{"id": "viewed video", "math": "max_count_per_actor"}],
                         "date_from": "2020-01-01",
                         "date_to": "2020-01-07",
                     }
@@ -4971,48 +5102,6 @@ def trend_test_factory(trends):
                 "2020-01-07",
             ]
             assert daily_response[0]["data"] == [2.0, 0.0, 0.0, 1.0, 3.0, 0.0, 0.0]
-
-        def test_trends_volume_per_user_sum_same_as_total_volume(self):
-            self._create_event_count_per_user_events()
-
-            daily_response_sum_per_actor = trends().run(
-                Filter(
-                    data={
-                        "display": TRENDS_LINEAR,
-                        "events": [{"id": "viewed video", "math": "sum", "math_property": "__event_count_per_actor"}],
-                        "date_from": "2020-01-01",
-                        "date_to": "2020-01-07",
-                    }
-                ),
-                self.team,
-            )
-
-            daily_response_default_total_count = trends().run(
-                Filter(
-                    data={
-                        "display": TRENDS_LINEAR,
-                        "events": [{"id": "viewed video"}],
-                        "date_from": "2020-01-01",
-                        "date_to": "2020-01-07",
-                    }
-                ),
-                self.team,
-            )
-
-            assert len(daily_response_sum_per_actor) == 1
-            assert daily_response_sum_per_actor[0]["days"] == [
-                "2020-01-01",
-                "2020-01-02",
-                "2020-01-03",
-                "2020-01-04",
-                "2020-01-05",
-                "2020-01-06",
-                "2020-01-07",
-            ]
-            assert daily_response_sum_per_actor[0]["data"] == [3, 0.0, 0.0, 1.0, 4.0, 0.0, 0.0]
-            assert len(daily_response_default_total_count) == 1
-            assert daily_response_sum_per_actor[0]["days"] == daily_response_default_total_count[0]["days"]
-            assert daily_response_sum_per_actor[0]["data"] == daily_response_default_total_count[0]["data"]
 
     return TestTrends
 
