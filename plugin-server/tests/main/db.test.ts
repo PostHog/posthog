@@ -623,7 +623,7 @@ describe('DB', () => {
 
                 expect(res).toEqual({
                     group0_properties: JSON.stringify({ foo: 'bar' }),
-                    group0_created_at: '2020-01-01',
+                    group0_created_at: '2020-01-01 00:00:00.000',
                 })
             })
 
@@ -732,7 +732,7 @@ describe('DB', () => {
 
                 // verify that the first and fourth calls have cached=true and all other have cached=false
                 expect(res).toEqual({
-                    group0_created_at: '2020-01-01',
+                    group0_created_at: '2020-01-01 00:00:00.000',
                     group0_properties: JSON.stringify({
                         cached: true,
                     }),
@@ -744,7 +744,7 @@ describe('DB', () => {
                     group2_properties: JSON.stringify({
                         cached: false,
                     }),
-                    group3_created_at: '2020-01-01',
+                    group3_created_at: '2020-01-01 00:00:00.000',
                     group3_properties: JSON.stringify({
                         cached: true,
                     }),
