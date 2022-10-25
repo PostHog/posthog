@@ -31,6 +31,7 @@ from posthog.models import GroupTypeMapping, OrganizationMembership, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.event.util import (
     get_agg_event_count_for_teams_and_period,
+    get_event_count_for_last_month,
     get_event_count_for_team,
     get_event_count_for_team_and_period,
     get_event_count_with_groups_count_for_team_and_period,
@@ -60,6 +61,7 @@ TableSizes = TypedDict("TableSizes", {"posthog_event": int, "posthog_sessionreco
 class TeamUsageReport:
     event_count_lifetime: int
     event_count_in_period: int
+    event_count_in_month: int
     event_count_with_groups_in_period: int
     event_count_by_lib: Dict
     event_count_by_name: Dict
@@ -172,6 +174,7 @@ def get_org_usage_report(period: Tuple[datetime, datetime], team_ids: List[int])
         team_report = TeamUsageReport(
             event_count_lifetime=get_event_count_for_team(team_id),
             event_count_in_period=get_event_count_for_team_and_period(team_id, period_start, period_end),
+            event_count_in_month=get_event_count_for_team_and_period(team_id, period_start.replace(day=1), period_end),
             event_count_with_groups_in_period=get_event_count_with_groups_count_for_team_and_period(
                 team_id, period_start, period_end
             ),
@@ -193,18 +196,17 @@ def get_org_usage_report(period: Tuple[datetime, datetime], team_ids: List[int])
             ff_active_count=feature_flags.filter(active=True).count(),
         )
 
-        org_usage_summary.event_count_lifetime += team_report.event_count_lifetime
-        org_usage_summary.event_count_in_period += team_report.event_count_in_period
-        org_usage_summary.event_count_with_groups_in_period += team_report.event_count_with_groups_in_period
-        org_usage_summary.recording_count_in_period += team_report.recording_count_in_period
-        org_usage_summary.group_types_total += team_report.group_types_total
+        # Iterate on all fields of the OrgusageSummary and add the values from the team report
+        for field in dataclasses.fields(OrgUsageSummary):
+            if hasattr(team_report, field.name):
+                setattr(
+                    org_usage_summary,
+                    field.name,
+                    getattr(org_usage_summary, field.name) + getattr(team_report, field.name),
+                )
+
         if team_report.group_types_total > 0:
             org_usage_summary.using_groups = True
-
-        # org_usage_summary.person_count_total += team_report.person_count_total
-        # org_usage_summary.person_count_in_period += team_report.person_count_in_period
-        org_usage_summary.dashboard_count += team_report.dashboard_count
-        org_usage_summary.ff_count += team_report.ff_count
 
         org_usage_summary.teams[team_id] = team_report
 
