@@ -74,7 +74,7 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
         await createPluginConfig(hub.postgres, { team_id: teamId, plugin_id: plugin.id })
         await setupPlugins(hub)
 
-        jest.spyOn(hub.kafkaProducer.producer, 'send').mockImplementation(() => {
+        jest.spyOn(hub.kafkaProducer.producer, 'send').mockImplementationOnce(() => {
             return Promise.reject(new KafkaJSError('Failed to produce', { retriable: true }))
         })
 
