@@ -28,41 +28,13 @@ export interface ExtraDatabaseRows {
 }
 
 export const POSTGRES_DELETE_TABLES_QUERY = `
-    BEGIN;
-    DELETE FROM ee_hook;
-    DELETE FROM posthog_action_events;
-    DELETE FROM posthog_action;
-    DELETE FROM posthog_actionstep;
-    DELETE FROM posthog_activitylog;
-    DELETE FROM posthog_annotation;
-    DELETE FROM posthog_cohort;
-    DELETE FROM posthog_cohortpeople;
-    DELETE FROM posthog_dashboard;
-    DELETE FROM posthog_dashboarditem;
-    DELETE FROM posthog_event;
-    DELETE FROM posthog_eventbuffer;
-    DELETE FROM posthog_eventdefinition;
-    DELETE FROM posthog_eventproperty;
-    DELETE FROM posthog_featureflag;
-    DELETE FROM posthog_featureflaghashkeyoverride;
-    DELETE FROM posthog_group;
-    DELETE FROM posthog_grouptypemapping;
-    DELETE FROM posthog_instancesetting;
-    DELETE FROM posthog_organization;
-    DELETE FROM posthog_organizationmembership;
-    DELETE FROM posthog_person;
-    DELETE FROM posthog_personalapikey;
-    DELETE FROM posthog_persondistinctid;
-    DELETE FROM posthog_plugin;
-    DELETE FROM posthog_pluginattachment;
-    DELETE FROM posthog_pluginconfig;
-    DELETE FROM posthog_pluginsourcefile;
-    DELETE FROM posthog_pluginstorage;
-    DELETE FROM posthog_propertydefinition;
-    DELETE FROM posthog_sessionrecordingevent;
-    DELETE FROM posthog_team;
-    DELETE FROM posthog_user;
-    COMMIT;
+DO $$ DECLARE
+  r RECORD;
+BEGIN
+  FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP
+    EXECUTE 'DELETE FROM ' || quote_ident(r.tablename);
+  END LOOP;
+END $$;
 `
 
 export async function resetTestDatabase(
