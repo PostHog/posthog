@@ -648,7 +648,7 @@ describe('DB', () => {
                 expect(fetchGroupSpy).toHaveBeenCalled()
                 expect(res).toEqual({
                     group0_properties: JSON.stringify({ foo: 'bar' }),
-                    group0_created_at: '2022-01-01T00:00:00.000Z',
+                    group0_created_at: '2022-01-01 00:00:00.000',
                 })
             })
 
@@ -671,7 +671,7 @@ describe('DB', () => {
                 expect(fetchGroupSpy).toHaveBeenCalled()
                 expect(res).toEqual({
                     group0_properties: JSON.stringify({ foo: 'bar' }),
-                    group0_created_at: '2022-01-01T00:00:00.000Z',
+                    group0_created_at: '2022-01-01 00:00:00.000',
                 })
             })
 
@@ -736,11 +736,11 @@ describe('DB', () => {
                     group0_properties: JSON.stringify({
                         cached: true,
                     }),
-                    group1_created_at: '2022-01-01T00:00:00.000Z',
+                    group1_created_at: '2022-01-01 00:00:00.000',
                     group1_properties: JSON.stringify({
                         cached: false,
                     }),
-                    group2_created_at: '2022-01-01T00:00:00.000Z',
+                    group2_created_at: '2022-01-01 00:00:00.000',
                     group2_properties: JSON.stringify({
                         cached: false,
                     }),
@@ -748,7 +748,7 @@ describe('DB', () => {
                     group3_properties: JSON.stringify({
                         cached: true,
                     }),
-                    group4_created_at: '2022-01-01T00:00:00.000Z',
+                    group4_created_at: '2022-01-01 00:00:00.000',
                     group4_properties: JSON.stringify({
                         cached: false,
                     }),
