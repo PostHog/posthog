@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Any, Dict, List
 from unittest.mock import ANY, MagicMock, Mock, patch
 
 import pytest
@@ -11,7 +11,6 @@ from ee.api.billing import build_billing_token
 from ee.api.test.base import LicensedTestMixin
 from ee.models.license import License
 from ee.settings import BILLING_SERVICE_URL
-from posthog.celery import send_all_org_usage_reports
 from posthog.client import sync_execute
 from posthog.models import Organization, Plugin, Team, User
 from posthog.models.group.util import create_group
@@ -21,6 +20,7 @@ from posthog.models.person.util import create_person_distinct_id
 from posthog.models.plugin import PluginConfig
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.test.test_factory import create_snapshot
+from posthog.tasks.usage_report import send_all_org_usage_reports
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseDestroyTablesMixin,
@@ -30,12 +30,11 @@ from posthog.test.base import (
     flush_persons_and_events,
 )
 from posthog.utils import get_machine_id, wait_for_parallel_celery_group
-from posthog.version import VERSION
 
 logger = structlog.get_logger(__name__)
 
 
-def send_all_org_usage_reports_with_wait(*args, **kwargs):
+def send_all_org_usage_reports_with_wait(*args: Any, **kwargs: Any) -> List[Dict]:
     job = send_all_org_usage_reports(*args, **kwargs)
     wait_for_parallel_celery_group(job)
     return job.get()
@@ -70,24 +69,21 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
             assert report["table_sizes"]["posthog_event"] < 10**7  # <10MB
             assert report["table_sizes"]["posthog_sessionrecordingevent"] < 10**7  # <10MB
 
-            # This structure is used by downstream reporting tools so we should ensure it doesn't change
-            # None denotes we don't care about the value
-            minimum_expectations = {
-                "event_count_lifetime": None,
-                "event_count_in_period": None,
-                "event_count_in_month": None,
-                "event_count_with_groups_in_period": None,
-                "event_count_with_groups_in_month": None,
-                "recording_count_in_period": None,
-                "recording_count_total": None,
-                # "person_count_in_period": None,
-                # "person_count_total": None,
+            assert report == {
+                "event_count_lifetime": 3,
+                "event_count_in_period": 0,
+                "event_count_in_month": 0,
+                "event_count_with_groups_in_period": 0,
+                "event_count_with_groups_in_month": 0,
+                "recording_count_in_period": 0,
+                "recording_count_total": 0,
                 "using_groups": False,
-                "group_types_total": None,
-                "dashboard_count": None,
-                "ff_count": None,
-                "ff_active_count": None,
-                "posthog_version": VERSION,
+                "group_types_total": 0,
+                "dashboard_count": 0,
+                "ff_count": 0,
+                "ff_active_count": 0,
+                "teams": report["teams"],
+                "posthog_version": report["posthog_version"],
                 "deployment_infrastructure": "tests",
                 "realm": "hosted-clickhouse",
                 "period": {
@@ -96,46 +92,68 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                 },
                 "site_url": "http://test.posthog.com",
                 "product": "open source",
-                "clickhouse_version": None,
+                "helm": {},
+                "clickhouse_version": report["clickhouse_version"],
+                "users_who_logged_in": report["users_who_logged_in"],
                 "users_who_logged_in_count": None,
                 "users_who_signed_up": None,
                 "users_who_signed_up_count": None,
+                "table_sizes": report["table_sizes"],
+                "plugins_installed": {},
+                "plugins_enabled": {},
                 "date": "2021-08-24",
-                "admin_distinct_id": self.user.distinct_id,
+                "admin_distinct_id": report["admin_distinct_id"],
                 "organization_id": str(self.organization.id),
                 "organization_name": self.organization.name,
-                "organization_created_at": None,
+                "organization_created_at": report["organization_created_at"],
                 "organization_user_count": 1,
                 "team_count": 1,
             }
-
-            for key, value in minimum_expectations.items():
-                logger.info(f"Checking {key}")
-                if value is None:
-                    assert key in report
-                else:
-                    assert report[key] == value
 
     def test_event_counts(self) -> None:
         default_team = self._create_new_org_and_team()
 
         def _test_org_report(org_report: Dict) -> None:
-            self.assertEqual(org_report["date"], "2020-11-10")
-            self.assertEqual(org_report["event_count_lifetime"], 5)
-            self.assertEqual(org_report["event_count_in_period"], 3)
-            self.assertEqual(org_report["event_count_with_groups_in_period"], 0)
-            self.assertEqual(org_report["recording_count_in_period"], 0)
-            self.assertIsNotNone(org_report["organization_id"])
-            self.assertIsNotNone(org_report["organization_name"])
-            self.assertIsNotNone(org_report["organization_created_at"])
-            self.assertGreaterEqual(org_report["organization_user_count"], 1)
-            self.assertEqual(org_report["team_count"], 1)
-            team_id = list(org_report["teams"].keys())[0]
-            self.assertEqual(org_report["teams"][team_id]["group_types_total"], 0)
-            self.assertEqual(org_report["teams"][team_id]["event_count_by_lib"], {"$mobile": 1, "$web": 2})
-            self.assertEqual(org_report["teams"][team_id]["event_count_by_name"], {"$event1": 1, "$event2": 2})
-            # self.assertEqual(org_report["person_count_total"], 4)
-            # self.assertEqual(org_report["person_count_in_period"], 2)
+            assert org_report == {
+                "event_count_lifetime": 5,
+                "event_count_in_period": 3,
+                "event_count_in_month": 4,
+                "event_count_with_groups_in_period": 0,
+                "event_count_with_groups_in_month": 0,
+                "recording_count_in_period": 0,
+                "recording_count_total": 0,
+                "using_groups": False,
+                "group_types_total": 0,
+                "dashboard_count": 0,
+                "ff_count": 0,
+                "ff_active_count": 0,
+                "teams": org_report["teams"],
+                "posthog_version": org_report["posthog_version"],
+                "deployment_infrastructure": "unknown",
+                "realm": "hosted-clickhouse",
+                "period": {
+                    "start_inclusive": "2020-11-10T00:00:00+00:00",
+                    "end_inclusive": "2020-11-10T23:59:59.999999+00:00",
+                },
+                "site_url": "http://localhost:8000",
+                "product": "open source",
+                "helm": {},
+                "clickhouse_version": org_report["clickhouse_version"],
+                "users_who_logged_in": org_report["users_who_logged_in"],
+                "users_who_logged_in_count": None,
+                "users_who_signed_up": None,
+                "users_who_signed_up_count": None,
+                "table_sizes": org_report["table_sizes"],
+                "plugins_installed": {},
+                "plugins_enabled": {},
+                "date": "2020-11-10",
+                "admin_distinct_id": org_report["admin_distinct_id"],
+                "organization_id": str(default_team.organization.id),
+                "organization_name": default_team.organization.name,
+                "organization_created_at": org_report["organization_created_at"],
+                "organization_user_count": 1,
+                "team_count": 1,
+            }
 
         with self.settings(USE_TZ=False):
             with freeze_time("2020-11-10"):
@@ -439,7 +457,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
 
 
 class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
 
         self.team2 = Team.objects.create(organization=self.organization)
@@ -458,9 +476,9 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         flush_persons_and_events()
 
     @freeze_time("2021-10-10T23:01:00Z")
-    @patch("ee.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
-    def test_send_usage(self, mock_post, mock_client):
+    def test_send_usage(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
         mockresponse = Mock()
         mock_post.return_value = mockresponse
         mockresponse.status_code = 200
@@ -485,9 +503,9 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         )
 
     @freeze_time("2021-10-10T23:01:00Z")
-    @patch("ee.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
-    def test_send_usage_cloud(self, mock_post, mock_client):
+    def test_send_usage_cloud(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
         with self.is_cloud(True):
             mockresponse = Mock()
             mock_post.return_value = mockresponse
@@ -513,9 +531,9 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             )
 
     @freeze_time("2021-10-10T23:01:00Z")
-    @patch("ee.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
-    def test_send_usage_billing_service_not_reachable(self, mock_post, mock_client):
+    def test_send_usage_billing_service_not_reachable(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
         mockresponse = Mock()
         mock_post.return_value = mockresponse
         mockresponse.status_code = 404
@@ -536,10 +554,12 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         )
 
     @freeze_time("2021-10-10T23:01:00Z")
-    @patch("ee.tasks.usage_report.get_org_usage_report")
-    @patch("ee.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.get_org_usage_report")
+    @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
-    def test_send_usage_backup(self, mock_post, mock_client, mock_get_org_usage_report):
+    def test_send_usage_backup(
+        self, mock_post: MagicMock, mock_client: MagicMock, mock_get_org_usage_report: MagicMock
+    ) -> None:
         mockresponse = Mock()
         mock_post.return_value = mockresponse
         mockresponse.status_code = 200
@@ -565,9 +585,9 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
 
 class SendUsageNoLicenseTest(APIBaseTest):
     @freeze_time("2021-10-10T23:01:00Z")
-    @patch("ee.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
-    def test_no_license(self, mock_post, mock_client):
+    def test_no_license(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
         # Same test, we just don't include the LicensedTestMixin so no license
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")
