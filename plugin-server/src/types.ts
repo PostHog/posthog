@@ -538,6 +538,11 @@ export interface RawClickHouseEvent extends BaseEvent {
     group2_properties?: string
     group3_properties?: string
     group4_properties?: string
+    group0_created_at?: ClickHouseTimestamp
+    group1_created_at?: ClickHouseTimestamp
+    group2_created_at?: ClickHouseTimestamp
+    group3_created_at?: ClickHouseTimestamp
+    group4_created_at?: ClickHouseTimestamp
 }
 
 /** Parsed event row from ClickHouse. */
@@ -553,6 +558,11 @@ export interface ClickHouseEvent extends BaseEvent {
     group2_properties: Record<string, any>
     group3_properties: Record<string, any>
     group4_properties: Record<string, any>
+    group0_created_at?: DateTime | null
+    group1_created_at?: DateTime | null
+    group2_created_at?: DateTime | null
+    group3_created_at?: DateTime | null
+    group4_created_at?: DateTime | null
 }
 
 /** Event in a database-agnostic shape, AKA an ingestion event.
@@ -660,10 +670,11 @@ export interface Group extends BaseGroup {
     version: number
 }
 
+export type GroupKey = string
 /** Clickhouse Group model */
 export interface ClickhouseGroup {
     group_type_index: GroupTypeIndex
-    group_key: string
+    group_key: GroupKey
     created_at: string
     team_id: number
     group_properties: string
