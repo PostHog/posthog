@@ -207,7 +207,7 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
             DO UPDATE SET property_type=EXCLUDED.property_type WHERE posthog_personpropertydefinition.property_type IS NULL
             `,
             toInsert,
-            'insertPropertyDefinition'
+            'insertPersonPropertyDefinition'
         )
     }
 
@@ -272,7 +272,7 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
             const personProperties = await this.db.postgresQuery(
                 'SELECT name, property_type FROM posthog_personpropertydefinition WHERE team_id = $1',
                 [teamId],
-                'fetchPropertyDefinitions'
+                'fetchPersonPropertyDefinitions'
             )
             this.personPropertyDefinitionsCache.initialize(teamId, personProperties.rows)
         }
