@@ -2,12 +2,14 @@ import { RetryError } from '@posthog/plugin-scaffold'
 import Redis from 'ioredis'
 import { KafkaJSError } from 'kafkajs'
 
+import { KAFKA_EVENTS_JSON } from '../../../src/config/kafka-topics'
+import { KafkaQueue } from '../../../src/main/ingestion-queues/kafka-queue'
 import { Hub } from '../../../src/types'
 import { DependencyError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { setupPlugins } from '../../../src/worker/plugins/setup'
-import { workerTasks } from '../../../src/worker/tasks'
+import { createTaskRunner } from '../../../src/worker/worker'
 import {
     createOrganization,
     createPlugin,
@@ -20,14 +22,20 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
     // Tests the failure cases for the workerTasks.runAsyncHandlersEventPipeline
     // task. Note that this equally applies to e.g. runEventPipeline task as
     // well and likely could do with adding additional tests for that.
+    //
+    // We are assuming here that we are bubbling up any errors thrown from the
+    // Piscina task runner to the consumer here, I couldn't figure out a nice
+    // way to mock things in subprocesses to test this however.
 
     let hub: Hub
     let redis: Redis.Redis
     let closeHub: () => Promise<void>
+    let piscinaTaskRunner: ({ task, args }) => Promise<any>
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
         redis = await hub.redisPool.acquire()
+        piscinaTaskRunner = createTaskRunner(hub)
         await hub.postgres.query(POSTGRES_DELETE_TABLES_QUERY) // Need to clear the DB to avoid unique constraint violations on ids
     })
 
@@ -79,14 +87,17 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
         })
 
         await expect(
-            workerTasks.runAsyncHandlersEventPipeline(hub, {
-                event: {
-                    distinctId: 'asdf',
-                    ip: '',
-                    teamId: teamId,
-                    event: 'some event',
-                    properties: {},
-                    eventUuid: new UUIDT().toString(),
+            piscinaTaskRunner({
+                task: 'runAsyncHandlersEventPipeline',
+                args: {
+                    event: {
+                        distinctId: 'asdf',
+                        ip: '',
+                        teamId: teamId,
+                        event: 'some event',
+                        properties: {},
+                        eventUuid: new UUIDT().toString(),
+                    },
                 },
             })
         ).rejects.toEqual(new DependencyError('Failed to produce', true))
@@ -137,7 +148,12 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
             eventUuid: new UUIDT().toString(),
         }
 
-        await expect(workerTasks.runAsyncHandlersEventPipeline(hub, { event })).resolves.toEqual({
+        await expect(
+            piscinaTaskRunner({
+                task: 'runAsyncHandlersEventPipeline',
+                args: { event },
+            })
+        ).resolves.toEqual({
             args: [expect.objectContaining(event), { distinctId: 'asdf', loaded: false, teamId }],
             lastStep: 'runAsyncHandlersStep',
         })
@@ -149,8 +165,9 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
     })
 
     test(`doesn't throw on arbitrary failures`, async () => {
-        // If we receive a `RetryError`, we should retry the task within the
-        // pipeline rather than throwing it to the main consumer loop.
+        // If we receive an arbitrary error, we should just skip the event. We
+        // only want to retry on `RetryError` and `DependencyError` as these are
+        // things under our control.
         const organizationId = await createOrganization(hub.postgres)
         const plugin = await createPlugin(hub.postgres, {
             organization_id: organizationId,
@@ -177,9 +194,85 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
             eventUuid: new UUIDT().toString(),
         }
 
-        await expect(workerTasks.runAsyncHandlersEventPipeline(hub, { event })).resolves.toEqual({
+        await expect(
+            piscinaTaskRunner({
+                task: 'runAsyncHandlersEventPipeline',
+                args: { event },
+            })
+        ).resolves.toEqual({
             args: [expect.objectContaining(event), { distinctId: 'asdf', loaded: false, teamId }],
             lastStep: 'runAsyncHandlersStep',
         })
+    })
+})
+
+describe('eachBatchAsyncHandlers', () => {
+    // We want to ensure that if the handler rejects, then the consumer will
+    // raise to the consumer, triggering the KafkaJS retry logic. Here we are
+    // assuming that piscina will reject the returned promise, which according
+    // to https://github.com/piscinajs/piscina#method-runtask-options should be
+    // the case.
+    let hub: Hub
+    let closeHub: () => Promise<void>
+
+    beforeEach(async () => {
+        ;[hub, closeHub] = await createHub()
+    })
+
+    afterEach(async () => {
+        await closeHub?.()
+    })
+
+    test('rejections from piscina are bubbled up to the consumer', async () => {
+        const kafkaQueue = new KafkaQueue(hub, {
+            runAsyncHandlersEventPipeline: () => {
+                throw new DependencyError('Failed to produce', true)
+            },
+            runEventPipeline: () => {
+                throw new DependencyError('Failed to produce', true)
+            },
+        })
+
+        await expect(
+            kafkaQueue.eachBatchConsumer({
+                batch: {
+                    topic: KAFKA_EVENTS_JSON,
+                    partition: 0,
+                    highWatermark: '0',
+                    messages: [
+                        {
+                            key: Buffer.from('key'),
+                            value: Buffer.from(
+                                JSON.stringify({
+                                    distinctId: 'asdf',
+                                    ip: '',
+                                    teamId: 1,
+                                    event: 'some event',
+                                    properties: JSON.stringify({}),
+                                    eventUuid: new UUIDT().toString(),
+                                    timestamp: '0',
+                                })
+                            ),
+                            timestamp: '0',
+                            offset: '0',
+                            size: 0,
+                            attributes: 0,
+                        },
+                    ],
+                    isEmpty: jest.fn(),
+                    firstOffset: jest.fn(),
+                    lastOffset: jest.fn(),
+                    offsetLag: jest.fn(),
+                    offsetLagLow: jest.fn(),
+                },
+                resolveOffset: jest.fn(),
+                heartbeat: jest.fn(),
+                isRunning: () => true,
+                isStale: () => false,
+                commitOffsetsIfNecessary: jest.fn(),
+                uncommittedOffsets: jest.fn(),
+                pause: jest.fn(),
+            })
+        ).rejects.toEqual(new DependencyError('Failed to produce', true))
     })
 })
