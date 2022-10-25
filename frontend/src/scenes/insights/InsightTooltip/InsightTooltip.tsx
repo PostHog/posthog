@@ -121,10 +121,9 @@ export function InsightTooltip({
 
         if (numDataPoints > 0) {
             const indexOfLongestSeries = dataSource.findIndex((ds) => ds?.seriesData?.length === numDataPoints)
-            const truncatedCols = dataSource?.[indexOfLongestSeries !== -1 ? indexOfLongestSeries : 0].seriesData.slice(
-                0,
-                colCutoff
-            )
+            const truncatedCols = dataSource?.[indexOfLongestSeries !== -1 ? indexOfLongestSeries : 0].seriesData
+                .slice(0, colCutoff)
+                .sort((a, b) => a.datasetIndex - b.datasetIndex)
             truncatedCols.forEach((seriesColumn, colIdx) => {
                 columns.push({
                     key: `series-column-data-${colIdx}`,
