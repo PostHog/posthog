@@ -30,6 +30,7 @@ import {
     EventDefinitionType,
     EventPropertyType,
     Group,
+    GroupKey,
     GroupTypeIndex,
     GroupTypeToColumnIndex,
     Hook,
@@ -126,18 +127,13 @@ export interface CreatePersonalApiKeyPayload {
     created_at: Date
 }
 
-export type GroupIdentifier = {
-    index: number
-    key: string
-}
+export type GroupType = number
 
-type GroupCacheData = {
-    identifier: GroupIdentifier
-    data: {
-        properties: Properties
-        created_at: DateTime
-    } | null
-    cached?: boolean
+export type GroupId = [GroupType, GroupKey]
+
+export interface CachedGroupData {
+    properties: Properties
+    created_at: string
 }
 
 /** The recommended way of accessing the database. */
@@ -587,21 +583,6 @@ export class DB {
         )
     }
 
-    // Exported for tests only
-    public async updateGroupDataCache(teamId: number, groupsCacheData: GroupCacheData[]): Promise<void> {
-        const kv: Array<[string, any]> = groupsCacheData.map((group) => {
-            const key = this.getGroupDataCacheKey(teamId, group.identifier.index, group.identifier.key)
-            const value = group.data
-                ? {
-                      properties: group.data.properties,
-                      created_at: group.data.created_at.toISO(),
-                  }
-                : null
-            return [key, value]
-        })
-        return await this.redisSetMulti(kv, this.PERSONS_AND_GROUPS_CACHE_TTL)
-    }
-
     public async getPersonId(teamId: number, distinctId: string): Promise<number | null> {
         const personId = await this.redisGet(this.getPersonIdCacheKey(teamId, distinctId), null)
         if (personId) {
@@ -673,109 +654,96 @@ export class DB {
         return undefined
     }
 
-    // Exported for tests only
-    public async getGroupDataCache(teamId: number, groupIdentifier: GroupIdentifier): Promise<GroupCacheData> {
-        const data = await this.redisGet<{ properties: Properties; created_at: string } | null | 'missing'>(
-            this.getGroupDataCacheKey(teamId, groupIdentifier.index, groupIdentifier.key),
-            'missing'
-        )
-
-        if (data === 'missing' || !data) {
-            return { identifier: groupIdentifier, data: null, cached: !data }
-        }
-        return {
-            identifier: groupIdentifier,
-            data: { properties: data.properties, created_at: DateTime.fromISO(data.created_at).toUTC() },
-            cached: true,
-        }
-    }
-
-    // Exported for tests only
-    public async fetchGroupDataAndUpdateCache(
+    public async updateGroupCache(
         teamId: number,
-        groupIdentifiers: GroupIdentifier[]
-    ): Promise<GroupCacheData[]> {
-        if (groupIdentifiers.length === 0) {
-            return []
-        }
-        const queryOptions: string[] = []
-        const args: any[] = [teamId]
-        let index = args.length + 1
-        for (const groupIdentifier of groupIdentifiers) {
-            this.statsd?.increment(`group_properties_cache.miss`, {
-                team_id: teamId.toString(),
-                group_type_index: groupIdentifier.index.toString(),
-            })
-            queryOptions.push(`(group_type_index = $${index} AND group_key = $${index + 1})`)
-            index += 2
-            args.push(groupIdentifier.index, groupIdentifier.key)
-        }
-        const queryResult = await this.postgresQuery<{
-            group_type_index: number
-            group_key: string
-            group_properties: Properties
-            created_at: string
-        }>(
-            'SELECT group_type_index, group_key, group_properties, created_at FROM posthog_group WHERE team_id=$1 AND '.concat(
-                queryOptions.join(' OR ')
-            ),
-            args,
-            'getGroupProperties'
-        )
+        groupTypeIndex: number,
+        groupKey: string,
+        groupData: CachedGroupData,
+        ttlSeconds?: number
+    ): Promise<void> {
+        const groupCacheKey = this.getGroupDataCacheKey(teamId, groupTypeIndex, groupKey)
+        await this.redisSet(groupCacheKey, groupData, ttlSeconds)
+    }
 
-        const result: GroupCacheData[] = groupIdentifiers.map((identifier) => {
-            const row = queryResult.rows.filter(
-                (row) => row.group_key === identifier.key && row.group_type_index == identifier.index
-            )[0]
+    public async getGroupsColumns(teamId: number, groupIds: GroupId[]): Promise<Record<string, any>> {
+        const groupColumns: Record<string, any> = {}
 
-            return {
-                identifier,
-                data: row
-                    ? {
-                          properties: row.group_properties,
-                          created_at: DateTime.fromISO(row.created_at).toUTC(),
-                      }
-                    : null,
+        for (const [groupTypeIndex, groupKey] of groupIds) {
+            const groupCacheKey = this.getGroupDataCacheKey(teamId, groupTypeIndex, groupKey)
+            const propertiesColumnName = `group${groupTypeIndex}_properties`
+            const createdAtColumnName = `group${groupTypeIndex}_created_at`
+
+            // Lookup data from the cache, but don't throw errors - we'll fallback to Postgres if Redis is unavailable
+            try {
+                const cachedGroupData = await this.redisGet<CachedGroupData | null>(groupCacheKey, null)
+
+                if (cachedGroupData) {
+                    this.statsd?.increment('group_info_cache.hit')
+                    groupColumns[propertiesColumnName] = JSON.stringify(cachedGroupData.properties)
+                    groupColumns[createdAtColumnName] = castTimestampOrNow(
+                        cachedGroupData.created_at,
+                        TimestampFormat.ClickHouse
+                    )
+
+                    continue
+                }
+            } catch (error) {
+                captureException(error)
             }
-        })
 
-        // We update the cache for every row, including missing ones to avoid hitting the DB consistently
-        this.promiseManager.trackPromise(this.updateGroupDataCache(teamId, result))
-        return result
-    }
+            this.statsd?.increment('group_info_cache.miss')
 
-    public async fetchGroupColumnsValues(teamId: number, groups: GroupIdentifier[]): Promise<Record<string, string>> {
-        if (!groups) {
-            return {}
-        }
-        const cachedResults = await Promise.all(
-            groups.map((groupIdentifier) => this.getGroupDataCache(teamId, groupIdentifier))
-        )
+            // If we didn't find cached data, lookup the group from Postgres
+            const storedGroupData = await this.fetchGroup(teamId, groupTypeIndex as GroupTypeIndex, groupKey)
 
-        let columns: Record<string, string> = this.groupCacheDataToColumns(cachedResults)
-        const groupsWithoutCachedData = cachedResults
-            .filter((groupData) => !groupData.cached)
-            .map((groupData) => groupData.identifier)
+            if (storedGroupData) {
+                groupColumns[propertiesColumnName] = JSON.stringify(storedGroupData.group_properties)
 
-        if (groupsWithoutCachedData.length > 0) {
-            const fetchedResults = await this.fetchGroupDataAndUpdateCache(teamId, groupsWithoutCachedData)
-            columns = { ...columns, ...this.groupCacheDataToColumns(fetchedResults) }
-        }
-        return columns
-    }
+                const createdAt = castTimestampOrNow(storedGroupData.created_at.toUTC(), TimestampFormat.ClickHouse)
 
-    private groupCacheDataToColumns(groupCacheData: GroupCacheData[]): Record<string, string> {
-        const result: Record<string, string> = {}
-        for (const group of groupCacheData) {
-            if (group.data) {
-                result[`group${group.identifier.index}_properties`] = JSON.stringify(group.data.properties)
-                result[`group${group.identifier.index}_created_at`] = castTimestampOrNow(
-                    group.data.created_at,
+                groupColumns[createdAtColumnName] = createdAt
+
+                // We found data in Postgres, so update the cache
+                // We also don't want to throw here, worst case is we'll have to fetch from Postgres again next time
+                try {
+                    await this.updateGroupCache(teamId, groupTypeIndex, groupKey, {
+                        properties: storedGroupData.group_properties,
+                        created_at: createdAt,
+                    })
+                } catch (error) {
+                    captureException(error)
+                }
+            } else {
+                // We couldn't find the data from the cache nor Postgres, so record this in a metric and in Sentry
+                this.statsd?.increment('groups_data_missing_entirely')
+                captureException(new Error('Missing groups data entirely'), { extra: { groupCacheKey } })
+                status.debug('🔍', `Could not find group data for group ${groupCacheKey} in cache or storage`)
+
+                const createdAt = castTimestampOrNow(
+                    DateTime.fromJSDate(new Date(0)).toUTC(),
                     TimestampFormat.ClickHouse
+                )
+
+                groupColumns[propertiesColumnName] = '{}'
+                groupColumns[createdAtColumnName] = createdAt
+
+                // Store default values if data for a group is missing to prevent us from
+                // hammering Postgres too hard in the event the group never gets created.
+                // However, keep the TTL low in case a group gets created soon after
+                await this.updateGroupCache(
+                    teamId,
+                    groupTypeIndex,
+                    groupKey,
+                    {
+                        properties: {},
+                        created_at: createdAt,
+                    },
+                    30
                 )
             }
         }
-        return result
+
+        return groupColumns
     }
 
     public async fetchPersons(database?: Database.Postgres): Promise<Person[]>
@@ -1792,15 +1760,10 @@ export class DB {
         }
 
         if (options?.cache) {
-            // group identify event doesn't need groups properties attached so we don't need to await
-            this.promiseManager.trackPromise(
-                this.updateGroupDataCache(teamId, [
-                    {
-                        identifier: { index: groupTypeIndex, key: groupKey },
-                        data: { properties: groupProperties, created_at: createdAt },
-                    },
-                ])
-            )
+            await this.updateGroupCache(teamId, groupTypeIndex, groupKey, {
+                properties: groupProperties,
+                created_at: castTimestampOrNow(createdAt),
+            })
         }
     }
 
@@ -1838,15 +1801,11 @@ export class DB {
             'upsertGroup',
             client
         )
-        // group identify event doesn't need groups properties attached so we don't need to await
-        this.promiseManager.trackPromise(
-            this.updateGroupDataCache(teamId, [
-                {
-                    identifier: { index: groupTypeIndex, key: groupKey },
-                    data: { properties: groupProperties, created_at: createdAt },
-                },
-            ])
-        )
+
+        await this.updateGroupCache(teamId, groupTypeIndex, groupKey, {
+            properties: groupProperties,
+            created_at: castTimestampOrNow(createdAt),
+        })
     }
 
     public async upsertGroupClickhouse(

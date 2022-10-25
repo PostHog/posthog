@@ -1,28 +1,25 @@
 import type { FormInstance } from 'antd/lib/form/hooks/useForm.d'
-import { actions, kea, key, connect, events, listeners, path, props, reducers } from 'kea'
+import { actions, kea, key, events, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import type { interfaceJobsLogicType } from './interfaceJobsLogicType'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { JobSpec } from '~/types'
 import { lemonToast } from 'lib/components/lemonToast'
 import { validateJson } from '../../../../lib/utils'
 
+export interface InterfaceJobsProps {
+    jobName: string
+    jobSpec: JobSpec
+    pluginConfigId: number
+    pluginId: number
+    onSubmit?: () => void
+}
+
 export const interfaceJobsLogic = kea<interfaceJobsLogicType>([
     path(['scenes', 'plugins', 'edit', 'interface-jobs', 'interfaceJobsLogic']),
-    props(
-        {} as {
-            jobName: string
-            pluginConfigId: number
-            pluginId: number
-            jobSpecPayload: JobSpec['payload']
-        }
-    ),
+    props({} as InterfaceJobsProps),
     key((props) => {
         return `${props.pluginId}_${props.jobName}`
-    }),
-    connect({
-        actions: [pluginsLogic, ['showPluginLogs']],
     }),
     actions({
         setIsJobModalOpen: (isOpen: boolean) => ({ isOpen }),
@@ -66,15 +63,15 @@ export const interfaceJobsLogic = kea<interfaceJobsLogicType>([
     forms(({ actions, props, values }) => ({
         jobPayload: {
             defaults: Object.fromEntries(
-                Object.entries(props.jobSpecPayload || {})
+                Object.entries(props.jobSpec.payload || {})
                     .filter(([, spec]) => 'default' in spec)
                     .map(([key, spec]) => [key, spec.default])
             ) as Record<string, any>,
 
             errors: (payload: Record<string, any>) => {
                 const errors = {}
-                for (const key of Object.keys(props.jobSpecPayload || {})) {
-                    const spec = props.jobSpecPayload?.[key]
+                for (const key of Object.keys(props.jobSpec.payload || {})) {
+                    const spec = props.jobSpec.payload?.[key]
                     if (spec?.required && payload[key] == undefined) {
                         errors[key] = 'Please enter a value'
                     } else if (spec?.type == 'json' && !validateJson(payload[key])) {
@@ -99,7 +96,7 @@ export const interfaceJobsLogic = kea<interfaceJobsLogicType>([
                     return
                 }
 
-                actions.showPluginLogs(props.pluginId)
+                props.onSubmit?.()
 
                 // temporary handling to prevent people from rage
                 // clicking and creating multiple jobs - this will be

@@ -47,7 +47,7 @@ describe('normalizeEvent()', () => {
 })
 
 describe('parseRawClickHouseEvent()', () => {
-    it('parses a random event event', () => {
+    it('parses a random event', () => {
         const clickhouseEvent: RawClickHouseEvent = {
             event: '$pageview',
             properties: JSON.stringify({
@@ -83,6 +83,11 @@ describe('parseRawClickHouseEvent()', () => {
             group4_properties: {},
             person_created_at: DateTime.fromISO('2020-02-23T02:10:00.000Z').toUTC(),
             person_properties: { person_prop: 1 },
+            group0_created_at: null,
+            group1_created_at: null,
+            group2_created_at: null,
+            group3_created_at: null,
+            group4_created_at: null,
         })
     })
 })

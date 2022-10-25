@@ -4,7 +4,6 @@ import { KeyMapping, PropertyDefinition, PropertyFilterValue } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import clsx from 'clsx'
-import { EVENT_COUNT_PER_ACTOR } from 'lib/constants'
 
 export interface KeyMappingInterface {
     event: Record<string, KeyMapping>
@@ -37,6 +36,11 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Initial OS',
             description: 'The operating system that the user first used (first-touch).',
             examples: ['Windows', 'Mac OS X'],
+        },
+        $browser_language: {
+            label: 'Browser Language',
+            description: 'Language.',
+            examples: ['en', 'en-US', 'cn', 'pl-PL'],
         },
         $current_url: {
             label: 'Current URL',
@@ -200,6 +204,10 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Autocapture',
             description: 'User interactions that were automatically captured.',
             examples: ['clicked button'],
+        },
+        $screen: {
+            label: 'Screen',
+            description: 'When a user loads a screen in a mobile app.',
         },
         $feature_flag_called: {
             label: 'Feature Flag Called',
@@ -603,9 +611,6 @@ export const keyMapping: KeyMappingInterface = {
         $exception: {
             label: 'Exception',
             description: 'Automatically captured exceptions from the client Sentry integration',
-        },
-        [EVENT_COUNT_PER_ACTOR]: {
-            label: 'Event count per user',
         },
     },
     element: {

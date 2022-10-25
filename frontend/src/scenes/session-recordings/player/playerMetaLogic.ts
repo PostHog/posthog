@@ -3,10 +3,9 @@ import type { playerMetaLogicType } from './playerMetaLogicType'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { eventWithTime } from 'rrweb/typings/types'
-import { PersonType, RecordingEventType, SessionRecordingPlayerProps } from '~/types'
-import { findLastIndex } from 'lib/utils'
+import { PersonType, SessionRecordingPlayerProps } from '~/types'
+import { ceilMsToClosestSecond, findLastIndex } from 'lib/utils'
 import { getEpochTimeFromPlayerPosition } from './playerUtils'
-import { eventsListLogic } from 'scenes/session-recordings/player/list/eventsListLogic'
 import { sessionRecordingsListLogic } from '../sessionRecordingsListLogic'
 
 const getPersonProperties = (person: Partial<PersonType>, keys: string[]): string | null => {
@@ -14,13 +13,6 @@ const getPersonProperties = (person: Partial<PersonType>, keys: string[]): strin
         return null
     }
     return keys.map((k) => person?.properties?.[k]).join(', ')
-}
-
-const getEventProperties = (event: RecordingEventType, keys: string[]): string | null => {
-    if (keys.some((k) => !event?.properties?.[k])) {
-        return null
-    }
-    return keys.map((k) => event?.properties?.[k]).join(', ')
 }
 
 export const playerMetaLogic = kea<playerMetaLogicType>({
@@ -32,9 +24,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>({
             sessionRecordingDataLogic({ sessionRecordingId }),
             ['sessionPlayerData', 'sessionEventsData'],
             sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
-            ['currentPlayerPosition', 'scale', 'isSmallPlayer'],
-            eventsListLogic({ sessionRecordingId, playerKey }),
-            ['currentStartIndex'],
+            ['currentPlayerPosition', 'scale', 'isSmallPlayer', 'currentPlayerTime'],
             sessionRecordingsListLogic,
             ['sessionRecordings'],
         ],
@@ -48,7 +38,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>({
             },
         ],
     },
-    selectors: ({ cache, props }) => ({
+    selectors: ({ props }) => ({
         sessionPerson: [
             (selectors) => [selectors.sessionPlayerData, selectors.sessionRecordings],
             (playerData, sessionRecordings): PersonType | null => {
@@ -127,16 +117,19 @@ export const playerMetaLogic = kea<playerMetaLogicType>({
                 return windowIds.findIndex((windowId) => windowId === currentPlayerPosition?.windowId ?? -1)
             },
         ],
-        currentUrl: [
-            (selectors) => [selectors.sessionEventsData, selectors.currentStartIndex],
-            (sessionEventsData, startIndex) => {
-                const events = sessionEventsData?.events ?? []
-                if (startIndex === -1 || !events?.length) {
-                    return ''
+        lastPageviewEvent: [
+            (selectors) => [selectors.sessionEventsData, selectors.currentPlayerTime],
+            (sessionEventsData, currentPlayerTime) => {
+                const events = sessionEventsData?.events || []
+                const playerTimeClosestSecond = ceilMsToClosestSecond(currentPlayerTime ?? 0)
+
+                // Go through the events in reverse to find thelatest pageview
+                for (let i = events.length - 1; i >= 0; i--) {
+                    const event = events[i]
+                    if (event.event === '$pageview' && (event.playerTime ?? 0) < playerTimeClosestSecond) {
+                        return event
+                    }
                 }
-                const nextUrl = getEventProperties(events[startIndex], ['$current_url']) ?? ''
-                cache.previousUrl = nextUrl || cache.previousUrl
-                return cache.previousUrl
             },
         ],
     }),

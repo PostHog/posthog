@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 import pytz
 from dateutil.parser import isoparse
@@ -83,8 +83,10 @@ def create_event(
 
 def format_clickhouse_timestamp(
     raw_timestamp: Optional[Union[timezone.datetime, str]],
-    default=timezone.now(),
+    default=None,
 ) -> str:
+    if default is None:
+        default = timezone.now()
     parsed_datetime = (
         isoparse(raw_timestamp) if isinstance(raw_timestamp, str) else (raw_timestamp or default).astimezone(pytz.utc)
     )
@@ -263,6 +265,17 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
+def parse_properties(properties: str, allow_list: Set[str] = set()) -> Dict:
+    # parse_constants gets called for any NaN, Infinity etc values
+    # we just want those to be returned as None
+    props = json.loads(properties or "{}", parse_constant=lambda x: None)
+    return {
+        key: value.strip('"') if isinstance(value, str) else value
+        for key, value in props.items()
+        if not allow_list or key in allow_list
+    }
+
+
 # reference raw sql for
 class ClickhouseEventSerializer(serializers.Serializer):
     id = serializers.SerializerMethodField()
@@ -281,11 +294,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return event["distinct_id"]
 
     def get_properties(self, event):
-        # parse_constants gets called for any NaN, Infinity etc values
-        # we just want those to be returned as None
-        props = json.loads(event["properties"], parse_constant=lambda x: None)
-        unpadded = {key: value.strip('"') if isinstance(value, str) else value for key, value in props.items()}
-        return unpadded
+        return parse_properties(event["properties"])
 
     def get_event(self, event):
         return event["event"]
@@ -344,7 +353,7 @@ def get_agg_event_count_for_teams(team_ids: List[Union[str, int]]) -> int:
 
 
 def get_agg_event_count_for_teams_and_period(
-    team_ids: List[Union[str, int]], begin: timezone.datetime, end: timezone.datetime
+    team_ids: List[int], begin: timezone.datetime, end: timezone.datetime
 ) -> int:
     result = sync_execute(
         """

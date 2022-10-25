@@ -212,7 +212,7 @@ export function overrideWithEnv(
         }
     }
 
-    if (!['ingestion', 'async', null].includes(newConfig.PLUGIN_SERVER_MODE)) {
+    if (!['ingestion', 'async', 'exports', 'scheduler', 'jobs', null].includes(newConfig.PLUGIN_SERVER_MODE)) {
         throw Error(`Invalid PLUGIN_SERVER_MODE ${newConfig.PLUGIN_SERVER_MODE}`)
     }
 

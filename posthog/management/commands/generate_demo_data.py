@@ -2,14 +2,12 @@ import datetime as dt
 import logging
 import secrets
 from time import monotonic
-from typing import cast
 
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from posthog.demo.matrix import Matrix, MatrixManager
-from posthog.demo.matrix.models import SimEvent
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 
 logging.getLogger("kafka").setLevel(logging.WARNING)  # Hide kafka-python's logspam
@@ -118,12 +116,13 @@ class Command(BaseCommand):
                         if not event_count:
                             summary_lines.append("            No events")
                         else:
+                            assert person.first_seen_at is not None and person.last_seen_at is not None
                             session_count = len(set(event.properties.get("$session_id") for event in person.all_events))
                             summary_lines.append(
                                 f"            {event_count} event{'' if event_count == 1 else 's'} "
                                 f"across {session_count} session{'' if session_count == 1 else 's'} "
-                                f"between {cast(SimEvent, person.first_event).timestamp.strftime('%Y-%m-%d %H:%M:%S')} "
-                                f"and {cast(SimEvent, person.last_event).timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+                                f"between {person.first_seen_at.strftime('%Y-%m-%d %H:%M:%S')} "
+                                f"and {person.last_seen_at.strftime('%Y-%m-%d %H:%M:%S')}"
                             )
         summary_lines.append(
             f"All in all, in {duration * 1000:.2f} ms "

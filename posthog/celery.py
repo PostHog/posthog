@@ -79,13 +79,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s()  # check twice a week
     )
 
-    sender.add_periodic_task(
-        crontab(
-            hour=0, minute=randrange(0, 40)
-        ),  # every day at a random minute past midnight. Sends data from the preceding whole day to the billing service.
-        send_instance_usage_report.s(),
-        name="send instance usage report",
-    )
+    # Send all instance usage to the Billing service
+    sender.add_periodic_task(crontab(hour=0, minute=0), send_org_usage_reports.s(), name="send instance usage report")
 
     # PostHog Cloud cron jobs
     if is_cloud():
@@ -624,13 +619,10 @@ def clickhouse_mark_all_materialized():
 
 
 @app.task(ignore_result=True)
-def send_instance_usage_report():
-    try:
-        from ee.tasks.usage_report import send_all_org_usage_reports
-    except ImportError:
-        pass
-    else:
-        send_all_org_usage_reports()
+def send_org_usage_reports():
+    from posthog.tasks.usage_report import send_all_org_usage_reports
+
+    send_all_org_usage_reports()
 
 
 @app.task(ignore_result=True)

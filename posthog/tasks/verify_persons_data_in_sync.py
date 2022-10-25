@@ -104,7 +104,7 @@ def _team_integrity_statistics(person_data: List[Any]) -> Counter:
     )
 
     result: Counter = Counter()
-    for pk, uuid, team_id in person_data:
+    for _pk, uuid, team_id in person_data:
         # Person was deleted in the middle of processing, can ignore
         if uuid not in pg_persons:
             continue

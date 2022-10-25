@@ -7,13 +7,10 @@ import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { boxToSections } from 'lib/components/LemonSelect'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { PlayerListExpandableConfig } from 'scenes/session-recordings/player/list/PlayerList'
+import { LemonSelectOption } from '@posthog/lemon-ui'
 
-export interface ListRowOption<T> {
-    value: T
-    label: string | JSX.Element
-    disabled?: boolean
-    tooltip?: string
-    'data-attr'?: string
+export interface ListRowOption<T>
+    extends Pick<LemonSelectOption<T>, 'value' | 'label' | 'tooltip' | 'disabled' | 'data-attr'> {
     onClick?: (record: T) => void
 }
 

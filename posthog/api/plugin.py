@@ -54,7 +54,7 @@ def _update_plugin_attachments(request: request.Request, plugin_config: PluginCo
         match = re.match(r"^add_attachment\[([^]]+)\]$", key)
         if match:
             _update_plugin_attachment(plugin_config, match.group(1), file, user)
-    for key, file in request.POST.items():
+    for key, _file in request.POST.items():
         match = re.match(r"^remove_attachment\[([^]]+)\]$", key)
         if match:
             _update_plugin_attachment(plugin_config, match.group(1), None, user)
@@ -334,7 +334,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     sources[key].error = None
                     sources[key].save()
         response: Dict[str, str] = {}
-        for key, source in sources.items():
+        for _, source in sources.items():
             response[source.filename] = source.source
 
         # Update values from plugin.json, if one exists
@@ -442,8 +442,19 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PluginConfig
-        fields = ["id", "plugin", "enabled", "order", "config", "error", "team_id", "plugin_info", "delivery_rate_24h"]
-        read_only_fields = ["id", "team_id", "plugin_info", "delivery_rate_24h"]
+        fields = [
+            "id",
+            "plugin",
+            "enabled",
+            "order",
+            "config",
+            "error",
+            "team_id",
+            "plugin_info",
+            "delivery_rate_24h",
+            "created_at",
+        ]
+        read_only_fields = ["id", "team_id", "plugin_info", "delivery_rate_24h", "created_at"]
 
     def get_config(self, plugin_config: PluginConfig):
         attachments = PluginAttachment.objects.filter(plugin_config=plugin_config).only(

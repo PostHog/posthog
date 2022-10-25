@@ -775,6 +775,7 @@ export interface SessionRecordingType {
     distinct_id?: string
     email?: string
     person?: PersonType
+    properties?: Record<string, any>
 }
 
 export interface SessionRecordingEvents {
@@ -818,6 +819,8 @@ export interface BillingProductV2Type {
         up_to: number | null
     }[]
     current_usage?: number
+    projected_usage?: number
+    percentage_usage: number
     current_amount_usd?: string
     usage_limit?: number
 }
@@ -1034,6 +1037,7 @@ export interface PluginConfigType {
     config: Record<string, any>
     error?: PluginErrorType
     delivery_rate_24h?: number | null
+    created_at?: string
 }
 
 export interface PluginConfigWithPluginInfo extends PluginConfigType {
@@ -1991,10 +1995,10 @@ export interface InstanceSetting {
 }
 
 export enum BaseMathType {
-    Total = 'total',
-    DailyActive = 'dau',
-    WeeklyActive = 'weekly_active',
-    MonthlyActive = 'monthly_active',
+    TotalCount = 'total',
+    UniqueUsers = 'dau',
+    WeeklyActiveUsers = 'weekly_active',
+    MonthlyActiveUsers = 'monthly_active',
     UniqueSessions = 'unique_session',
 }
 
@@ -2007,6 +2011,16 @@ export enum PropertyMathType {
     P90 = 'p90',
     P95 = 'p95',
     P99 = 'p99',
+}
+
+export enum CountPerActorMathType {
+    Average = 'avg_count_per_actor',
+    Minimum = 'min_count_per_actor',
+    Maximum = 'max_count_per_actor',
+    Median = 'median_count_per_actor',
+    P90 = 'p90_count_per_actor',
+    P95 = 'p95_count_per_actor',
+    P99 = 'p99_count_per_actor',
 }
 
 export enum ActorGroupType {
