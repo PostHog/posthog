@@ -13,7 +13,6 @@ ignore=
     B001, # Do not use bare `except:`.
     B006, # Do not use mutable data structures for argument defaults.
     B011, # Do not call assert False since python -O removes these calls
-    B010, # Do not call setattr with a constant attribute value, it is not any safer than normal property access.
     B017, # assertRaises(Exception): should be considered evil
     B019, # Use of `functools.lru_cache` or `functools.cache` on methods can lead to memory leaks.
     B024, # ClickhouseFunnelBase is an abstract base class, but it has no abstract methods. Remember to use @abstractmethod, @abstractclassmethod and/or @abstractproperty decorators.
