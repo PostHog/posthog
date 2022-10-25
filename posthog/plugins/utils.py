@@ -274,7 +274,11 @@ def get_file_from_zip_archive(archive: bytes, filename: str, *, json_parse: bool
         file_path = file_path / filename
     with file_path.open() as reader:
         file_bytes = reader.read()
-        return json.loads(file_bytes) if json_parse else file_bytes.decode("utf-8")
+        if json_parse:
+            return json.loads(file_bytes)
+        if type(file_bytes) == bytes:
+            return file_bytes.decode("utf-8")
+        return str(file_bytes)
 
 
 def get_file_from_tgz_archive(archive: bytes, filename, *, json_parse: bool) -> Any:
