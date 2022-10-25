@@ -40,7 +40,7 @@ import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-k
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { PromiseManager } from './../../worker/vm/promise-manager'
 import { DB } from './db'
-import { DependencyError } from './error'
+import { DependencyUnavailable } from './error'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 
 const { version } = require('../../../package.json')
@@ -251,10 +251,12 @@ export async function createHub(
         } catch (error) {
             if (error instanceof KafkaJSError) {
                 // If we get a retriable Kafka error (maybe it's down for
-                // example), rethrow the error as a generic `DependencyError`
+                // example), rethrow the error as a generic `DependencyUnavailable`
                 // passing through retriable such that we can decide if this is
                 // something we should retry at the consumer level.
-                throw new DependencyError(error.message, error.retriable)
+                if (error.retriable) {
+                    throw new DependencyUnavailable(error.message, 'Kafka', error)
+                }
             }
 
             // Otherwise, just rethrow the error as is. E.g. if we fail to

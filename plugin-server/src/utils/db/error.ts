@@ -4,13 +4,15 @@ import { captureException } from '@sentry/node'
 import { Hub, PluginConfig, PluginError } from '../../types'
 import { setError } from './sql'
 
-export class DependencyError extends Error {
-    constructor(message: string, retriable = false) {
+export class DependencyUnavailable extends Error {
+    constructor(message: string, dependencyName: string, error: Error) {
         super(message)
-        this.name = 'DependencyError'
-        this.retriable = retriable
+        this.name = 'DependencyUnavailable'
+        this.dependencyName = dependencyName
+        this.error = error
     }
-    readonly retriable: boolean
+    readonly dependencyName: string
+    readonly error: Error
 }
 
 export async function processError(
@@ -24,12 +26,11 @@ export async function processError(
         return
     }
 
-    if (error instanceof DependencyError) {
-        // If this is an error with a dependency that we control, do not report
-        // as a plugin error.
-        if (error.retriable) {
-            throw error
-        }
+    if (error instanceof DependencyUnavailable) {
+        // For errors relating to PostHog dependencies that are unavailable,
+        // e.g. Postgres, Kafka, Redis, we don't want to log the error to Sentry
+        // but rather
+        throw error
     }
 
     const errorJson: PluginError =
