@@ -311,6 +311,8 @@ class PluginSourceFileManager(models.Manager):
             filenames_to_delete.append("index.ts")
         # Make sure files are gone
         PluginSourceFile.objects.filter(plugin=plugin, filename__in=filenames_to_delete).delete()
+        # Trigger transpilation
+        plugin.save()
         return plugin_json_instance, index_ts_instance, frontend_tsx_instance, site_ts_instance
 
 
