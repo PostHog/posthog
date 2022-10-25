@@ -123,7 +123,6 @@ class PluginManager(models.Manager):
         plugin = Plugin.objects.create(**kwargs)
         if plugin_json:
             PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
-        reload_plugins_on_workers()
         return plugin
 
 
@@ -311,6 +310,8 @@ class PluginSourceFileManager(models.Manager):
             filenames_to_delete.append("index.ts")
         # Make sure files are gone
         PluginSourceFile.objects.filter(plugin=plugin, filename__in=filenames_to_delete).delete()
+        # Trigger plugin server reload and code transpilation
+        plugin.save()
         return plugin_json_instance, index_ts_instance, frontend_tsx_instance, site_ts_instance
 
 
