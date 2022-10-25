@@ -1112,6 +1112,17 @@ class TestUpdateCacheForSharedInsights(APIBaseTest):
         assert insight.filters_hash is not None
         assert insight.last_refresh is not None
 
+
+class TestCacheEventsLastSeenUsedToSkipQueries(APIBaseTest):
+    @fixture(scope="class", autouse=True)
+    def redis_recency(self) -> Generator[List[int], None, None]:
+        """The current team is always recent for these tests"""
+        with patch("posthog.tasks.update_cache.get_client") as mock_redis_get_client:
+            recent_teams = [(self.team.id, 1)]
+            mock_redis_get_client.return_value.zrange.return_value = recent_teams
+
+            yield [i for i, _ in recent_teams]
+
     @patch("posthog.tasks.update_cache.cache.set")
     @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
     @patch("posthog.tasks.update_cache.group.apply_async")

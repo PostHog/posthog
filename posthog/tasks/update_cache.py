@@ -330,7 +330,7 @@ def _cache_includes_latest_events(
 
     last_refresh = payload.get("last_refresh", None)
     if last_refresh:
-        event_ids = _event_ids_from_filter(filter)
+        event_ids = _events_from_filter(filter)
 
         event_last_seen_at = list(
             EventDefinition.objects.filter(name__in=event_ids).values_list("last_seen_at", flat=True)
@@ -341,7 +341,7 @@ def _cache_includes_latest_events(
     return False
 
 
-def _event_ids_from_filter(filter: Union[RetentionFilter, StickinessFilter, PathFilter, Filter]) -> List[str]:
+def _events_from_filter(filter: Union[RetentionFilter, StickinessFilter, PathFilter, Filter]) -> List[str]:
     try:
         if isinstance(filter, RetentionFilter):
             event_ids = [
@@ -356,7 +356,8 @@ def _event_ids_from_filter(filter: Union[RetentionFilter, StickinessFilter, Path
             event_ids = [str(e.id) for e in filter.events]
 
         return event_ids
-    except:
+    except Exception as exc:
+        logger.error("update_cache_item.could_not_list_events_from_filter", exc=exc, exc_info=True)
         return []
 
 
