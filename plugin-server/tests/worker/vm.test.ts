@@ -1117,7 +1117,7 @@ describe('vm tests', () => {
         })
 
         test('retries', async () => {
-            jest.spyOn(hub, 'schedulePluginJob')
+            jest.spyOn(hub, 'enqueuePluginJob').mockImplementation(() => null)
             const indexJs = `
                 async function exportEvents (events, meta) {
                     meta.global.ranTimes = (meta.global.ranTimes || 0) + 1;
@@ -1155,7 +1155,7 @@ describe('vm tests', () => {
             await delay(1010)
 
             // get the enqueued job
-            expect(hub.schedulePluginJob).toHaveBeenCalledWith({
+            expect(hub.enqueuePluginJob).toHaveBeenCalledWith({
                 payload: { batch: [event, event, event], batchId: expect.any(Number), retriesPerformedSoFar: 1 },
                 pluginConfigId: 39,
                 pluginConfigTeam: 2,
@@ -1163,21 +1163,21 @@ describe('vm tests', () => {
                 type: 'exportEventsWithRetry',
             })
 
-            const jobPayload = hub.schedulePluginJob.mock.calls[0][0].payload
+            const jobPayload = hub.enqueuePluginJob.mock.calls[0][0].payload
 
             // run the job directly
             await vm.tasks.job['exportEventsWithRetry'].exec(jobPayload)
 
             // enqueued again
-            expect(hub.schedulePluginJob).toHaveBeenCalledTimes(2)
-            expect(hub.schedulePluginJob).toHaveBeenLastCalledWith({
+            expect(hub.enqueuePluginJob).toHaveBeenCalledTimes(2)
+            expect(hub.enqueuePluginJob).toHaveBeenLastCalledWith({
                 payload: { batch: jobPayload.batch, batchId: jobPayload.batchId, retriesPerformedSoFar: 2 },
                 pluginConfigId: 39,
                 pluginConfigTeam: 2,
                 timestamp: expect.any(Number),
                 type: 'exportEventsWithRetry',
             })
-            const jobPayload2 = hub.schedulePluginJob.mock.calls[1][0].payload
+            const jobPayload2 = hub.enqueuePluginJob.mock.calls[1][0].payload
 
             // run the job a second time
             await vm.tasks.job['exportEventsWithRetry'].exec(jobPayload2)
@@ -1194,7 +1194,7 @@ describe('vm tests', () => {
         })
 
         test('max retries', async () => {
-            jest.spyOn(hub, 'schedulePluginJob')
+            jest.spyOn(hub, 'enqueuePluginJob').mockImplementation(() => null)
             const indexJs = `
                 async function exportEvents (events, meta) {
                     meta.global.ranTimes = (meta.global.ranTimes || 0) + 1;
@@ -1225,9 +1225,9 @@ describe('vm tests', () => {
             // won't retry after the nth time where n = MAXIMUM_RETRIES
             for (let i = 2; i < 20; i++) {
                 const lastPayload =
-                    hub.schedulePluginJob.mock.calls[hub.schedulePluginJob.mock.calls.length - 1][0].payload
+                    hub.enqueuePluginJob.mock.calls[hub.enqueuePluginJob.mock.calls.length - 1][0].payload
                 await vm.tasks.job['exportEventsWithRetry'].exec(lastPayload)
-                expect(hub.schedulePluginJob).toHaveBeenCalledTimes(i > MAXIMUM_RETRIES ? MAXIMUM_RETRIES : i)
+                expect(hub.enqueuePluginJob).toHaveBeenCalledTimes(i > MAXIMUM_RETRIES ? MAXIMUM_RETRIES : i)
             }
         })
 

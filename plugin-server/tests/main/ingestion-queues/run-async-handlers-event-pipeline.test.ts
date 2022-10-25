@@ -18,6 +18,23 @@ import {
     POSTGRES_DELETE_TABLES_QUERY,
 } from '../../helpers/sql'
 
+// While these test cases focus on runAsyncHandlersEventPipeline, they were
+// explicitly intended to test that failures to produce to the `jobs` topic
+// due to availability errors would be bubbled up to the consumer, where we can
+// then make decisions about how to handle this case e.g. here we test that it
+// simply would bubble up to the KafkaJS consumer runnner where it can handle
+// retries.
+//
+// There is complicating factor in that the pipeline uses a separate Node Worker
+// to run the pipeline, which means we can't easily mock the `produce` call, and
+// as such the test is broken into answering these questions separately, with no
+// integration test between the two:
+//
+//  1. using the Piscina task runner to run the pipeline results in the
+//     DependencyUnavailable Error being thrown.
+//  2. the KafkaQueue consumer handler will let the error bubble up to the
+//     KafkaJS consumer runner, which we assume will handle retries.
+
 describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
     // Tests the failure cases for the workerTasks.runAsyncHandlersEventPipeline
     // task. Note that this equally applies to e.g. runEventPipeline task as
