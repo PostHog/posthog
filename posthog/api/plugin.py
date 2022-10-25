@@ -298,6 +298,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         Plugin.objects.filter(id=plugin.id).update(
             latest_tag=latest_url.get("tag", latest_url.get("version", None)), latest_tag_checked_at=now()
         )
+        plugin.refresh_from_db()
 
         return Response({"plugin": PluginSerializer(plugin).data})
 
