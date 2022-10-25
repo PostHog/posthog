@@ -4,6 +4,15 @@ import { captureException } from '@sentry/node'
 import { Hub, PluginConfig, PluginError } from '../../types'
 import { setError } from './sql'
 
+export class DependencyError extends Error {
+    constructor(message: string, retriable = false) {
+        super(message)
+        this.name = 'DependencyError'
+        this.retriable = retriable
+    }
+    readonly retriable: boolean
+}
+
 export async function processError(
     server: Hub,
     pluginConfig: PluginConfig | null,
@@ -14,6 +23,15 @@ export async function processError(
         captureException(new Error('Tried to process error for nonexistent plugin config!'))
         return
     }
+
+    if (error instanceof DependencyError) {
+        // If this is an error with a dependency that we control, do not report
+        // as a plugin error.
+        if (error.retriable) {
+            throw error
+        }
+    }
+
     const errorJson: PluginError =
         typeof error === 'string'
             ? {

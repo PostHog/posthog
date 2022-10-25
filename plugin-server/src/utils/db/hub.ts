@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
-import { Kafka, Partitioners, SASLOptions } from 'kafkajs'
+import { Kafka, KafkaJSError, Partitioners, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
@@ -40,6 +40,7 @@ import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-k
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { PromiseManager } from './../../worker/vm/promise-manager'
 import { DB } from './db'
+import { DependencyError } from './error'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 
 const { version } = require('../../../package.json')
@@ -237,15 +238,29 @@ export async function createHub(
         // an acknowledgement as for instance there are some jobs that are
         // chained, and if we do not manage to produce then the chain will be
         // broken.
-        await kafkaProducer.producer.send({
-            topic: KAFKA_JOBS,
-            messages: [
-                {
-                    key: job.pluginConfigTeam.toString(),
-                    value: JSON.stringify(job),
-                },
-            ],
-        })
+        try {
+            await kafkaProducer.producer.send({
+                topic: KAFKA_JOBS,
+                messages: [
+                    {
+                        key: job.pluginConfigTeam.toString(),
+                        value: JSON.stringify(job),
+                    },
+                ],
+            })
+        } catch (error) {
+            if (error instanceof KafkaJSError) {
+                // If we get a retriable Kafka error (maybe it's down for
+                // example), rethrow the error as a generic `DependencyError`
+                // passing through retriable such that we can decide if this is
+                // something we should retry at the consumer level.
+                throw new DependencyError(error.message, error.retriable)
+            }
+
+            // Otherwise, just rethrow the error as is. E.g. if we fail to
+            // serialize then we don't want to retry.
+            throw error
+        }
     }
 
     const hub: Partial<Hub> = {
