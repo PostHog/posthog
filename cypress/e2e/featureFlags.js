@@ -44,7 +44,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=prop-val-0]').click({ force: true })
 
         // save the feature flag
-        cy.get('[data-attr=save-feature-flag]').click()
+        cy.get('[data-attr=save-feature-flag]').first().click()
 
         // after save there should be a delete button
         cy.get('button[data-attr="delete-feature-flag"]').should('have.text', 'Delete')
@@ -64,7 +64,7 @@ describe('Feature Flags', () => {
             .click()
             .type(`{moveToEnd}-updated`)
             .should('have.value', name + '-updated')
-        cy.get('[data-attr=save-feature-flag]').click()
+        cy.get('[data-attr=save-feature-flag]').first().click()
         cy.wait(100)
         cy.clickNavMenu('featureflags')
         cy.get('[data-attr=feature-flag-table]').should('contain', name + '-updated')
@@ -80,7 +80,7 @@ describe('Feature Flags', () => {
         cy.get('h1').should('contain', 'Feature Flags')
         cy.get('[data-attr=new-feature-flag]').click()
         cy.get('[data-attr=feature-flag-key]').focus().type(name).should('have.value', name)
-        cy.get('[data-attr=save-feature-flag]').click()
+        cy.get('[data-attr=save-feature-flag]').first().click()
 
         // after save there should be a delete button
         cy.get('button[data-attr="delete-feature-flag"]').should('have.text', 'Delete')
