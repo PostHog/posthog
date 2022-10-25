@@ -102,7 +102,7 @@ export class KafkaQueue {
                 autoCommitInterval: 1000, // autocommit every 1000 ms…
                 autoCommitThreshold: 1000, // …or every 1000 messages, whichever is sooner
                 partitionsConsumedConcurrently: this.pluginsServer.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
-                eachBatch: this.eachBatchConsumer,
+                eachBatch: (payload) => this.eachBatchConsumer(payload),
             })
         })
         return await startPromise

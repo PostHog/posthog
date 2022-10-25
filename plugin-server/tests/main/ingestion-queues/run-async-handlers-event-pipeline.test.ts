@@ -50,7 +50,7 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
     })
 
     afterEach(() => {
-        jest.runOnlyPendingTimers()
+        jest.clearAllTimers()
         jest.useRealTimers()
         jest.clearAllMocks()
     })
