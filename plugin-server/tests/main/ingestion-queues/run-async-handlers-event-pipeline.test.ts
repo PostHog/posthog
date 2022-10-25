@@ -8,7 +8,13 @@ import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { setupPlugins } from '../../../src/worker/plugins/setup'
 import { workerTasks } from '../../../src/worker/tasks'
-import { createOrganization, createPlugin, createPluginConfig, createTeam } from '../../helpers/sql'
+import {
+    createOrganization,
+    createPlugin,
+    createPluginConfig,
+    createTeam,
+    POSTGRES_DELETE_TABLES_QUERY,
+} from '../../helpers/sql'
 
 describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
     // Tests the failure cases for the workerTasks.runAsyncHandlersEventPipeline
@@ -22,6 +28,7 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
         redis = await hub.redisPool.acquire()
+        await hub.postgres.query(POSTGRES_DELETE_TABLES_QUERY) // Need to clear the DB to avoid unique constraint violations on ids
     })
 
     afterAll(async () => {
