@@ -1,7 +1,7 @@
 import { useRef } from 'react'
-import { useActions, useValues } from 'kea'
+import { useActions, useValues, BindLogic } from 'kea'
 import { colonDelimitedDuration, range } from '~/lib/utils'
-import { SessionRecordingType } from '~/types'
+import { PropertyOperator, SessionRecordingType } from '~/types'
 import { PLAYLIST_LIMIT, sessionRecordingsListLogic } from './sessionRecordingsListLogic'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import './SessionRecordingsPlaylist.scss'
@@ -33,28 +33,43 @@ const SessionRecordingPlaylistItem = ({
     isActive: boolean
     onClick: () => void
 }): JSX.Element => {
-    const iconClassnames = isActive ? 'text-lg text-muted-alt' : 'text-lg text-muted-alt opacity-75'
+    const { setPropertyFilters } = useActions(sessionRecordingsListLogic)
+    const { propertyFilters } = useValues(sessionRecordingsListLogic)
     const formattedDuration = colonDelimitedDuration(recording.recording_duration)
     const durationParts = formattedDuration.split(':')
 
     const { featureFlags } = useValues(featureFlagLogic)
 
     const listIcons = featureFlags[FEATURE_FLAGS.RECORDING_LIST_ICONS] || 'none'
+    const iconClassnames = clsx(
+        'SessionRecordingsPlaylist__list-item__property-icon text-lg text-muted-alt',
+        !isActive && 'opacity-75'
+    )
+    function iconOnClick(property: string, value?: string): void {
+        value &&
+            setPropertyFilters([
+                ...propertyFilters.filter(({ key }) => key !== property),
+                {
+                    key: property,
+                    value: [value],
+                    operator: PropertyOperator.Exact,
+                    type: 'person',
+                },
+            ])
+    }
+    const iconProperties = ['$browser', '$device_type', '$os', '$geoip_country_code']
 
     const propertyIcons = (
         <div className="flex flex-row flex-nowrap shrink-0 gap-1">
-            <PropertyIcon className={iconClassnames} property="$browser" value={recording.properties?.['$browser']} />
-            <PropertyIcon
-                className={iconClassnames}
-                property="$device_type"
-                value={recording.properties?.['$device_type']}
-            />
-            <PropertyIcon className={iconClassnames} property="$os" value={recording.properties?.['$os']} />
-            <PropertyIcon
-                className={iconClassnames}
-                property="$geoip_country_code"
-                value={recording.properties?.['$geoip_country_code']}
-            />
+            {iconProperties.map((property) => (
+                <PropertyIcon
+                    key={property}
+                    onClick={iconOnClick}
+                    className={iconClassnames}
+                    property={property}
+                    value={recording.properties?.[property]}
+                />
+            ))}
         </div>
     )
 
@@ -124,7 +139,8 @@ const SessionRecordingPlaylistItem = ({
 }
 
 export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTableProps): JSX.Element {
-    const logic = sessionRecordingsListLogic({ personUUID })
+    const logicProps = { personUUID }
+    const logic = sessionRecordingsListLogic(logicProps)
     const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev, activeSessionRecording, offset } =
         useValues(logic)
     const { setSelectedRecordingId, loadNext, loadPrev } = useActions(logic)
@@ -199,17 +215,19 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                         )
                     ) : (
                         <ul className={clsx(sessionRecordingsResponseLoading ? 'opacity-50' : '')}>
-                            {sessionRecordings.map((rec, i) => (
-                                <>
-                                    {i > 0 && <div className="border-t" />}
-                                    <SessionRecordingPlaylistItem
-                                        key={rec.id}
-                                        recording={rec}
-                                        onClick={() => onRecordingClick(rec)}
-                                        isActive={activeSessionRecording?.id === rec.id}
-                                    />
-                                </>
-                            ))}
+                            <BindLogic logic={sessionRecordingsListLogic} props={logicProps}>
+                                {sessionRecordings.map((rec, i) => (
+                                    <>
+                                        {i > 0 && <div className="border-t" />}
+                                        <SessionRecordingPlaylistItem
+                                            key={rec.id}
+                                            recording={rec}
+                                            onClick={() => onRecordingClick(rec)}
+                                            isActive={activeSessionRecording?.id === rec.id}
+                                        />
+                                    </>
+                                ))}
+                            </BindLogic>
                         </ul>
                     )}
                 </div>
