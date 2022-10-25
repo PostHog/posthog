@@ -3,6 +3,7 @@ import json
 import os
 import re
 import tarfile
+from tarfile import ReadError
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import parse_qs, quote
 from zipfile import ZIP_DEFLATED, BadZipFile, Path, ZipFile
@@ -268,7 +269,7 @@ def get_file_from_zip_archive(archive: bytes, filename: str, *, json_parse: bool
     zip_file = ZipFile(io.BytesIO(archive), "r")
     root_folder = zip_file.namelist()[0]
     file_path = Path(zip_file)
-    if Path(zip_file).joinpath(root_folder).is_dir():
+    if file_path.joinpath(root_folder).is_dir():
         file_path = file_path / root_folder / filename
     else:
         file_path = file_path / filename
@@ -299,9 +300,9 @@ def get_file_from_archive(archive: bytes, filename: str, *, json_parse: bool = T
     try:
         try:
             return get_file_from_zip_archive(archive, filename, json_parse=json_parse)
-        except BadZipFile:
+        except (BadZipFile, FileNotFoundError):
             return get_file_from_tgz_archive(archive, filename, json_parse=json_parse)
-    except KeyError:
+    except (KeyError, ReadError):
         return None
 
 
