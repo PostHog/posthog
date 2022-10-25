@@ -131,14 +131,14 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
     describe(`plugin method tests (${pluginServer.name})`, () => {
         const indexJs = `
-            async function processEvent (event) {
+            export async function processEvent (event) {
                 event.properties.processed = 'hell yes'
                 event.properties.upperUuid = event.properties.uuid?.toUpperCase()
                 event.properties['$snapshot_data'] = 'no way'
                 return event
             }
     
-            function onEvent (event, { global }) {
+            export function onEvent (event, { global }) {
                 // we use this to mock setupPlugin being
                 // run after some events were already ingested
                 global.timestampBoundariesForTeam = {
@@ -320,7 +320,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
     describe(`exports (${pluginServer.name})`, () => {
         const indexJs = `
-            const exportEvents = async (events, { global, config }) => {
+            export const exportEvents = async (events, { global, config }) => {
                 console.info(JSON.stringify(['exportEvents', events]))
             }
         `
@@ -328,7 +328,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
         test('exporting events', async () => {
             const plugin = await createPlugin(postgres, {
                 organization_id: organizationId,
-                name: 'plugin',
+                name: 'export plugin',
                 plugin_type: 'source',
                 is_global: false,
                 source__index_ts: indexJs,
@@ -382,12 +382,12 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
     describe(`plugin jobs (${pluginServer.name})`, () => {
         const indexJs = `    
-            function onEvent (event, { jobs }) {
+            export function onEvent (event, { jobs }) {
                 console.info(JSON.stringify(['onEvent', event]))
                 jobs.runMeAsync().runNow()
             }
 
-            const jobs = {
+            export const jobs = {
                 runMeAsync: async () => {
                     console.info(JSON.stringify(['runMeAsync']))
                 }
@@ -446,7 +446,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                 plugin_type: 'source',
                 is_global: false,
                 source__index_ts: `
-                    async function runEveryMinute() {
+                    export async function runEveryMinute() {
                         console.info(JSON.stringify(['runEveryMinute']))
                     }
                 `,
