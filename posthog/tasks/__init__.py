@@ -10,8 +10,8 @@ from . import (
     split_person,
     sync_all_organization_available_features,
     update_cache,
-    user_identify,
     usage_report,
+    user_identify,
 )
 
 __all__ = [
