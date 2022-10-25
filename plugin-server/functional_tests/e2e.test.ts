@@ -131,14 +131,14 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
     describe(`plugin method tests (${pluginServer.name})`, () => {
         const indexJs = `
-            export async function processEvent (event) {
+            async function processEvent (event) {
                 event.properties.processed = 'hell yes'
                 event.properties.upperUuid = event.properties.uuid?.toUpperCase()
                 event.properties['$snapshot_data'] = 'no way'
                 return event
             }
     
-            export function onEvent (event, { global }) {
+            function onEvent (event, { global }) {
                 // we use this to mock setupPlugin being
                 // run after some events were already ingested
                 global.timestampBoundariesForTeam = {
@@ -320,7 +320,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
     describe(`exports (${pluginServer.name})`, () => {
         const indexJs = `
-            export const exportEvents = async (events, { global, config }) => {
+            const exportEvents = async (events, { global, config }) => {
                 console.info(JSON.stringify(['exportEvents', events]))
             }
         `
@@ -328,7 +328,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
         test('exporting events', async () => {
             const plugin = await createPlugin(postgres, {
                 organization_id: organizationId,
-                name: 'export plugin',
+                name: 'plugin',
                 plugin_type: 'source',
                 is_global: false,
                 source__index_ts: indexJs,
@@ -382,12 +382,12 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
     describe(`plugin jobs (${pluginServer.name})`, () => {
         const indexJs = `    
-            export function onEvent (event, { jobs }) {
+            function onEvent (event, { jobs }) {
                 console.info(JSON.stringify(['onEvent', event]))
                 jobs.runMeAsync().runNow()
             }
 
-            export const jobs = {
+            const jobs = {
                 runMeAsync: async () => {
                     console.info(JSON.stringify(['runMeAsync']))
                 }
@@ -446,7 +446,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                 plugin_type: 'source',
                 is_global: false,
                 source__index_ts: `
-                    export async function runEveryMinute() {
+                    async function runEveryMinute() {
                         console.info(JSON.stringify(['runEveryMinute']))
                     }
                 `,
@@ -504,7 +504,7 @@ const capture = async (
     })
 }
 
-export const createPlugin = async (pgClient: Pool, plugin: Omit<Plugin, 'id'>) => {
+const createPlugin = async (pgClient: Pool, plugin: Omit<Plugin, 'id'>) => {
     return await insertRow(pgClient, 'posthog_plugin', {
         ...plugin,
         config_schema: {},
@@ -517,7 +517,7 @@ export const createPlugin = async (pgClient: Pool, plugin: Omit<Plugin, 'id'>) =
     })
 }
 
-export const createPluginConfig = async (
+const createPluginConfig = async (
     pgClient: Pool,
     pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config' | 'has_error'>
 ) => {
@@ -531,12 +531,7 @@ export const createPluginConfig = async (
     })
 }
 
-export const createAndReloadPluginConfig = async (
-    pgClient: Pool,
-    teamId: number,
-    pluginId: number,
-    redis: Redis.Redis
-) => {
+const createAndReloadPluginConfig = async (pgClient: Pool, teamId: number, pluginId: number, redis: Redis.Redis) => {
     const pluginConfig = await createPluginConfig(postgres, { team_id: teamId, plugin_id: pluginId })
     // Make sure the plugin server reloads the newly created plugin config.
     // TODO: avoid reaching into the pluginsServer internals and rather use
@@ -579,7 +574,7 @@ const fetchPluginLogEntries = async (clickHouseClient: ClickHouse, pluginConfigI
     return logEntries.map((entry) => ({ ...entry, message: JSON.parse(entry.message) }))
 }
 
-export const createOrganization = async (pgClient: Pool) => {
+const createOrganization = async (pgClient: Pool) => {
     const organizationId = new UUIDT().toString()
     await insertRow(pgClient, 'posthog_organization', {
         id: organizationId,
@@ -598,7 +593,7 @@ export const createOrganization = async (pgClient: Pool) => {
     return organizationId
 }
 
-export const createTeam = async (pgClient: Pool, organizationId: string) => {
+const createTeam = async (pgClient: Pool, organizationId: string) => {
     const team = await insertRow(pgClient, 'posthog_team', {
         organization_id: organizationId,
         app_urls: [],
