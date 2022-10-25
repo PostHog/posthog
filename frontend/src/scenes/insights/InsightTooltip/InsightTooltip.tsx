@@ -44,14 +44,17 @@ export function ClickToInspectActors({
 
 function renderDatumToTableCell(
     datumMathProperty: string | undefined,
-    datumValue: number,
+    datumValue: number | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction,
     renderCount: (value: number) => React.ReactNode
 ): ReactNode {
-    return (
+    // Value can be undefined if the datum's series doesn't have ANY value for the breakdown value being rendered
+    return datumValue !== undefined ? (
         <div className="series-data-cell">
             {formatAggregationValue(datumMathProperty, datumValue, renderCount, formatPropertyValueForDisplay)}
         </div>
+    ) : (
+        '–'
     )
 }
 
