@@ -231,7 +231,7 @@ export async function createHub(
     const actionManager = new ActionManager(db, capabilities)
     await actionManager.prepare()
 
-    const schedulePluginJob = async (job: EnqueuedPluginJob) => {
+    const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
         // NOTE: we use the producer directly here rather than using the wrapper
         // such that we can a response immediately on error, and thus bubble up
         // any errors in producing. It's important that we ensure that we have
@@ -274,7 +274,7 @@ export async function createHub(
         kafka,
         kafkaProducer,
         statsd,
-        schedulePluginJob,
+        enqueuePluginJob,
 
         plugins: new Map(),
         pluginConfigs: new Map(),
