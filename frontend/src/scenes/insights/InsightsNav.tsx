@@ -9,6 +9,7 @@ import { FunnelsCue } from './views/Trends/FunnelsCue'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
+import { EditFilters } from 'scenes/insights/filters/EditFilters/EditFilters'
 
 const { TabPane } = Tabs
 
@@ -70,38 +71,41 @@ export function InsightsNav(): JSX.Element {
                     funnelTab?.current ? funnelTab.current.getBoundingClientRect().width * 1.5 + 16 : undefined
                 }
             />
-            <Tabs
-                activeKey={activeView}
-                className="top-bar"
-                onChange={(key) => setActiveView(key as InsightType)}
-                animated={false}
-            >
-                {tabs.map(({ label, type, dataAttr, ref, className }) => {
-                    const Outer = ({ children }: { children: ReactNode }): JSX.Element =>
-                        INSIGHT_TYPES_METADATA[type]?.description ? (
-                            <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[type].description}>
-                                {children}
-                            </Tooltip>
-                        ) : (
-                            <span ref={ref}>{children}</span>
+            <div className="flex w-full items-start">
+                <Tabs
+                    activeKey={activeView}
+                    className="top-bar"
+                    onChange={(key) => setActiveView(key as InsightType)}
+                    animated={false}
+                >
+                    {tabs.map(({ label, type, dataAttr, ref, className }) => {
+                        const Outer = ({ children }: { children: ReactNode }): JSX.Element =>
+                            INSIGHT_TYPES_METADATA[type]?.description ? (
+                                <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[type].description}>
+                                    {children}
+                                </Tooltip>
+                            ) : (
+                                <span ref={ref}>{children}</span>
+                            )
+                        return (
+                            <TabPane
+                                key={type}
+                                tab={
+                                    <Link
+                                        className={clsx('tab-text', className)}
+                                        to={urls.insightNew({ ...filters, insight: type })}
+                                        preventClick
+                                        data-attr={dataAttr}
+                                    >
+                                        <Outer>{label}</Outer>
+                                    </Link>
+                                }
+                            />
                         )
-                    return (
-                        <TabPane
-                            key={type}
-                            tab={
-                                <Link
-                                    className={clsx('tab-text', className)}
-                                    to={urls.insightNew({ ...filters, insight: type })}
-                                    preventClick
-                                    data-attr={dataAttr}
-                                >
-                                    <Outer>{label}</Outer>
-                                </Link>
-                            }
-                        />
-                    )
-                })}
-            </Tabs>
+                    })}
+                </Tabs>
+                <EditFilters />
+            </div>
         </>
     )
 }
