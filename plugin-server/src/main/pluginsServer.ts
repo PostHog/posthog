@@ -109,13 +109,13 @@ export async function startPluginsServer(
             !mmdbServer
                 ? resolve()
                 : mmdbServer.close((error) => {
-                      if (error) {
-                          reject(error)
-                      } else {
-                          status.info('🛑', 'Closed internal MMDB server!')
-                          resolve()
-                      }
-                  })
+                    if (error) {
+                        reject(error)
+                    } else {
+                        status.info('🛑', 'Closed internal MMDB server!')
+                        resolve()
+                    }
+                })
         )
 
         if (piscina) {
@@ -169,7 +169,7 @@ export async function startPluginsServer(
         //
         // See https://nodejs.org/api/process.html#event-uncaughtexception for
         // details on the handler.
-        if (shuttingDown) {return}
+        if (shuttingDown) { return }
         status.error('🤮', `uncaught_exception`, { error: error.stack })
         await closeJobs()
 
@@ -258,11 +258,11 @@ export async function startPluginsServer(
             },
             ...(hub.capabilities.processAsyncHandlers
                 ? {
-                      'reload-action': async (message) =>
-                          await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
-                      'drop-action': async (message) =>
-                          await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
-                  }
+                    'reload-action': async (message) =>
+                        await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
+                    'drop-action': async (message) =>
+                        await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
+                }
                 : {}),
         })
 
@@ -369,5 +369,5 @@ export async function stopPiscina(piscina: Piscina): Promise<void> {
     await Promise.all([piscina.broadcastTask({ task: 'flushKafkaMessages' }), delay(2000)])
     try {
         await piscina.destroy()
-    } catch {}
+    } catch { }
 }
