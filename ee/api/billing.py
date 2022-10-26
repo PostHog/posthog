@@ -41,8 +41,8 @@ class LicenseKeySerializer(serializers.Serializer):
     license = serializers.CharField()
 
 
-def build_billing_token(license: License, organization_id: str):
-    if not organization_id or not license:
+def build_billing_token(license: License, organization: Organization):
+    if not organization or not license:
         raise NotAuthenticated()
 
     license_id = license.key.split("::")[0]
@@ -52,7 +52,8 @@ def build_billing_token(license: License, organization_id: str):
         {
             "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
             "id": license_id,
-            "organization_id": str(organization_id),
+            "organization_id": str(organization.id),
+            "organization_name": organization.name,
             "aud": "posthog:license-key",
         },
         license_secret,
@@ -190,7 +191,7 @@ class BillingViewset(viewsets.GenericViewSet):
             raise Exception("There is no license configured for this instance yet.")
         org = self._get_org_required()
 
-        billing_service_token = build_billing_token(license, str(org.id))
+        billing_service_token = build_billing_token(license, org)
 
         res = requests.patch(
             f"{BILLING_SERVICE_URL}/api/billing/",
@@ -211,7 +212,7 @@ class BillingViewset(viewsets.GenericViewSet):
         url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}&plan={request.GET.get('plan', 'standard')}"
 
         if license:
-            billing_service_token = build_billing_token(license, str(organization.id))
+            billing_service_token = build_billing_token(license, organization)
             url = f"{url}&token={billing_service_token}"
 
         return redirect(url)
@@ -235,7 +236,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing",
-            headers={"Authorization": f"Bearer {build_billing_token(license, str(organization.id))}"},
+            headers={"Authorization": f"Bearer {build_billing_token(license, organization)}"},
         )
 
         if res.status_code != 200:
@@ -274,7 +275,7 @@ class BillingViewset(viewsets.GenericViewSet):
         """
         Retrieves billing info and updates local models if necessary
         """
-        billing_service_token = build_billing_token(license, str(organization.id))
+        billing_service_token = build_billing_token(license, organization)
 
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing",
