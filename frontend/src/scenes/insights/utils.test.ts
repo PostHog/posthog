@@ -15,6 +15,7 @@ import {
 } from 'scenes/trends/mathsLogic'
 import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { Noun } from '~/models/groupsModel'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
     return {
@@ -119,7 +120,7 @@ describe('extractObjectDiffKeys()', () => {
 })
 
 describe('summarizeInsightFilters()', () => {
-    const aggregationLabel = (groupTypeIndex: number | null | undefined): { singular: string; plural: string } =>
+    const aggregationLabel = (groupTypeIndex: number | null | undefined): Noun =>
         groupTypeIndex != undefined
             ? {
                   singular: 'organization',
