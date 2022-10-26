@@ -14,8 +14,6 @@ export const isDev = process.argv.includes('--dev')
 
 export const lessPlugin = lessLoader({ javascriptEnabled: true })
 
-console.log('wat')
-
 export function copyPublicFolder(srcDir, destDir) {
     fse.copySync(srcDir, destDir, { overwrite: true }, function (err) {
         if (err) {
