@@ -96,10 +96,13 @@ export async function startPluginsServer(
         lastActivityCheck && clearInterval(lastActivityCheck)
         cancelAllScheduledJobs()
         stopEventLoopMetrics?.()
-        await queue?.stop()
-        await pubSub?.stop()
-        await hub?.graphileWorker.stop()
-        await bufferConsumer?.disconnect()
+        await Promise.allSettled([
+            queue?.stop(),
+            pubSub?.stop(),
+            hub?.graphileWorker.stop(),
+            bufferConsumer?.disconnect(),
+        ])
+
         await new Promise<void>((resolve, reject) =>
             !mmdbServer
                 ? resolve()
@@ -112,6 +115,7 @@ export async function startPluginsServer(
                       }
                   })
         )
+
         if (piscina) {
             await stopPiscina(piscina)
         }

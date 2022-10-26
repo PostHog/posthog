@@ -103,7 +103,7 @@ jobs:
 
             - name: Get yarn cache directory path
               id: yarn-cache-dir-path
-              run: echo "::set-output name=dir::$(yarn config get cacheFolder)"
+              run: echo "dir=$(yarn config get cacheFolder)" >> $GITHUB_OUTPUT
 
             - uses: actions/cache@v2
               id: yarn-cache
@@ -184,7 +184,7 @@ jobs:
 
             - name: Get yarn cache directory path
               id: yarn-cache-dir-path
-              run: echo "::set-output name=dir::$(yarn config get cacheFolder)"
+              run: echo "dir=$(yarn config get cacheFolder)" >> $GITHUB_OUTPUT
 
             - uses: actions/cache@v2
               id: yarn-cache
