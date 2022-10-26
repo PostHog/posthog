@@ -79,6 +79,23 @@ const SessionRecordingPlaylistItem = ({
         </div>
     )
 
+    const duration = (
+        <span className="flex items-center font-normal">
+            <IconSchedule className={iconClassnames} />
+            <span>
+                <span className={clsx(durationParts[0] === '00' && 'opacity-50')}>{durationParts[0]}:</span>
+                <span
+                    className={clsx({
+                        'opacity-50': durationParts[0] === '00' && durationParts[1] === '00',
+                    })}
+                >
+                    {durationParts[1]}:
+                </span>
+                {durationParts[2]}
+            </span>
+        </span>
+    )
+
     return (
         <li
             key={recording.id}
@@ -93,7 +110,8 @@ const SessionRecordingPlaylistItem = ({
             <div className="flex justify-between items-center">
                 <div className="truncate font-medium text-primary ph-no-capture">{asDisplay(recording.person, 25)}</div>
 
-                {listIcons === 'top' && propertyIcons}
+                {listIcons === 'top-right' && propertyIcons}
+                {listIcons === 'bottom-right' && duration}
                 {!recording.viewed && (
                     <>
                         {listIcons === 'none' ? (
@@ -124,20 +142,7 @@ const SessionRecordingPlaylistItem = ({
                 />
                 <div className="flex items-center gap-2">
                     {listIcons === 'bottom' && propertyIcons}
-                    <span className="flex items-center font-normal">
-                        <IconSchedule className={iconClassnames} />
-                        <span>
-                            <span className={clsx(durationParts[0] === '00' && 'opacity-50')}>{durationParts[0]}:</span>
-                            <span
-                                className={clsx({
-                                    'opacity-50': durationParts[0] === '00' && durationParts[1] === '00',
-                                })}
-                            >
-                                {durationParts[1]}:
-                            </span>
-                            {durationParts[2]}
-                        </span>
-                    </span>
+                    {listIcons !== 'bottom-right' ? duration : propertyIcons}
                 </div>
             </div>
         </li>
