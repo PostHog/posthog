@@ -280,8 +280,10 @@ export async function createHub(
     const closeHub = async () => {
         hub.mmdbUpdateJob?.cancel()
         await hub.graphileWorker?.disconnectProducer()
-        await Promise.allSettled([kafkaProducer.disconnect(), redisPool.drain(), hub.postgres?.end()])
+        await kafkaProducer.disconnect()
+        await redisPool.drain()
         await redisPool.clear()
+        await hub.postgres?.end()
     }
 
     return [hub as Hub, closeHub]
