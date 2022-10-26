@@ -130,7 +130,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 <>
                                     <span>
                                         Upload a CSV file to add users to your cohort. The CSV file only requires a
-                                        single column with the user’s distinct ID.
+                                        single column with the user’s distinct ID. The first row of the file will be
+                                        skipped.
                                     </span>
                                     <Dragger
                                         name="file"
