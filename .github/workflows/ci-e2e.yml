@@ -84,7 +84,7 @@ jobs:
                   echo "### Build info" >> $GITHUB_STEP_SUMMARY
                   echo "Image size: $(numfmt --to=iec --suffix=B --format="%.2f" $image_size_bytes)" >> $GITHUB_STEP_SUMMARY
                   echo "Image name: $image_name" >> $GITHUB_STEP_SUMMARY
-                  echo "image_size=$(numfmt --to=iec --suffix=B --format="%.2f" $image_size_bytes)" >> $GITHUB_ENV
+                  echo "image_size=$image_size_bytes" >> $GITHUB_ENV
                   echo "image_name=$image_name" >> $GITHUB_ENV
             - name: Report image size to PostHog
               uses: PostHog/posthog-github-action@v0.1
