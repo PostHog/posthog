@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
@@ -6,12 +6,15 @@ import { IconDelete } from 'lib/components/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Field } from 'lib/forms/Field'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 import { RolloutConditionType } from '~/types'
 import { featureFlagLogic } from './featureFlagLogic'
 
 export function FeatureFlagAutoRollback(): JSX.Element {
-    const { featureFlag } = useValues(featureFlagLogic)
+    const { featureFlag, sentryIntegrationEnabled } = useValues(featureFlagLogic)
     const { addRollbackCondition, removeRollbackCondition } = useActions(featureFlagLogic)
+    const { user } = useValues(userLogic)
 
     return (
         <div>
@@ -105,7 +108,7 @@ export function FeatureFlagAutoRollback(): JSX.Element {
                                         <LemonInput min={0} type="number" />
                                     </Field>
                                 </div>
-                            ) : (
+                            ) : sentryIntegrationEnabled ? (
                                 <Row align="middle">
                                     Trigger when there is a
                                     <Field name="threshold" className="ml-3 mr-3">
@@ -133,6 +136,18 @@ export function FeatureFlagAutoRollback(): JSX.Element {
                                     </Field>
                                     in errors.
                                 </Row>
+                            ) : user?.is_staff ? (
+                                <div className="mt-4">
+                                    <b>This feature requires an active Sentry integration.</b>
+                                    <br />
+                                    <Link to={urls.instanceSettings()}>Go to Instance Settings</Link> and update the{' '}
+                                    <code>"SENTRY_"</code> properties from your Sentry account to enable.
+                                </div>
+                            ) : (
+                                <p className="text-muted">
+                                    This PostHog instance is not configured for Sentry. Please contact the instance
+                                    owner to configure it.
+                                </p>
                             )}
                         </Group>
                     </div>

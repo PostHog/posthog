@@ -30,7 +30,7 @@ import { dayjs } from 'lib/dayjs'
 const DEFAULT_ROLLBACK_CONDITION = {
     operator: 'gt',
     threshold_type: RolloutConditionType.Sentry,
-    threshold: 0,
+    threshold: 30,
     threshold_metric: {
         ...cleanFilters({
             insight: InsightType.TRENDS,
@@ -81,7 +81,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     props({} as FeatureFlagLogicProps),
     key(({ id }) => id ?? 'unknown'),
     connect({
-        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel']],
+        values: [
+            teamLogic,
+            ['currentTeamId', 'sentryIntegrationEnabled'],
+            groupsModel,
+            ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel'],
+        ],
     }),
     actions({
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
