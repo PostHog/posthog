@@ -110,7 +110,7 @@ export function BillingV2(): JSX.Element {
                     <LemonDivider vertical dashed />
 
                     <div className="p-4 space-y-2" style={{ width: '20rem' }}>
-                        {billing?.stripe_portal_url ? (
+                        {billing?.has_active_subscription ? (
                             <LemonButton
                                 type="primary"
                                 htmlType="submit"
@@ -188,7 +188,7 @@ export function BillingV2(): JSX.Element {
                             </div>
                         ) : null}
 
-                        {!preflight?.cloud && !billing?.stripe_portal_url ? (
+                        {!preflight?.cloud && !billing?.has_active_subscription ? (
                             <LemonButton
                                 fullWidth
                                 center
@@ -304,14 +304,14 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                     tooltip: (
                         <>
                             <b>Free tier limit</b>
-                            {!billing?.stripe_portal_url ? <div>(With subscription)</div> : null}
+                            {!billing?.has_active_subscription ? <div>(With subscription)</div> : null}
                         </>
                     ),
-                    color: billing?.stripe_portal_url ? 'success-light' : 'success-highlight',
+                    color: billing?.has_active_subscription ? 'success-light' : 'success-highlight',
                     value: product.tiers?.[0]?.up_to || 0,
                     top: true,
                 },
-                !billing?.stripe_portal_url
+                !billing?.has_active_subscription
                     ? {
                           tooltip: (
                               <>
@@ -366,7 +366,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
         { label: `Per ${product.type.toLowerCase()}`, value: 'individual' },
     ]
 
-    if (billing?.stripe_portal_url) {
+    if (billing?.has_active_subscription) {
         tierDisplayOptions.push({ label: `Current bill`, value: 'total' })
     }
 

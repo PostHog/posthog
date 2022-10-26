@@ -269,7 +269,7 @@ def get_instance_metadata(period: Tuple[datetime, datetime]) -> OrgMetadata:
     return metadata
 
 
-def send_report_to_billing_service(organization_id: str, report: Dict) -> None:
+def send_report_to_billing_service(organization: Organization, report: Dict) -> None:
     if not settings.EE_AVAILABLE:
         return
 
@@ -278,7 +278,7 @@ def send_report_to_billing_service(organization_id: str, report: Dict) -> None:
     from ee.settings import BILLING_SERVICE_URL
 
     license = License.objects.first_valid()
-    token = build_billing_token(license, organization_id) if license else None
+    token = build_billing_token(license, organization) if license else None
 
     headers = {}
     if token:
@@ -416,7 +416,7 @@ def send_org_usage_report(
 
         if not dry_run:
             capture_event("organization usage report", organization_id, full_report_dict, timestamp=at_date)
-            send_report_to_billing_service(organization_id, full_report_dict)
+            send_report_to_billing_service(organization, full_report_dict)
 
         logger.info("Usage report for organization %s sent!", organization_id)
 
@@ -434,7 +434,7 @@ def send_org_usage_report(
                     team_ids, period_start, period_end
                 ),
             }
-            send_report_to_billing_service(organization_id, minimal_report_dict)
+            send_report_to_billing_service(organization, minimal_report_dict)
             capture_exception(err)
             capture_event("organization usage report failure", organization_id, {"error": str(err)})
 

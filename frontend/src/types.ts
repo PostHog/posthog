@@ -828,6 +828,7 @@ export interface BillingProductV2Type {
 }
 
 export interface BillingV2Type {
+    has_active_subscription: boolean
     stripe_portal_url?: string
     deactivated?: boolean
     current_total_amount_usd?: string
