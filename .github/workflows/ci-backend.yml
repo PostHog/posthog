@@ -92,11 +92,11 @@ jobs:
                   docker-compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@v2
+              uses: actions/setup-python@v4
               with:
                   python-version: 3.8.14
 
-            - uses: syphar/restore-virtualenv@v1.2
+            - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
                   custom_cache_key_element: v1-
@@ -146,11 +146,11 @@ jobs:
                   docker-compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@v2
+              uses: actions/setup-python@v4
               with:
                   python-version: 3.8.14
 
-            - uses: syphar/restore-virtualenv@v1.2
+            - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
                   custom_cache_key_element: v1-
@@ -335,11 +335,11 @@ jobs:
                   docker-compose -f master/docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@v2
+              uses: actions/setup-python@v4
               with:
                   python-version: 3.8.14
 
-            - uses: syphar/restore-virtualenv@v1.2
+            - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
 
             - uses: syphar/restore-pip-download-cache@v1
