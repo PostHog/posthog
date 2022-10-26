@@ -9,6 +9,7 @@ import {
     MultivariateFlagOptions,
     MultivariateFlagVariant,
     PropertyFilter,
+    RolloutConditionType,
 } from '~/types'
 import api from 'lib/api'
 import { router } from 'kea-router'
@@ -24,8 +25,20 @@ import { urlToAction } from 'kea-router'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { dayjs } from 'lib/dayjs'
+
+const DEFAULT_ROLLBACK_CONDITION = {
+    operator: 'gt',
+    threshold_type: RolloutConditionType.Sentry,
+    threshold: 0,
+    threshold_metric: {
+        ...cleanFilters({
+            insight: InsightType.TRENDS,
+            date_from: dayjs().subtract(7, 'day').format('YYYY-MM-DDTHH:mm'),
+            date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+        }),
+    },
+}
 
 const NEW_FLAG: FeatureFlagType = {
     id: null,
@@ -40,20 +53,9 @@ const NEW_FLAG: FeatureFlagType = {
     rollout_percentage: null,
     ensure_experience_continuity: false,
     experiment_set: null,
-    rollback_conditions: [
-        {
-            threshold: 0,
-            operator: 'gt',
-            threshold_metric: {},
-            threshold_type: 'insight',
-        },
-        {
-            operator: 'gt',
-            threshold_type: 'sentry',
-            threshold: 30,
-        },
-    ],
+    rollback_conditions: [],
     auto_rollback: false,
+    performed_rollback: false,
 }
 const NEW_VARIANT = {
     key: '',
@@ -85,8 +87,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         setFeatureFlagMissing: true,
         addConditionSet: true,
+        addRollbackCondition: true,
         setAggregationGroupTypeIndex: (value: number | null) => ({ value }),
         removeConditionSet: (index: number) => ({ index }),
+        removeRollbackCondition: (index: number) => ({ index }),
         duplicateConditionSet: (index: number) => ({ index }),
         updateConditionSet: (
             index: number,
@@ -105,8 +109,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         removeVariant: (index: number) => ({ index }),
         editFeatureFlag: (editing: boolean) => ({ editing }),
         distributeVariantsEqually: true,
-        createFeatureFlagRollbackInsight: (filters?) => ({ filters }),
-        setFeatureFlagRollbackInsight: (insight) => ({ insight }),
         setFilters: (filters) => ({ filters }),
     }),
     forms(({ actions }) => ({
@@ -162,6 +164,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                     const groups = [...state?.filters.groups, { properties: [], rollout_percentage: null }]
                     return { ...state, filters: { ...state.filters, groups } }
+                },
+                addRollbackCondition: (state) => {
+                    if (!state) {
+                        return state
+                    }
+                    return { ...state, rollback_conditions: [...state.rollback_conditions, DEFAULT_ROLLBACK_CONDITION] }
+                },
+                removeRollbackCondition: (state, { index }) => {
+                    if (!state) {
+                        return state
+                    }
+                    const rollback_conditions = [...state.rollback_conditions]
+                    rollback_conditions.splice(index, 1)
+                    return { ...state, rollback_conditions: rollback_conditions }
                 },
                 updateConditionSet: (state, { index, newRolloutPercentage, newProperties }) => {
                     if (!state) {
@@ -290,12 +306,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 editFeatureFlag: (_, { editing }) => editing,
             },
         ],
-        featureFlagRollbackInsight: [
-            null,
-            {
-                setFeatureFlagRollbackInsight: (_, { insight }) => insight,
-            },
-        ],
     }),
     loaders(({ values, props, actions }) => ({
         featureFlag: {
@@ -381,40 +391,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         loadFeatureFlagSuccess: async () => {
             actions.loadRecentInsights()
-            if (values.featureFlag.rollback_conditions[0].threshold_metric) {
-                actions.setFeatureFlagRollbackInsight(values.featureFlag.rollback_conditions[0].threshold_metric)
-            }
-        },
-        createFeatureFlagRollbackInsight: async ({ filters }) => {
-            const newInsightFilters = cleanFilters({
-                insight: InsightType.TRENDS,
-                date_from: dayjs().subtract(1, 'day').format('YYYY-MM-DDTHH:mm'),
-                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                ...filters,
-            })
-
-            const newInsight = {
-                name: ``,
-                description: '',
-                tags: [],
-                filters: newInsightFilters,
-                result: null,
-            }
-
-            const createdInsight: InsightModel = await api.create(
-                `api/projects/${values.currentTeamId}/insights`,
-                newInsight
-            )
-            actions.setFeatureFlagRollbackInsight(createdInsight)
-        },
-        setFilters: ({ filters }) => {
-            // if (values.experimentInsightType === InsightType.FUNNELS) {
-            //     funnelLogic.findMounted({ dashboardItemId: values.experimentInsightId })?.actions.setFilters(filters)
-            // } else {
-            trendsLogic
-                .findMounted({ dashboardItemId: values.featureFlagRollbackInsight?.short_id })
-                ?.actions.setFilters(filters)
-            // }
         },
     })),
     selectors({

@@ -2178,3 +2178,8 @@ export interface MediaUploadResponse {
     image_location: string
     name: string
 }
+
+export enum RolloutConditionType {
+    Insight = 'insight',
+    Sentry = 'sentry',
+}

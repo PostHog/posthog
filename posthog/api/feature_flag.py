@@ -172,6 +172,10 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         if "get_filters" in validated_data:
             validated_data["filters"] = validated_data.pop("get_filters")
 
+        active = validated_data.get("active", None)
+        if active is True:
+            validated_data["performed_rollback"] = False
+
 
 class MinimalFeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)

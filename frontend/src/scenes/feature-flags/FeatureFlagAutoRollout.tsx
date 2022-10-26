@@ -1,29 +1,17 @@
-import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { Row } from 'antd'
+import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
+import { IconDelete } from 'lib/components/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Field } from 'lib/forms/Field'
-import { humanFriendlyNumber } from 'lib/utils'
-import { useState } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { RolloutConditionType } from '~/types'
 import { featureFlagLogic } from './featureFlagLogic'
 
 export function FeatureFlagAutoRollback(): JSX.Element {
-    const { featureFlagRollbackInsight, featureFlag, sentryErrorCount } = useValues(featureFlagLogic)
-    const { createFeatureFlagRollbackInsight, setFilters, loadSentryErrorCount } = useActions(featureFlagLogic)
-    console.log(featureFlagRollbackInsight)
-    const { insightProps } = useValues(
-        insightLogic({
-            dashboardItemId: featureFlagRollbackInsight?.short_id,
-        })
-    )
-
-    const { filters: trendsFilters } = useValues(trendsLogic(insightProps))
-
-    const [hasCondition, setHasCondition] = useState(featureFlag.auto_rollback)
+    const { featureFlag } = useValues(featureFlagLogic)
+    const { addRollbackCondition, removeRollbackCondition } = useActions(featureFlagLogic)
 
     return (
         <div>
@@ -36,155 +24,128 @@ export function FeatureFlagAutoRollback(): JSX.Element {
                     Specify the conditions in which this feature flag will trigger a warning or automatically roll back.
                 </div>
             </div>
-            {hasCondition && (
-                <>
-                    <div className="RollbackCondition mb-4 mt-2">
-                        <Field name="auto_rollback">
-                            {({ value, onChange }) => (
-                                <div className="border rounded p-3" style={{ width: 'fit-content' }}>
-                                    <LemonCheckbox
-                                        id="flag-autorollback-checkbox"
-                                        label="Automatically disable the flag if rollback triggered"
-                                        onChange={() => onChange(!value)}
-                                        checked={value}
-                                    />
-                                </div>
-                            )}
-                        </Field>
-                        <div className="mt-3">
-                            <b>Metrics based rollback</b>
-                        </div>
-                        <Group name={['rollback_conditions', 0]}>
-                            <div className="flex gap-2 items-center mt-4">
-                                When
-                                <Field name="threshold_metric">
-                                    {({ onChange }) => (
-                                        <ActionFilter
-                                            filters={trendsFilters}
-                                            setFilters={(payload) => {
-                                                setFilters(payload)
-                                                onChange({
-                                                    ...trendsFilters,
-                                                    ...payload,
-                                                })
-                                            }}
-                                            typeKey={'feature-flag-rollback-trends'}
-                                            buttonCopy={'Add graph series'}
-                                            showSeriesIndicator
-                                            showNestedArrow
-                                            entitiesLimit={1}
-                                            propertiesTaxonomicGroupTypes={[
-                                                TaxonomicFilterGroupType.EventProperties,
-                                                TaxonomicFilterGroupType.PersonProperties,
-                                                TaxonomicFilterGroupType.EventFeatureFlags,
-                                                TaxonomicFilterGroupType.Cohorts,
-                                                TaxonomicFilterGroupType.Elements,
-                                            ]}
-                                        />
-                                    )}
-                                </Field>
-                                is
-                                <Field name="operator">
-                                    {({ value, onChange }) => (
-                                        <LemonSelect
-                                            value={value}
-                                            onChange={onChange}
-                                            options={[
-                                                { label: 'greater than', value: 'gt' },
-                                                { label: 'less than', value: 'lt' },
-                                            ]}
-                                        />
-                                    )}
-                                </Field>
-                                <Field name="threshold">
-                                    <LemonInput min={0} type="number" />
-                                </Field>
-                            </div>
-                        </Group>
 
-                        <div className="mt-4">
-                            <BindLogic logic={insightLogic} props={insightProps}>
-                                <InsightContainer
-                                    disableHeader={false}
-                                    disableTable={true}
-                                    disableCorrelationTable={true}
-                                />
-                            </BindLogic>
-                        </div>
-                    </div>
-                    <div>
-                        <div className="mb-2">
-                            <b>Sentry errors based rollback</b>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <LemonCheckbox
-                                id="errors-autorollback-checkbox"
-                                onChange={() => {}}
-                                // checked={ }
-                            />
-                            <Group name={['rollback_conditions', 1]}>
-                                {/* <Field name="enabled"> */}
-                                {/* {({ value, onChange }) => ( */}
-                                {/* )} */}
-                                {/* </Field> */}
-                                Trigger when there is a
-                                <Field name="threshold">
-                                    {({ value, onChange }) => (
-                                        <LemonInput
-                                            value={value || 30}
-                                            suffix={<>%</>}
-                                            type="number"
-                                            min={0}
-                                            onChange={onChange}
-                                        />
-                                    )}
-                                </Field>
-                                <Field name="operator">
-                                    {({ value, onChange }) => (
-                                        <LemonSelect
-                                            options={[
-                                                { label: 'increase', value: 'gt' },
-                                                { label: 'decrease', value: 'lt' },
-                                            ]}
-                                            value={value}
-                                            onChange={onChange}
-                                        />
-                                    )}
-                                </Field>
-                            </Group>
-                            in errors.
-                        </div>
-                        {sentryErrorCount && (
-                            <div className="mb-2 mt-2">
-                                <b>Sentry errors in the past 24 hours:</b> {humanFriendlyNumber(sentryErrorCount)}.
-                                <p>
-                                    This condition will trigger when the errors{' '}
-                                    {featureFlag.rollback_conditions[1].operator === 'gt'
-                                        ? 'increase above'
-                                        : 'fall below'}{' '}
-                                    {humanFriendlyNumber(
-                                        Math.ceil(
-                                            (sentryErrorCount * featureFlag.rollback_conditions[1].threshold) / 100
-                                        )
-                                    )}{' '}
-                                </p>
-                            </div>
-                        )}
+            {featureFlag.rollback_conditions.map((_, index) => (
+                <>
+                    {index > 0 && <div className="condition-set-separator">OR</div>}
+                    <div className="mb-4 border rounded p-4">
+                        <Group name={['rollback_conditions', index]}>
+                            <Row align="middle" justify="space-between">
+                                <Row>
+                                    <div className="mt-3 mr-3">
+                                        <b>Rollback Condition Type</b>
+                                    </div>
+                                    <Field name="threshold_type">
+                                        {({ value, onChange }) => (
+                                            <LemonSelect
+                                                value={value}
+                                                onChange={onChange}
+                                                options={[
+                                                    { value: RolloutConditionType.Sentry, label: 'Error Based' },
+                                                    { value: RolloutConditionType.Insight, label: 'Metric Based' },
+                                                ]}
+                                            />
+                                        )}
+                                    </Field>
+                                </Row>
+
+                                {featureFlag.rollback_conditions.length > 1 && (
+                                    <LemonButton
+                                        icon={<IconDelete />}
+                                        status="muted"
+                                        noPadding
+                                        onClick={() => {
+                                            removeRollbackCondition(index)
+                                        }}
+                                    />
+                                )}
+                            </Row>
+                            <LemonDivider className="my-3" />
+                            {featureFlag.rollback_conditions[index].threshold_type == 'insight' ? (
+                                <div className="flex gap-2 items-center mt-4">
+                                    When
+                                    <Field name="threshold_metric">
+                                        {({ value, onChange }) => (
+                                            <ActionFilter
+                                                filters={value}
+                                                setFilters={(payload) => {
+                                                    onChange({
+                                                        ...payload,
+                                                    })
+                                                }}
+                                                typeKey={'feature-flag-rollback-trends-' + index}
+                                                buttonCopy={'Add graph series'}
+                                                showSeriesIndicator
+                                                showNestedArrow
+                                                entitiesLimit={1}
+                                                propertiesTaxonomicGroupTypes={[
+                                                    TaxonomicFilterGroupType.EventProperties,
+                                                    TaxonomicFilterGroupType.PersonProperties,
+                                                    TaxonomicFilterGroupType.EventFeatureFlags,
+                                                    TaxonomicFilterGroupType.Cohorts,
+                                                    TaxonomicFilterGroupType.Elements,
+                                                ]}
+                                            />
+                                        )}
+                                    </Field>
+                                    is
+                                    <Field name="operator">
+                                        {({ value, onChange }) => (
+                                            <LemonSelect
+                                                value={value}
+                                                onChange={onChange}
+                                                options={[
+                                                    { label: 'greater than', value: 'gt' },
+                                                    { label: 'less than', value: 'lt' },
+                                                ]}
+                                            />
+                                        )}
+                                    </Field>
+                                    <Field name="threshold">
+                                        <LemonInput min={0} type="number" />
+                                    </Field>
+                                </div>
+                            ) : (
+                                <Row align="middle">
+                                    Trigger when there is a
+                                    <Field name="threshold" className="ml-3 mr-3">
+                                        {({ value, onChange }) => (
+                                            <LemonInput
+                                                value={value}
+                                                suffix={<>%</>}
+                                                type="number"
+                                                min={0}
+                                                onChange={onChange}
+                                            />
+                                        )}
+                                    </Field>
+                                    <Field name="operator" className="mr-3">
+                                        {({ value, onChange }) => (
+                                            <LemonSelect
+                                                options={[
+                                                    { label: 'increase', value: 'gt' },
+                                                    { label: 'decrease', value: 'lt' },
+                                                ]}
+                                                value={value}
+                                                onChange={onChange}
+                                            />
+                                        )}
+                                    </Field>
+                                    in errors.
+                                </Row>
+                            )}
+                        </Group>
                     </div>
                 </>
-            )}
-            {!hasCondition && (
-                <LemonButton
-                    type="secondary"
-                    onClick={() => {
-                        setHasCondition(true)
-                        createFeatureFlagRollbackInsight()
-                        loadSentryErrorCount()
-                    }}
-                >
-                    Add condition
-                </LemonButton>
-            )}
+            ))}
+            <LemonButton
+                type="secondary"
+                onClick={() => {
+                    addRollbackCondition()
+                }}
+            >
+                Add condition
+            </LemonButton>
         </div>
     )
 }
