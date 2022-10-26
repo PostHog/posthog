@@ -70,10 +70,10 @@ jobs:
               # Looks at the output of 'yarn test --listTests --json'
               # Take the 3rd line of the output (the first two are yarn non-sense)
               # Split the test into 3 parts. To increase the number split change the denominator in `length / 3`
-              run: echo "::set-output name=test-chunks::$(yarn test --listTests --json | sed -n 3p | jq -cM '[_nwise(length / 3 | ceil)]')"
+              run: echo "test-chunks=$(yarn test --listTests --json | sed -n 3p | jq -cM '[_nwise(length / 3 | ceil)]')" >> $GITHUB_OUTPUT
             - id: set-test-chunk-ids
               name: Set Chunk IDs
-              run: echo "::set-output name=test-chunk-ids::$(echo $CHUNKS | jq -cM 'to_entries | map(.key)')"
+              run: echo "test-chunk-ids=$(echo $CHUNKS | jq -cM 'to_entries | map(.key)')" >> $GITHUB_OUTPUT
               env:
                   CHUNKS: ${{ steps['set-test-chunks'].outputs['test-chunks'] }}
 
