@@ -20,4 +20,9 @@ class Migration(migrations.Migration):
             name="rollback_conditions",
             field=models.JSONField(default=list, null=True),
         ),
+        migrations.AddField(
+            model_name="featureflag",
+            name="performed_rollback",
+            field=models.BooleanField(default=False, null=True),
+        ),
     ]
