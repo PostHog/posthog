@@ -41,13 +41,17 @@ MATERIALIZED_COLUMNS = {
         "schema": "Int8",
         "materializer": "MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary))",
     },
+    "timestamps_summary": {
+        "schema": "Array(DateTime64(6, 'UTC'))",
+        "materializer": "MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary))",
+    },
     "first_event_timestamp": {
         "schema": "DateTime64(6, 'UTC')",
-        "materializer": "MATERIALIZED toDateTime(arrayReduce('min', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary)) / 1000)",
+        "materializer": "MATERIALIZED arrayReduce('min', timestamps_summary)",
     },
     "last_event_timestamp": {
         "schema": "DateTime64(6, 'UTC')",
-        "materializer": "MATERIALIZED toDateTime(arrayReduce('max', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary)) / 1000)",
+        "materializer": "MATERIALIZED arrayReduce('max', timestamps_summary)",
     },
     "urls": {
         "schema": "Array(String)",
