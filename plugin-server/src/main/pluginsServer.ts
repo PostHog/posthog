@@ -101,19 +101,21 @@ export async function startPluginsServer(
             pubSub?.stop(),
             hub?.graphileWorker.stop(),
             bufferConsumer?.disconnect(),
-            new Promise<void>((resolve, reject) =>
-                !mmdbServer
-                    ? resolve()
-                    : mmdbServer.close((error) => {
-                          if (error) {
-                              reject(error)
-                          } else {
-                              status.info('🛑', 'Closed internal MMDB server!')
-                              resolve()
-                          }
-                      })
-            ),
         ])
+
+        await new Promise<void>((resolve, reject) =>
+            !mmdbServer
+                ? resolve()
+                : mmdbServer.close((error) => {
+                      if (error) {
+                          reject(error)
+                      } else {
+                          status.info('🛑', 'Closed internal MMDB server!')
+                          resolve()
+                      }
+                  })
+        )
+
         if (piscina) {
             await stopPiscina(piscina)
         }
