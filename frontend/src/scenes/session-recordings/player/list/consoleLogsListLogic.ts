@@ -17,7 +17,6 @@ import {
 } from 'scenes/session-recordings/player/playerUtils'
 import { colonDelimitedDuration } from 'lib/utils'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
-import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { parseConsoleLogPayload } from 'scenes/session-recordings/player/list/consoleLogsUtils'
 import Fuse from 'fuse.js'
@@ -32,9 +31,7 @@ export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
         logic: [eventUsageLogic],
         values: [
             sessionRecordingDataLogic({ sessionRecordingId }),
-            ['filters'],
-            sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
-            ['sessionPlayerData'],
+            ['sessionPlayerData', 'filters'],
             sharedListLogic({ sessionRecordingId, playerKey }),
             ['windowIdFilter'],
         ],
