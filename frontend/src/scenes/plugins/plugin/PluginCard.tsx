@@ -75,6 +75,7 @@ export function PluginCard({
         name,
         description,
         url,
+        icon,
         plugin_type: pluginType,
         pluginConfig,
         tag,
@@ -152,7 +153,7 @@ export function PluginCard({
                         </Col>
                     )}
                     <Col className={pluginConfig ? 'hide-plugin-image-below-500' : ''}>
-                        <PluginImage pluginType={pluginType} url={url} />
+                        <PluginImage pluginType={pluginType} icon={icon} url={url} />
                     </Col>
                     <Col style={{ flex: 1 }}>
                         <div>
