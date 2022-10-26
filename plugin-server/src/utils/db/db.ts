@@ -715,7 +715,7 @@ export class DB {
             } else {
                 // We couldn't find the data from the cache nor Postgres, so record this in a metric and in Sentry
                 this.statsd?.increment('groups_data_missing_entirely')
-                captureException(new Error('Missing groups data entirely'), { extra: { groupCacheKey } })
+                status.debug('🔍', `Could not find group data for group ${groupCacheKey} in cache or storage`)
 
                 groupColumns[propertiesColumnName] = '{}'
                 groupColumns[createdAtColumnName] = castTimestampOrNow(
