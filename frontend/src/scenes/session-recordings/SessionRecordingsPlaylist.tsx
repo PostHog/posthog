@@ -51,24 +51,29 @@ const SessionRecordingPlaylistItem = ({
         'SessionRecordingsPlaylist__list-item__property-icon text-lg text-muted-alt',
         !isActive && 'opacity-75'
     )
-    const iconProperties = ['$browser', '$device_type', '$os', '$geoip_country_code']
+    const iconPropertyKeys = ['$browser', '$device_type', '$os', '$geoip_country_code']
+    const iconProperties = recording.properties || recording.person?.properties || {}
 
     const propertyIcons = (
         <div className="flex flex-row flex-nowrap shrink-0 gap-1">
-            {iconProperties.map((property) => (
+            {iconPropertyKeys.map((property) => (
                 <PropertyIcon
                     key={property}
                     onClick={onPropertyClick}
                     className={iconClassnames}
                     property={property}
-                    value={recording.properties?.[property]}
-                    tooltipTitle={(_, value) => (
-                        <div className="text-center">
-                            Click to filter for
-                            <br />
-                            <span className="font-medium">{value}</span>
-                        </div>
-                    )}
+                    value={iconProperties?.[property]}
+                    tooltipTitle={(_, value) =>
+                        value ? (
+                            <div className="text-center">
+                                Click to filter for
+                                <br />
+                                <span className="font-medium">{value}</span>
+                            </div>
+                        ) : (
+                            ''
+                        )
+                    }
                 />
             ))}
         </div>
