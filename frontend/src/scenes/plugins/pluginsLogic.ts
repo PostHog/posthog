@@ -72,7 +72,11 @@ export const pluginsLogic = kea<pluginsLogicType>([
     actions({
         editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
-        installPlugin: (pluginUrl: string, pluginType: PluginInstallationType) => ({ pluginUrl, pluginType }),
+        installPlugin: (pluginUrl: string, pluginType: PluginInstallationType, pluginIcon?: string) => ({
+            pluginUrl,
+            pluginType,
+            pluginIcon,
+        }),
         uninstallPlugin: (name: string) => ({ name }),
         setCustomPluginUrl: (customPluginUrl: string) => ({ customPluginUrl }),
         setLocalPluginUrl: (localPluginUrl: string) => ({ localPluginUrl }),
@@ -122,11 +126,13 @@ export const pluginsLogic = kea<pluginsLogicType>([
                     }
                     return plugins
                 },
-                installPlugin: async ({ pluginUrl, pluginType }) => {
+                installPlugin: async ({ pluginUrl, pluginIcon, pluginType }) => {
                     const url = pluginType === 'local' ? `file:${pluginUrl}` : pluginUrl
                     const response = await api.create(
                         'api/organizations/@current/plugins',
-                        pluginType === 'source' ? { plugin_type: pluginType, name: url } : { url }
+                        pluginType === 'source'
+                            ? { plugin_type: pluginType, name: url, icon: pluginIcon }
+                            : { url, icon: pluginIcon }
                     )
                     if (pluginType === 'source') {
                         await api.update(`api/organizations/@current/plugins/${response.id}/update_source`, {

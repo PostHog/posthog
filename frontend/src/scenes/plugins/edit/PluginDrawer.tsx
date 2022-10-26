@@ -234,6 +234,7 @@ export function PluginDrawer(): JSX.Element {
                                 <PluginImage
                                     pluginType={editingPlugin.plugin_type}
                                     url={editingPlugin.url}
+                                    icon={editingPlugin.icon}
                                     size="large"
                                 />
                                 <div style={{ flexGrow: 1, paddingLeft: 16 }}>
