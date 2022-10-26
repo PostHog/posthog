@@ -43,6 +43,7 @@ export function DataAttributes(): JSX.Element {
                     value={value}
                     data-attr="data-attribute-select"
                     placeholder={'data-attr, ...'}
+                    hideDropdown
                     loading={currentTeamLoading}
                     disabled={currentTeamLoading}
                 />

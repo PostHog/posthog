@@ -23,6 +23,12 @@ export interface LemonSelectMultipleProps {
     disabled?: boolean
     loading?: boolean
     placeholder?: string
+
+    /**
+     * Specifies if the options dropdown should be hidden entirely,
+     * eg. for a tag style with no pre-set options
+     */
+    hideDropdown?: boolean
     onChange?: (newValue: string[]) => void
     onSearch?: (value: string) => void
     filterOption?: boolean
@@ -38,6 +44,7 @@ export function LemonSelectMultiple({
     placeholder,
     onChange,
     onSearch,
+    hideDropdown,
     filterOption = true,
     mode = 'single',
     ...props
@@ -71,6 +78,7 @@ export function LemonSelectMultiple({
                 optionFilterProp="labelString"
                 options={antOptions}
                 placeholder={placeholder}
+                popupClassName={hideDropdown ? 'LemonSelectMultipleDropdown__hidden' : ''}
                 notFoundContent={
                     loading ? (
                         <div>
