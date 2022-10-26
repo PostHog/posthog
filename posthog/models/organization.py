@@ -139,6 +139,8 @@ class Organization(UUIDModel):
 
     def update_available_features(self) -> List[Union[AvailableFeature, str]]:
         """Updates field `available_features`. Does not `save()`."""
+        # TODO BW: Get available features from billing service
+
         plan, realm = self._billing_plan_details
         if not plan:
             self.available_features = []
