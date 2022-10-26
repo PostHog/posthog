@@ -398,7 +398,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                 <div className="space-y-2">
                                     <LemonLabel
                                         info={
-                                            'This is roughly caculated based on your current bill and the remaining time left in this billing period.'
+                                            'This is roughly calculated based on your current bill and the remaining time left in this billing period.'
                                         }
                                     >
                                         Predicted bill
