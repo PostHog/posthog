@@ -86,6 +86,8 @@ class Command(BaseCommand):
                 event={
                     **dataclasses.asdict(event),
                     "timestamp": event.timestamp.isoformat(),
+                    "person_id": str(event.person_id),
+                    "person_created_at": event.person_created_at.isoformat(),
                 },
                 distinct_id=event.distinct_id,
                 ip="",
