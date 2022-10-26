@@ -1,8 +1,12 @@
 import { useRef } from 'react'
-import { useActions, useValues, BindLogic } from 'kea'
+import { useActions, useValues } from 'kea'
 import { colonDelimitedDuration, range } from '~/lib/utils'
-import { PropertyOperator, SessionRecordingType } from '~/types'
-import { PLAYLIST_LIMIT, sessionRecordingsListLogic } from './sessionRecordingsListLogic'
+import { SessionRecordingType } from '~/types'
+import {
+    defaultPageviewPropertyEntityFilter,
+    PLAYLIST_LIMIT,
+    sessionRecordingsListLogic,
+} from './sessionRecordingsListLogic'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import './SessionRecordingsPlaylist.scss'
 import { TZLabel } from 'lib/components/TimezoneAware'
@@ -24,17 +28,19 @@ interface SessionRecordingsTableProps {
     isPersonPage?: boolean
 }
 
+interface SessionRecordingPlaylistItemProps {
+    recording: SessionRecordingType
+    isActive: boolean
+    onClick: () => void
+    onPropertyClick: (property: string, value?: string) => void
+}
+
 const SessionRecordingPlaylistItem = ({
     recording,
     isActive,
     onClick,
-}: {
-    recording: SessionRecordingType
-    isActive: boolean
-    onClick: () => void
-}): JSX.Element => {
-    const { setPropertyFilters } = useActions(sessionRecordingsListLogic)
-    const { propertyFilters } = useValues(sessionRecordingsListLogic)
+    onPropertyClick,
+}: SessionRecordingPlaylistItemProps): JSX.Element => {
     const formattedDuration = colonDelimitedDuration(recording.recording_duration)
     const durationParts = formattedDuration.split(':')
 
@@ -45,18 +51,6 @@ const SessionRecordingPlaylistItem = ({
         'SessionRecordingsPlaylist__list-item__property-icon text-lg text-muted-alt',
         !isActive && 'opacity-75'
     )
-    function iconOnClick(property: string, value?: string): void {
-        value &&
-            setPropertyFilters([
-                ...propertyFilters.filter(({ key }) => key !== property),
-                {
-                    key: property,
-                    value: [value],
-                    operator: PropertyOperator.Exact,
-                    type: 'person',
-                },
-            ])
-    }
     const iconProperties = ['$browser', '$device_type', '$os', '$geoip_country_code']
 
     const propertyIcons = (
@@ -64,10 +58,17 @@ const SessionRecordingPlaylistItem = ({
             {iconProperties.map((property) => (
                 <PropertyIcon
                     key={property}
-                    onClick={iconOnClick}
+                    onClick={onPropertyClick}
                     className={iconClassnames}
                     property={property}
                     value={recording.properties?.[property]}
+                    tooltipTitle={(_, value) => (
+                        <div className="text-center">
+                            Click to filter for
+                            <br />
+                            <span className="font-medium">{value}</span>
+                        </div>
+                    )}
                 />
             ))}
         </div>
@@ -141,9 +142,16 @@ const SessionRecordingPlaylistItem = ({
 export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTableProps): JSX.Element {
     const logicProps = { personUUID }
     const logic = sessionRecordingsListLogic(logicProps)
-    const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev, activeSessionRecording, offset } =
-        useValues(logic)
-    const { setSelectedRecordingId, loadNext, loadPrev } = useActions(logic)
+    const {
+        sessionRecordings,
+        sessionRecordingsResponseLoading,
+        hasNext,
+        hasPrev,
+        activeSessionRecording,
+        offset,
+        entityFilters,
+    } = useValues(logic)
+    const { setSelectedRecordingId, loadNext, loadPrev, setEntityFilters } = useActions(logic)
     const playlistRef = useRef<HTMLDivElement>(null)
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
@@ -158,6 +166,10 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                 behavior: 'smooth',
             })
         }
+    }
+
+    const onPropertyClick = (property: string, value?: string): void => {
+        setEntityFilters(defaultPageviewPropertyEntityFilter(entityFilters, property, value))
     }
 
     const nextLength = offset + (sessionRecordingsResponseLoading ? PLAYLIST_LIMIT : sessionRecordings.length)
@@ -215,19 +227,18 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                         )
                     ) : (
                         <ul className={clsx(sessionRecordingsResponseLoading ? 'opacity-50' : '')}>
-                            <BindLogic logic={sessionRecordingsListLogic} props={logicProps}>
-                                {sessionRecordings.map((rec, i) => (
-                                    <>
-                                        {i > 0 && <div className="border-t" />}
-                                        <SessionRecordingPlaylistItem
-                                            key={rec.id}
-                                            recording={rec}
-                                            onClick={() => onRecordingClick(rec)}
-                                            isActive={activeSessionRecording?.id === rec.id}
-                                        />
-                                    </>
-                                ))}
-                            </BindLogic>
+                            {sessionRecordings.map((rec, i) => (
+                                <>
+                                    {i > 0 && <div className="border-t" />}
+                                    <SessionRecordingPlaylistItem
+                                        key={rec.id}
+                                        recording={rec}
+                                        onClick={() => onRecordingClick(rec)}
+                                        onPropertyClick={onPropertyClick}
+                                        isActive={activeSessionRecording?.id === rec.id}
+                                    />
+                                </>
+                            ))}
                         </ul>
                     )}
                 </div>

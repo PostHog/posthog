@@ -20,6 +20,7 @@ import {
 import clsx from 'clsx'
 import { Tooltip } from 'lib/components/Tooltip'
 import { countryCodeToFlag } from 'scenes/insights/views/WorldMap'
+import { ReactNode } from 'react'
 
 export const PROPERTIES_ICON_MAP = {
     $browser: {
@@ -61,9 +62,17 @@ interface PropertyIconProps {
     className?: string
     noTooltip?: boolean
     onClick?: (property: string, value?: string) => void
+    tooltipTitle?: (property: string, value?: string) => ReactNode // Tooltip title will default to `value`
 }
 
-export function PropertyIcon({ property, value, className, noTooltip, onClick }: PropertyIconProps): JSX.Element {
+export function PropertyIcon({
+    property,
+    value,
+    className,
+    noTooltip,
+    tooltipTitle,
+    onClick,
+}: PropertyIconProps): JSX.Element {
     if (!property || !(property in PROPERTIES_ICON_MAP)) {
         return <></>
     }
@@ -91,5 +100,5 @@ export function PropertyIcon({ property, value, className, noTooltip, onClick }:
         </div>
     )
 
-    return noTooltip ? content : <Tooltip title={value}>{content}</Tooltip>
+    return noTooltip ? content : <Tooltip title={tooltipTitle?.(property, value) ?? value}>{content}</Tooltip>
 }
