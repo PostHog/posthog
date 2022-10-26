@@ -14,6 +14,12 @@ def update_app_urls_and_icons(apps, schema_edirtor):
             plugin.save()
 
 
+# Because of the nature of this migration, there's no way to reverse it without potentially destroying customer data
+# However, we still need a reverse function, so that we can rollback other migrations
+def reverse(apps, _):
+    pass
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
