@@ -6,6 +6,7 @@ import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LockOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from './featureFlagLogic'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
@@ -31,7 +32,7 @@ import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermark'
-import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
+import { FEATURE_FLAGS, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
@@ -40,6 +41,7 @@ import { allOperatorsToHumanName } from 'lib/components/DefinitionPopup/utils'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
 import { cohortsModel } from '~/models/cohortsModel'
+import { FeatureFlagRecordings } from './FeatureFlagRecordingsCard'
 import { billingLogic } from 'scenes/billing/billingLogic'
 
 export const scene: SceneExport = {
@@ -59,6 +61,7 @@ function focusVariantKeyField(index: number): void {
 
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag } = useValues(featureFlagLogic)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
     const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag } = useActions(featureFlagLogic)
 
     // whether the key for an existing flag is being changed
@@ -329,9 +332,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <Col span={11} className="pl-4">
                                                 <RecentFeatureFlagInsights />
                                                 <div className="my-4" />
-                                                <FeatureFlagInstructions
-                                                    featureFlagKey={featureFlag.key || 'my-flag'}
-                                                />
+                                                {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] ? (
+                                                    <FeatureFlagRecordings flagKey={featureFlag.key || 'my-flag'} />
+                                                ) : (
+                                                    <FeatureFlagInstructions
+                                                        featureFlagKey={featureFlag.key || 'my-flag'}
+                                                    />
+                                                )}
                                             </Col>
                                         </Row>
                                     </Tabs.TabPane>
