@@ -13,6 +13,7 @@ from kafka import KafkaAdminClient, KafkaConsumer, TopicPartition
 
 from posthog.api.capture import capture_internal
 from posthog.demo.products.hedgebox import HedgeboxMatrix
+from posthog.models.utils import UUIDT
 from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 
 logging.getLogger("kafka").setLevel(logging.WARNING)  # Hide kafka-python's logspam
@@ -86,6 +87,8 @@ class Command(BaseCommand):
                 event={
                     **dataclasses.asdict(event),
                     "timestamp": event.timestamp.isoformat(),
+                    "person_id": str(event.person_id),
+                    "person_created_at": event.person_created_at.isoformat(),
                 },
                 distinct_id=event.distinct_id,
                 ip="",
@@ -93,6 +96,7 @@ class Command(BaseCommand):
                 team_id=options["team_id"],
                 now=event.timestamp,
                 sent_at=event.timestamp,
+                event_uuid=str(UUIDT()),
             )
 
         while True:
