@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { billingLogic } from './billingLogic'
-import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonSelect,
+    LemonSelectOptions,
+    LemonSwitch,
+    Link,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Spinner, SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { Form } from 'kea-forms'
@@ -22,6 +30,7 @@ export function BillingV2(): JSX.Element {
     const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingLogic)
     const { setShowLicenseDirectInput } = useActions(billingLogic)
     const { preflight } = useValues(preflightLogic)
+    const [enterprisePackage, setEnterprisePackage] = useState(false)
 
     if (!billing && billingLoading) {
         return <SpinnerOverlay />
@@ -36,6 +45,9 @@ export function BillingV2(): JSX.Element {
             contact support{' '}
         </Link>
     )
+
+    const products =
+        enterprisePackage && billing?.products_enterprise ? billing?.products_enterprise : billing?.products
 
     return (
         <div>
@@ -72,7 +84,7 @@ export function BillingV2(): JSX.Element {
                                     <LemonLabel
                                         info={'This is the current amount you have been billed for this month so far.'}
                                     >
-                                        Current bill
+                                        Current bill total
                                     </LemonLabel>
                                     <div className="font-bold text-4xl">${billing.current_total_amount_usd}</div>
                                 </div>
@@ -133,9 +145,11 @@ export function BillingV2(): JSX.Element {
                                 </Form>
                             </>
                         ) : (
-                            <>
+                            <div className="space-y-4">
                                 <LemonButton
-                                    to="/api/billing-v2/activation"
+                                    to={`/api/billing-v2/activation?plan=${
+                                        enterprisePackage ? 'enterprise' : 'standard'
+                                    }`}
                                     type="primary"
                                     size="large"
                                     fullWidth
@@ -144,7 +158,22 @@ export function BillingV2(): JSX.Element {
                                 >
                                     Setup payment
                                 </LemonButton>
-                            </>
+
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <LemonLabel>Enterprise package</LemonLabel>
+                                        <LemonSwitch
+                                            className="flex items-center justify-between"
+                                            checked={enterprisePackage}
+                                            onChange={setEnterprisePackage}
+                                        />
+                                    </div>
+                                    <p>
+                                        Starts at <b>$450/mo</b> and comes with SSO, advanced permissions, and a
+                                        dedicated Slack channel for support
+                                    </p>
+                                </div>
+                            </div>
                         )}
 
                         {!preflight?.cloud && billing?.license?.plan ? (
@@ -174,11 +203,11 @@ export function BillingV2(): JSX.Element {
                 </div>
             )}
 
-            {billing?.products?.map((x) => (
-                <>
+            {products?.map((x) => (
+                <div key={x.type}>
                     <LemonDivider dashed className="my-2" />
                     <BillingProduct product={x} />
-                </>
+                </div>
             ))}
         </div>
     )
@@ -333,6 +362,14 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
         [product, billingLimitAsUsage, customLimitUsd]
     )
 
+    const tierDisplayOptions: LemonSelectOptions<string> = [
+        { label: `Per ${product.type.toLowerCase()}`, value: 'individual' },
+    ]
+
+    if (billing?.stripe_portal_url) {
+        tierDisplayOptions.push({ label: `Current bill`, value: 'total' })
+    }
+
     return (
         <div
             className={clsx('flex flex-wrap', {
@@ -356,77 +393,84 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                             </LemonLabel>
                             <div className="font-bold text-4xl">${product.current_amount_usd}</div>
                         </div>
-                        <div className="space-y-2">
-                            <LemonLabel
-                                info={
-                                    'This is roughly caculated based on your current bill and the remaining time left in this billing period.'
-                                }
-                            >
-                                Predicted bill
-                            </LemonLabel>
-                            <div className="font-bold text-muted text-2xl">
-                                $
-                                {product.projected_usage
-                                    ? convertUsageToAmount(product.projected_usage, product.tiers)
-                                    : '0.00'}
-                            </div>
-                        </div>
-                        <div className="flex-1" />
-                        <div className="space-y-2 text-right">
-                            <LemonLabel
-                                info={
-                                    <>
-                                        Set a billing limit to control your recurring costs.{' '}
-                                        <b>Your critical data will still be ingested and available in the product</b>.
-                                        Some features may cease operation if your usage greatly exceeds your billing
-                                        cap.
-                                    </>
-                                }
-                            >
-                                Billing limit
-                            </LemonLabel>
-                            <div className="flex justify-end gap-2 items-center">
-                                {showBillingLimit ? (
-                                    <div style={{ maxWidth: 180 }}>
-                                        <LemonInput
-                                            type="number"
-                                            fullWidth={false}
-                                            value={billingLimit}
-                                            onChange={setBillingLimit}
-                                            prefix={<b>$</b>}
-                                            disabled={billingLoading}
-                                            min={0}
-                                            step={10}
-                                            suffix={<>/month</>}
-                                        />
-                                    </div>
-                                ) : (
-                                    <span className="text-muted">No limit set</span>
-                                )}
-
-                                {showBillingLimit && billingLimitInputChanged ? (
-                                    <LemonButton
-                                        onClick={() => updateBillingLimit(billingLimit)}
-                                        loading={billingLoading}
-                                        type="secondary"
+                        {product.tiered && (
+                            <>
+                                <div className="space-y-2">
+                                    <LemonLabel
+                                        info={
+                                            'This is roughly calculated based on your current bill and the remaining time left in this billing period.'
+                                        }
                                     >
-                                        Save
-                                    </LemonButton>
-                                ) : billingLoading ? (
-                                    <Spinner className="text-lg" />
-                                ) : (
-                                    <LemonSwitch
-                                        className="my-2"
-                                        checked={showBillingLimit}
-                                        onChange={onBillingLimitToggle}
-                                    />
-                                )}
-                            </div>
-                        </div>
+                                        Predicted bill
+                                    </LemonLabel>
+                                    <div className="font-bold text-muted text-2xl">
+                                        $
+                                        {product.projected_usage
+                                            ? convertUsageToAmount(product.projected_usage, product.tiers)
+                                            : '0.00'}
+                                    </div>
+                                </div>
+                                <div className="flex-1" />
+                                <div className="space-y-2 text-right">
+                                    <LemonLabel
+                                        info={
+                                            <>
+                                                Set a billing limit to control your recurring costs.{' '}
+                                                <b>
+                                                    Your critical data will still be ingested and available in the
+                                                    product
+                                                </b>
+                                                . Some features may cease operation if your usage greatly exceeds your
+                                                billing cap.
+                                            </>
+                                        }
+                                    >
+                                        Billing limit
+                                    </LemonLabel>
+                                    <div className="flex justify-end gap-2 items-center">
+                                        {showBillingLimit ? (
+                                            <div style={{ maxWidth: 180 }}>
+                                                <LemonInput
+                                                    type="number"
+                                                    fullWidth={false}
+                                                    value={billingLimit}
+                                                    onChange={setBillingLimit}
+                                                    prefix={<b>$</b>}
+                                                    disabled={billingLoading}
+                                                    min={0}
+                                                    step={10}
+                                                    suffix={<>/month</>}
+                                                />
+                                            </div>
+                                        ) : (
+                                            <span className="text-muted">No limit set</span>
+                                        )}
+
+                                        {showBillingLimit && billingLimitInputChanged ? (
+                                            <LemonButton
+                                                onClick={() => updateBillingLimit(billingLimit)}
+                                                loading={billingLoading}
+                                                type="secondary"
+                                            >
+                                                Save
+                                            </LemonButton>
+                                        ) : billingLoading ? (
+                                            <Spinner className="text-lg" />
+                                        ) : (
+                                            <LemonSwitch
+                                                className="my-2"
+                                                checked={showBillingLimit}
+                                                onChange={onBillingLimitToggle}
+                                            />
+                                        )}
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
                 ) : null}
 
-                <BillingGauge items={billingGaugeItems} />
+                {product.tiered && <BillingGauge items={billingGaugeItems} />}
 
                 {product.percentage_usage > 1 ? (
                     <AlertMessage type={'error'}>
@@ -449,47 +493,60 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                         <span dangerouslySetInnerHTML={{ __html: product.price_description }} />
                     </AlertMessage>
                 ) : null}
-                <div className="flex justify-between items-center">
-                    <b>Pricing breakdown</b>
 
-                    <LemonSelect
-                        size="small"
-                        value={tierAmountType}
-                        options={[
-                            { label: `Per ${product.type.toLowerCase()}`, value: 'individual' },
-                            { label: `Current bill`, value: 'total' },
-                        ]}
-                        dropdownMatchSelectWidth={false}
-                        onChange={(val: any) => setTierAmountType(val)}
-                    />
-                </div>
+                {product.tiered ? (
+                    <>
+                        <div className="flex justify-between items-center">
+                            <b>Pricing breakdown</b>
 
-                <ul>
-                    {product.tiers.map((tier, i) => (
-                        <li
-                            key={i}
-                            className={clsx('flex justify-between py-2', {
-                                'border-t border-dashed': i > 0,
-                                'font-bold': tier.current_amount_usd !== null,
-                            })}
-                        >
-                            <span>
-                                {i === 0
-                                    ? `First ${summarizeUsage(tier.up_to)} ${product.type.toLowerCase()} / mo`
-                                    : tier.up_to
-                                    ? `${summarizeUsage(product.tiers[i - 1].up_to)} - ${summarizeUsage(tier.up_to)}`
-                                    : `> ${summarizeUsage(product.tiers[i - 1].up_to)}`}
-                            </span>
-                            <b>
-                                {tierAmountType === 'individual' ? (
-                                    <>{tier.unit_amount_usd !== '0' ? `$${tier.unit_amount_usd}` : 'Free'}</>
-                                ) : (
-                                    <>${tier.current_amount_usd || '0.00'}</>
-                                )}
-                            </b>
-                        </li>
-                    ))}
-                </ul>
+                            <LemonSelect
+                                size="small"
+                                value={tierAmountType}
+                                options={tierDisplayOptions}
+                                dropdownMatchSelectWidth={false}
+                                onChange={(val: any) => setTierAmountType(val)}
+                            />
+                        </div>
+
+                        <ul>
+                            {product.tiers.map((tier, i) => (
+                                <li
+                                    key={i}
+                                    className={clsx('flex justify-between py-2', {
+                                        'border-t border-dashed': i > 0,
+                                        'font-bold': tier.current_amount_usd !== null,
+                                    })}
+                                >
+                                    <span>
+                                        {i === 0
+                                            ? `First ${summarizeUsage(tier.up_to)} ${product.type.toLowerCase()} / mo`
+                                            : tier.up_to
+                                            ? `${summarizeUsage(product.tiers[i - 1].up_to)} - ${summarizeUsage(
+                                                  tier.up_to
+                                              )}`
+                                            : `> ${summarizeUsage(product.tiers[i - 1].up_to)}`}
+                                    </span>
+                                    <b>
+                                        {tierAmountType === 'individual' ? (
+                                            <>{tier.unit_amount_usd !== '0' ? `$${tier.unit_amount_usd}` : 'Free'}</>
+                                        ) : (
+                                            <>${tier.current_amount_usd || '0.00'}</>
+                                        )}
+                                    </b>
+                                </li>
+                            ))}
+                        </ul>
+                    </>
+                ) : (
+                    <div className="space-y-2">
+                        <div className="font-bold">Pricing breakdown</div>
+
+                        <div className="flex justify-between py-2">
+                            <span>Per month</span>
+                            <span className="font-bold">${product.unit_amount_usd}</span>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     )

@@ -818,17 +818,21 @@ export interface BillingProductV2Type {
         current_amount_usd?: string | null
         up_to: number | null
     }[]
+    tiered: boolean
     current_usage?: number
     projected_usage?: number
     percentage_usage: number
     current_amount_usd?: string
     usage_limit?: number
+    unit_amount_usd: string | null
 }
 
 export interface BillingV2Type {
     stripe_portal_url?: string
+    deactivated?: boolean
     current_total_amount_usd?: string
     products: BillingProductV2Type[]
+    products_enterprise?: BillingProductV2Type[]
 
     custom_limits_usd?: {
         [key: string]: string | null | undefined
