@@ -10,7 +10,7 @@ import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { CaretDownOutlined } from '@ant-design/icons'
 import { secondaryMetricsLogic, SecondaryMetricsProps } from './secondaryMetricsLogic'
 import { LemonButton } from 'lib/components/LemonButton'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/MathSelector'
 import { IconDelete } from 'lib/components/icons'
 
 export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryMetricsProps): JSX.Element {

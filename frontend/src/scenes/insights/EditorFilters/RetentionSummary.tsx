@@ -14,7 +14,7 @@ import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
 import { groupsModel } from '~/models/groupsModel'
-import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/MathSelector'
 
 export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Element {
     const { showGroupsOptions } = useValues(groupsModel)

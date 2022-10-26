@@ -2,7 +2,7 @@ import './ActionFilter.scss'
 import React, { useEffect } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
-import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
+import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
 import {
     ActionFilter as ActionFilterType,
     FilterType,
@@ -18,6 +18,7 @@ import { teamLogic } from '../../../teamLogic'
 import clsx from 'clsx'
 import { LemonButton, LemonButtonProps } from 'lib/components/LemonButton'
 import { IconPlusMini } from 'lib/components/icons'
+import { MathAvailability } from './ActionFilterRow/MathSelector'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void

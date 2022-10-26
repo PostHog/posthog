@@ -8,8 +8,6 @@ import {
     FunnelStepRangeEntityFilter,
     PropertyFilterValue,
     BaseMathType,
-    PropertyMathType,
-    CountPerActorMathType,
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { entityFilterLogic } from '../entityFilterLogic'
@@ -19,14 +17,7 @@ import './ActionFilterRow.scss'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import {
-    apiValueToMathType,
-    COUNT_PER_ACTOR_MATH_DEFINITIONS,
-    MathCategory,
-    mathsLogic,
-    mathTypeToApiValues,
-    PROPERTY_MATH_DEFINITIONS,
-} from 'scenes/trends/mathsLogic'
+import { MathCategory, mathsLogic, mathTypeToApiValues } from 'scenes/trends/mathsLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicStringPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
@@ -34,23 +25,13 @@ import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/c
 import { SortableHandle as sortableHandle } from 'react-sortable-hoc'
 import { SortableDragIcon } from 'lib/components/icons'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
-import { useState } from 'react'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
+import { MathAvailability, MathSelector } from './MathSelector'
 
 const DragHandle = sortableHandle(() => (
     <span className="ActionFilterRowDragHandle">
         <SortableDragIcon />
     </span>
 ))
-
-export enum MathAvailability {
-    All,
-    ActorsOnly,
-    None,
-}
 
 export interface ActionFilterRowProps {
     logic: typeof entityFilterLogic
@@ -402,133 +383,6 @@ export function ActionFilterRow({
                 </div>
             )}
         </div>
-    )
-}
-
-interface MathSelectorProps {
-    math?: string
-    mathGroupTypeIndex?: number | null
-    mathAvailability: MathAvailability
-    index: number
-    onMathSelect: (index: number, value: any) => any
-    style?: React.CSSProperties
-}
-
-function useMathSelectorOptions(
-    index: number,
-    mathAvailability: MathAvailability,
-    onMathSelect: (index: number, value: any) => any
-): LemonSelectOptions<string> {
-    const { needsUpgradeForGroups, canStartUsingGroups, staticMathDefinitions, staticActorsOnlyMathDefinitions } =
-        useValues(mathsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(PropertyMathType.Average)
-    const [countPerActorMathTypeShown, setCountPerActorMathTypeShown] = useState<CountPerActorMathType>(
-        CountPerActorMathType.Average
-    )
-
-    const options: LemonSelectOption<string>[] = Object.entries(
-        mathAvailability != MathAvailability.ActorsOnly ? staticMathDefinitions : staticActorsOnlyMathDefinitions
-    ).map(([key, definition]) => ({
-        value: key,
-        label: definition.name,
-        tooltip: definition.description,
-        'data-attr': `math-${key}-${index}`,
-    }))
-
-    if (mathAvailability !== MathAvailability.ActorsOnly) {
-        if (featureFlags[FEATURE_FLAGS.EVENT_COUNT_PER_ACTOR]) {
-            options.splice(1, 0, {
-                value: countPerActorMathTypeShown,
-                label: (
-                    <div className="flex items-center gap-2">
-                        <span>Count per user</span>
-                        <LemonSelect
-                            value={countPerActorMathTypeShown}
-                            onSelect={(value) => {
-                                setCountPerActorMathTypeShown(value as CountPerActorMathType)
-                                onMathSelect(index, value)
-                            }}
-                            options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS).map(([key, definition]) => ({
-                                value: key,
-                                label: definition.shortName,
-                                tooltip: definition.description,
-                                'data-attr': `math-${key}-${index}`,
-                            }))}
-                            onClick={(e) => e.stopPropagation()}
-                            size="small"
-                            className="-mr-1"
-                            dropdownMatchSelectWidth={false}
-                            optionTooltipPlacement="right"
-                        />
-                    </div>
-                ),
-                tooltip: 'Statistical analysis of event count per user.',
-                'data-attr': `math-node-count-per-actor-${index}`,
-            })
-        }
-        options.push({
-            value: propertyMathTypeShown,
-            label: (
-                <div className="flex items-center gap-2">
-                    <span>Property value</span>
-                    <LemonSelect
-                        value={propertyMathTypeShown}
-                        onSelect={(value) => {
-                            setPropertyMathTypeShown(value as PropertyMathType)
-                            onMathSelect(index, value)
-                        }}
-                        options={Object.entries(PROPERTY_MATH_DEFINITIONS).map(([key, definition]) => ({
-                            value: key,
-                            label: definition.shortName,
-                            tooltip: definition.description,
-                            'data-attr': `math-${key}-${index}`,
-                        }))}
-                        onClick={(e) => e.stopPropagation()}
-                        size="small"
-                        className="-mr-1"
-                        dropdownMatchSelectWidth={false}
-                        optionTooltipPlacement="right"
-                    />
-                </div>
-            ),
-            tooltip: 'Statistical analysis of property value.',
-            'data-attr': `math-node-property-value-${index}`,
-        })
-    }
-    return [
-        {
-            options,
-            footer:
-                needsUpgradeForGroups || canStartUsingGroups ? (
-                    <GroupIntroductionFooter needsUpgrade={needsUpgradeForGroups} />
-                ) : undefined,
-        },
-    ]
-}
-
-function MathSelector({
-    math,
-    mathGroupTypeIndex,
-    mathAvailability,
-    index,
-    onMathSelect,
-}: MathSelectorProps): JSX.Element {
-    const options = useMathSelectorOptions(index, mathAvailability, onMathSelect)
-
-    const mathType = apiValueToMathType(math, mathGroupTypeIndex)
-
-    return (
-        <LemonSelect
-            value={mathType}
-            options={options}
-            onChange={(value) => onMathSelect(index, value)}
-            data-attr={`math-selector-${index}`}
-            optionTooltipPlacement="right"
-            dropdownMatchSelectWidth={false}
-            dropdownPlacement="bottom-start"
-        />
     )
 }
 

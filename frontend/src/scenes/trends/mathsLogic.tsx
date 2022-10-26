@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import type { mathsLogicType } from './mathsLogicType'
-import { BaseMathType, CountPerActorMathType, PropertyMathType } from '~/types'
+import { BaseMathType, CountPerActorMathType, MathTypeGroup, PropertyMathType } from '~/types'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 
 export enum MathCategory {
@@ -12,14 +12,44 @@ export enum MathCategory {
     PropertyValue,
 }
 
-export interface MathDefinition {
-    name: string
-    /** Lowercase name variant for definitions where the full names is too verbose (e.g. insight summaries). */
-    shortName: string
+interface MathDefinitionBase {
     description: string | JSX.Element
     category: MathCategory
 }
 
+export interface StaticMathDefinition extends MathDefinitionBase {
+    name: string
+    /** Lowercase name variant for definitions where the full names is too verbose (e.g. insight summaries). */
+    shortName: string
+    functionDynamic?: never
+    groupDynamic?: never
+}
+
+export interface FunctionDynamicMathDefinition extends MathDefinitionBase {
+    functionDynamic: true
+    groupDynamic?: never
+    defaultOption: string
+    Label: (props: { functionSelector: JSX.Element }) => JSX.Element
+}
+
+export interface GroupDynamicMathDefinition extends MathDefinitionBase {
+    functionDynamic?: never
+    groupDynamic: true
+    Label: (props: { groupTypeSelector: JSX.Element }) => JSX.Element
+}
+
+export interface FunctionAndGroupDynamicMathDefinition extends MathDefinitionBase {
+    functionDynamic: true
+    groupDynamic: true
+    defaultOption: string
+    Label: (props: { functionSelector: JSX.Element; groupTypeSelector: JSX.Element }) => JSX.Element
+}
+
+export type MathDefinition =
+    | StaticMathDefinition
+    | FunctionDynamicMathDefinition
+    | GroupDynamicMathDefinition
+    | FunctionAndGroupDynamicMathDefinition
 export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
     [BaseMathType.TotalCount]: {
         name: 'Total count',
@@ -93,156 +123,273 @@ export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
     },
 }
 
-export const PROPERTY_MATH_DEFINITIONS: Record<PropertyMathType, MathDefinition> = {
-    [PropertyMathType.Average]: {
-        name: 'Average',
-        shortName: 'average',
-        description: (
-            <>
-                Average of a property value within an event or action.
-                <br />
-                <br />
-                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 14.
-            </>
-        ),
-        category: MathCategory.PropertyValue,
+export const MATH_TYPE_GROUP_DEFINITIONS: Partial<Record<MathTypeGroup, Record<string, StaticMathDefinition>>> = {
+    [MathTypeGroup.CountPerUser]: {
+        [CountPerActorMathType.Average]: {
+            name: 'Average',
+            shortName: 'average',
+            description: <>Event count per user average.</>,
+            category: MathCategory.EventCountPerActor,
+        },
+        [CountPerActorMathType.Minimum]: {
+            name: 'Minimum',
+            shortName: 'minimum',
+            description: <>Event count per user minimum.</>,
+            category: MathCategory.EventCountPerActor,
+        },
+        [CountPerActorMathType.Maximum]: {
+            name: 'Maximum',
+            shortName: 'maximum',
+            description: <>Event count per user maximum.</>,
+            category: MathCategory.EventCountPerActor,
+        },
+        [CountPerActorMathType.Median]: {
+            name: 'Median',
+            shortName: 'median',
+            description: <>Event count per user 50th percentile.</>,
+            category: MathCategory.EventCountPerActor,
+        },
+        [CountPerActorMathType.P90]: {
+            name: '90th percentile',
+            shortName: '90th percentile',
+            description: <>Event count per user 90th percentile.</>,
+            category: MathCategory.EventCountPerActor,
+        },
+        [CountPerActorMathType.P95]: {
+            name: '95th percentile',
+            shortName: '95th percentile',
+            description: <>Event count per user 95th percentile.</>,
+            category: MathCategory.EventCountPerActor,
+        },
+        [CountPerActorMathType.P99]: {
+            name: '99th percentile',
+            shortName: '99th percentile',
+            description: <>Event count per user 99th percentile.</>,
+            category: MathCategory.EventCountPerActor,
+        },
     },
-    [PropertyMathType.Sum]: {
-        name: 'Sum',
-        shortName: 'sum',
-        description: (
-            <>
-                Sum of property values within an event or action.
-                <br />
-                <br />
-                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 42.
-            </>
-        ),
-        category: MathCategory.PropertyValue,
+    [MathTypeGroup.CountPerGroup]: {
+        [CountPerActorMathType.Average]: {
+            name: 'Average',
+            shortName: 'average',
+            description: <>Event count per group average.</>,
+            category: MathCategory.EventCountPerActor,
+        },
+        [CountPerActorMathType.Minimum]: {
+            name: 'Minimum',
+            shortName: 'minimum',
+            description: <>Event count per group minimum.</>,
+            category: MathCategory.EventCountPerActor,
+        },
+        [CountPerActorMathType.Maximum]: {
+            name: 'Maximum',
+            shortName: 'maximum',
+            description: <>Event count per group maximum.</>,
+            category: MathCategory.EventCountPerActor,
+        },
+        [CountPerActorMathType.Median]: {
+            name: 'Median',
+            shortName: 'median',
+            description: <>Event count per group 50th percentile.</>,
+            category: MathCategory.EventCountPerActor,
+        },
+        [CountPerActorMathType.P90]: {
+            name: '90th percentile',
+            shortName: '90th percentile',
+            description: <>Event count per group 90th percentile.</>,
+            category: MathCategory.EventCountPerActor,
+        },
+        [CountPerActorMathType.P95]: {
+            name: '95th percentile',
+            shortName: '95th percentile',
+            description: <>Event count per group 95th percentile.</>,
+            category: MathCategory.EventCountPerActor,
+        },
+        [CountPerActorMathType.P99]: {
+            name: '99th percentile',
+            shortName: '99th percentile',
+            description: <>Event count per group 99th percentile.</>,
+            category: MathCategory.EventCountPerActor,
+        },
     },
-    [PropertyMathType.Minimum]: {
-        name: 'Minimum',
-        shortName: 'minimum',
-        description: (
-            <>
-                Event property minimum.
-                <br />
-                <br />
-                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 10.
-            </>
-        ),
-        category: MathCategory.PropertyValue,
-    },
-    [PropertyMathType.Maximum]: {
-        name: 'Maximum',
-        shortName: 'maximum',
-        description: (
-            <>
-                Event property maximum.
-                <br />
-                <br />
-                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 20.
-            </>
-        ),
-        category: MathCategory.PropertyValue,
-    },
-    [PropertyMathType.Median]: {
-        name: 'Median',
-        shortName: 'median',
-        description: (
-            <>
-                Event property median (50th percentile).
-                <br />
-                <br />
-                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 150.
-            </>
-        ),
-        category: MathCategory.PropertyValue,
-    },
-    [PropertyMathType.P90]: {
-        name: '90th percentile',
-        shortName: '90th percentile',
-        description: (
-            <>
-                Event property 90th percentile.
-                <br />
-                <br />
-                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 190.
-            </>
-        ),
-        category: MathCategory.PropertyValue,
-    },
-    [PropertyMathType.P95]: {
-        name: '95th percentile',
-        shortName: '95th percentile',
-        description: (
-            <>
-                Event property 95th percentile.
-                <br />
-                <br />
-                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 195.
-            </>
-        ),
-        category: MathCategory.PropertyValue,
-    },
-    [PropertyMathType.P99]: {
-        name: '99th percentile',
-        shortName: '99th percentile',
-        description: (
-            <>
-                Event property 99th percentile.
-                <br />
-                <br />
-                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 199.
-            </>
-        ),
-        category: MathCategory.PropertyValue,
+    [MathTypeGroup.PropertyValue]: {
+        [PropertyMathType.Average]: {
+            name: 'Average',
+            shortName: 'average',
+            description: (
+                <>
+                    Average of a property value within an event or action.
+                    <br />
+                    <br />
+                    For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in
+                    14.
+                </>
+            ),
+            category: MathCategory.PropertyValue,
+        },
+        [PropertyMathType.Sum]: {
+            name: 'Sum',
+            shortName: 'sum',
+            description: (
+                <>
+                    Sum of property values within an event or action.
+                    <br />
+                    <br />
+                    For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in
+                    42.
+                </>
+            ),
+            category: MathCategory.PropertyValue,
+        },
+        [PropertyMathType.Minimum]: {
+            name: 'Minimum',
+            shortName: 'minimum',
+            description: (
+                <>
+                    Event property minimum.
+                    <br />
+                    <br />
+                    For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in
+                    10.
+                </>
+            ),
+            category: MathCategory.PropertyValue,
+        },
+        [PropertyMathType.Maximum]: {
+            name: 'Maximum',
+            shortName: 'maximum',
+            description: (
+                <>
+                    Event property maximum.
+                    <br />
+                    <br />
+                    For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in
+                    20.
+                </>
+            ),
+            category: MathCategory.PropertyValue,
+        },
+        [PropertyMathType.Median]: {
+            name: 'Median',
+            shortName: 'median',
+            description: (
+                <>
+                    Event property median (50th percentile).
+                    <br />
+                    <br />
+                    For example 100 events captured with property <code>amount</code> equal to 101..200, result in 150.
+                </>
+            ),
+            category: MathCategory.PropertyValue,
+        },
+        [PropertyMathType.P90]: {
+            name: '90th percentile',
+            shortName: '90th percentile',
+            description: (
+                <>
+                    Event property 90th percentile.
+                    <br />
+                    <br />
+                    For example 100 events captured with property <code>amount</code> equal to 101..200, result in 190.
+                </>
+            ),
+            category: MathCategory.PropertyValue,
+        },
+        [PropertyMathType.P95]: {
+            name: '95th percentile',
+            shortName: '95th percentile',
+            description: (
+                <>
+                    Event property 95th percentile.
+                    <br />
+                    <br />
+                    For example 100 events captured with property <code>amount</code> equal to 101..200, result in 195.
+                </>
+            ),
+            category: MathCategory.PropertyValue,
+        },
+        [PropertyMathType.P99]: {
+            name: '99th percentile',
+            shortName: '99th percentile',
+            description: (
+                <>
+                    Event property 99th percentile.
+                    <br />
+                    <br />
+                    For example 100 events captured with property <code>amount</code> equal to 101..200, result in 199.
+                </>
+            ),
+            category: MathCategory.PropertyValue,
+        },
     },
 }
 
-export const COUNT_PER_ACTOR_MATH_DEFINITIONS: Record<CountPerActorMathType, MathDefinition> = {
-    [CountPerActorMathType.Average]: {
-        name: 'Average',
-        shortName: 'average',
-        description: <>Event count per actor average.</>,
+export const SELECTABLE_MATH_DEFINITIONS: Record<BaseMathType | MathTypeGroup, MathDefinition> = {
+    [BaseMathType.TotalCount]: BASE_MATH_DEFINITIONS[BaseMathType.TotalCount],
+    [MathTypeGroup.CountPerUser]: {
+        description: 'Statistical analysis of event count per user.',
+        functionDynamic: true,
         category: MathCategory.EventCountPerActor,
-    },
-    [CountPerActorMathType.Minimum]: {
-        name: 'Minimum',
-        shortName: 'minimum',
-        description: <>Event count per actor minimum.</>,
+        defaultOption: CountPerActorMathType.Average,
+        Label({ functionSelector }): JSX.Element {
+            return (
+                <div className="flex items-center gap-2">
+                    <div>Count per user</div>
+                    <div className="-mr-1">{functionSelector}</div>
+                </div>
+            )
+        },
+    } as FunctionDynamicMathDefinition,
+    [MathTypeGroup.CountPerGroup]: {
+        description: 'Statistical analysis of event count per user.',
+        functionDynamic: true,
+        groupDynamic: true,
         category: MathCategory.EventCountPerActor,
-    },
-    [CountPerActorMathType.Maximum]: {
-        name: 'Maximum',
-        shortName: 'maximum',
-        description: <>Event count per actor maximum.</>,
+        defaultOption: CountPerActorMathType.Average,
+        Label({ functionSelector, groupTypeSelector }): JSX.Element {
+            return (
+                <div className="flex items-center gap-2">
+                    <div>Count per</div>
+                    {groupTypeSelector}
+                    <div>group</div>
+                    <div className="-mr-1">{functionSelector}</div>
+                </div>
+            )
+        },
+    } as FunctionAndGroupDynamicMathDefinition,
+    [BaseMathType.UniqueUsers]: BASE_MATH_DEFINITIONS[BaseMathType.UniqueUsers],
+    [BaseMathType.UniqueSessions]: BASE_MATH_DEFINITIONS[BaseMathType.UniqueSessions],
+    [BaseMathType.WeeklyActiveUsers]: BASE_MATH_DEFINITIONS[BaseMathType.WeeklyActiveUsers],
+    [BaseMathType.MonthlyActiveUsers]: BASE_MATH_DEFINITIONS[BaseMathType.MonthlyActiveUsers],
+    [MathTypeGroup.UniqueGroups]: {
+        description: 'Number of groups where the event was performed in the specified period.',
+        groupDynamic: true,
+        category: MathCategory.ActorCount,
+        defaultOption: CountPerActorMathType.Average,
+        Label({ groupTypeSelector }): JSX.Element {
+            return (
+                <div className="flex items-center gap-2">
+                    <div>Unique</div>
+                    {groupTypeSelector}
+                    <div>groups</div>
+                </div>
+            )
+        },
+    } as GroupDynamicMathDefinition,
+    [MathTypeGroup.PropertyValue]: {
+        description: 'Statistical analysis of property value.',
+        functionDynamic: true,
         category: MathCategory.EventCountPerActor,
-    },
-    [CountPerActorMathType.Median]: {
-        name: 'Median',
-        shortName: 'median',
-        description: <>Event count per actor 50th percentile.</>,
-        category: MathCategory.EventCountPerActor,
-    },
-    [CountPerActorMathType.P90]: {
-        name: '90th percentile',
-        shortName: '90th percentile',
-        description: <>Event count per actor 90th percentile.</>,
-        category: MathCategory.EventCountPerActor,
-    },
-    [CountPerActorMathType.P95]: {
-        name: '95th percentile',
-        shortName: '95th percentile',
-        description: <>Event count per actor 95th percentile.</>,
-        category: MathCategory.EventCountPerActor,
-    },
-    [CountPerActorMathType.P99]: {
-        name: '99th percentile',
-        shortName: '99th percentile',
-        description: <>Event count per actor 99th percentile.</>,
-        category: MathCategory.EventCountPerActor,
-    },
+        defaultOption: PropertyMathType.Average,
+        Label({ functionSelector }): JSX.Element {
+            return (
+                <div className="flex items-center gap-2">
+                    <div>Property value</div>
+                    <div className="-mr-1">{functionSelector}</div>
+                </div>
+            )
+        },
+    } as FunctionDynamicMathDefinition,
 }
 
 /** Deserialize a math selector value.
@@ -259,7 +406,7 @@ export function mathTypeToApiValues(mathType: string): {
 /** Serialize a math selector value. Inverse of mathTypeToApiValues. */
 export function apiValueToMathType(math: string | undefined, groupTypeIndex: number | null | undefined): string {
     let assembledMath = math || BaseMathType.TotalCount
-    if (math === 'unique_group') {
+    if (math === MathTypeGroup.UniqueGroups) {
         assembledMath += `::${groupTypeIndex}`
     }
     return assembledMath
@@ -277,42 +424,21 @@ export const mathsLogic = kea<mathsLogicType>({
     },
     selectors: {
         mathDefinitions: [
-            (s) => [s.groupsMathDefinitions],
-            (groupsMathDefinitions): Record<string, MathDefinition> => {
+            (s) => [s.groupBasedMathDefinitions],
+            (groupBasedMathDefinitions): Record<string, MathDefinition> => {
                 const allMathDefinitions: Record<string, MathDefinition> = {
                     ...BASE_MATH_DEFINITIONS,
-                    ...groupsMathDefinitions,
-                    ...PROPERTY_MATH_DEFINITIONS,
-                    ...COUNT_PER_ACTOR_MATH_DEFINITIONS,
+                    ...groupBasedMathDefinitions,
+                    ...MATH_TYPE_GROUP_DEFINITIONS[MathTypeGroup.CountPerUser],
+                    ...MATH_TYPE_GROUP_DEFINITIONS[MathTypeGroup.PropertyValue],
                 }
                 return allMathDefinitions
             },
         ],
-        // Static means the options do not have nested selectors (like math function)
-        staticMathDefinitions: [
-            (s) => [s.groupsMathDefinitions, s.needsUpgradeForGroups],
-            (groupsMathDefinitions, needsUpgradeForGroups): Record<string, MathDefinition> => {
-                const staticMathDefinitions: Record<string, MathDefinition> = {
-                    ...BASE_MATH_DEFINITIONS,
-                    ...(!needsUpgradeForGroups ? groupsMathDefinitions : {}),
-                }
-                return staticMathDefinitions
-            },
-        ],
-        staticActorsOnlyMathDefinitions: [
-            (s) => [s.staticMathDefinitions],
-            (staticMathDefinitions): Record<string, MathDefinition> => {
-                return Object.fromEntries(
-                    Object.entries(staticMathDefinitions).filter(
-                        ([, mathDefinition]) => mathDefinition.category === MathCategory.ActorCount
-                    )
-                )
-            },
-        ],
         // Definitions based on group types present in the project
-        groupsMathDefinitions: [
+        groupBasedMathDefinitions: [
             (s) => [s.groupTypes, s.aggregationLabel],
-            (groupTypes, aggregationLabel) =>
+            (groupTypes, aggregationLabel): Record<string, StaticMathDefinition> =>
                 Object.fromEntries(
                     groupTypes.map((groupType) => [
                         apiValueToMathType('unique_group', groupType.group_type_index),
@@ -333,7 +459,7 @@ export const mathsLogic = kea<mathsLogicType>({
                                 </>
                             ),
                             category: MathCategory.ActorCount,
-                        } as MathDefinition,
+                        },
                     ])
                 ),
         ],

@@ -1992,6 +1992,13 @@ export enum BaseMathType {
     UniqueSessions = 'unique_session',
 }
 
+export enum MathTypeGroup {
+    CountPerUser = 'count_per_actor',
+    CountPerGroup = 'count_per_group',
+    UniqueGroups = 'unique_group',
+    PropertyValue = 'property_value',
+}
+
 export enum PropertyMathType {
     Average = 'avg',
     Sum = 'sum',

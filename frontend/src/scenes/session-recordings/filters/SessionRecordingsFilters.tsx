@@ -7,7 +7,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { IconFilter, IconWithCount } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/MathSelector'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 
 interface SessionRecordingsFiltersProps {
