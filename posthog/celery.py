@@ -171,9 +171,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             name="count tiles with no filters_hash",
         )
 
-    sender.add_periodic_task(
-        crontab(minute="*"), check_flags_to_rollback.s(), name="check feature flags that should be rolled back"
-    )
+        sender.add_periodic_task(
+            crontab(hour="*"), check_flags_to_rollback.s(), name="check feature flags that should be rolled back"
+        )
 
 
 # Set up clickhouse query instrumentation
