@@ -139,7 +139,7 @@ def mocked_plugin_requests_get(*args, **kwargs):
     if args[0] == "https://registry.npmjs.org/posthog-helloworld-plugin/-/posthog-helloworld-plugin-0.0.0.tgz":
         return MockBase64Response(HELLO_WORLD_PLUGIN_NPM_TGZ[1], 200)
 
-    if args[0] == "https://raw.githubusercontent.com/PostHog/integrations-repository/main/plugins.json":
+    if args[0] == "https://raw.githubusercontent.com/PostHog/apps/main/manifest.json":
         return MockTextResponse(
             json.dumps(
                 [
@@ -147,6 +147,7 @@ def mocked_plugin_requests_get(*args, **kwargs):
                         "name": "posthog-currency-normalization-plugin",
                         "url": "https://github.com/posthog/posthog-currency-normalization-plugin",
                         "description": "Normalise monerary values into a base currency",
+                        "icon": "https://raw.githubusercontent.com/posthog/posthog-currency-normalization-plugin/main/logo.png",
                         "verified": False,
                         "maintainer": "official",
                     },
@@ -154,6 +155,7 @@ def mocked_plugin_requests_get(*args, **kwargs):
                         "name": "helloworldplugin",
                         "url": "https://github.com/posthog/helloworldplugin",
                         "description": "Greet the World and Foo a Bar",
+                        "icon": "https://raw.githubusercontent.com/posthog/helloworldplugin/main/logo.png",
                         "verified": True,
                         "maintainer": "community",
                     },

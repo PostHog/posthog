@@ -362,6 +362,7 @@ class TestPluginAPI(APIBaseTest):
                 "name": "helloworldplugin",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "url": "https://github.com/PostHog/helloworldplugin",
+                "icon": None,
                 "config_schema": {
                     "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False}
                 },
@@ -400,6 +401,7 @@ class TestPluginAPI(APIBaseTest):
                 "name": "helloworldplugin",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "url": "https://github.com/PostHog/helloworldplugin",
+                "icon": None,
                 "config_schema": {
                     "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False}
                 },
@@ -435,6 +437,7 @@ class TestPluginAPI(APIBaseTest):
                 "name": "helloworldplugin",
                 "description": "Greet the World and Foo a Bar, JS edition, vol 2!",
                 "url": "https://github.com/PostHog/helloworldplugin",
+                "icon": None,
                 "config_schema": {
                     "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False},
                     "foodb": {"name": "Upload your database", "type": "attachment", "required": False},
@@ -450,6 +453,21 @@ class TestPluginAPI(APIBaseTest):
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
+        self.assertEqual(mock_reload.call_count, 1)
+
+    def test_create_plugin_with_icon(self, mock_get, mock_reload):
+        self.assertEqual(mock_reload.call_count, 0)
+        response = self.client.post(
+            "/api/organizations/@current/plugins/",
+            {
+                "url": "https://github.com/PostHog/helloworldplugin",
+                "icon": "https://raw.githubusercontent.com/PostHog/helloworldplugin/main/logo.png",
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            response.json()["icon"], "https://raw.githubusercontent.com/PostHog/helloworldplugin/main/logo.png"
+        )
         self.assertEqual(mock_reload.call_count, 1)
 
     def test_create_plugin_version_range_eq_current(self, mock_get, mock_reload):
@@ -594,6 +612,7 @@ class TestPluginAPI(APIBaseTest):
                 "url": None,
                 "config_schema": {},
                 "tag": None,
+                "icon": None,
                 "latest_tag": None,
                 "is_global": False,
                 "organization_id": response.json()["organization_id"],
@@ -661,6 +680,7 @@ class TestPluginAPI(APIBaseTest):
                     "name": "posthog-currency-normalization-plugin",
                     "url": "https://github.com/posthog/posthog-currency-normalization-plugin",
                     "description": "Normalise monerary values into a base currency",
+                    "icon": "https://raw.githubusercontent.com/posthog/posthog-currency-normalization-plugin/main/logo.png",
                     "verified": False,
                     "maintainer": "official",
                 },
@@ -668,6 +688,7 @@ class TestPluginAPI(APIBaseTest):
                     "name": "helloworldplugin",
                     "url": "https://github.com/posthog/helloworldplugin",
                     "description": "Greet the World and Foo a Bar",
+                    "icon": "https://raw.githubusercontent.com/posthog/helloworldplugin/main/logo.png",
                     "verified": True,
                     "maintainer": "community",
                 },
