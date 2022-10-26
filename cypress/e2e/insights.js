@@ -1,4 +1,5 @@
 import { urls } from 'scenes/urls'
+import { randomString } from '../support/random'
 
 function applyFilter() {
     cy.get('[data-attr=insight-filters-add-filter-group]').click()
@@ -27,6 +28,12 @@ function createANewInsight(insightName) {
     cy.url().should('not.include', '/new')
 }
 
+function checkInsightIsInListView(insightName) {
+    // turbo mode updated the insights list
+    cy.visit(urls.savedInsights())
+    cy.contains('.saved-insights table tr', insightName).should('exist')
+}
+
 // For tests related to trends please check trendsElements.js
 describe('Insights', () => {
     beforeEach(() => {
@@ -53,26 +60,19 @@ describe('Insights', () => {
         cy.get('[data-attr=breadcrumb-3]').should('not.have.text', '')
     })
 
-    it('Create new insight and save copy', () => {
-        createANewInsight()
-
-        cy.get('[data-attr="insight-edit-button"]').click()
-
-        cy.get('[data-attr="insight-save-dropdown"]').click()
-        cy.get('[data-attr="insight-save-as-new-insight"]').click()
-        cy.get('.ant-modal-content .ant-btn-primary').click()
-        cy.get('[data-attr="insight-name"]').should('contain', 'Pageview count (copy)')
-    })
-
     it('Can change insight name', () => {
-        createANewInsight('starting value')
-        cy.get('[data-attr="insight-name"]').should('contain', 'starting value')
+        const startingName = randomString('starting-value-')
+        const editedName = randomString('edited-value-')
+        createANewInsight(startingName)
+        cy.get('[data-attr="insight-name"]').should('contain', startingName)
 
         cy.get('[data-attr="insight-name"] [data-attr="edit-prop-name"]').click()
-        cy.get('[data-attr="insight-name"] input').type('edited value')
+        cy.get('[data-attr="insight-name"] input').type(editedName)
         cy.get('[data-attr="insight-name"] [title="Save"]').click()
 
-        cy.get('[data-attr="insight-name"]').should('contain', 'edited value')
+        cy.get('[data-attr="insight-name"]').should('contain', editedName)
+
+        checkInsightIsInListView(editedName)
     })
 
     it('Can undo a change of insight name', () => {
@@ -90,14 +90,19 @@ describe('Insights', () => {
 
         cy.get('[data-attr="insight-name"]').should('not.contain', 'edited value')
         cy.get('[data-attr="insight-name"]').should('contain', 'starting value')
+
+        checkInsightIsInListView('starting value')
     })
 
     it('Create new insight and save and continue editing', () => {
         cy.intercept('PATCH', /\/api\/projects\/\d+\/insights\/\d+\/?/).as('patchInsight')
 
-        createANewInsight()
+        const insightName = randomString('insight-name-')
+        createANewInsight(insightName)
 
         cy.get('[data-attr="insight-edit-button"]').click()
+
+        cy.url().should('match', /insights\/[\w\d]+\/edit/)
 
         cy.get('.page-title').then(($pageTitle) => {
             const pageTitle = $pageTitle.text()
@@ -111,6 +116,8 @@ describe('Insights', () => {
             expect(pageTitle).to.eq($pageTitle.text())
             cy.get('[data-attr="insight-save-button"]').should('exist')
         })
+
+        checkInsightIsInListView(insightName)
     })
 
     describe('unsaved insights confirmation', () => {
@@ -219,6 +226,52 @@ describe('Insights', () => {
 
             // Test that the button shows the correct formatted range
             cy.get('[data-attr=date-filter]').get('span').contains('Last 5 days').should('exist')
+        })
+    })
+
+    describe('duplicating insights', () => {
+        let insightName
+        beforeEach(() => {
+            cy.visit(urls.savedInsights()) // make sure turbo mode has cached this page
+            insightName = randomString('insight-name-')
+            createANewInsight(insightName)
+        })
+        it('can duplicate insights from the insights list view', () => {
+            cy.visit(urls.savedInsights())
+            cy.contains('.saved-insights table tr', insightName).within(() => {
+                cy.get('[data-attr="more-button"]').click()
+            })
+            cy.get('[data-attr="duplicate-insight-from-list-view"]').click()
+            cy.contains('.saved-insights table tr', `${insightName} (copy)`).should('exist')
+        })
+
+        it('can duplicate insights from the insights card view', () => {
+            cy.visit(urls.savedInsights())
+            cy.contains('.saved-insights .ant-radio-button-wrapper', 'Cards').click()
+            cy.contains('.InsightMeta', insightName).within(() => {
+                cy.get('[data-attr="more-button"]').click()
+            })
+            cy.get('[data-attr="duplicate-insight-from-card-list-view"]').click()
+            cy.contains('.InsightMeta', `${insightName} (copy)`).should('exist')
+        })
+
+        it('can duplicate from insight view', () => {
+            cy.get('.page-buttons [data-attr="more-button"]').click()
+            cy.get('[data-attr="duplicate-insight-from-insight-view"]').click()
+            cy.get('[data-attr="insight-name"]').should('contain', `${insightName} (copy)`)
+
+            checkInsightIsInListView(`${insightName} (copy)`)
+        })
+
+        it('can save insight as a copy', () => {
+            cy.get('[data-attr="insight-edit-button"]').click()
+
+            cy.get('[data-attr="insight-save-dropdown"]').click()
+            cy.get('[data-attr="insight-save-as-new-insight"]').click()
+            cy.get('.ant-modal-content .ant-btn-primary').click()
+            cy.get('[data-attr="insight-name"]').should('contain', `${insightName} (copy)`)
+
+            checkInsightIsInListView(`${insightName} (copy)`)
         })
     })
 })

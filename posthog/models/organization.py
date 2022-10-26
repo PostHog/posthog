@@ -1,6 +1,8 @@
+import json
 import sys
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
+import structlog
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
@@ -10,9 +12,11 @@ from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
 
+from posthog.cloud_utils import is_cloud
 from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
 from posthog.models.utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
+from posthog.redis import get_client
 from posthog.utils import absolute_uri, mask_email_address
 
 if TYPE_CHECKING:
@@ -23,6 +27,8 @@ try:
 except ImportError:
     License = None  # type: ignore
 
+
+logger = structlog.get_logger(__name__)
 
 INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
 
@@ -85,7 +91,7 @@ class Organization(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        default=PluginsAccessLevel.CONFIG if settings.MULTI_TENANCY else PluginsAccessLevel.ROOT,
+        default=PluginsAccessLevel.CONFIG,
         choices=PluginsAccessLevel.choices,
     )
     available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
@@ -133,6 +139,8 @@ class Organization(UUIDModel):
 
     def update_available_features(self) -> List[Union[AvailableFeature, str]]:
         """Updates field `available_features`. Does not `save()`."""
+        # TODO BW: Get available features from billing service
+
         plan, realm = self._billing_plan_details
         if not plan:
             self.available_features = []
@@ -162,6 +170,16 @@ class Organization(UUIDModel):
 def organization_about_to_be_created(sender, instance: Organization, raw, using, **kwargs):
     if instance._state.adding:
         instance.update_available_features()
+        if not is_cloud():
+            instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
+
+
+@receiver(models.signals.post_save, sender=Organization)
+def ensure_available_features_sync(sender, instance: Organization, **kwargs):
+    updated_fields = kwargs.get("update_fields") or []
+    if "available_features" in updated_fields:
+        logger.info("Notifying plugin-server to reset available features cache.", {"organization_id": instance.id})
+        get_client().publish("reset-available-features-cache", json.dumps({"organization_id": str(instance.id)}))
 
 
 class OrganizationMembership(UUIDModel):

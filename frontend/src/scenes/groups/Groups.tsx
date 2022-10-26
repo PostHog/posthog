@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { Group } from '~/types'
 import { groupsListLogic } from './groupsListLogic'

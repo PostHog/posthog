@@ -1,4 +1,4 @@
-import React, { CSSProperties, PropsWithChildren } from 'react'
+import { CSSProperties, PropsWithChildren } from 'react'
 import api from './api'
 import {
     ActionFilter,
@@ -587,6 +587,18 @@ export function stripHTTP(url: string): string {
     return url
 }
 
+export function isDomain(url: string): boolean {
+    try {
+        const parsedUrl = new URL(url)
+        if (!parsedUrl.pathname || parsedUrl.pathname === '/') {
+            return true
+        }
+    } catch {
+        return false
+    }
+    return false
+}
+
 export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
@@ -818,11 +830,11 @@ const dateOptionsMap = {
 export function dateFilterToText(
     dateFrom: string | dayjs.Dayjs | null | undefined,
     dateTo: string | dayjs.Dayjs | null | undefined,
-    defaultValue: string,
+    defaultValue: string | null,
     dateOptions: DateMappingOption[] = dateMapping,
     isDateFormatted: boolean = false,
     dateFormat: string = DATE_FORMAT
-): string {
+): string | null {
     if (dayjs.isDayjs(dateFrom) && dayjs.isDayjs(dateTo)) {
         return formatDateRange(dateFrom, dateTo, dateFormat)
     }
@@ -1397,6 +1409,7 @@ export function convertPropertiesToPropertyGroup(
     return { type: FilterLogicalOperator.And, values: [] }
 }
 
+/** Flatten a filter group into an array of filters. NB: Logical operators (AND/OR) are lost in the process. */
 export function convertPropertyGroupToProperties(
     properties?: PropertyGroupFilter | AnyPropertyFilter[]
 ): PropertyFilter[] | undefined {
@@ -1491,14 +1504,4 @@ export function interleave(arr: any[], delimiter: any): any[] {
             ? [item, delimiter]
             : item
     )
-}
-
-export function findAllIndices(arr: any[], callback: (item: any) => boolean): number[] {
-    const indexes = []
-    for (let i = 0; i < arr.length; i++) {
-        if (callback(arr[i])) {
-            indexes.push(i)
-        }
-    }
-    return indexes
 }

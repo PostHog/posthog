@@ -6,7 +6,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/components/LemonButton'
 import { sceneConfigurations } from 'scenes/scenes'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import React from 'react'
 
 export interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'to'> {
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */
@@ -60,11 +59,11 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
                 >
                     <span className="text-default grow">{title || sceneConfigurations[identifier].name}</span>
                     {highlight === 'beta' ? (
-                        <LemonTag type="warning" className="ml-1 float-right">
+                        <LemonTag type="warning" className="ml-1 float-right uppercase">
                             Beta
                         </LemonTag>
                     ) : highlight === 'new' ? (
-                        <LemonTag type="success" className="ml-1 float-right">
+                        <LemonTag type="success" className="ml-1 float-right uppercase">
                             New
                         </LemonTag>
                     ) : null}

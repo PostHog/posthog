@@ -5,7 +5,7 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
-from posthog.queries.util import parse_timestamps
+from posthog.queries.query_date_range import QueryDateRange
 
 
 class SessionQuery:
@@ -24,8 +24,12 @@ class SessionQuery:
 
     def get_query(self) -> Tuple[str, Dict]:
         params = {"team_id": self._team.pk}
-        parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team=self._team)
-        params.update(date_params)
+
+        query_date_range = QueryDateRange(filter=self._filter, team=self._team, should_round=False)
+        parsed_date_from, date_from_params = query_date_range.date_from
+        parsed_date_to, date_to_params = query_date_range.date_to
+        params.update(date_from_params)
+        params.update(date_to_params)
 
         return (
             f"""

@@ -53,8 +53,8 @@ type LemonInputPropsNumber = LemonInputPropsBase &
         type: 'number'
         value?: number
         defaultValue?: number
-        onChange?: (newValue: number) => void
-        onPressEnter?: (newValue: number) => void
+        onChange?: (newValue: number | undefined) => void
+        onPressEnter?: (newValue: number | undefined) => void
     }
 
 export type LemonInputProps = LemonInputPropsText | LemonInputPropsNumber
@@ -165,7 +165,9 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 value={value}
                 onChange={(event) => {
                     if (type === 'number') {
-                        onChange?.(event.currentTarget.valueAsNumber)
+                        onChange?.(
+                            !isNaN(event.currentTarget.valueAsNumber) ? event.currentTarget.valueAsNumber : undefined
+                        )
                     } else {
                         onChange?.(event.currentTarget.value ?? '')
                     }

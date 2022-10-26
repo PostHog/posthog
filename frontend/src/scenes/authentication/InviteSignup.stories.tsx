@@ -1,6 +1,6 @@
 // Signup.stories.tsx
 import { Meta } from '@storybook/react'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { InviteSignup } from './InviteSignup'

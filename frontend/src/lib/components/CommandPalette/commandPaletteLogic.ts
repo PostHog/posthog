@@ -46,8 +46,6 @@ import { debugCHQueries } from './DebugCHQueries'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -456,17 +454,13 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                             push(urls.events())
                         },
                     },
-                    ...(featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.SIMPLIFY_ACTIONS]
-                        ? []
-                        : [
-                              {
-                                  icon: AimOutlined,
-                                  display: 'Go to Actions',
-                                  executor: () => {
-                                      push(urls.actions())
-                                  },
-                              },
-                          ]),
+                    {
+                        icon: AimOutlined,
+                        display: 'Go to Actions',
+                        executor: () => {
+                            push(urls.actions())
+                        },
+                    },
                     {
                         icon: UserOutlined,
                         display: 'Go to Persons',

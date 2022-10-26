@@ -1,4 +1,3 @@
-import React from 'react'
 import { ActionEdit } from './ActionEdit'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -16,13 +15,12 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }): ActionLogicProps => ({ id: parseInt(id) }),
 }
 
-// Action has been renamed to Calculated Event in the UI (not code) as per #10139
 export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
     const fixedFilters = { action_id: id }
 
     const { push } = useActions(router)
 
-    const { action, isComplete, shouldSimplifyActions } = useValues(actionLogic)
+    const { action, isComplete } = useValues(actionLogic)
     const { loadAction } = useActions(actionLogic)
 
     return (
@@ -44,8 +42,7 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                     <div>
                         <h2 className="subtitle">Matching events</h2>
                         <p>
-                            This is the list of <strong>recent</strong> events that match this{' '}
-                            {shouldSimplifyActions ? 'calculated event' : 'action'}.
+                            This is the list of <strong>recent</strong> events that match this action.
                             {action?.last_calculated_at ? (
                                 <>
                                     {' '}

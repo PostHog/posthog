@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { PropertyDefinition, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 import {
     allOperatorsMapping,
@@ -81,11 +81,13 @@ export function OperatorValueSelect({
             isAutocaptureElementProperty ? PropertyType.Selector : propertyDefinition?.property_type
         )
         setOperators(Object.keys(operatorMapping) as Array<PropertyOperator>)
-
+        if (currentOperator !== operator) {
+            setCurrentOperator(startingOperator)
+        }
         if (isAutocaptureElementProperty) {
             setCurrentOperator(PropertyOperator.Exact)
         }
-    }, [propertyDefinition, propkey])
+    }, [propertyDefinition, propkey, operator])
 
     return (
         <>

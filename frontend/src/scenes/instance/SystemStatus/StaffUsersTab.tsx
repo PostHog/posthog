@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconDelete, IconOpenInNew } from 'lib/components/icons'
 import { LemonTableColumns, LemonTable } from 'lib/components/LemonTable'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
-import React from 'react'
 import { UserType } from '~/types'
 import { staffUsersLogic } from './staffUsersLogic'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -33,7 +32,7 @@ export function StaffUsersTab(): JSX.Element {
                 return (
                     <>
                         {user.first_name}
-                        {user.uuid === myself?.uuid && <LemonTag style={{ marginLeft: 4 }}>Me</LemonTag>}
+                        {user.uuid === myself?.uuid && <LemonTag className="uppercase ml-1">Me</LemonTag>}
                     </>
                 )
             },

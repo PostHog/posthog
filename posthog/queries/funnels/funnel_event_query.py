@@ -108,6 +108,10 @@ class FunnelEventQuery(EventQuery):
         groups_query, groups_params = self._get_groups_query()
         self.params.update(groups_params)
 
+        null_person_filter = (
+            f"AND {self.EVENT_TABLE_ALIAS}.person_id != toUUIDOrZero('')" if self._using_person_on_events else ""
+        )
+
         query = f"""
             SELECT {', '.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
@@ -117,6 +121,7 @@ class FunnelEventQuery(EventQuery):
             {entity_query}
             {date_query}
             {prop_query}
+            {null_person_filter}
         """
         return query, self.params
 

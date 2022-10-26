@@ -14,6 +14,7 @@ import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfiguratio
 import { organizationLogic } from './organizationLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { UPGRADE_LINK } from 'lib/constants'
+import { appContextLogic } from './appContextLogic'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
@@ -23,6 +24,7 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.EventPropertyDefinitions]: Scene.DataManagement,
     [Scene.EventDefinition]: Scene.DataManagement,
     [Scene.EventPropertyDefinition]: Scene.DataManagement,
+    [Scene.IngestionWarnings]: Scene.DataManagement,
     [Scene.Person]: Scene.Persons,
     [Scene.Cohort]: Scene.Cohorts,
     [Scene.Groups]: Scene.Persons,
@@ -30,6 +32,7 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.Group]: Scene.Persons,
     [Scene.Dashboard]: Scene.Dashboards,
     [Scene.FeatureFlag]: Scene.FeatureFlags,
+    [Scene.AppMetrics]: Scene.Plugins,
 }
 
 export const sceneLogic = kea<sceneLogicType>({
@@ -37,7 +40,7 @@ export const sceneLogic = kea<sceneLogicType>({
         scenes?: Record<Scene, () => any>
     },
     connect: () => ({
-        logic: [router, userLogic, preflightLogic],
+        logic: [router, userLogic, preflightLogic, appContextLogic],
         values: [featureFlagLogic, ['featureFlags']],
         actions: [router, ['locationChanged']],
     }),

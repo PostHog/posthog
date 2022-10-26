@@ -1,10 +1,11 @@
 import './LemonCalendar.scss'
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { dayjs } from 'lib/dayjs'
 import { range } from 'lib/utils'
 import { LemonButton, LemonButtonProps } from 'lib/components/LemonButton'
 import { IconChevronLeft, IconChevronRight } from 'lib/components/icons'
 import clsx from 'clsx'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 export interface LemonCalendarProps {
     /** Fired if a calendar cell is clicked */
@@ -17,6 +18,8 @@ export interface LemonCalendarProps {
     getLemonButtonProps?: (opts: GetLemonButtonPropsOpts) => LemonButtonProps
     /** Number of months */
     months?: number
+    /** First day of the week (defaults to 1 = Monday) */
+    weekStart?: number
 }
 
 export interface GetLemonButtonPropsOpts {
@@ -31,6 +34,7 @@ const dayLabels = ['su', 'mo', 'tu', 'we', 'th', 'fr', 'sa']
 
 export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
     const months = Math.max(props.months ?? 1, 1)
+    const weekStart = props.weekStart ?? getAppContext()?.week_start ?? 1
     const today = dayjs().startOf('day')
     const [leftmostMonth, setLeftmostMonth] = useState(props.leftmostMonth ?? dayjs().format('YYYY-MM-DD'))
     useEffect(() => {
@@ -47,9 +51,8 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                     .startOf('month')
                 const endOfMonth = (leftmostMonth ? dayjs(leftmostMonth) : dayjs()).add(month, 'month').endOf('month')
                 const stringMonth = startOfMonth.format('YYYY-MM-DD')
-                // TODO: support the easier US Sunday-first format as well
-                const firstDay = startOfMonth.subtract(startOfMonth.day() === 0 ? 6 : startOfMonth.day() - 1, 'days')
-                const lastDay = endOfMonth.add(endOfMonth.day() === 0 ? 0 : 7 - endOfMonth.day(), 'days')
+                const firstDay = startOfMonth.subtract((startOfMonth.day() - weekStart + 7) % 7, 'days')
+                const lastDay = endOfMonth.add((((weekStart + 6) % 7) - endOfMonth.day() + 7) % 7, 'days')
                 const weeks = lastDay.diff(firstDay, 'week') + 1
                 const showLeftMonth = month === 0
                 const showRightMonth = month + 1 === months

@@ -1,7 +1,6 @@
 /*
 Scene to enter a new password from a received reset link
 */
-import React from 'react'
 import { useValues } from 'kea'
 import { passwordResetLogic } from './passwordResetLogic'
 import { SceneExport } from 'scenes/sceneTypes'

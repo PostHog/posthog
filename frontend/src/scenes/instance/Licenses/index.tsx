@@ -1,13 +1,10 @@
-import React from 'react'
+import { useEffect } from 'react'
 import { More } from 'lib/components/LemonButton/More'
 import { Alert, Form, Button, Input } from 'antd'
 import { isLicenseExpired, licenseLogic } from './licenseLogic'
 import { useValues, useActions } from 'kea'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { PageHeader } from 'lib/components/PageHeader'
-import { InfoCircleOutlined } from '@ant-design/icons'
-import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { LicenseType, TeamType } from '~/types'
@@ -15,6 +12,9 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { dayjs } from 'lib/dayjs'
 import { LemonModal } from 'lib/components/LemonModal'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: Licenses,
@@ -33,12 +33,20 @@ function ConfirmCancelModal({
     onOk: () => void
 }): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
+    const { billingVersion } = useValues(billingLogic)
     const hasAnotherValidLicense = licenses.filter((license) => dayjs().isBefore(license.valid_until)).length > 1
 
     const nonDemoProjects = ((currentOrganization?.teams || []) as TeamType[])
         .filter((team) => !team.is_demo)
         .sort((a, b) => a.id - b.id)
     const willDeleteProjects = !hasAnotherValidLicense && nonDemoProjects.slice(1, nonDemoProjects.length).length > 0
+
+    useEffect(() => {
+        // If billing V2 is enabled then we should go to the unified billing page
+        if (billingVersion === 'v2') {
+            router.actions.push(urls.organizationBilling())
+        }
+    }, [billingVersion])
 
     return (
         <LemonModal
@@ -118,28 +126,6 @@ export function Licenses(): JSX.Element {
         {
             title: 'Plan',
             dataIndex: 'plan',
-        },
-        {
-            title: function Render() {
-                return (
-                    <Tooltip
-                        placement="right"
-                        title="Maximum number of team members that you can have across all organizations with your current license."
-                    >
-                        Max # of team members
-                        <InfoCircleOutlined className="info-indicator" />
-                    </Tooltip>
-                )
-            },
-            render: function renderMaxUsers(_, license: LicenseType) {
-                return license.max_users === null ? 'Unlimited' : license.max_users
-            },
-        },
-        {
-            title: 'Key',
-            render: function renderActive(_, license: LicenseType) {
-                return <CodeSnippet>{license.key}</CodeSnippet>
-            },
         },
         {
             title: 'License added on',

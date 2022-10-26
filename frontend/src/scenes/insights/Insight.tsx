@@ -1,13 +1,11 @@
 import './Insight.scss'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
 import { AvailableFeature, ExporterFormat, InsightModel, InsightShortId, InsightType, ItemMode } from '~/types'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
-import { SaveCohortModal } from 'scenes/trends/persons-modal/SaveCohortModal'
-import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 import { InsightsNav } from './InsightsNav'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
@@ -39,8 +37,6 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import clsx from 'clsx'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { AlertMessage } from 'lib/components/AlertMessage'
-import { Link } from '@posthog/lemon-ui'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
@@ -67,8 +63,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
-    const { cohortModalVisible } = useValues(personsModalLogic)
-    const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
@@ -78,7 +72,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     }, [insightId])
 
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
-    const actorOnEventsQueryingEnabled = featureFlags[FEATURE_FLAGS.ACTOR_ON_EVENTS_QUERYING]
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
@@ -138,6 +131,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                                 status="stealth"
                                                 onClick={() => duplicateInsight(insight as InsightModel, true)}
                                                 fullWidth
+                                                data-attr="duplicate-insight-from-insight-view"
                                             >
                                                 Duplicate
                                             </LemonButton>
@@ -283,18 +277,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 }
             />
 
-            {actorOnEventsQueryingEnabled ? (
-                <div className="mb-4">
-                    <AlertMessage type="info">
-                        To speed up queries, we've adjusted how they're calculated. You might notice some differences in
-                        the insight results. Read more about what changes to expect{' '}
-                        <Link to={`https://posthog.com/docs/how-posthog-works/queries`}>here</Link>. Please{' '}
-                        <Link to={'https://posthog.com/support/'}>contact us</Link> if you have any further questions
-                        regarding the changes
-                    </AlertMessage>
-                </div>
-            ) : null}
-
             {!usingEditorPanels && insightMode === ItemMode.Edit && <InsightsNav />}
 
             <div
@@ -315,15 +297,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     <FeedbackCallCTA />
                 </>
             ) : null}
-
-            <SaveCohortModal
-                isOpen={cohortModalVisible}
-                onSave={(title: string) => {
-                    saveCohortWithUrl(title)
-                    setCohortModalVisible(false)
-                }}
-                onCancel={() => setCohortModalVisible(false)}
-            />
         </div>
     )
 

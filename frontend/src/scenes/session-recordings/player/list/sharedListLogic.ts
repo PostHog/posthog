@@ -3,15 +3,19 @@ import { PlayerPosition, RecordingWindowFilter, SessionRecordingPlayerProps, Ses
 import type { sharedListLogicType } from './sharedListLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 
 export type WindowOption = RecordingWindowFilter.All | PlayerPosition['windowId']
 
+// Settings local to each recording
 export const sharedListLogic = kea<sharedListLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sharedListLogic', key]),
     props({} as SessionRecordingPlayerProps),
     key((props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect({
         logic: [eventUsageLogic],
+        values: [playerSettingsLogic, ['showOnlyMatching']],
+        actions: [playerSettingsLogic, ['setShowOnlyMatching']],
     }),
     actions(() => ({
         setTab: (tab: SessionRecordingTab) => ({ tab }),

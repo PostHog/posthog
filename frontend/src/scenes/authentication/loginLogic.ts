@@ -7,6 +7,8 @@ import type { loginLogicType } from './loginLogicType'
 import { router } from 'kea-router'
 import { SSOProviders } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface AuthenticateResponseType {
     success: boolean
@@ -41,7 +43,7 @@ export interface LoginForm {
 export const loginLogic = kea<loginLogicType>([
     path(['scenes', 'authentication', 'loginLogic']),
     connect({
-        values: [preflightLogic, ['preflight']],
+        values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
     }),
     loaders(() => ({
         precheckResponse: [
@@ -67,7 +69,7 @@ export const loginLogic = kea<loginLogicType>([
         ],
     })),
 
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         login: {
             defaults: { email: '', password: '' } as LoginForm,
             errors: ({ email, password }) => ({
@@ -83,10 +85,15 @@ export const loginLogic = kea<loginLogicType>([
                 try {
                     return await api.create('api/login', { email, password })
                 } catch (e) {
+                    const { code } = e as Record<string, any>
+                    let { detail } = e as Record<string, any>
+                    if (values.featureFlags[FEATURE_FLAGS.REGION_SELECT] && code === 'invalid_credentials') {
+                        detail = 'Invalid email or password. Make sure you have selected the right data region.'
+                    }
                     actions.setLoginManualErrors({
                         generic: {
-                            code: (e as Record<string, any>).code,
-                            detail: (e as Record<string, any>).detail,
+                            code,
+                            detail,
                         },
                     })
                     throw e

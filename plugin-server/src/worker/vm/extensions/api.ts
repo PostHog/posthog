@@ -16,6 +16,7 @@ export interface ApiExtension {
     get(path: string, options?: ApiMethodOptions): Promise<Response>
     post(path: string, options?: ApiMethodOptions): Promise<Response>
     put(path: string, options?: ApiMethodOptions): Promise<Response>
+    patch(path: string, options?: ApiMethodOptions): Promise<Response>
     delete(path: string, options?: ApiMethodOptions): Promise<Response>
 }
 
@@ -23,6 +24,7 @@ enum ApiMethod {
     Get = 'GET',
     Post = 'POST',
     Put = 'PUT',
+    Patch = 'PATCH',
     Delete = 'DELETE',
 }
 
@@ -68,9 +70,10 @@ export function createApi(server: Hub, pluginConfig: PluginConfig): ApiExtension
         const url = `${host}/${path.replace('@current', pluginConfig.team_id.toString())}${
             path.includes('?') ? '&' : '?'
         }${urlParams.toString()}`
+
         const headers = {
             Authorization: `Bearer ${apiKey}`,
-            ...(method === ApiMethod.Post ? { 'Content-Type': 'application/json' } : {}),
+            ...(method === ApiMethod.Post || method === ApiMethod.Patch ? { 'Content-Type': 'application/json' } : {}),
             ...options.headers,
         }
 
@@ -94,6 +97,9 @@ export function createApi(server: Hub, pluginConfig: PluginConfig): ApiExtension
         },
         put: async (path, options) => {
             return await sendRequest(path, ApiMethod.Put, options)
+        },
+        patch: async (path, options) => {
+            return await sendRequest(path, ApiMethod.Patch, options)
         },
         delete: async (path, options) => {
             return await sendRequest(path, ApiMethod.Delete, options)

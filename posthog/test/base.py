@@ -19,6 +19,7 @@ from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.client import ch_pool, sync_execute
+from posthog.cloud_utils import TEST_clear_cloud_cache
 from posthog.models import Organization, Team, User
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
@@ -165,6 +166,10 @@ class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     Read more: https://docs.djangoproject.com/en/3.1/topics/testing/tools/#testcase
     """
 
+    def is_cloud(self, value: bool):
+        TEST_clear_cloud_cache()
+        return self.settings(MULTI_TENANCY=value)
+
 
 class NonAtomicBaseTest(TestMixin, ErrorResponsesMixin, TransactionTestCase):
     """
@@ -185,6 +190,10 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
 
     def setUp(self):
         super().setUp()
+
+        # Clear the cached "is_cloud" setting so that it's recalculated for each test
+        TEST_clear_cloud_cache()
+
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
 
@@ -192,6 +201,10 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
         stripped_response1 = stripResponse(response1, remove=remove)
         stripped_response2 = stripResponse(response2, remove=remove)
         self.assertDictEqual(stripped_response1[0], stripped_response2[0])
+
+    def is_cloud(self, value: bool):
+        TEST_clear_cloud_cache()
+        return self.settings(MULTI_TENANCY=value)
 
 
 def stripResponse(response, remove=("action", "label", "persons_urls", "filter")):
@@ -353,25 +366,25 @@ def snapshot_postgres_queries(fn):
 
 class BaseTestMigrations(QueryMatchingTest):
     @property
-    def app(self):
+    def app(self) -> str:
         return apps.get_containing_app_config(type(self).__module__).name  # type: ignore
 
-    migrate_from = None
-    migrate_to = None
+    migrate_from: str
+    migrate_to: str
     apps = None
     assert_snapshots = False
 
     def setUp(self):
-        assert (
-            self.migrate_from and self.migrate_to  # type: ignore
+        assert hasattr(self, "migrate_from") and hasattr(
+            self, "migrate_to"
         ), "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
-        self.migrate_from = [(self.app, self.migrate_from)]  # type: ignore
-        self.migrate_to = [(self.app, self.migrate_to)]
+        migrate_from = [(self.app, self.migrate_from)]
+        migrate_to = [(self.app, self.migrate_to)]
         executor = MigrationExecutor(connection)
-        old_apps = executor.loader.project_state(self.migrate_from).apps
+        old_apps = executor.loader.project_state(migrate_from).apps
 
         # Reverse to the original migration
-        executor.migrate(self.migrate_from)
+        executor.migrate(migrate_from)  # type: ignore
 
         self.setUpBeforeMigration(old_apps)
 
@@ -382,13 +395,14 @@ class BaseTestMigrations(QueryMatchingTest):
         if self.assert_snapshots:
             self._execute_migration_with_snapshots(executor)
         else:
-            executor.migrate(self.migrate_to)
+            executor.migrate(migrate_to)  # type: ignore
 
-        self.apps = executor.loader.project_state(self.migrate_to).apps
+        self.apps = executor.loader.project_state(migrate_to).apps
 
     @snapshot_postgres_queries
     def _execute_migration_with_snapshots(self, executor):
-        executor.migrate(self.migrate_to)
+        migrate_to = [(self.app, self.migrate_to)]
+        executor.migrate(migrate_to)
 
     def setUpBeforeMigration(self, apps):
         pass

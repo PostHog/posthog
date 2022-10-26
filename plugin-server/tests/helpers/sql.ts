@@ -27,38 +27,14 @@ export interface ExtraDatabaseRows {
     pluginAttachments?: Omit<PluginAttachmentDB, 'id'>[]
 }
 
-export const POSTGRES_TRUNCATE_TABLES_QUERY = `
-TRUNCATE TABLE
-    posthog_personalapikey,
-    posthog_featureflag,
-    posthog_featureflaghashkeyoverride,
-    posthog_annotation,
-    posthog_dashboarditem,
-    posthog_dashboard,
-    posthog_cohortpeople,
-    posthog_cohort,
-    posthog_actionstep,
-    posthog_action_events,
-    posthog_action,
-    posthog_instancesetting,
-    posthog_sessionrecordingevent,
-    posthog_persondistinctid,
-    posthog_person,
-    posthog_event,
-    posthog_pluginstorage,
-    posthog_pluginattachment,
-    posthog_pluginconfig,
-    posthog_pluginsourcefile,
-    posthog_plugin,
-    posthog_eventdefinition,
-    posthog_propertydefinition,
-    posthog_grouptypemapping,
-    posthog_team,
-    posthog_organizationmembership,
-    posthog_organization,
-    posthog_user,
-    posthog_eventbuffer
-CASCADE
+export const POSTGRES_DELETE_TABLES_QUERY = `
+DO $$ DECLARE
+  r RECORD;
+BEGIN
+  FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP
+    EXECUTE 'DELETE FROM ' || quote_ident(r.tablename);
+  END LOOP;
+END $$;
 `
 
 export async function resetTestDatabase(
@@ -68,12 +44,9 @@ export async function resetTestDatabase(
     { withExtendedTestData = true }: { withExtendedTestData?: boolean } = {}
 ): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig }
-    const db = new Pool({ connectionString: config.DATABASE_URL! })
-    try {
-        await db.query('TRUNCATE TABLE ee_hook CASCADE')
-    } catch {}
+    const db = new Pool({ connectionString: config.DATABASE_URL!, max: 1 })
 
-    await db.query(POSTGRES_TRUNCATE_TABLES_QUERY)
+    await db.query(POSTGRES_DELETE_TABLES_QUERY)
     const mocks = makePluginObjects(code)
     const teamIds = mocks.pluginConfigRows.map((c) => c.team_id)
     const teamIdToCreate = teamIds[0]
@@ -119,9 +92,9 @@ export async function resetTestDatabase(
     await db.end()
 }
 
-export async function insertRow(db: Pool, table: string, objectProvided: Record<string, any>): Promise<void> {
+export async function insertRow(db: Pool, table: string, objectProvided: Record<string, any>) {
     // Handling of related fields
-    const { source__plugin_json, source__index_ts, source__frontend_tsx, ...object } = objectProvided
+    const { source__plugin_json, source__index_ts, source__frontend_tsx, source__site_ts, ...object } = objectProvided
 
     const keys = Object.keys(object)
         .map((key) => `"${key}"`)
@@ -177,7 +150,20 @@ export async function insertRow(db: Pool, table: string, objectProvided: Record<
                 })
             )
         }
+        if (source__site_ts) {
+            dependentQueries.push(
+                insertRow(db, 'posthog_pluginsourcefile', {
+                    id: new UUIDT().toString(),
+                    filename: 'site.ts',
+                    source: source__site_ts,
+                    plugin_id: rowSaved.id,
+                    error: null,
+                    transpiled: null,
+                })
+            )
+        }
         await Promise.all(dependentQueries)
+        return rowSaved
     } catch (error) {
         console.error(`Error on table ${table} when inserting object:\n`, object, '\n', error)
         throw error

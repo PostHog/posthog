@@ -1,5 +1,5 @@
 import { PropertyFilterValue, PropertyOperator } from '~/types'
-import { genericOperatorMap } from 'lib/utils'
+import { allOperatorsMapping, genericOperatorMap } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
@@ -24,6 +24,13 @@ export function genericOperatorToHumanName(operator?: PropertyOperator | null): 
     return 'equals'
 }
 
+export function allOperatorsToHumanName(operator?: PropertyOperator | null): string {
+    if (operator && allOperatorsMapping[operator]) {
+        return allOperatorsMapping[operator].slice(2)
+    }
+    return 'equals'
+}
+
 export function propertyValueToHumanName(value?: PropertyFilterValue): string {
     if (value?.[0]) {
         return value[0]
@@ -41,11 +48,10 @@ export function formatTimeFromNow(day?: string): string {
     return day ? dayjs.utc(day).fromNow() : '-'
 }
 
-// TODO: remove when "simplify-actions" FF is released
-export function getSingularType(type: TaxonomicFilterGroupType, shouldSimplifyActions: boolean = false): string {
+export function getSingularType(type: TaxonomicFilterGroupType): string {
     switch (type) {
         case TaxonomicFilterGroupType.Actions:
-            return shouldSimplifyActions ? 'calculated event' : 'action'
+            return 'action'
         case TaxonomicFilterGroupType.Cohorts:
         case TaxonomicFilterGroupType.CohortsWithAllUsers:
             return 'cohort'

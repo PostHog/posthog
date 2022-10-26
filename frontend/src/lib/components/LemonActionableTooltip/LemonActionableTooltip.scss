@@ -5,9 +5,13 @@
         align-items: center;
         justify-content: space-between;
     }
+    .LemonActionableTooltip__title {
+        font-size: 1.125rem;
+        font-weight: 500;
+        line-height: 1.75rem;
+    }
     .LemonActionableTooltip__icon {
         color: var(--primary);
-        margin-left: 0.5rem;
         display: flex;
         align-items: center;
         width: 1.5rem;
@@ -18,23 +22,35 @@
         }
     }
     .LemonActionableTooltip__body {
-        padding: 0.5rem;
+        padding: 0.25rem 0.5rem;
+        > * + * {
+            margin-top: 0.5rem;
+        }
     }
     .LemonActionableTooltip__footer {
         display: flex;
         justify-content: space-between;
+        padding: 0.5rem;
     }
-    .LemonActionableTooltip__buttons {
+    .LemonActionableTooltip__url-buttons {
+        display: flex;
+        flex-direction: column;
+        > * + * {
+            margin-top: 0.5rem;
+        }
+    }
+    .LemonActionableTooltip__action-buttons {
         display: flex;
         justify-content: space-between;
         > * + * {
-            margin-left: 0.25rem;
+            margin-left: 0.5rem;
         }
     }
     .LemonActionableTooltip__navigation {
         color: var(--muted);
         display: flex;
         align-items: center;
+        margin-left: 0.5rem;
 
         > * + * {
             margin-left: 0.25rem;

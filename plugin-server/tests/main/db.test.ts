@@ -1,10 +1,10 @@
 import { DateTime } from 'luxon'
 
-import { Cohort, Hub, Person, PropertyOperator, PropertyUpdateOperation, Team, TimestampFormat } from '../../src/types'
+import { Cohort, Hub, Person, PropertyOperator, PropertyUpdateOperation, Team } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { createHub } from '../../src/utils/db/hub'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
-import { castTimestampOrNow, RaceConditionError, UUIDT } from '../../src/utils/utils'
+import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
 import { plugin60 } from './../helpers/plugins'
@@ -607,6 +607,156 @@ describe('DB', () => {
         })
     })
 
+    describe('getGroupsColumns()', () => {
+        describe('one group', () => {
+            it('tries to fetch data from the cache first, avoiding the database', async () => {
+                const fetchGroupSpy = jest.spyOn(db, 'fetchGroup')
+                const redisGetSpy = jest
+                    .spyOn(db, 'redisGet')
+                    .mockImplementationOnce(
+                        jest.fn(() => Promise.resolve({ properties: { foo: 'bar' }, created_at: '2020-01-01' }))
+                    )
+                const res = await db.getGroupsColumns(1, [[0, '0']])
+
+                expect(redisGetSpy).toHaveBeenCalled()
+                expect(fetchGroupSpy).not.toHaveBeenCalled()
+
+                expect(res).toEqual({
+                    group0_properties: JSON.stringify({ foo: 'bar' }),
+                    group0_created_at: '2020-01-01 00:00:00.000',
+                })
+            })
+
+            it('tries to fetch data from Postgres if Redis is down', async () => {
+                const fetchGroupSpy = jest.spyOn(db, 'fetchGroup').mockImplementationOnce(
+                    jest.fn(() =>
+                        Promise.resolve({
+                            group_properties: { foo: 'bar' },
+                            created_at: DateTime.fromISO('2022-01-01T00:00:00.000Z'),
+                        } as any)
+                    )
+                )
+                const redisGetSpy = jest.spyOn(db, 'redisGet').mockImplementationOnce(
+                    jest.fn(() => {
+                        throw new Error()
+                    })
+                )
+
+                const res = await db.getGroupsColumns(1, [[0, '0']])
+
+                expect(redisGetSpy).toHaveBeenCalled()
+                expect(fetchGroupSpy).toHaveBeenCalled()
+                expect(res).toEqual({
+                    group0_properties: JSON.stringify({ foo: 'bar' }),
+                    group0_created_at: '2022-01-01 00:00:00.000',
+                })
+            })
+
+            it('tries to fetch data from Postgres if there is no cached data', async () => {
+                const fetchGroupSpy = jest.spyOn(db, 'fetchGroup').mockImplementationOnce(
+                    jest.fn(() =>
+                        Promise.resolve({
+                            group_properties: { foo: 'bar' },
+                            created_at: DateTime.fromISO('2022-01-01T00:00:00.000Z'),
+                        } as any)
+                    )
+                )
+                const redisGetSpy = jest
+                    .spyOn(db, 'redisGet')
+                    .mockImplementationOnce(jest.fn(() => Promise.resolve(null)))
+
+                const res = await db.getGroupsColumns(1, [[0, '0']])
+
+                expect(redisGetSpy).toHaveBeenCalled()
+                expect(fetchGroupSpy).toHaveBeenCalled()
+                expect(res).toEqual({
+                    group0_properties: JSON.stringify({ foo: 'bar' }),
+                    group0_created_at: '2022-01-01 00:00:00.000',
+                })
+            })
+
+            it('triggers a statsd metric if the data doesnt exist in Postgres or Redis', async () => {
+                const fetchGroupSpy = jest
+                    .spyOn(db, 'fetchGroup')
+                    .mockImplementationOnce(jest.fn(() => Promise.resolve(undefined)))
+                const redisGetSpy = jest
+                    .spyOn(db, 'redisGet')
+                    .mockImplementationOnce(jest.fn(() => Promise.resolve(null)))
+
+                db.statsd = {
+                    increment: jest.fn(),
+                } as any
+
+                await db.getGroupsColumns(1, [[0, '0']])
+
+                expect(redisGetSpy).toHaveBeenCalled()
+                expect(fetchGroupSpy).toHaveBeenCalled()
+                expect(db.statsd?.increment).toHaveBeenCalledTimes(2)
+                expect(db.statsd?.increment).toHaveBeenLastCalledWith('groups_data_missing_entirely')
+            })
+        })
+
+        describe('multiple groups', () => {
+            it('fetches data from cache for some groups and postgres for others', async () => {
+                const fetchGroupSpy = jest.spyOn(db, 'fetchGroup').mockImplementation(
+                    jest.fn(() =>
+                        Promise.resolve({
+                            group_properties: { cached: false },
+                            created_at: DateTime.fromISO('2022-01-01T00:00:00.000Z'),
+                        } as any)
+                    )
+                )
+
+                let call = 0
+                const redisGetSpy = jest.spyOn(db, 'redisGet').mockImplementation(
+                    jest.fn(() => {
+                        // return a cached result on the first and fourth calls and null otherwise
+                        // we should fetch data from postgres for the non-cached results
+                        ++call
+                        if (call === 1 || call === 4) {
+                            return Promise.resolve({ properties: { cached: true }, created_at: '2020-01-01' })
+                        }
+                        return Promise.resolve(null)
+                    })
+                )
+                const res = await db.getGroupsColumns(1, [
+                    [0, '0'],
+                    [1, '1'],
+                    [2, '2'],
+                    [3, '3'],
+                    [4, '4'],
+                ])
+
+                expect(redisGetSpy).toHaveBeenCalledTimes(5)
+                expect(fetchGroupSpy).toHaveBeenCalledTimes(3)
+
+                // verify that the first and fourth calls have cached=true and all other have cached=false
+                expect(res).toEqual({
+                    group0_created_at: '2020-01-01 00:00:00.000',
+                    group0_properties: JSON.stringify({
+                        cached: true,
+                    }),
+                    group1_created_at: '2022-01-01 00:00:00.000',
+                    group1_properties: JSON.stringify({
+                        cached: false,
+                    }),
+                    group2_created_at: '2022-01-01 00:00:00.000',
+                    group2_properties: JSON.stringify({
+                        cached: false,
+                    }),
+                    group3_created_at: '2020-01-01 00:00:00.000',
+                    group3_properties: JSON.stringify({
+                        cached: true,
+                    }),
+                    group4_created_at: '2022-01-01 00:00:00.000',
+                    group4_properties: JSON.stringify({
+                        cached: false,
+                    }),
+                })
+            })
+        })
+    })
+
     describe('addOrUpdatePublicJob', () => {
         it('updates the column if the job name is new', async () => {
             await insertRow(db.postgres, 'posthog_plugin', { ...plugin60, id: 88 })
@@ -636,7 +786,7 @@ describe('DB', () => {
     })
 
     describe('person and group properties on events', () => {
-        beforeEach(async () => {
+        async function clearCache() {
             const redis = await hub.redisPool.acquire()
             const keys = (await redis.keys('person_*')).concat(await redis.keys('group_*'))
             const promises: Promise<number>[] = []
@@ -645,7 +795,10 @@ describe('DB', () => {
             }
             await Promise.all(promises)
             await hub.redisPool.release(redis)
-            db.personAndGroupsCachingEnabledTeams.add(2)
+        }
+
+        beforeEach(async () => {
+            await clearCache()
             db.PERSONS_AND_GROUPS_CACHE_TTL = 60 * 60 // 1h i.e. keys won't expire during the test
         })
 
@@ -672,7 +825,6 @@ describe('DB', () => {
         it('getPersonData works not cached', async () => {
             const uuid = new UUIDT().toString()
             const distinctId = 'distinct_id1'
-            db.personAndGroupsCachingEnabledTeams.delete(2) // enabled later, i.e. previous not cached
             await db.createPerson(
                 TIMESTAMP,
                 { a: 123, b: false, c: 'bbb' },
@@ -684,7 +836,7 @@ describe('DB', () => {
                 uuid,
                 [distinctId]
             )
-            db.personAndGroupsCachingEnabledTeams.add(2)
+            await clearCache()
             const res = await db.getPersonData(2, distinctId)
             expect(res?.uuid).toEqual(uuid)
             expect(res?.created_at.toISO()).toEqual(TIMESTAMP.toUTC().toISO())
@@ -718,171 +870,6 @@ describe('DB', () => {
             )
             const res = await db.getPersonData(2, distinctId)
             expect(res?.properties).toEqual({ a: 333, b: false, c: 'bbb' })
-        })
-
-        describe('getGroupDataCache() and updateGroupDataCache()', () => {
-            it('returns null values by default', async () => {
-                const data = await db.getGroupDataCache(2, { index: 0, key: 'abc' })
-                expect(data).toEqual({
-                    identifier: { index: 0, key: 'abc' },
-                    data: null,
-                    cached: false,
-                })
-            })
-
-            it('can read own writes', async () => {
-                const groupsData = [
-                    { identifier: { index: 0, key: 'abc' }, data: null },
-                    { identifier: { index: 2, key: 'efg' }, data: { properties: { a: 3 }, created_at: TIMESTAMP } },
-                ]
-                await db.updateGroupDataCache(2, groupsData)
-
-                expect(await db.getGroupDataCache(2, { index: 0, key: 'abc' })).toEqual({
-                    identifier: { index: 0, key: 'abc' },
-                    data: null,
-                    cached: true,
-                })
-                expect(await db.getGroupDataCache(2, { index: 2, key: 'efg' })).toEqual({
-                    identifier: { index: 2, key: 'efg' },
-                    data: { properties: { a: 3 }, created_at: TIMESTAMP },
-                    cached: true,
-                })
-            })
-        })
-
-        describe('fetchGroupDataAndUpdateCache()', () => {
-            const identifiers = [
-                { index: 0, key: 'abc' },
-                { index: 2, key: 'efg' },
-            ]
-
-            beforeEach(() => {
-                jest.spyOn(db, 'updateGroupDataCache')
-            })
-
-            it('returns nulls if data does not exist and updates cache', async () => {
-                const groupsData = await db.fetchGroupDataAndUpdateCache(2, identifiers)
-
-                expect(groupsData).toEqual([
-                    {
-                        identifier: { index: 0, key: 'abc' },
-                        data: null,
-                    },
-                    {
-                        identifier: { index: 2, key: 'efg' },
-                        data: null,
-                    },
-                ])
-                expect(db.updateGroupDataCache).toHaveBeenCalledWith(2, groupsData)
-            })
-
-            it('returns values from database and caches', async () => {
-                await db.insertGroup(
-                    // would get cached
-                    2,
-                    0,
-                    'abc',
-                    { a: 3 },
-                    TIMESTAMP,
-                    { a: TIMESTAMP.toISO() },
-                    { a: PropertyUpdateOperation.Set },
-                    1,
-                    undefined,
-                    { cache: false }
-                )
-
-                const groupsData = await db.fetchGroupDataAndUpdateCache(2, identifiers)
-
-                expect(groupsData).toEqual([
-                    {
-                        identifier: { index: 0, key: 'abc' },
-                        data: { properties: { a: 3 }, created_at: TIMESTAMP },
-                    },
-                    {
-                        identifier: { index: 2, key: 'efg' },
-                        data: null,
-                    },
-                ])
-                expect(db.updateGroupDataCache).toHaveBeenCalledWith(2, groupsData)
-            })
-        })
-
-        describe('fetchGroupColumnsValues()', () => {
-            const identifiers = [
-                { index: 0, key: 'abc' },
-                { index: 2, key: 'efg' },
-            ]
-
-            beforeEach(() => {
-                jest.spyOn(db, 'getGroupDataCache')
-                jest.spyOn(db, 'fetchGroupDataAndUpdateCache')
-            })
-
-            it('returns no columns if not enabled', async () => {
-                const columns = await db.fetchGroupColumnsValues(3, identifiers)
-                expect(columns).toEqual({})
-
-                expect(db.getGroupDataCache).toHaveBeenCalledTimes(0)
-                expect(db.fetchGroupDataAndUpdateCache).toHaveBeenCalledTimes(0)
-            })
-
-            it('returns no columns if no groups passed', async () => {
-                const columns = await db.fetchGroupColumnsValues(2, [])
-                expect(columns).toEqual({})
-
-                expect(db.getGroupDataCache).toHaveBeenCalledTimes(0)
-                expect(db.fetchGroupDataAndUpdateCache).toHaveBeenCalledTimes(0)
-            })
-
-            it('returns no columns if no cached or db data', async () => {
-                const columns = await db.fetchGroupColumnsValues(2, identifiers)
-                expect(columns).toEqual({})
-
-                expect(db.getGroupDataCache).toHaveBeenCalledTimes(2)
-                expect(db.fetchGroupDataAndUpdateCache).toHaveBeenCalledTimes(1)
-            })
-
-            it('returns columns from cache', async () => {
-                const groupsData = [
-                    { identifier: { index: 0, key: 'abc' }, data: null },
-                    { identifier: { index: 2, key: 'efg' }, data: { properties: { a: 3 }, created_at: TIMESTAMP } },
-                ]
-                await db.updateGroupDataCache(2, groupsData)
-
-                const columns = await db.fetchGroupColumnsValues(2, identifiers)
-                expect(columns).toEqual({
-                    group2_properties: JSON.stringify({ a: 3 }),
-                    group2_created_at: castTimestampOrNow(TIMESTAMP, TimestampFormat.ClickHouse),
-                })
-
-                expect(db.getGroupDataCache).toHaveBeenCalledTimes(2)
-                expect(db.fetchGroupDataAndUpdateCache).toHaveBeenCalledTimes(0)
-            })
-
-            it('returns columns from db', async () => {
-                await db.insertGroup(
-                    // would get cached
-                    2,
-                    0,
-                    'abc',
-                    { a: 3 },
-                    TIMESTAMP,
-                    { a: TIMESTAMP.toISO() },
-                    { a: PropertyUpdateOperation.Set },
-                    1,
-                    undefined,
-                    { cache: false }
-                )
-
-                const columns = await db.fetchGroupColumnsValues(2, identifiers)
-                expect(columns).toEqual({
-                    group0_properties: JSON.stringify({ a: 3 }),
-                    group0_created_at: castTimestampOrNow(TIMESTAMP, TimestampFormat.ClickHouse),
-                })
-
-                expect(db.getGroupDataCache).toHaveBeenCalledTimes(2)
-                expect(db.fetchGroupDataAndUpdateCache).toHaveBeenCalledTimes(1)
-            })
         })
     })
 

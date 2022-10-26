@@ -1,10 +1,9 @@
 import posthog from 'posthog-js'
-import { parsePeopleParams, PeopleParamType } from 'scenes/trends/persons-modal/personsModalLogic'
 import {
     ActionType,
     RawAnnotationType,
     CohortType,
-    CombinedEventType,
+    EventDefinitionType,
     DashboardCollaboratorType,
     DashboardType,
     EventDefinition,
@@ -26,6 +25,7 @@ import {
     SubscriptionType,
     TeamType,
     UserType,
+    MediaUploadResponse,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -329,6 +329,10 @@ class ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('channels')
     }
 
+    public media(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('uploaded_media')
+    }
+
     // Request finalization
 
     public async get(options?: { signal?: AbortSignal }): Promise<any> {
@@ -404,13 +408,6 @@ const api = {
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().actions().assembleEndpointUrl()
-        },
-        determinePeopleCsvUrl(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
-            return new ApiRequest()
-                .actions()
-                .withAction('people')
-                .withQueryString(parsePeopleParams(peopleParams, filters))
-                .assembleFullUrl(true)
         },
     },
 
@@ -518,7 +515,7 @@ const api = {
             limit?: number
             offset?: number
             teamId?: TeamType['id']
-            event_type?: CombinedEventType
+            event_type?: EventDefinitionType
         }): Promise<PaginatedResponse<EventDefinition>> {
             return new ApiRequest()
                 .eventDefinitions(teamId)
@@ -533,7 +530,7 @@ const api = {
             limit?: number
             offset?: number
             teamId?: TeamType['id']
-            event_type?: CombinedEventType
+            event_type?: EventDefinitionType
         }): string {
             return new ApiRequest()
                 .eventDefinitions(teamId)
@@ -771,7 +768,7 @@ const api = {
         async list(): Promise<PaginatedResponse<LicenseType>> {
             return await new ApiRequest().licenses().get()
         },
-        async create(key: LicenseType['key']): Promise<LicenseType> {
+        async create(key: string): Promise<LicenseType> {
             return await new ApiRequest().licenses().create({ data: { key } })
         },
         async delete(licenseId: LicenseType['id']): Promise<LicenseType> {
@@ -824,6 +821,12 @@ const api = {
         },
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()
+        },
+    },
+
+    media: {
+        async upload(data: FormData): Promise<MediaUploadResponse> {
+            return await new ApiRequest().media().create({ data })
         },
     },
 

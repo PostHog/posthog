@@ -1,4 +1,3 @@
-import React from 'react'
 import { ManageSubscriptions } from './views/ManageSubscriptions'
 import { EditSubscription } from './views/EditSubscription'
 import { useActions, useValues } from 'kea'
@@ -72,6 +71,7 @@ export function SubscribeButton(props: SubscriptionBaseProps): JSX.Element {
             fullWidth
             popup={{
                 actionable: true,
+                closeParentPopupOnClickInside: true,
                 placement: 'right-start',
                 overlay: (
                     <>

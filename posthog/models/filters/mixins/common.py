@@ -29,6 +29,7 @@ from posthog.constants import (
     DISPLAY_TYPES,
     EVENTS,
     EXCLUSIONS,
+    EXPLICIT_DATE,
     FILTER_TEST_ACCOUNTS,
     FORMULA,
     INSIGHT,
@@ -44,7 +45,7 @@ from posthog.constants import (
     TRENDS_WORLD_MAP,
     BreakdownAttributionType,
 )
-from posthog.models.entity import MATH_TYPE, Entity, ExclusionEntity
+from posthog.models.entity import Entity, ExclusionEntity, MathType
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
 from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
@@ -312,24 +313,6 @@ class DateMixin(BaseParamMixin):
     def _date_to(self) -> Optional[Union[str, datetime.datetime]]:
         return self._data.get(DATE_TO, None)
 
-    @property
-    def date_from_has_explicit_time(self) -> bool:
-        """
-        Whether date_from has an explicit time set that we want to filter on
-        """
-        if not self._date_from:
-            return False
-        return isinstance(self._date_from, datetime.datetime) or "T" in self._date_from
-
-    @property
-    def date_to_has_explicit_time(self) -> bool:
-        """
-        Whether date_to has an explicit time set that we want to filter on
-        """
-        if not self._date_to:
-            return False
-        return isinstance(self._date_to, datetime.datetime) or "T" in self._date_to
-
     @cached_property
     def date_from(self) -> Optional[datetime.datetime]:
         if self._date_from:
@@ -363,6 +346,10 @@ class DateMixin(BaseParamMixin):
 
         return date.replace(hour=23, minute=59, second=59, microsecond=99999)
 
+    @cached_property
+    def use_explicit_dates(self) -> bool:
+        return process_bool(self._data.get(EXPLICIT_DATE))
+
     @include_dict
     def date_to_dict(self) -> Dict:
         result_dict = {}
@@ -385,6 +372,9 @@ class DateMixin(BaseParamMixin):
                     else self._date_to
                 }
             )
+
+        if self.use_explicit_dates:
+            result_dict.update({EXPLICIT_DATE: "true"})
 
         return result_dict
 
@@ -462,7 +452,7 @@ class EntityTypeMixin(BaseParamMixin):
 
 class EntityMathMixin(BaseParamMixin):
     @cached_property
-    def target_entity_math(self) -> Optional[MATH_TYPE]:
+    def target_entity_math(self) -> Optional[MathType]:
         return self._data.get("entity_math", None)
 
     @include_dict

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import './PayCard.scss'
 import { ArrowRightOutlined, CloseOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'

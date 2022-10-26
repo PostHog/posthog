@@ -3,7 +3,7 @@ import time
 from random import randrange
 from typing import Any, Dict, List
 
-from celery import Celery, chain
+from celery import Celery
 from celery.schedules import crontab
 from celery.signals import setup_logging, task_postrun, task_prerun, worker_process_init
 from django.conf import settings
@@ -13,6 +13,7 @@ from django.utils import timezone
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
 
+from posthog.cloud_utils import is_cloud
 from posthog.redis import get_client
 from posthog.utils import get_crontab
 
@@ -78,12 +79,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s()  # check twice a week
     )
 
-    # Send weekly status report on self-hosted instances
-    if not getattr(settings, "MULTI_TENANCY", False):
-        sender.add_periodic_task(crontab(day_of_week="mon", hour=0, minute=0), status_report.s())
+    # Send all instance usage to the Billing service
+    sender.add_periodic_task(crontab(hour=0, minute=0), send_org_usage_reports.s(), name="send instance usage report")
 
     # PostHog Cloud cron jobs
-    if getattr(settings, "MULTI_TENANCY", False):
+    if is_cloud():
+        # TODO EC this should be triggered only for instances that haven't been migrated to the new billing
         # Calculate billing usage for the day every day at midnight UTC
         sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())
         # Verify that persons data is in sync every day at 4 AM UTC
@@ -122,7 +123,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(
         crontab(minute=0, hour="*"), pg_plugin_server_query_timing.s(), name="PG plugin server query timing"
     )
-    sender.add_periodic_task(120, graphile_queue_size.s(), name="Graphile queue size")
+    sender.add_periodic_task(120, graphile_worker_queue_size.s(), name="Graphile Worker queue size")
 
     sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_cohort_ids_in_feature_flags_task.s())
 
@@ -144,14 +145,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         )
 
     if settings.EE_AVAILABLE:
-        sender.add_periodic_task(
-            crontab(
-                hour=0, minute=randrange(0, 40)
-            ),  # every day at a random minute past midnight. Sends data from the preceding whole day.
-            send_org_usage_report.s(),
-            name="send event usage report",
-        )
-
         sender.add_periodic_task(
             crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
         )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
@@ -330,7 +323,7 @@ def ingestion_lag():
 
 
 @app.task(ignore_result=True)
-def graphile_queue_size():
+def graphile_worker_queue_size():
     from django.db import connections
 
     from posthog.internal_metrics import gauge
@@ -348,7 +341,7 @@ def graphile_queue_size():
         )
 
         queue_size = cursor.fetchone()[0]
-        gauge("graphile_queue_size", queue_size)
+        gauge("graphile_worker_queue_size", queue_size)
 
         # Track the number of jobs that will still be run at least once or are currently running based on job type (i.e. task_identifier)
         # Completed jobs are deleted and "permanently failed" jobs have attempts == max_attempts
@@ -452,13 +445,6 @@ def clean_stale_partials():
 
 
 @app.task(ignore_result=True)
-def status_report():
-    from posthog.tasks.status_report import status_report
-
-    status_report()
-
-
-@app.task(ignore_result=True)
 def monitoring_check_clickhouse_schema_drift():
     from posthog.tasks.check_clickhouse_schema_drift import check_clickhouse_schema_drift
 
@@ -503,27 +489,10 @@ def debug_task(self):
 
 
 @app.task(ignore_result=False)
-def calculate_event_property_usage_chain():
-    # .subtask(immutable=True) means the chain runs in order but doesn't care about the results of the previous step
-    return chain(
-        gauge_event_property_usage.subtask(immutable=True),
-        calculate_event_property_usage.subtask(immutable=True),
-        gauge_event_property_usage.subtask(immutable=True),
-    ).apply_async()
-
-
-@app.task(ignore_result=False)
 def calculate_event_property_usage():
     from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage
 
     return calculate_event_property_usage()
-
-
-@app.task(ignore_result=False)
-def gauge_event_property_usage():
-    from posthog.tasks.calculate_event_property_usage import gauge_event_property_usage
-
-    return gauge_event_property_usage()
 
 
 @app.task(ignore_result=True)
@@ -646,24 +615,10 @@ def clickhouse_mark_all_materialized():
 
 
 @app.task(ignore_result=True)
-def clickhouse_send_license_usage():
-    try:
-        if not settings.MULTI_TENANCY:
-            from ee.tasks.send_license_usage import send_license_usage
+def send_org_usage_reports():
+    from posthog.tasks.usage_report import send_all_org_usage_reports
 
-            send_license_usage()
-    except ImportError:
-        pass
-
-
-@app.task(ignore_result=True)
-def send_org_usage_report():
-    try:
-        from ee.tasks.org_usage_report import send_all_org_usage_reports
-    except ImportError:
-        pass
-    else:
-        send_all_org_usage_reports()
+    send_all_org_usage_reports()
 
 
 @app.task(ignore_result=True)
@@ -674,3 +629,14 @@ def schedule_all_subscriptions():
         pass
     else:
         _schedule_all_subscriptions()
+
+
+@app.task(ignore_result=True)
+def clickhouse_send_license_usage():
+    try:
+        if not is_cloud():
+            from ee.tasks.send_license_usage import send_license_usage
+
+            send_license_usage()
+    except ImportError:
+        pass

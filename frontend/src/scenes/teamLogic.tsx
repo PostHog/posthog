@@ -1,5 +1,4 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import React from 'react'
 import api from 'lib/api'
 import type { teamLogicType } from './teamLogicType'
 import { TeamType } from '~/types'
@@ -10,6 +9,8 @@ import { getAppContext } from '../lib/utils/getAppContext'
 import { lemonToast } from 'lib/components/lemonToast'
 import { IconSwapHoriz } from 'lib/components/icons'
 import { loaders } from 'kea-loaders'
+import { OrganizationMembershipLevel } from '../lib/constants'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const parseUpdatedAttributeName = (attr: string | null): string => {
     if (attr === 'slack_incoming_webhook') {
@@ -77,6 +78,11 @@ export const teamLogic = kea<teamLogicType>([
                         message = `${parseUpdatedAttributeName(updatedAttribute)} updated successfully!`
                     }
 
+                    if (updatedAttribute) {
+                        const updatedValue = Object.values(payload).length === 1 ? Object.values(payload)[0] : null
+                        eventUsageLogic.findMounted()?.actions?.reportTeamSettingChange(updatedAttribute, updatedValue)
+                    }
+
                     lemonToast.dismiss('updateCurrentTeam')
                     lemonToast.success(message, {
                         toastId: 'updateCurrentTeam',
@@ -118,6 +124,12 @@ export const teamLogic = kea<teamLogicType>([
             },
         ],
         timezone: [(selectors) => [selectors.currentTeam], (currentTeam): string => currentTeam?.timezone || 'UTC'],
+        isTeamTokenResetAvailable: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): boolean =>
+                !!currentTeam?.effective_membership_level &&
+                currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin,
+        ],
     }),
     listeners(({ actions }) => ({
         deleteTeam: async ({ team }) => {

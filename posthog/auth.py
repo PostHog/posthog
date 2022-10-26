@@ -12,6 +12,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt
+from posthog.models.personal_api_key import hash_key_value
 from posthog.models.user import User
 
 
@@ -61,14 +62,18 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
     @classmethod
     def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[Tuple[Any, None]]:
+        from posthog.models import PersonalAPIKey
+
         personal_api_key_with_source = cls.find_key_with_source(request)
         if not personal_api_key_with_source:
             return None
         personal_api_key, source = personal_api_key_with_source
-        PersonalAPIKey = apps.get_model(app_label="posthog", model_name="PersonalAPIKey")
+        secure_value = hash_key_value(personal_api_key)
         try:
             personal_api_key_object = (
-                PersonalAPIKey.objects.select_related("user").filter(user__is_active=True).get(value=personal_api_key)
+                PersonalAPIKey.objects.select_related("user")
+                .filter(user__is_active=True)
+                .get(secure_value=secure_value)
             )
         except PersonalAPIKey.DoesNotExist:
             raise AuthenticationFailed(detail=f"Personal API key found in request {source} is invalid.")

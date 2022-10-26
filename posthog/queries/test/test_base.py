@@ -1,3 +1,8 @@
+import datetime
+import re
+from unittest.mock import patch
+
+from dateutil import parser, tz
 from django.test import TestCase
 from rest_framework.exceptions import ValidationError
 
@@ -125,6 +130,17 @@ class TestMatchProperties(TestCase):
 
         self.assertFalse(match_property(property_d, {"key": "value"}))
 
+        # ensure regex compilation happens only once. to do this, we mock out re.compile,
+        # and make the return value of the mock match what the actual function would return.
+        # this allows us to intercept the call and assert that it was called exactly once.
+        property_e = Property(key="key", value=5, operator="regex")
+        pattern = re.compile("5")
+        with patch("re.compile") as mock_compile:
+            mock_compile.return_value = pattern
+            self.assertTrue(match_property(property_e, {"key": "5"}))
+
+        mock_compile.assert_called_once_with("5")
+
     def test_match_properties_math_operators(self):
         property_a = Property(key="key", value=1, operator="gt")
         self.assertTrue(match_property(property_a, {"key": 2}))
@@ -158,3 +174,49 @@ class TestMatchProperties(TestCase):
         self.assertFalse(match_property(property_d, {"key": "43"}))
         self.assertFalse(match_property(property_d, {"key": "44"}))
         self.assertFalse(match_property(property_d, {"key": 44}))
+
+    def test_match_property_date_operators(self):
+        property_a = Property(key="key", value="2022-05-01", operator="is_date_before")
+        self.assertTrue(match_property(property_a, {"key": "2022-03-01"}))
+        self.assertTrue(match_property(property_a, {"key": "2022-04-30"}))
+        self.assertTrue(match_property(property_a, {"key": datetime.date(2022, 4, 30)}))
+        self.assertTrue(match_property(property_a, {"key": datetime.datetime(2022, 4, 30, 1, 2, 3)}))
+        self.assertTrue(
+            match_property(
+                property_a, {"key": datetime.datetime(2022, 4, 30, 1, 2, 3, tzinfo=tz.gettz("Europe/Madrid"))}
+            )
+        )
+        self.assertTrue(match_property(property_a, {"key": parser.parse("2022-04-30")}))
+        self.assertFalse(match_property(property_a, {"key": "2022-05-30"}))
+
+        # Can't be a number
+        self.assertFalse(match_property(property_a, {"key": 1}))
+
+        # can't be invalid string
+        self.assertFalse(match_property(property_a, {"key": "abcdef"}))
+
+        property_b = Property(key="key", value="2022-05-01", operator="is_date_after")
+        self.assertTrue(match_property(property_b, {"key": "2022-05-02"}))
+        self.assertTrue(match_property(property_b, {"key": "2022-05-30"}))
+        self.assertTrue(match_property(property_b, {"key": datetime.datetime(2022, 5, 30)}))
+        self.assertTrue(match_property(property_b, {"key": parser.parse("2022-05-30")}))
+        self.assertFalse(match_property(property_b, {"key": "2022-04-30"}))
+
+        # can't be invalid string
+        self.assertFalse(match_property(property_b, {"key": "abcdef"}))
+
+        # Invalid flag property
+        property_c = Property(key="key", value=1234, operator="is_date_before")
+
+        self.assertFalse(match_property(property_c, {"key": 1}))
+        self.assertFalse(match_property(property_c, {"key": "2022-05-30"}))
+
+        # Timezone aware property
+        property_d = Property(key="key", value="2022-04-05 12:34:12 BST", operator="is_date_before")
+        self.assertFalse(match_property(property_d, {"key": "2022-05-30"}))
+
+        self.assertTrue(match_property(property_d, {"key": "2022-03-30"}))
+        self.assertTrue(match_property(property_d, {"key": "2022-04-05 12:34:11 BST"}))
+        self.assertTrue(match_property(property_d, {"key": "2022-04-05 12:34:11 CET"}))
+
+        self.assertFalse(match_property(property_d, {"key": "2022-04-05 12:34:13 CET"}))

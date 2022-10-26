@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import React from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -32,7 +31,9 @@ export function TimezoneConfig(): JSX.Element {
     }
 
     const options = Object.entries(preflight.available_timezones).map(([tz, offset]) => {
-        const label = `${tz.replace(/\//g, ' / ').replace(/_/g, ' ')} (UTC${offset > 0 ? '+' : '-'}${Math.abs(offset)})`
+        const label = `${tz.replace(/\//g, ' / ').replace(/_/g, ' ')} (UTC${
+            offset === 0 ? '±' : offset > 0 ? '+' : '-'
+        }${Math.abs(offset)})`
         return {
             key: tz,
             label: label,

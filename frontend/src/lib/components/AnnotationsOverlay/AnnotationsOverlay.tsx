@@ -1,16 +1,20 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
+import { humanFriendlyDetailedTime, pluralize, shortTimeZone } from 'lib/utils'
 import React, { useRef, useState } from 'react'
-import { AnnotationScope, IntervalType, AnnotationType } from '~/types'
+import { IntervalType, AnnotationType } from '~/types'
 import { IconDelete, IconEdit, IconPlusMini } from '../icons'
-import { LemonBubble } from '../LemonBubble/LemonBubble'
+import { LemonBadge } from '../LemonBadge/LemonBadge'
 import { LemonModal } from '../LemonModal'
-import { annotationsOverlayLogic, determineAnnotationsDateGroup } from './annotationsOverlayLogic'
+import {
+    annotationsOverlayLogic,
+    AnnotationsOverlayLogicProps,
+    determineAnnotationsDateGroup,
+} from './annotationsOverlayLogic'
 import './AnnotationsOverlay.scss'
 import { LemonButton } from '../LemonButton'
 import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
-import { annotationModalLogic } from 'scenes/annotations/annotationModalLogic'
+import { annotationModalLogic, annotationScopeToName } from 'scenes/annotations/annotationModalLogic'
 import { ProfilePicture } from '../ProfilePicture'
 import { annotationsModel } from '~/models/annotationsModel'
 import { Chart } from 'chart.js'
@@ -25,13 +29,8 @@ const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
     month: 'MMMM D',
 }
 
-export const annotationScopeToLabel: Record<AnnotationScope, string> = {
-    [AnnotationScope.Insight]: 'Only this insight',
-    [AnnotationScope.Project]: 'All insights in this project',
-    [AnnotationScope.Organization]: 'All insights in this organization',
-}
-
-export interface AnnotationsOverlayProps {
+export interface AnnotationsOverlayProps
+    extends Pick<AnnotationsOverlayLogicProps, 'dashboardItemId' | 'insightNumericId'> {
     dates: string[]
     chart: Chart
     chartWidth: number
@@ -46,41 +45,56 @@ interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
     '--annotations-overlay-tick-interval': `${string}px`
 }
 
-export function AnnotationsOverlay({ chart, chartWidth, chartHeight, dates }: AnnotationsOverlayProps): JSX.Element {
-    const { activeBadgeElement } = useValues(annotationsOverlayLogic)
+export function AnnotationsOverlay({
+    chart,
+    chartWidth,
+    chartHeight,
+    dates,
+    dashboardItemId,
+    insightNumericId,
+}: AnnotationsOverlayProps): JSX.Element {
     const { tickIntervalPx, firstTickLeftPx } = useAnnotationsPositioning(chart, chartWidth, chartHeight)
+
+    const annotationsOverlayLogicProps: AnnotationsOverlayLogicProps = {
+        dashboardItemId,
+        insightNumericId,
+        dates,
+        ticks: chart.scales.x.ticks,
+    }
+    const { activeBadgeElement, tickDates } = useValues(annotationsOverlayLogic(annotationsOverlayLogicProps))
 
     const overlayRef = useRef<HTMLDivElement | null>(null)
     const modalContentRef = useRef<HTMLDivElement | null>(null)
     const modalOverlayRef = useRef<HTMLDivElement | null>(null)
 
-    const tickPointIndices: number[] = chart.scales.x.ticks.map(({ value }) => value)
-    const tickDates: dayjs.Dayjs[] = tickPointIndices.map((dateIndex) => dayjs(dates[dateIndex]))
-
     return (
-        <div
-            className="AnnotationsOverlay"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={
-                {
-                    '--annotations-overlay-chart-area-left': `${chart ? chart.scales.x.left : 0}px`,
-                    '--annotations-overlay-chart-area-height': `${chart ? chart.scales.x.top : 0}px`,
-                    '--annotations-overlay-chart-width': `${chartWidth}px`,
-                    '--annotations-overlay-first-tick-left': `${firstTickLeftPx}px`,
-                    '--annotations-overlay-tick-interval': `${tickIntervalPx}px`,
-                } as AnnotationsOverlayCSSProperties
-            }
-            ref={overlayRef}
-        >
-            {tickDates?.map((date, index) => (
-                <AnnotationsBadge key={date.toISOString()} index={index} date={date} />
-            ))}
-            {activeBadgeElement && <AnnotationsPopover overlayRefs={[overlayRef, modalContentRef, modalOverlayRef]} />}
-            <AnnotationModal
-                contentRef={(el) => (modalContentRef.current = el)}
-                overlayRef={(el) => (modalOverlayRef.current = el)}
-            />
-        </div>
+        <BindLogic logic={annotationsOverlayLogic} props={annotationsOverlayLogicProps}>
+            <div
+                className="AnnotationsOverlay"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={
+                    {
+                        '--annotations-overlay-chart-area-left': `${chart ? chart.scales.x.left : 0}px`,
+                        '--annotations-overlay-chart-area-height': `${chart ? chart.scales.x.top : 0}px`,
+                        '--annotations-overlay-chart-width': `${chartWidth}px`,
+                        '--annotations-overlay-first-tick-left': `${firstTickLeftPx}px`,
+                        '--annotations-overlay-tick-interval': `${tickIntervalPx}px`,
+                    } as AnnotationsOverlayCSSProperties
+                }
+                ref={overlayRef}
+            >
+                {tickDates.map((date, index) => (
+                    <AnnotationsBadge key={date.toISOString()} index={index} date={date} />
+                ))}
+                {activeBadgeElement && (
+                    <AnnotationsPopover overlayRefs={[overlayRef, modalContentRef, modalOverlayRef]} />
+                )}
+                <AnnotationModal
+                    contentRef={(el) => (modalContentRef.current = el)}
+                    overlayRef={(el) => (modalOverlayRef.current = el)}
+                />
+            </div>
+        </BindLogic>
     )
 }
 
@@ -95,14 +109,14 @@ interface AnnotationsBadgeCSSProperties extends React.CSSProperties {
 }
 
 const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }: AnnotationsBadgeProps): JSX.Element {
-    const { intervalUnit, groupedAnnotations, isDateLocked, activeDate, isPopoverShown } =
+    const { intervalUnit, groupedAnnotations, isDateLocked, activeDate, isPopoverShown, dateRange, pointsPerTick } =
         useValues(annotationsOverlayLogic)
     const { activateDate, deactivateDate, lockDate, unlockDate } = useActions(annotationsOverlayLogic)
 
     const [hovered, setHovered] = useState(false)
     const buttonRef = useRef<HTMLButtonElement>(null)
 
-    const dateGroup = determineAnnotationsDateGroup(date, intervalUnit)
+    const dateGroup = determineAnnotationsDateGroup(date, intervalUnit, dateRange, pointsPerTick)
     const annotations = groupedAnnotations[dateGroup] || []
 
     const active = activeDate?.valueOf() === date.valueOf() && isPopoverShown
@@ -139,7 +153,7 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
                     : () => activateDate(date, buttonRef.current as HTMLButtonElement)
             }
         >
-            <LemonBubble
+            <LemonBadge
                 count={annotations.length || <IconPlusMini className="w-full h-full" />}
                 size="small"
                 style={active && isDateLocked ? { outline: '0.125rem solid var(--primary)' } : undefined}
@@ -170,6 +184,7 @@ function AnnotationsPopover({
             additionalRefs={overlayRefs}
             className="AnnotationsPopover"
             placement="top"
+            fallbackPlacements={['top-end', 'top-start']}
             referenceElement={activeBadgeElement as HTMLElement}
             visible={isPopoverShown}
             onClickOutside={closePopover}
@@ -193,7 +208,7 @@ function AnnotationsPopover({
                     width="var(--annotations-popover-width)"
                 >
                     {popoverAnnotations.length > 0 ? (
-                        <ul className="flex flex-col gap-1 w-full overflow-y-auto">
+                        <ul className="flex flex-col gap-2 w-full overflow-y-auto">
                             {popoverAnnotations.map((annotation) => (
                                 <AnnotationCard key={annotation.id} annotation={annotation} />
                             ))}
@@ -208,14 +223,18 @@ function AnnotationsPopover({
 }
 
 function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Element {
-    const { insightId } = useValues(annotationsOverlayLogic)
+    const { insightId, timezone } = useValues(annotationsOverlayLogic)
     const { deleteAnnotation } = useActions(annotationsModel)
     const { openModalToEditAnnotation } = useActions(annotationModalLogic)
 
     return (
-        <li className="AnnotationCard flex flex-col gap-2 w-full p-3 rounded border list-none">
+        <li className="AnnotationCard flex flex-col w-full p-3 rounded border list-none">
             <div className="flex items-center gap-2">
-                <h5 className="grow m-0 text-muted">{annotationScopeToLabel[annotation.scope]}</h5>
+                <h5 className="grow m-0 text-muted">
+                    {annotation.date_marker.format('MMM DD, YYYY h:mm A')} ({shortTimeZone(timezone)}) –{' '}
+                    {annotationScopeToName[annotation.scope]}
+                    -level
+                </h5>
                 <LemonButton
                     size="small"
                     icon={<IconEdit />}
@@ -231,15 +250,15 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                     onClick={() => deleteAnnotation(annotation)}
                 />
             </div>
-            <div>{annotation.content}</div>
-            <div className="leading-6">
+            <div className="mt-1">{annotation.content}</div>
+            <div className="leading-6 mt-2">
                 <ProfilePicture
                     name={annotation.created_by?.first_name}
                     email={annotation.created_by?.email}
                     showName
                     size="md"
                 />{' '}
-                • {humanFriendlyDetailedTime(annotation.created_at)}
+                • {humanFriendlyDetailedTime(annotation.created_at, 'MMMM DD, YYYY', 'h:mm A')}
             </div>
         </li>
     )

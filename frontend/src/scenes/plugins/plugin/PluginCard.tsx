@@ -1,6 +1,5 @@
 import { Button, Card, Col, Row, Space, Tag } from 'antd'
 import { useActions, useValues } from 'kea'
-import React from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginConfigType, PluginErrorType } from '~/types'
 import {
@@ -14,6 +13,7 @@ import {
     DownOutlined,
     GlobalOutlined,
     ClockCircleOutlined,
+    LineChartOutlined,
 } from '@ant-design/icons'
 import { PluginImage } from './PluginImage'
 import { PluginError } from './PluginError'
@@ -23,13 +23,15 @@ import { SourcePluginTag } from './SourcePluginTag'
 import { CommunityPluginTag } from './CommunityPluginTag'
 import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 import { userLogic } from 'scenes/userLogic'
-import { endWithPunctation } from '../../../lib/utils'
+import { endWithPunctation } from 'lib/utils'
 import { canInstallPlugins } from '../access'
 import { PluginUpdateButton } from './PluginUpdateButton'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { PluginsAccessLevel } from 'lib/constants'
+import { urls } from 'scenes/urls'
+import { SuccessRateBadge } from './SuccessRateBadge'
 
 export function PluginAboutButton({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
@@ -94,7 +96,8 @@ export function PluginCard({
         showPluginLogs,
         showPluginHistory,
     } = useActions(pluginsLogic)
-    const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer } = useValues(pluginsLogic)
+    const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer, showAppMetricsForPlugin } =
+        useValues(pluginsLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { user } = useValues(userLogic)
 
@@ -153,7 +156,15 @@ export function PluginCard({
                     </Col>
                     <Col style={{ flex: 1 }}>
                         <div>
-                            <strong style={{ marginRight: 8 }}>{name}</strong>
+                            <strong style={{ marginRight: 8 }}>
+                                {showAppMetricsForPlugin(plugin) && pluginConfig?.id && (
+                                    <SuccessRateBadge
+                                        deliveryRate={pluginConfig.delivery_rate_24h ?? null}
+                                        pluginConfigId={pluginConfig.id}
+                                    />
+                                )}
+                                {name}
+                            </strong>
                             {hasSpecifiedMaintainer && (
                                 <CommunityPluginTag isCommunity={pluginMaintainer === 'community'} />
                             )}
@@ -214,6 +225,19 @@ export function PluginCard({
                                 />
                             ) : pluginId ? (
                                 <>
+                                    {showAppMetricsForPlugin(plugin) && pluginConfig?.id ? (
+                                        <Tooltip title="App metrics">
+                                            <Button
+                                                className="padding-under-500"
+                                                disabled={rearranging}
+                                                data-attr="app-metrics"
+                                            >
+                                                <Link to={urls.appMetrics(pluginConfig.id)}>
+                                                    <LineChartOutlined />
+                                                </Link>
+                                            </Button>
+                                        </Tooltip>
+                                    ) : null}
                                     <Tooltip title="Activity history">
                                         <Button
                                             className="padding-under-500"

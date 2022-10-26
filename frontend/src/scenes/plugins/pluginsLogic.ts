@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import type { pluginsLogicType } from './pluginsLogicType'
 import api from 'lib/api'
-import { PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
+import { AvailableFeature, PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
 import {
     PluginInstallationType,
     PluginRepositoryEntry,
@@ -20,6 +20,8 @@ import { teamLogic } from '../teamLogic'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { urls } from 'scenes/urls'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export type PluginForm = FormInstance
 
@@ -671,6 +673,20 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 return allPossiblePlugins
             },
         ],
+        shouldShowAppMetrics: [
+            () => [userLogic.selectors.hasAvailableFeature, featureFlagLogic.selectors.featureFlags],
+            (hasAvailableFeature, featureFlags) =>
+                hasAvailableFeature(AvailableFeature.APP_METRICS) && featureFlags[FEATURE_FLAGS.APP_METRICS],
+        ],
+        showAppMetricsForPlugin: [
+            (s) => [s.shouldShowAppMetrics],
+            (featureShown) => (plugin: Partial<PluginTypeWithConfig> | undefined) => {
+                if (!featureShown) {
+                    return false
+                }
+                return plugin?.capabilities?.methods?.length || plugin?.capabilities?.scheduled_tasks?.length
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -753,33 +769,74 @@ export const pluginsLogic = kea<pluginsLogicType>([
             }
         },
     })),
-    actionToUrl(({ values }) => ({
-        setPluginTab: () => {
-            const searchParams = {
-                ...router.values.searchParams,
-            }
+    actionToUrl(({ values }) => {
+        function getUrl(): string {
+            return values.showingLogsPluginId
+                ? urls.projectAppLogs(values.showingLogsPluginId)
+                : values.editingPluginId
+                ? values.editingSource
+                    ? urls.projectAppSource(values.editingPluginId)
+                    : urls.projectApp(values.editingPluginId)
+                : urls.projectApps()
+        }
+        return {
+            setPluginTab: () => {
+                const searchParams = {
+                    ...router.values.searchParams,
+                }
 
-            let replace = false // set a page in history
-            if (!searchParams['tab'] && values.pluginTab === PluginTab.Installed) {
-                // we are on the Installed page, and have clicked the Installed tab, don't set history
-                replace = true
-            }
-            searchParams['tab'] = values.pluginTab
+                let replace = false // set a page in history
+                if (!searchParams['tab'] && values.pluginTab === PluginTab.Installed) {
+                    // we are on the Installed page, and have clicked the Installed tab, don't set history
+                    replace = true
+                }
+                searchParams['tab'] = values.pluginTab
 
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace }]
-        },
-    })),
-    urlToAction(({ actions, values }) => ({
-        [urls.projectApps()]: (_, { tab, name }) => {
-            if (tab) {
-                actions.setPluginTab(tab as PluginTab)
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace }]
+            },
+            editPlugin: () => [getUrl()],
+            setEditingSource: () => [getUrl()],
+            hidePluginLogs: () => [getUrl()],
+            showPluginLogs: () => [getUrl()],
+        }
+    }),
+    urlToAction(({ actions, values }) => {
+        function runActions(editingId: number | null, editingSource: boolean, logsId: number | null): void {
+            if (values.editingPluginId !== editingId) {
+                actions.editPlugin(editingId)
             }
-
-            if (name && [PluginTab.Repository, PluginTab.Installed].includes(values.pluginTab)) {
-                actions.setSearchTerm(name)
+            if (values.showingLogsPluginId !== logsId) {
+                if (logsId) {
+                    actions.showPluginLogs(logsId)
+                } else {
+                    actions.hidePluginLogs()
+                }
             }
-        },
-    })),
+            if (editingSource !== values.editingSource) {
+                actions.setEditingSource(editingSource)
+            }
+        }
+        return {
+            [urls.projectApps()]: (_, { tab, name }) => {
+                if (tab) {
+                    actions.setPluginTab(tab as PluginTab)
+                }
+                if (name && [PluginTab.Repository, PluginTab.Installed].includes(values.pluginTab)) {
+                    actions.setSearchTerm(name)
+                }
+                runActions(null, false, null)
+            },
+            [urls.projectApp(':id')]: ({ id }) => {
+                runActions(id ? parseInt(id) : null, false, null)
+            },
+            [urls.projectAppSource(':id')]: ({ id }) => {
+                runActions(id ? parseInt(id) : null, true, null)
+            },
+            [urls.projectAppLogs(':id')]: ({ id }) => {
+                runActions(null, false, id ? parseInt(id) : null)
+            },
+        }
+    }),
 
     afterMount(({ actions }) => {
         actions.loadPlugins()

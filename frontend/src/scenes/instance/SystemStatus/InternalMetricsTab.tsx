@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Button, Checkbox, Collapse, Table } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'

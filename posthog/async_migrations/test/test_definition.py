@@ -32,7 +32,7 @@ class TestAsyncMigrationDefinition(BaseTest):
     def test_get_migration_instance_and_parameters(self):
         setup_async_migrations(ignore_posthog_version=True)
 
-        MIGRATION_NAME = "0006_persons_and_groups_on_events_backfill"
+        MIGRATION_NAME = "0007_persons_and_groups_on_events_backfill"
 
         definition = get_async_migration_definition(MIGRATION_NAME)
         instance = AsyncMigration.objects.get(name=MIGRATION_NAME)

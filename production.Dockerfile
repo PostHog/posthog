@@ -1,7 +1,7 @@
 #
 # This Dockerfile is used for self-hosted production builds.
 #
-# Note: for 'posthog/posthog-cloud' remember to update 'prod.web.Dockerfile' as appropriate
+# Note: for PostHog Cloud remember to update 'Dockerfile.cloud' as appropriate.
 #
 
 #
@@ -172,6 +172,8 @@ ENV CHROME_BIN=/usr/bin/chromium-browser \
     CHROMEDRIVER_BIN=/usr/bin/chromedriver
 
 COPY gunicorn.config.py ./
+
+ENV NODE_ENV=production
 
 # Expose container port and run entry point script
 EXPOSE 8000

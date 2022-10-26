@@ -7,7 +7,7 @@ from rest_framework import status
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager
-from posthog.models import Action, Tag
+from posthog.models import Tag
 from posthog.models.event_definition import EventDefinition
 from posthog.test.base import APIBaseTest
 
@@ -234,7 +234,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
         )
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event")
         response = self.client.patch(
@@ -254,30 +254,3 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)
         self.assertEqual(response.json()["results"][0]["name"], "installed_app")
-
-    def test_event_type_action_event(self):
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
-        )
-        EnterpriseEventDefinition.objects.create(team=self.team, name="rated_app")
-        EnterpriseEventDefinition.objects.create(team=self.team, name="installed_app")
-        action = Action.objects.create(team=self.team, name="action_app")
-
-        response = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=action_event")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["name"], action.name)
-
-    def test_event_type_all(self):
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
-        )
-        EnterpriseEventDefinition.objects.create(team=self.team, name="rated_app")
-        EnterpriseEventDefinition.objects.create(team=self.team, name="installed_app")
-        action = Action.objects.create(team=self.team, name="action_app")
-
-        response = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=all")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 3)
-        self.assertEqual(response.json()["results"][0]["action_id"], action.id)
-        self.assertEqual(response.json()["results"][0]["name"], action.name)

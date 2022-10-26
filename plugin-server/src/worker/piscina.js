@@ -2,6 +2,9 @@ const Sentry = require('@sentry/node')
 const { isMainThread, threadId } = require('worker_threads')
 
 if (isMainThread) {
+    // Make ts-node-dev refresh worker files as well
+    require('./worker')
+
     const Piscina = require('@posthog/piscina')
     const { createConfig } = require('./config')
     module.exports = {

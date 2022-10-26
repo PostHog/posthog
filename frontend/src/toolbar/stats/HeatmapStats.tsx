@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { List, Space } from 'antd'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'

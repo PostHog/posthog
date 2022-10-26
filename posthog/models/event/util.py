@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 import pytz
 from dateutil.parser import isoparse
@@ -17,6 +17,8 @@ from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.settings import TEST
 
+ZERO_DATE = timezone.datetime(1970, 1, 1)
+
 
 def create_event(
     event_uuid: uuid.UUID,
@@ -26,16 +28,25 @@ def create_event(
     timestamp: Optional[Union[timezone.datetime, str]] = None,
     properties: Optional[Dict] = {},
     elements: Optional[List[Element]] = None,
+    person_id: Optional[uuid.UUID] = None,
+    person_properties: Optional[Dict] = None,
+    person_created_at: Optional[Union[timezone.datetime, str]] = None,
+    group0_properties: Optional[Dict] = None,
+    group1_properties: Optional[Dict] = None,
+    group2_properties: Optional[Dict] = None,
+    group3_properties: Optional[Dict] = None,
+    group4_properties: Optional[Dict] = None,
+    group0_created_at: Optional[Union[timezone.datetime, str]] = None,
+    group1_created_at: Optional[Union[timezone.datetime, str]] = None,
+    group2_created_at: Optional[Union[timezone.datetime, str]] = None,
+    group3_created_at: Optional[Union[timezone.datetime, str]] = None,
+    group4_created_at: Optional[Union[timezone.datetime, str]] = None,
 ) -> str:
     if not timestamp:
         timestamp = timezone.now()
     assert timestamp is not None
 
-    # clickhouse specific formatting
-    if isinstance(timestamp, str):
-        timestamp = isoparse(timestamp)
-    else:
-        timestamp = timestamp.astimezone(pytz.utc)
+    timestamp = isoparse(timestamp) if isinstance(timestamp, str) else timestamp.astimezone(pytz.utc)
 
     elements_chain = ""
     if elements and len(elements) > 0:
@@ -50,12 +61,36 @@ def create_event(
         "distinct_id": str(distinct_id),
         "elements_chain": elements_chain,
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-        # TODO: Support persons on events
+        "person_id": str(person_id) if person_id else "00000000-0000-0000-0000-000000000000",
+        "person_properties": json.dumps(person_properties) if person_properties is not None else "",
+        "person_created_at": format_clickhouse_timestamp(person_created_at, ZERO_DATE),
+        "group0_properties": json.dumps(group0_properties) if group0_properties is not None else "",
+        "group1_properties": json.dumps(group1_properties) if group1_properties is not None else "",
+        "group2_properties": json.dumps(group2_properties) if group2_properties is not None else "",
+        "group3_properties": json.dumps(group3_properties) if group3_properties is not None else "",
+        "group4_properties": json.dumps(group4_properties) if group4_properties is not None else "",
+        "group0_created_at": format_clickhouse_timestamp(group0_created_at, ZERO_DATE),
+        "group1_created_at": format_clickhouse_timestamp(group1_created_at, ZERO_DATE),
+        "group2_created_at": format_clickhouse_timestamp(group2_created_at, ZERO_DATE),
+        "group3_created_at": format_clickhouse_timestamp(group3_created_at, ZERO_DATE),
+        "group4_created_at": format_clickhouse_timestamp(group4_created_at, ZERO_DATE),
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data)
 
     return str(event_uuid)
+
+
+def format_clickhouse_timestamp(
+    raw_timestamp: Optional[Union[timezone.datetime, str]],
+    default=None,
+) -> str:
+    if default is None:
+        default = timezone.now()
+    parsed_datetime = (
+        isoparse(raw_timestamp) if isinstance(raw_timestamp, str) else (raw_timestamp or default).astimezone(pytz.utc)
+    )
+    return parsed_datetime.strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
 def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Dict[str, Person]] = None) -> None:
@@ -230,6 +265,17 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
+def parse_properties(properties: str, allow_list: Set[str] = set()) -> Dict:
+    # parse_constants gets called for any NaN, Infinity etc values
+    # we just want those to be returned as None
+    props = json.loads(properties or "{}", parse_constant=lambda x: None)
+    return {
+        key: value.strip('"') if isinstance(value, str) else value
+        for key, value in props.items()
+        if not allow_list or key in allow_list
+    }
+
+
 # reference raw sql for
 class ClickhouseEventSerializer(serializers.Serializer):
     id = serializers.SerializerMethodField()
@@ -248,11 +294,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return event["distinct_id"]
 
     def get_properties(self, event):
-        # parse_constants gets called for any NaN, Infinity etc values
-        # we just want those to be returned as None
-        props = json.loads(event["properties"], parse_constant=lambda x: None)
-        unpadded = {key: value.strip('"') if isinstance(value, str) else value for key, value in props.items()}
-        return unpadded
+        return parse_properties(event["properties"])
 
     def get_event(self, event):
         return event["event"]
@@ -311,7 +353,7 @@ def get_agg_event_count_for_teams(team_ids: List[Union[str, int]]) -> int:
 
 
 def get_agg_event_count_for_teams_and_period(
-    team_ids: List[Union[str, int]], begin: timezone.datetime, end: timezone.datetime
+    team_ids: List[int], begin: timezone.datetime, end: timezone.datetime
 ) -> int:
     result = sync_execute(
         """
@@ -349,6 +391,22 @@ def get_event_count_for_team(team_id: Union[str, int]) -> int:
         WHERE team_id = %(team_id)s
     """,
         {"team_id": str(team_id)},
+    )[0][0]
+    return result
+
+
+def get_event_count_with_groups_count_for_team_and_period(
+    team_id: Union[str, int], begin: timezone.datetime, end: timezone.datetime
+) -> int:
+    result = sync_execute(
+        """
+        SELECT count(1) as count
+        FROM events
+        WHERE team_id IN (%(team_id)s)
+        AND timestamp between %(begin)s AND %(end)s
+        AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
+    """,
+        {"team_id": team_id, "begin": begin, "end": end},
     )[0][0]
     return result
 

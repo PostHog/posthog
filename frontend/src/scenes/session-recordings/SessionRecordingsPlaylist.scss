@@ -1,0 +1,57 @@
+@import '../../styles/mixins';
+@import '../../styles/vars';
+
+.SessionRecordingsPlaylist {
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 1rem;
+    overflow: hidden;
+
+    @include screen($md) {
+        flex-direction: row;
+        justify-content: flex-start;
+    }
+
+    .SessionRecordingsPlaylist__left-column {
+        flex-shrink: 0;
+
+        @include screen($md) {
+            width: 30%;
+            min-width: 350px;
+            max-width: 500px;
+        }
+
+        .SessionRecordingsPlaylist__list-item.SessionRecordingsPlaylist__list-item--unwatched {
+            &:after {
+                content: '';
+                width: 0;
+                height: 0;
+                border-style: solid;
+                border-width: 0 0.75rem 0.75rem 0;
+                border-color: transparent var(--primary-light) transparent transparent;
+                right: 0;
+                top: 0;
+                position: absolute;
+            }
+        }
+
+        .SessionRecordingsPlaylist__pagination-control {
+            margin-top: 1rem;
+            display: flex;
+            width: 100%;
+            justify-content: flex-end;
+            align-items: center;
+        }
+    }
+    .SessionRecordingsPlaylist__right-column {
+        flex: 1;
+        overflow: hidden;
+
+        .SessionRecordingsPlaylist__loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 10rem;
+        }
+    }
+}

@@ -1,4 +1,3 @@
-import React from 'react'
 import { mswDecorator } from '~/mocks/browser'
 import { PropertyNamesSelect } from './PropertyNamesSelect'
 import { useValues } from 'kea'

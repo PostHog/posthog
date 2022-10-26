@@ -13,7 +13,8 @@ export function useAnnotationsPositioning(
 ): AnnotationsPositioning {
     // Calculate chart content coordinates for annotations overlay positioning
     return useMemo<AnnotationsPositioning>(() => {
-        if (chart && chart.scales.x.ticks.length > 1) {
+        // @ts-expect-error - _metasets is not officially exposed
+        if (chart && chart.scales.x.ticks.length > 1 && chart._metasets && chart._metasets.length > 0) {
             const tickCount = chart.scales.x.ticks.length
             // NOTE: If there are lots of points on the X axis, Chart.js only renders a tick once n data points
             // so that the axis is readable. We use that mechanism to aggregate annotations for readability too.

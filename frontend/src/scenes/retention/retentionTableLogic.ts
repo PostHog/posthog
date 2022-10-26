@@ -6,14 +6,9 @@ import { range, toParams } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import {
-    RetentionTablePayload,
-    RetentionTablePeoplePayload,
-    RetentionTrendPayload,
-    RetentionTrendPeoplePayload,
-} from 'scenes/retention/types'
+import { RetentionTablePayload, RetentionTablePeoplePayload, RetentionTrendPayload } from 'scenes/retention/types'
 import { actionsModel } from '~/models/actionsModel'
-import { groupsModel } from '~/models/groupsModel'
+import { Noun, groupsModel } from '~/models/groupsModel'
 import { ActionType, FilterType, InsightLogicProps, InsightType } from '~/types'
 import type { retentionTableLogicType } from './retentionTableLogicType'
 
@@ -66,16 +61,15 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         setRetentionReference: (retentionReference: FilterType['retention_reference']) => ({ retentionReference }),
         loadMorePeople: true,
-        updatePeople: (people) => ({ people }),
+        updatePeople: (people: RetentionTablePeoplePayload) => ({ people }),
         clearPeople: true,
     }),
     loaders: ({ values }) => ({
         people: {
-            __default: {} as RetentionTablePeoplePayload | RetentionTrendPeoplePayload,
+            __default: {} as RetentionTablePeoplePayload,
             loadPeople: async (rowIndex: number) => {
                 const urlParams = toParams({ ...values.filters, selected_interval: rowIndex })
-                const res = await api.get(`api/person/retention/?${urlParams}`)
-                return res
+                return (await api.get(`api/person/retention/?${urlParams}`)) as RetentionTablePeoplePayload
             },
         },
     }),
@@ -176,13 +170,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         ],
         aggregationTargetLabel: [
             (s) => [s.filters, s.aggregationLabel],
-            (
-                filters,
-                aggregationLabel
-            ): {
-                singular: string
-                plural: string
-            } => {
+            (filters, aggregationLabel): Noun => {
                 return aggregationLabel(filters.aggregation_group_type_index)
             },
         ],
@@ -272,10 +260,11 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         },
         loadMorePeople: async () => {
             if (values.people.next) {
-                const peopleResult = await api.get(values.people.next)
-                const newPeople = {
-                    result: [...(values.people.result as Record<string, any>[]), ...peopleResult['result']],
-                    next: peopleResult['next'],
+                const peopleResult: RetentionTablePeoplePayload = await api.get(values.people.next)
+                const newPeople: RetentionTablePeoplePayload = {
+                    result: [...(values.people.result || []), ...(peopleResult.result || [])],
+                    next: peopleResult.next,
+                    missing_persons: (peopleResult.missing_persons || 0) + (values.people.missing_persons || 0),
                 }
                 actions.updatePeople(newPeople)
             }

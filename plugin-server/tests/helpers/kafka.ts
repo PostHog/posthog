@@ -41,7 +41,7 @@ export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig
     return kafka
 }
 
-async function createTopics(kafka: Kafka, topics: string[]) {
+export async function createTopics(kafka: Kafka, topics: string[]) {
     const admin = kafka.admin()
     await admin.connect()
 

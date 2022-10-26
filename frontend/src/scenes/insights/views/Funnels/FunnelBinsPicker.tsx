@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { BIN_COUNT_AUTO } from 'lib/constants'

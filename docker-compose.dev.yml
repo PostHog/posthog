@@ -45,7 +45,7 @@ services:
             - ./posthog/idl:/idl
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
-            - ./docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+            - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
     zookeeper:
         image: zookeeper:3.7.0
         restart: on-failure

@@ -32,8 +32,8 @@ export interface SavedInsightFilters {
     search: string
     insightType: string
     createdBy: number | 'All users'
-    dateFrom: string | dayjs.Dayjs | undefined | 'all'
-    dateTo: string | dayjs.Dayjs | undefined
+    dateFrom: string | dayjs.Dayjs | undefined | 'all' | null
+    dateTo: string | dayjs.Dayjs | undefined | null
     page: number
 }
 
@@ -242,7 +242,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
             insightsModel.actions.renameInsight(insight)
         },
         duplicateInsight: async ({ insight, redirectToInsight }) => {
-            insight.name = insight.name + ' (copy)'
+            insight.name = (insight.name || insight.derived_name) + ' (copy)'
             const newInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
             actions.loadInsights()
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
@@ -253,8 +253,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
         [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
             actions.setInsight(item)
         },
-        // include params to help kea typegen
         [dashboardsModel.actionTypes.updateDashboardInsight]: () => actions.loadInsights(),
+        [dashboardsModel.actionTypes.duplicateDashboardSuccess]: () => actions.loadInsights(),
     }),
     actionToUrl: ({ values }) => {
         const changeUrl = ():

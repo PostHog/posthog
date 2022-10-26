@@ -10,9 +10,9 @@ from posthog.models.filters.filter import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
-from posthog.queries.test.test_lifecycle import lifecycle_test_factory
+from posthog.queries.test.test_lifecycle import assertLifecycleResults
 from posthog.queries.trends.trends import Trends
-from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
 
 
@@ -24,7 +24,7 @@ def _create_action(**kwargs):
     return action
 
 
-class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Trends, _create_event, _create_person, _create_action)):  # type: ignore
+class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_test_account_filters_with_groups(self):
         self.team.test_account_filters = [{"key": "key", "type": "group", "value": "value", "group_type_index": 0}]
@@ -67,7 +67,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Trends
             self.team,
         )
 
-        self.assertLifecycleResults(
+        assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -1, 0, 0, -1, 0, 0, 0]},
@@ -108,7 +108,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Trends
             self.team,
         )
 
-        self.assertLifecycleResults(
+        assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, 0, 0, -1, 0, 0, -1, 0]},
@@ -125,7 +125,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Trends
 
             result = self._run_lifecycle({"date_from": "-7d", "interval": "day"})
 
-        self.assertLifecycleResults(
+        assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0] * 8},
@@ -155,7 +155,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Trends
 
             result = self._run_lifecycle({"date_from": "-30d", "interval": "week"})
 
-        self.assertLifecycleResults(
+        assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0] * 5},
@@ -173,7 +173,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Trends
 
             result = self._run_lifecycle({"date_from": "-90d", "interval": "month"})
 
-        self.assertLifecycleResults(
+        assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0] * 4},

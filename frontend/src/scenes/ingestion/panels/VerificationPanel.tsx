@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { useInterval } from 'lib/hooks/useInterval'
 import { CardContainer } from 'scenes/ingestion/CardContainer'
@@ -14,7 +13,7 @@ export function VerificationPanel(): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { setAddBilling, completeOnboarding } = useActions(ingestionLogic)
-    const { isTestingOnboardingBilling } = useValues(ingestionLogic)
+    const { showBillingStep } = useValues(ingestionLogic)
     const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
 
     useInterval(() => {
@@ -41,7 +40,7 @@ export function VerificationPanel(): JSX.Element {
                                 center
                                 type="secondary"
                                 onClick={() => {
-                                    if (isTestingOnboardingBilling) {
+                                    if (showBillingStep) {
                                         setAddBilling(true)
                                     } else {
                                         completeOnboarding()
@@ -65,7 +64,7 @@ export function VerificationPanel(): JSX.Element {
                                 data-attr="wizard-complete-button"
                                 type="primary"
                                 onClick={() => {
-                                    if (isTestingOnboardingBilling) {
+                                    if (showBillingStep) {
                                         setAddBilling(true)
                                     } else {
                                         completeOnboarding()
@@ -74,7 +73,7 @@ export function VerificationPanel(): JSX.Element {
                                 fullWidth
                                 center
                             >
-                                {isTestingOnboardingBilling ? 'Next' : 'Complete'}
+                                {showBillingStep ? 'Next' : 'Complete'}
                             </LemonButton>
                         </div>
                     </div>

@@ -16,6 +16,7 @@ import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { billingLogic as billingLogicV2 } from './v2/billingLogic'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
@@ -36,7 +37,8 @@ export const billingLogic = kea<billingLogicType>([
         referer: (referer: string) => ({ referer }),
     }),
     connect({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags'], billingLogicV2, ['billingVersion']],
+        actions: [eventUsageLogic, ['reportIngestionBillingCancelled']],
     }),
     reducers({
         showUsageTiers: [
@@ -80,7 +82,7 @@ export const billingLogic = kea<billingLogicType>([
                         values.featureFlags[FEATURE_FLAGS.BILLING_LOCK_EVERYTHING]
                     ) {
                         posthog.capture('billing locked screen shown')
-                        router.actions.replace('/organization/billing/locked')
+                        router.actions.replace(urls.billingLocked())
                     }
                     actions.registerInstrumentationProps()
                     return response as BillingType
@@ -125,6 +127,13 @@ export const billingLogic = kea<billingLogicType>([
         ],
     })),
     selectors({
+        upgradeLink: [
+            (s) => [s.preflight, s.billingVersion],
+            (preflight, billingVersion): string =>
+                billingVersion === 'v2' || preflight?.cloud
+                    ? '/organization/billing'
+                    : 'https://license.posthog.com?utm_medium=in-product&utm_campaign=in-product-upgrade',
+        ],
         eventAllocation: [(s) => [s.billing], (billing: BillingType) => billing?.event_allocation],
         percentage: [
             (s) => [s.eventAllocation, s.billing],
@@ -223,9 +232,9 @@ export const billingLogic = kea<billingLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        '/ingestion/billing': (_, { reason }) => {
-            if (reason === 'cancelled') {
-                eventUsageLogic.actions.reportIngestionBillingCancelled()
+        '/ingestion/billing': (_, params) => {
+            if (params.reason === 'cancelled') {
+                actions.reportIngestionBillingCancelled()
             }
         },
         '/organization/billing/subscribed': (_, { referer }) => {

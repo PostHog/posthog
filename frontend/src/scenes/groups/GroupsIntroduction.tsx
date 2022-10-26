@@ -1,4 +1,3 @@
-import React from 'react'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 import { AvailableFeature } from '~/types'
@@ -43,27 +42,45 @@ export function GroupsIntroduction({ access }: Props): JSX.Element {
     )
 }
 
-export function GroupIntroductionFooter(): JSX.Element {
+export function GroupIntroductionFooter({ needsUpgrade }: { needsUpgrade: boolean }): JSX.Element {
     return (
-        <div className="text-sm bg-side rounded p-2" style={{ maxWidth: '15rem' }}>
-            Enter your payment information to use group analytics.{' '}
-            <Link
-                className="font-medium"
-                to="/organization/billing"
-                target="_blank"
-                data-attr="group-analytics-upgrade"
-            >
-                Upgrade
-            </Link>{' '}
-            or{' '}
-            <Link
-                className="font-medium"
-                to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-learn-more"
-                target="_blank"
-                data-attr="group-analytics-learn-more"
-            >
-                Learn more
-            </Link>
+        <div className="text-sm bg-mid rounded p-2" style={{ maxWidth: '15rem' }}>
+            {needsUpgrade ? (
+                <>
+                    Track usage of groups of users with Group Analytics.{' '}
+                    <Link
+                        className="font-medium"
+                        to="/organization/billing"
+                        target="_blank"
+                        data-attr="group-analytics-upgrade"
+                    >
+                        Upgrade now
+                    </Link>{' '}
+                    or{' '}
+                    <Link
+                        className="font-medium"
+                        to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-learn-more"
+                        target="_blank"
+                        data-attr="group-analytics-learn-more"
+                    >
+                        learn more
+                    </Link>
+                    .
+                </>
+            ) : (
+                <>
+                    You can now use Group Analytics. See{' '}
+                    <Link
+                        className="font-medium"
+                        to="https://posthog.com/manual/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-get-started"
+                        target="_blank"
+                        data-attr="group-analytics-get-started"
+                    >
+                        how to get started
+                    </Link>
+                    .
+                </>
+            )}
         </div>
     )
 }

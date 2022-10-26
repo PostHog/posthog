@@ -16,7 +16,7 @@ import {
     Team,
     TimestampFormat,
 } from '../../types'
-import { DB, GroupIdentifier } from '../../utils/db/db'
+import { DB, GroupId } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
@@ -26,6 +26,7 @@ import { addGroupProperties } from './groups'
 import { LazyPersonContainer } from './lazy-person-container'
 import { upsertGroup } from './properties-updater'
 import { TeamManager } from './team-manager'
+import { captureIngestionWarning } from './utils'
 
 export class EventsProcessor {
     pluginsServer: Hub
@@ -53,6 +54,9 @@ export class EventsProcessor {
         eventUuid: string
     ): Promise<PreIngestionEvent | null> {
         if (!UUID.validateString(eventUuid, false)) {
+            captureIngestionWarning(this.db, teamId, 'skipping_event_invalid_uuid', {
+                eventUuid: JSON.stringify(eventUuid),
+            })
             throw new Error(`Not a valid UUID: "${eventUuid}"`)
         }
         const singleSaveTimer = new Date()
@@ -154,12 +158,12 @@ export class EventsProcessor {
         }
     }
 
-    getGroupIdentifiers(properties: Properties): GroupIdentifier[] {
-        const res: GroupIdentifier[] = []
-        for (let index = 0; index < this.db.MAX_GROUP_TYPES_PER_TEAM; index++) {
-            const key = `$group_${index}`
-            if (properties.hasOwnProperty(key)) {
-                res.push({ index: index, key: properties[key] })
+    getGroupIdentifiers(properties: Properties): GroupId[] {
+        const res: GroupId[] = []
+        for (let groupIndex = 0; groupIndex < this.db.MAX_GROUP_TYPES_PER_TEAM; ++groupIndex) {
+            const key = `$group_${groupIndex}`
+            if (key in properties) {
+                res.push([groupIndex, properties[key]])
             }
         }
         return res
@@ -182,7 +186,7 @@ export class EventsProcessor {
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
         const groupIdentifiers = this.getGroupIdentifiers(properties)
-        const groupsColumns = await this.db.fetchGroupColumnsValues(teamId, groupIdentifiers)
+        const groupsColumns = await this.db.getGroupsColumns(teamId, groupIdentifiers)
 
         let eventPersonProperties: string | null = null
         let personInfo: IngestionPersonData | undefined = await personContainer.get()

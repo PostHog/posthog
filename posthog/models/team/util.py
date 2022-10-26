@@ -33,4 +33,4 @@ def person_on_events_ready() -> bool:
 
 @cache_for(timedelta(minutes=1))
 def _person_on_events_ready() -> bool:
-    return is_async_migration_complete("0006_persons_and_groups_on_events_backfill")
+    return is_async_migration_complete("0007_persons_and_groups_on_events_backfill")

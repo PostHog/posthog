@@ -1,11 +1,10 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { Link } from 'lib/components/Link'
-import { userLogic } from 'scenes/userLogic'
 import { LemonButton } from '@posthog/lemon-ui'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
 export function NewFeatureBanner(): JSX.Element | null {
-    const { upgradeLink } = useValues(userLogic)
+    const { upgradeLink } = useValues(billingLogic)
 
     return (
         <div className="flex items-center">

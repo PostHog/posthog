@@ -24,6 +24,7 @@ class AvailableFeature(str, Enum):
     BEHAVIORAL_COHORT_FILTERING = "behavioral_cohort_filtering"
     WHITE_LABELLING = "white_labelling"
     SUBSCRIPTIONS = "subscriptions"
+    APP_METRICS = "app_metrics"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -36,7 +37,6 @@ TRENDS_LINEAR = "ActionsLineGraph"
 TRENDS_TABLE = "ActionsTable"
 TRENDS_FUNNEL = "FunnelViz"
 TRENDS_PIE = "ActionsPie"
-TRENDS_RETENTION = "RetentionTable"
 TRENDS_PATHS = "PathsViz"
 TRENDS_BAR = "ActionsBar"
 TRENDS_BAR_VALUE = "ActionsBarValue"
@@ -62,7 +62,7 @@ INSIGHT_TO_DISPLAY = {
     INSIGHT_LIFECYCLE: TRENDS_LINEAR,
     INSIGHT_FUNNELS: TRENDS_FUNNEL,
     INSIGHT_PATHS: TRENDS_PATHS,
-    INSIGHT_RETENTION: TRENDS_RETENTION,
+    INSIGHT_RETENTION: TRENDS_TABLE,
     # :KLUDGE: Sessions insight is no longer supported, but this is needed to make updating these insights possible.
     "SESSIONS": TRENDS_LINEAR,
 }
@@ -95,6 +95,7 @@ CUSTOM_EVENT = "custom_event"
 
 DATE_FROM = "date_from"
 DATE_TO = "date_to"
+EXPLICIT_DATE = "explicit_date"
 ENTITIES = "entities"
 ACTIONS = "actions"
 EVENTS = "events"
@@ -217,6 +218,7 @@ class AnalyticsDBMS(str, Enum):
     CLICKHOUSE = "clickhouse"
 
 
+UNIQUE_USERS = "dau"
 WEEKLY_ACTIVE = "weekly_active"
 MONTHLY_ACTIVE = "monthly_active"
 
@@ -259,8 +261,8 @@ BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 CSV_EXPORT_LIMIT = 10000
 
 
-class CombinedEventType(str, Enum):
-    # Mimics CombinedEventType in frontend/src/types.ts
+class EventDefinitionType(str, Enum):
+    # Mimics EventDefinitionType in frontend/src/types.ts
     ALL = "all"
     ACTION_EVENT = "action_event"
     EVENT = "event"

@@ -6,11 +6,9 @@ import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType, ItemMode 
 import { TrendInsight } from 'scenes/trends/Trends'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable'
-import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     FunnelInvalidExclusionState,
@@ -21,7 +19,6 @@ import {
 } from 'scenes/insights/EmptyStates'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import clsx from 'clsx'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -48,13 +45,19 @@ export function InsightContainer(
         disableHeader,
         disableTable,
         disableCorrelationTable,
-    }: { disableHeader?: boolean; disableTable?: boolean; disableCorrelationTable?: boolean } = {
+        disableLastComputation,
+    }: {
+        disableHeader?: boolean
+        disableTable?: boolean
+        disableCorrelationTable?: boolean
+        disableLastComputation?: boolean
+    } = {
         disableHeader: false,
         disableTable: false,
         disableCorrelationTable: false,
+        disableLastComputation: false,
     }
 ): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { insightMode } = useValues(insightSceneLogic)
     const {
         insightProps,
@@ -138,7 +141,7 @@ export function InsightContainer(
                 <>
                     {exporterResourceParams && (
                         <div className="flex items-center justify-between my-4 mx-0">
-                            <h2>Detailed results</h2>
+                            <h2 className="m-0">Detailed results</h2>
                             <Tooltip title="Export this table in CSV format" placement="left">
                                 <ExportButton
                                     type="secondary"
@@ -156,7 +159,6 @@ export function InsightContainer(
                     <BindLogic logic={trendsLogic} props={insightProps}>
                         <InsightsTable
                             isLegend
-                            showTotalCount
                             filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
                             canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
                             canCheckUncheckSeries={canEditInsight}
@@ -204,9 +206,11 @@ export function InsightContainer(
                         justify="space-between"
                     >
                         {/*Don't add more than two columns in this row.*/}
-                        <Col>
-                            <ComputationTimeWithRefresh />
-                        </Col>
+                        {!disableLastComputation && (
+                            <Col>
+                                <ComputationTimeWithRefresh />
+                            </Col>
+                        )}
                         <Col>
                             {activeView === InsightType.FUNNELS ? <FunnelCanvasLabel /> : null}
                             {activeView === InsightType.PATHS ? <PathCanvasLabel /> : null}
@@ -215,8 +219,7 @@ export function InsightContainer(
                     </Row>
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
-                    ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] &&
-                      (activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
+                    ) : (activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
                       filters.show_legend ? (
                         <Row className="insights-graph-container-row" wrap={false}>
                             <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>

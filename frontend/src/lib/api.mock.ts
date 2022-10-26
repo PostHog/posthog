@@ -13,7 +13,7 @@ import {
     UserBasicType,
     UserType,
 } from '~/types'
-import { FEATURE_FLAGS, OrganizationMembershipLevel, PluginsAccessLevel } from './constants'
+import { OrganizationMembershipLevel, PluginsAccessLevel } from './constants'
 import apiReal from 'lib/api'
 
 export const MOCK_USER_UUID: UserType['uuid'] = 'USER_UUID'
@@ -36,6 +36,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     organization: MOCK_ORGANIZATION_ID,
     api_token: 'default-team-api-token',
     app_urls: ['https://posthog.com/', 'https://app.posthog.com'],
+    recording_domains: ['https://recordings.posthog.com/'],
     name: 'MockHog App + Marketing',
     slack_incoming_webhook: '',
     created_at: '2020-06-30T09:53:35.932534Z',
@@ -58,6 +59,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         excluded_person_property_names: ['$browser_version'],
     },
     session_recording_opt_in: true,
+    capture_console_log_opt_in: true,
     effective_membership_level: OrganizationMembershipLevel.Admin,
     access_control: true,
     has_group_types: true,
@@ -97,6 +99,7 @@ export const MOCK_DEFAULT_USER: UserType = {
     first_name: 'John',
     email: 'john.doe@posthog.com',
     email_opt_in: true,
+    notification_settings: { plugin_disabled: false },
     anonymize_data: false,
     toolbar_mode: 'toolbar',
     has_password: true,
@@ -136,10 +139,8 @@ export const MOCK_DEFAULT_ORGANIZATION_INVITE: OrganizationInviteType = {
 
 export const MOCK_DEFAULT_LICENSE: LicenseType = {
     id: 1,
-    key: 'license-key',
     plan: LicensePlan.Scale,
     valid_until: '2025-03-11T14:05:45.338000Z',
-    max_users: 21312,
     created_at: '2022-03-11T14:05:36.107000Z',
 }
 
@@ -183,9 +184,3 @@ export const MOCK_GROUP_TYPES: GroupType[] = [
         name_plural: 'projects',
     },
 ]
-
-export const MOCK_DECIDE = {
-    featureFlags: {
-        [FEATURE_FLAGS.IN_APP_PROMPTS_EXPERIMENT]: 'test',
-    },
-}

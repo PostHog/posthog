@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
@@ -6,7 +6,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CalendarOutlined } from '@ant-design/icons'
 import './Dashboard.scss'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { DashboardPlacement, DashboardMode, DashboardType } from '~/types'
+import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
@@ -46,7 +46,7 @@ function DashboardScene(): JSX.Element {
         placement,
         dashboard,
         canEditDashboard,
-        items,
+        tiles,
         itemsLoading,
         filters: dashboardFilters,
         dashboardMode,
@@ -59,9 +59,8 @@ function DashboardScene(): JSX.Element {
     }, [])
 
     useKeyboardHotkeys(
-        [DashboardPlacement.Public, DashboardPlacement.InternalMetrics].includes(placement)
-            ? {}
-            : {
+        placement == DashboardPlacement.Dashboard
+            ? {
                   e: {
                       action: () =>
                           setDashboardMode(
@@ -83,8 +82,9 @@ function DashboardScene(): JSX.Element {
                       action: () => setDashboardMode(null, DashboardEventSource.Hotkey),
                       disabled: dashboardMode !== DashboardMode.Edit,
                   },
-              },
-        [setDashboardMode, dashboardMode]
+              }
+            : {},
+        [setDashboardMode, dashboardMode, placement]
     )
 
     if (!dashboard && !itemsLoading && receivedErrorsFromAPI) {
@@ -93,16 +93,11 @@ function DashboardScene(): JSX.Element {
 
     return (
         <div className="dashboard">
-            {![
-                DashboardPlacement.ProjectHomepage,
-                DashboardPlacement.Public,
-                DashboardPlacement.Export,
-                DashboardPlacement.InternalMetrics,
-            ].includes(placement) && <DashboardHeader />}
+            {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
 
             {receivedErrorsFromAPI ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
-            ) : !items || items.length === 0 ? (
+            ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading} />
             ) : (
                 <div>

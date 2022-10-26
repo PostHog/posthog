@@ -1,6 +1,5 @@
 import { useValues, useActions } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
-import React from 'react'
 import { CardContainer } from '../CardContainer'
 import { ingestionLogic } from '../ingestionLogic'
 import './Panels.scss'
@@ -53,7 +52,7 @@ export function ThirdPartyPanel(): JSX.Element {
                                                 <LemonTag
                                                     key={labelIdx}
                                                     type={label === 'beta' ? 'warning' : 'default'}
-                                                    style={{ marginLeft: 8 }}
+                                                    className="uppercase ml-2"
                                                 >
                                                     {label}
                                                 </LemonTag>

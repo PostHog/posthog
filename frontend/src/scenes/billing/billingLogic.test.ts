@@ -107,7 +107,6 @@ const mockBilling = (billing: BillingType) => {
 
 describe('billingLogic', () => {
     let logic: ReturnType<typeof billingLogic.build>
-    let eventLogic: ReturnType<typeof eventUsageLogic.build>
 
     beforeEach(async () => {
         jest.spyOn(URLSearchParams.prototype, 'get').mockImplementation((key) => key)
@@ -122,9 +121,7 @@ describe('billingLogic', () => {
         initKeaTests()
         logic = billingLogic()
         logic.mount()
-        eventLogic = eventUsageLogic()
-        eventLogic.mount()
-        await expectLogic(logic).toMount([featureFlagLogic])
+        await expectLogic(logic).toMount([featureFlagLogic, eventUsageLogic])
     })
 
     afterEach(() => logic.unmount())
@@ -224,7 +221,7 @@ describe('billingLogic', () => {
     })
     it('reports that billing has been cancelled during onboarding', async () => {
         router.actions.push('/ingestion/billing?reason=cancelled')
-        await expectLogic(eventUsageLogic).toDispatchActions(['reportIngestionBillingCancelled'])
+        await expectLogic(logic).toDispatchActions(['reportIngestionBillingCancelled'])
     })
     it('correctly sets redirect depending on flow', async () => {
         // onboarding flow

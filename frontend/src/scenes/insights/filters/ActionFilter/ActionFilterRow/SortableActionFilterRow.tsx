@@ -1,4 +1,3 @@
-import React from 'react'
 import { SortableContainer as sortableContainer, SortableElement as sortableElement } from 'react-sortable-hoc'
 import { ActionFilterRow, ActionFilterRowProps } from './ActionFilterRow'
 

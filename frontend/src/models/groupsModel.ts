@@ -6,6 +6,11 @@ import type { groupsModelType } from './groupsModelType'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 
+export interface Noun {
+    singular: string
+    plural: string
+}
+
 export const groupsModel = kea<groupsModelType>({
     path: ['models', 'groupsModel'],
     connect: {
@@ -59,7 +64,7 @@ export const groupsModel = kea<groupsModelType>({
         aggregationLabel: [
             (s) => [s.groupTypes],
             (groupTypes) =>
-                (groupTypeIndex: number | null | undefined, deferToUserWording: boolean = false) => {
+                (groupTypeIndex: number | null | undefined, deferToUserWording: boolean = false): Noun => {
                     if (groupTypeIndex != undefined && groupTypes.length > 0 && groupTypes[groupTypeIndex]) {
                         const groupType = groupTypes[groupTypeIndex]
                         return {

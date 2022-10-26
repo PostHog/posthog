@@ -1,7 +1,6 @@
 import { Meta } from '@storybook/react'
 
 import { Unsubscribe } from './Unsubscribe'
-import React from 'react'
 
 export default {
     title: 'Scenes-Other/Unsubscribe',

@@ -10,7 +10,7 @@ from posthog.models.element.element import chain_to_elements
 from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.util import date_from_clause, parse_timestamps
+from posthog.queries.query_date_range import QueryDateRange
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -47,8 +47,12 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def stats(self, request: request.Request, **kwargs) -> response.Response:
         filter = Filter(request=request, team=self.team)
 
-        _, date_to, date_params = parse_timestamps(filter, team=self.team)
-        date_from = date_from_clause("toStartOfDay", True)
+        date_params = {}
+        query_date_range = QueryDateRange(filter=filter, team=self.team, should_round=True)
+        date_from, date_from_params = query_date_range.date_from
+        date_to, date_to_params = query_date_range.date_to
+        date_params.update(date_from_params)
+        date_params.update(date_to_params)
 
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
             team_id=self.team.pk, property_group=filter.property_groups

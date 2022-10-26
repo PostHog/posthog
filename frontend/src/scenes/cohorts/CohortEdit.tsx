@@ -22,7 +22,6 @@ import { AndOrFilterSelect } from 'lib/components/PropertyGroupFilters/PropertyG
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { Persons } from 'scenes/persons/Persons'
-import React from 'react'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
@@ -131,7 +130,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 <>
                                     <span>
                                         Upload a CSV file to add users to your cohort. The CSV file only requires a
-                                        single column with the user’s distinct ID.
+                                        single column with the user’s distinct ID. The very first row (the header) will
+                                        be skipped during import.
                                     </span>
                                     <Dragger
                                         name="file"

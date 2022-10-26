@@ -74,6 +74,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Management',
     },
+    [Scene.IngestionWarnings]: {
+        projectBased: true,
+        name: 'Data Management',
+    },
     [Scene.WebPerformance]: {
         projectBased: true,
         name: 'Web Performance',
@@ -129,6 +133,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'App',
     },
+    [Scene.AppMetrics]: {
+        projectBased: true,
+        name: 'Apps',
+    },
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Insights',
@@ -179,10 +187,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         onlyUnauthenticated: true,
     },
     [Scene.PasswordReset]: {
-        allowUnauthenticated: true,
+        onlyUnauthenticated: true,
     },
     [Scene.PasswordResetComplete]: {
-        allowUnauthenticated: true,
+        onlyUnauthenticated: true,
     },
     [Scene.InviteSignup]: {
         allowUnauthenticated: true,
@@ -245,11 +253,13 @@ export const redirects: Record<string, string | ((params: Params) => string)> = 
 export const routes: Record<string, Scene> = {
     [urls.dashboards()]: Scene.Dashboards,
     [urls.dashboard(':id')]: Scene.Dashboard,
+    [urls.dashboardTextTile(':id', ':textTileId')]: Scene.Dashboard,
     [urls.dashboardSharing(':id')]: Scene.Dashboard,
     [urls.dashboardSubcriptions(':id')]: Scene.Dashboard,
     [urls.dashboardSubcription(':id', ':subscriptionId')]: Scene.Dashboard,
     [urls.createAction()]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
+    [urls.ingestionWarnings()]: Scene.IngestionWarnings,
     [urls.insightNew()]: Scene.Insight,
     [urls.insightEdit(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
@@ -280,7 +290,12 @@ export const routes: Record<string, Scene> = {
     [urls.projectHomepage()]: Scene.ProjectHomepage,
     [urls.projectSettings()]: Scene.ProjectSettings,
     [urls.projectApps()]: Scene.Plugins,
+    [urls.projectApp(':id')]: Scene.Plugins,
+    [urls.projectAppLogs(':id')]: Scene.Plugins,
+    [urls.projectAppSource(':id')]: Scene.Plugins,
     [urls.frontendApp(':id')]: Scene.FrontendAppScene,
+    [urls.appMetrics(':pluginConfigId')]: Scene.AppMetrics,
+    [urls.appHistoricalExports(':pluginConfigId')]: Scene.AppMetrics,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationSettings()]: Scene.OrganizationSettings,
     [urls.organizationBilling()]: Scene.Billing,

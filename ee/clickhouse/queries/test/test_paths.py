@@ -20,13 +20,19 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.session_recording_event.util import create_session_recording_event
 from posthog.queries.paths import Paths, PathsActors
 from posthog.queries.paths.paths_event_query import PathEventQuery
-from posthog.queries.test.test_paths import paths_test_factory
-from posthog.test.base import _create_event, _create_person, snapshot_clickhouse_queries, test_with_materialized_columns
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+    test_with_materialized_columns,
+)
 
 ONE_MINUTE = 60_000  # 1 minute in milliseconds
 
 
-class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
+class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
     maxDiff = None
 

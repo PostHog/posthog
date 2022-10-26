@@ -4,7 +4,6 @@ import { LemonTableColumns } from 'lib/components/LemonTable'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { capitalizeFirstLetter } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import React from 'react'
 import { urls } from 'scenes/urls'
 import { FeatureFlagReleaseType } from '~/types'
 import { relatedFeatureFlagsLogic, RelatedFeatureFlag } from './relatedFeatureFlagsLogic'
@@ -74,7 +73,9 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
             width: 150,
             render: function Render(_, featureFlag: RelatedFeatureFlag) {
                 return (
-                    <div style={{ wordBreak: 'break-word' }}>{capitalizeFirstLetter(featureFlag.value.toString())}</div>
+                    <div style={{ wordBreak: 'break-word' }}>
+                        {featureFlag.active ? capitalizeFirstLetter(featureFlag.value.toString()) : '--'}
+                    </div>
                 )
             },
         },

@@ -16,8 +16,8 @@ class ReplicationScheme(str, Enum):
 # - https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replacingmergetree/
 # - https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication/
 class MergeTreeEngine:
-    ENGINE = ""
-    REPLICATED_ENGINE = ""
+    ENGINE = "MergeTree()"
+    REPLICATED_ENGINE = "ReplicatedMergeTree('{zk_path}', '{replica_key}')"
 
     def __init__(self, table: str, replication_scheme: ReplicationScheme = ReplicationScheme.REPLICATED, **kwargs):
         self.table = table
@@ -63,6 +63,11 @@ class ReplacingMergeTree(MergeTreeEngine):
 class CollapsingMergeTree(MergeTreeEngine):
     ENGINE = "CollapsingMergeTree({ver})"
     REPLICATED_ENGINE = "ReplicatedCollapsingMergeTree('{zk_path}', '{replica_key}', {ver})"
+
+
+class AggregatingMergeTree(MergeTreeEngine):
+    ENGINE = "AggregatingMergeTree()"
+    REPLICATED_ENGINE = "ReplicatedAggregatingMergeTree('{zk_path}', '{replica_key}')"
 
 
 class Distributed:

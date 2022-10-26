@@ -1,4 +1,3 @@
-import React from 'react'
 import { dayjs } from 'lib/dayjs'
 import { useActions, useValues } from 'kea'
 
@@ -7,30 +6,32 @@ import { CompactList } from 'lib/components/CompactList/CompactList'
 import { LemonButton } from 'lib/components/LemonButton'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { asDisplay } from 'scenes/persons/PersonHeader'
-import { sessionRecordingsTableLogic } from 'scenes/session-recordings/sessionRecordingsTableLogic'
+import { sessionRecordingsListLogic } from 'scenes/session-recordings/sessionRecordingsListLogic'
 import { urls } from 'scenes/urls'
 import { SessionRecordingType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { humanFriendlyDuration } from 'lib/utils'
 import { IconPlayCircle } from 'lib/components/icons'
-import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
+import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { teamLogic } from 'scenes/teamLogic'
-import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 
 interface RecordingRowProps {
     recording: SessionRecordingType
 }
 
-function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
-    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ key: 'projectHomepage' })
-    const { openSessionPlayer } = useActions(sessionRecordingsTableLogicInstance)
+export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { reportRecordingOpenedFromRecentRecordingList } = useActions(eventUsageLogic)
 
     return (
         <LemonButton
             fullWidth
             onClick={() => {
-                openSessionPlayer(recording.id)
+                openSessionPlayer({
+                    id: recording.id,
+                    matching_events: recording.matching_events,
+                })
                 reportRecordingOpenedFromRecentRecordingList()
             }}
         >
@@ -51,13 +52,12 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
 
 export function RecentRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ key: 'projectHomepage' })
-    const { sessionRecordings, sessionRecordingsResponseLoading } = useValues(sessionRecordingsTableLogicInstance)
-    const { closeSessionPlayer } = useActions(sessionPlayerDrawerLogic)
+    const sessionRecordingsListLogicInstance = sessionRecordingsListLogic({ key: 'projectHomepage' })
+    const { sessionRecordings, sessionRecordingsResponseLoading } = useValues(sessionRecordingsListLogicInstance)
 
     return (
         <>
-            <SessionPlayerDrawer onClose={closeSessionPlayer} />
+            <SessionPlayerModal />
             <CompactList
                 title="Recent recordings"
                 viewAllURL={urls.sessionRecordings()}
