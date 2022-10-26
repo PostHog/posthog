@@ -240,7 +240,7 @@ def update_app_urls_and_icons(apps, schema_edirtor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0274_add_plugin_icon_field.py"),
+        ("posthog", "0274_add_plugin_icon_field"),
     ]
 
     operations = [migrations.RunPython(update_app_urls_and_icons)]
