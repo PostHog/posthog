@@ -63,17 +63,13 @@ const SessionRecordingPlaylistItem = ({
                     className={iconClassnames}
                     property={property}
                     value={iconProperties?.[property]}
-                    tooltipTitle={(_, value) =>
-                        value ? (
-                            <div className="text-center">
-                                Click to filter for
-                                <br />
-                                <span className="font-medium">{value}</span>
-                            </div>
-                        ) : (
-                            ''
-                        )
-                    }
+                    tooltipTitle={(_, value) => (
+                        <div className="text-center">
+                            Click to filter for
+                            <br />
+                            <span className="font-medium">{value ?? 'N/A'}</span>
+                        </div>
+                    )}
                 />
             ))}
         </div>
@@ -101,48 +97,41 @@ const SessionRecordingPlaylistItem = ({
             key={recording.id}
             className={clsx(
                 'SessionRecordingsPlaylist__list-item',
-                'p-2 px-4 cursor-pointer relative overflow-hidden',
-                isActive && 'bg-primary-highlight font-semibold',
-                !recording.viewed && listIcons !== 'none' && 'SessionRecordingsPlaylist__list-item--unwatched'
+                'flex flex-row py-2 pr-4 pl-0 cursor-pointer relative overflow-hidden',
+                isActive && 'bg-primary-highlight font-semibold'
             )}
             onClick={() => onClick()}
         >
-            <div className="flex justify-between items-center">
-                <div className="truncate font-medium text-primary ph-no-capture">{asDisplay(recording.person, 25)}</div>
-
-                {listIcons === 'top-right' && propertyIcons}
-                {listIcons === 'bottom-right' && duration}
-                {!recording.viewed && (
-                    <>
-                        {listIcons === 'none' ? (
-                            <Tooltip title={'Indicates the recording has not been watched yet'}>
-                                <div
-                                    className="w-2 h-2 rounded bg-primary-light"
-                                    aria-label="unwatched-recording-label"
-                                />
-                            </Tooltip>
-                        ) : (
-                            <Tooltip title={'Indicates the recording has not been watched yet'}>
-                                <div
-                                    className="absolute top-0 right-0 w-3 h-3 bg-transparent z-10"
-                                    aria-label="unwatched-recording-label"
-                                />
-                            </Tooltip>
-                        )}
-                    </>
+            <div className="flex justify-center px-2 py-2">
+                {!recording.viewed ? (
+                    <Tooltip title={'Indicates the recording has not been watched yet'}>
+                        <div className="w-2 h-2 rounded-full bg-primary-light" aria-label="unwatched-recording-label" />
+                    </Tooltip>
+                ) : (
+                    <div className="w-2 h-2" />
                 )}
             </div>
+            <div className="grow">
+                <div className="flex justify-between items-center">
+                    <div className="truncate font-medium text-primary ph-no-capture">
+                        {asDisplay(recording.person, 25)}
+                    </div>
 
-            <div className="flex justify-between items-center gap-2">
-                <TZLabel
-                    className="overflow-hidden text-ellipsis"
-                    time={recording.start_time}
-                    formatDate="MMMM DD, YYYY"
-                    formatTime="h:mm A"
-                />
-                <div className="flex items-center gap-2">
-                    {listIcons === 'bottom' && propertyIcons}
-                    {listIcons !== 'bottom-right' ? duration : propertyIcons}
+                    {listIcons === 'top-right' && propertyIcons}
+                    {listIcons === 'bottom-right' && duration}
+                </div>
+
+                <div className="flex justify-between items-center gap-2">
+                    <TZLabel
+                        className="overflow-hidden text-ellipsis"
+                        time={recording.start_time}
+                        formatDate="MMMM DD, YYYY"
+                        formatTime="h:mm A"
+                    />
+                    <div className="flex items-center gap-2">
+                        {listIcons === 'bottom' && propertyIcons}
+                        {listIcons !== 'bottom-right' ? duration : propertyIcons}
+                    </div>
                 </div>
             </div>
         </li>

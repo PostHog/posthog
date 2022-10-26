@@ -11,6 +11,7 @@ import {
     RecordingFilters,
     SessionRecordingId,
     SessionRecordingsResponse,
+    SessionRecordingType,
 } from '~/types'
 import type { sessionRecordingsListLogicType } from './sessionRecordingsListLogicType'
 import { router } from 'kea-router'
@@ -18,7 +19,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
 import { teamLogic } from '../teamLogic'
 import { dayjs } from 'lib/dayjs'
-import { SessionRecordingType } from '~/types'
 
 export type PersonUUID = string
 interface Params {
@@ -82,18 +82,21 @@ export const defaultPageviewPropertyEntityFilter = (
     property: string,
     value?: string
 ): FilterType => {
-    if (!value) {
-        return oldEntityFilters
-    }
-
     const existingPageview = oldEntityFilters.events?.find(({ name }) => name === '$pageview')
     const eventEntityFilters = oldEntityFilters.events ?? []
-    const propToAdd = {
-        key: property,
-        value: [value],
-        operator: PropertyOperator.Exact,
-        type: 'event',
-    }
+    const propToAdd = value
+        ? {
+              key: property,
+              value: [value],
+              operator: PropertyOperator.Exact,
+              type: 'event',
+          }
+        : {
+              key: property,
+              value: PropertyOperator.IsNotSet,
+              operator: PropertyOperator.IsNotSet,
+              type: 'event',
+          }
 
     // If pageview exists, add property to the first pageview event
     if (existingPageview) {
