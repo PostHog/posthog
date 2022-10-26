@@ -1,4 +1,34 @@
-from django.db import migrations
+from django.db import migrations, models
+
+
+def update_app_urls_and_icons(apps, schema_edirtor):
+    Plugin = apps.get_model("posthog", "plugin")
+    for plugin in Plugin.objects.all():
+        if plugin.url in plugin_map:
+            url = plugin_map[plugin.url][0]
+            icon = plugin_map[plugin.url][1]
+            plugin.icon = icon
+            plugin.url = url
+            plugin.tag = "0.0.2"
+            plugin.latest_tag = "0.0.2"
+            plugin.save()
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ("posthog", "0273_mark_inactive_exports_as_finished"),
+    ]
+
+    operations = [
+        migrations.AddField(
+            model_name="plugin",
+            name="icon",
+            field=models.CharField(blank=True, max_length=800, null=True),
+        ),
+        migrations.RunPython(update_app_urls_and_icons),
+    ]
+
 
 plugin_map = {
     "https://github.com/PostHog/currency-normalization-plugin": [
@@ -222,25 +252,3 @@ plugin_map = {
         "https://raw.githubusercontent.com/PostHog/apps/main/src/packages/posthog-filter-out-plugin/logo.png",
     ],
 }
-
-
-def update_app_urls_and_icons(apps, schema_edirtor):
-    Plugin = apps.get_model("posthog", "plugin")
-    for plugin in Plugin.objects.all():
-        if plugin.url in plugin_map:
-            url = plugin_map[plugin.url][0]
-            icon = plugin_map[plugin.url][1]
-            plugin.icon = icon
-            plugin.url = url
-            plugin.tag = "0.1.0"
-            plugin.latest_tag = "0.1.0"
-            plugin.save()
-
-
-class Migration(migrations.Migration):
-
-    dependencies = [
-        ("posthog", "0274_add_plugin_icon_field"),
-    ]
-
-    operations = [migrations.RunPython(update_app_urls_and_icons)]
