@@ -156,6 +156,28 @@ export async function startPluginsServer(
         Sentry.captureException(error)
     })
 
+    process.on('uncaughtException', async (error: Error) => {
+        // If there are unhandled exceptions anywhere, perform a graceful
+        // shutdown. The initial trigger for including this handler is due to
+        // the graphile-worker code throwing an exception when it can't call
+        // `nudge` on a worker. Unsure as to why this happens, but at any rate,
+        // to ensure that we gracefully shutdown Kafka consumers, for which
+        // unclean shutdowns can cause considerable delay in starting to consume
+        // again, we try to gracefully shutdown.
+        //
+        // See https://nodejs.org/api/process.html#event-uncaughtexception for
+        // details on the handler.
+        status.error('🤮', `uncaught_exception`, { error: error.stack })
+
+        if (error.message === 'nudge called after worker terminated') {
+            // Be specific about the error, otherwise we appear to end up in a
+            // recursive situation.
+            await closeJobs()
+        }
+
+        process.exit(1)
+    })
+
     try {
         ;[hub, closeHub] = await createHub(serverConfig, null, capabilities)
 
