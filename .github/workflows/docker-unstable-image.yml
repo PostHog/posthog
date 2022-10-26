@@ -17,7 +17,7 @@ jobs:
             id-token: write
         steps:
             - name: Checkout default branch
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
 
             - name: Get branch name
               run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV

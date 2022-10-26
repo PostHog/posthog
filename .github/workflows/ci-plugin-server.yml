@@ -34,7 +34,7 @@ jobs:
                 working-directory: 'plugin-server'
 
         steps:
-            - uses: actions/checkout@v1
+            - uses: actions/checkout@v3
 
             - name: Set up Node 16
               uses: actions/setup-node@v1
@@ -67,7 +67,7 @@ jobs:
 
         steps:
             - name: Code check out
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
 
             - name: Stop/Start stack with Docker Compose
               run: |
@@ -148,7 +148,7 @@ jobs:
 
         steps:
             - name: Code check out
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
 
             - name: Stop/Start stack with Docker Compose
               run: |

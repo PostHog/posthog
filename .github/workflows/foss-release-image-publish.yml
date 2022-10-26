@@ -18,7 +18,7 @@ jobs:
         steps:
             - name: Checkout default branch
               if: github.repository == 'PostHog/posthog-foss'
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
 
             - name: Get tag name
               if: github.repository == 'PostHog/posthog-foss'

@@ -47,7 +47,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v3
 
             - uses: dorny/paths-filter@v2
               id: filter
@@ -82,7 +82,7 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v3
               with:
                   fetch-depth: 1
 
@@ -138,7 +138,7 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v3
 
             - name: Stop/Start stack with Docker Compose
               run: |
@@ -251,7 +251,7 @@ jobs:
                       group: 5
 
         steps:
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v3
               with:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -317,7 +317,7 @@ jobs:
                   curl -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }} -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
 
             - name: Checkout master
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
               with:
                   ref: 'master'
                   path: 'master/'
@@ -366,7 +366,7 @@ jobs:
                   python master/manage.py migrate
 
             - name: Checkout current branch
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
               with:
                   path: 'current/'
 
