@@ -85,6 +85,8 @@ def get_cached_current_usage(organization: Organization) -> Dict[str, int]:
     cache_key: str = f"monthly_usage_breakdown_{organization.id}"
     usage: Optional[Dict[str, int]] = cache.get(cache_key)
 
+    # TODO BW: For self-hosted this should be priced across all orgs
+
     if usage is None:
         teams = Team.objects.filter(organization=organization).exclude(organization__for_internal_metrics=True)
 
