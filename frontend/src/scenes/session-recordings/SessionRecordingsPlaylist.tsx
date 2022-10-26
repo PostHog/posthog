@@ -2,7 +2,11 @@ import { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { colonDelimitedDuration, range } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
-import { PLAYLIST_LIMIT, sessionRecordingsListLogic } from './sessionRecordingsListLogic'
+import {
+    defaultPageviewPropertyEntityFilter,
+    PLAYLIST_LIMIT,
+    sessionRecordingsListLogic,
+} from './sessionRecordingsListLogic'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import './SessionRecordingsPlaylist.scss'
 import { TZLabel } from 'lib/components/TimezoneAware'
@@ -24,37 +28,49 @@ interface SessionRecordingsTableProps {
     isPersonPage?: boolean
 }
 
+interface SessionRecordingPlaylistItemProps {
+    recording: SessionRecordingType
+    isActive: boolean
+    onClick: () => void
+    onPropertyClick: (property: string, value?: string) => void
+}
+
 const SessionRecordingPlaylistItem = ({
     recording,
     isActive,
     onClick,
-}: {
-    recording: SessionRecordingType
-    isActive: boolean
-    onClick: () => void
-}): JSX.Element => {
-    const iconClassnames = isActive ? 'text-lg text-muted-alt' : 'text-lg text-muted-alt opacity-75'
+    onPropertyClick,
+}: SessionRecordingPlaylistItemProps): JSX.Element => {
     const formattedDuration = colonDelimitedDuration(recording.recording_duration)
     const durationParts = formattedDuration.split(':')
 
     const { featureFlags } = useValues(featureFlagLogic)
 
     const listIcons = featureFlags[FEATURE_FLAGS.RECORDING_LIST_ICONS] || 'none'
+    const iconClassnames = clsx(
+        'SessionRecordingsPlaylist__list-item__property-icon text-lg text-muted-alt',
+        !isActive && 'opacity-75'
+    )
+    const iconProperties = ['$browser', '$device_type', '$os', '$geoip_country_code']
 
     const propertyIcons = (
         <div className="flex flex-row flex-nowrap shrink-0 gap-1">
-            <PropertyIcon className={iconClassnames} property="$browser" value={recording.properties?.['$browser']} />
-            <PropertyIcon
-                className={iconClassnames}
-                property="$device_type"
-                value={recording.properties?.['$device_type']}
-            />
-            <PropertyIcon className={iconClassnames} property="$os" value={recording.properties?.['$os']} />
-            <PropertyIcon
-                className={iconClassnames}
-                property="$geoip_country_code"
-                value={recording.properties?.['$geoip_country_code']}
-            />
+            {iconProperties.map((property) => (
+                <PropertyIcon
+                    key={property}
+                    onClick={onPropertyClick}
+                    className={iconClassnames}
+                    property={property}
+                    value={recording.properties?.[property]}
+                    tooltipTitle={(_, value) => (
+                        <div className="text-center">
+                            Click to filter for
+                            <br />
+                            <span className="font-medium">{value}</span>
+                        </div>
+                    )}
+                />
+            ))}
         </div>
     )
 
@@ -124,10 +140,18 @@ const SessionRecordingPlaylistItem = ({
 }
 
 export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTableProps): JSX.Element {
-    const logic = sessionRecordingsListLogic({ personUUID })
-    const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev, activeSessionRecording, offset } =
-        useValues(logic)
-    const { setSelectedRecordingId, loadNext, loadPrev } = useActions(logic)
+    const logicProps = { personUUID }
+    const logic = sessionRecordingsListLogic(logicProps)
+    const {
+        sessionRecordings,
+        sessionRecordingsResponseLoading,
+        hasNext,
+        hasPrev,
+        activeSessionRecording,
+        offset,
+        entityFilters,
+    } = useValues(logic)
+    const { setSelectedRecordingId, loadNext, loadPrev, setEntityFilters } = useActions(logic)
     const playlistRef = useRef<HTMLDivElement>(null)
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
@@ -142,6 +166,10 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                 behavior: 'smooth',
             })
         }
+    }
+
+    const onPropertyClick = (property: string, value?: string): void => {
+        setEntityFilters(defaultPageviewPropertyEntityFilter(entityFilters, property, value))
     }
 
     const nextLength = offset + (sessionRecordingsResponseLoading ? PLAYLIST_LIMIT : sessionRecordings.length)
@@ -206,6 +234,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                                         key={rec.id}
                                         recording={rec}
                                         onClick={() => onRecordingClick(rec)}
+                                        onPropertyClick={onPropertyClick}
                                         isActive={activeSessionRecording?.id === rec.id}
                                     />
                                 </>

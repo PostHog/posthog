@@ -5,6 +5,7 @@ import {
     AnyPropertyFilter,
     EntityTypes,
     FilterType,
+    PropertyFilter,
     PropertyOperator,
     RecordingDurationFilter,
     RecordingFilters,
@@ -75,6 +76,57 @@ export const defaultEntityFilterOnFlag = (flagKey: string): Partial<FilterType> 
         },
     ],
 })
+
+export const defaultPageviewPropertyEntityFilter = (
+    oldEntityFilters: FilterType,
+    property: string,
+    value?: string
+): FilterType => {
+    if (!value) {
+        return oldEntityFilters
+    }
+
+    const existingPageview = oldEntityFilters.events?.find(({ name }) => name === '$pageview')
+    const eventEntityFilters = oldEntityFilters.events ?? []
+    const propToAdd = {
+        key: property,
+        value: [value],
+        operator: PropertyOperator.Exact,
+        type: 'event',
+    }
+
+    // If pageview exists, add property to the first pageview event
+    if (existingPageview) {
+        return {
+            ...oldEntityFilters,
+            events: eventEntityFilters.map((eventFilter) =>
+                eventFilter.order === existingPageview.order
+                    ? {
+                          ...eventFilter,
+                          properties: [
+                              ...(eventFilter.properties?.filter(({ key }: PropertyFilter) => key !== property) ?? []),
+                              propToAdd,
+                          ],
+                      }
+                    : eventFilter
+            ),
+        }
+    } else {
+        return {
+            ...oldEntityFilters,
+            events: [
+                ...eventEntityFilters,
+                {
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: 'events',
+                    order: eventEntityFilters.length,
+                    properties: [propToAdd],
+                },
+            ],
+        }
+    }
+}
 
 export interface SessionRecordingTableLogicProps {
     personUUID?: PersonUUID

@@ -21,8 +21,8 @@
             max-width: 500px;
         }
 
-        .SessionRecordingsPlaylist__list-item.SessionRecordingsPlaylist__list-item--unwatched {
-            &:after {
+        .SessionRecordingsPlaylist__list-item {
+            &.SessionRecordingsPlaylist__list-item--unwatched:after {
                 content: '';
                 width: 0;
                 height: 0;
@@ -32,6 +32,11 @@
                 right: 0;
                 top: 0;
                 position: absolute;
+            }
+
+            .SessionRecordingsPlaylist__list-item__property-icon:hover {
+                transition: opacity 200ms;
+                opacity: 1;
             }
         }
 
