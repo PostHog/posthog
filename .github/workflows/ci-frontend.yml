@@ -19,14 +19,14 @@ jobs:
         name: Code quality checks
         runs-on: ubuntu-20.04
         steps:
-            - uses: actions/checkout@v1
+            - uses: actions/checkout@v3
 
             - name: Set up Node 16
-              uses: actions/setup-node@v1
+              uses: actions/setup-node@v3
               with:
                   node-version: 16
 
-            - uses: actions/cache@v2
+            - uses: actions/cache@v3
               id: node-modules-cache
               with:
                   path: |
@@ -55,8 +55,8 @@ jobs:
             test-chunks: ${{ steps['set-test-chunks'].outputs['test-chunks'] }}
             test-chunk-ids: ${{ steps['set-test-chunk-ids'].outputs['test-chunk-ids'] }}
         steps:
-            - uses: actions/checkout@v1
-            - uses: actions/cache@v2
+            - uses: actions/checkout@v3
+            - uses: actions/cache@v3
               id: node-modules-cache
               with:
                   path: |
@@ -89,13 +89,13 @@ jobs:
                 chunk: ${{fromJson(needs.jest-setup.outputs['test-chunk-ids'])}}
 
         steps:
-            - uses: actions/checkout@v1
+            - uses: actions/checkout@v3
             - name: Set up Node 16
-              uses: actions/setup-node@v1
+              uses: actions/setup-node@v3
               with:
                   node-version: 16
 
-            - uses: actions/cache@v2
+            - uses: actions/cache@v3
               id: node-modules-cache
               with:
                   path: |
