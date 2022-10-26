@@ -32,7 +32,7 @@ class Migration(migrations.Migration):
             name="icon",
             field=models.CharField(blank=True, max_length=800, null=True),
         ),
-        migrations.RunPython(update_app_urls_and_icons),
+        migrations.RunPython(update_app_urls_and_icons, migrations.RunPython.noop),
     ]
 
 
