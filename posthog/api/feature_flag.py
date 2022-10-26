@@ -173,7 +173,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             validated_data["filters"] = validated_data.pop("get_filters")
 
         active = validated_data.get("active", None)
-        if active is True:
+        if active:
             validated_data["performed_rollback"] = False
 
 
