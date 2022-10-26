@@ -60,6 +60,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def _get_session_recording_list(self, filter):
         return SessionRecordingList(filter=filter, team=self.team).run()
 
+    def _get_session_recording_list_meta_data(self, filter):
+        return SessionRecordingList(filter=filter, team=self.team).get_metadata()
+
     def _get_session_recording_snapshots(
         self, request, session_recording_id, limit, offset, recording_start_time: Optional[datetime]
     ):
