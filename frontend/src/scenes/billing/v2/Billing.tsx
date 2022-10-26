@@ -84,7 +84,7 @@ export function BillingV2(): JSX.Element {
                                     <LemonLabel
                                         info={'This is the current amount you have been billed for this month so far.'}
                                     >
-                                        Current bill
+                                        Current bill total
                                     </LemonLabel>
                                     <div className="font-bold text-4xl">${billing.current_total_amount_usd}</div>
                                 </div>
@@ -393,73 +393,80 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                             </LemonLabel>
                             <div className="font-bold text-4xl">${product.current_amount_usd}</div>
                         </div>
-                        <div className="space-y-2">
-                            <LemonLabel
-                                info={
-                                    'This is roughly caculated based on your current bill and the remaining time left in this billing period.'
-                                }
-                            >
-                                Predicted bill
-                            </LemonLabel>
-                            <div className="font-bold text-muted text-2xl">
-                                $
-                                {product.projected_usage
-                                    ? convertUsageToAmount(product.projected_usage, product.tiers)
-                                    : '0.00'}
-                            </div>
-                        </div>
-                        <div className="flex-1" />
-                        <div className="space-y-2 text-right">
-                            <LemonLabel
-                                info={
-                                    <>
-                                        Set a billing limit to control your recurring costs.{' '}
-                                        <b>Your critical data will still be ingested and available in the product</b>.
-                                        Some features may cease operation if your usage greatly exceeds your billing
-                                        cap.
-                                    </>
-                                }
-                            >
-                                Billing limit
-                            </LemonLabel>
-                            <div className="flex justify-end gap-2 items-center">
-                                {showBillingLimit ? (
-                                    <div style={{ maxWidth: 180 }}>
-                                        <LemonInput
-                                            type="number"
-                                            fullWidth={false}
-                                            value={billingLimit}
-                                            onChange={setBillingLimit}
-                                            prefix={<b>$</b>}
-                                            disabled={billingLoading}
-                                            min={0}
-                                            step={10}
-                                            suffix={<>/month</>}
-                                        />
-                                    </div>
-                                ) : (
-                                    <span className="text-muted">No limit set</span>
-                                )}
-
-                                {showBillingLimit && billingLimitInputChanged ? (
-                                    <LemonButton
-                                        onClick={() => updateBillingLimit(billingLimit)}
-                                        loading={billingLoading}
-                                        type="secondary"
+                        {product.tiered && (
+                            <>
+                                <div className="space-y-2">
+                                    <LemonLabel
+                                        info={
+                                            'This is roughly caculated based on your current bill and the remaining time left in this billing period.'
+                                        }
                                     >
-                                        Save
-                                    </LemonButton>
-                                ) : billingLoading ? (
-                                    <Spinner className="text-lg" />
-                                ) : (
-                                    <LemonSwitch
-                                        className="my-2"
-                                        checked={showBillingLimit}
-                                        onChange={onBillingLimitToggle}
-                                    />
-                                )}
-                            </div>
-                        </div>
+                                        Predicted bill
+                                    </LemonLabel>
+                                    <div className="font-bold text-muted text-2xl">
+                                        $
+                                        {product.projected_usage
+                                            ? convertUsageToAmount(product.projected_usage, product.tiers)
+                                            : '0.00'}
+                                    </div>
+                                </div>
+                                <div className="flex-1" />
+                                <div className="space-y-2 text-right">
+                                    <LemonLabel
+                                        info={
+                                            <>
+                                                Set a billing limit to control your recurring costs.{' '}
+                                                <b>
+                                                    Your critical data will still be ingested and available in the
+                                                    product
+                                                </b>
+                                                . Some features may cease operation if your usage greatly exceeds your
+                                                billing cap.
+                                            </>
+                                        }
+                                    >
+                                        Billing limit
+                                    </LemonLabel>
+                                    <div className="flex justify-end gap-2 items-center">
+                                        {showBillingLimit ? (
+                                            <div style={{ maxWidth: 180 }}>
+                                                <LemonInput
+                                                    type="number"
+                                                    fullWidth={false}
+                                                    value={billingLimit}
+                                                    onChange={setBillingLimit}
+                                                    prefix={<b>$</b>}
+                                                    disabled={billingLoading}
+                                                    min={0}
+                                                    step={10}
+                                                    suffix={<>/month</>}
+                                                />
+                                            </div>
+                                        ) : (
+                                            <span className="text-muted">No limit set</span>
+                                        )}
+
+                                        {showBillingLimit && billingLimitInputChanged ? (
+                                            <LemonButton
+                                                onClick={() => updateBillingLimit(billingLimit)}
+                                                loading={billingLoading}
+                                                type="secondary"
+                                            >
+                                                Save
+                                            </LemonButton>
+                                        ) : billingLoading ? (
+                                            <Spinner className="text-lg" />
+                                        ) : (
+                                            <LemonSwitch
+                                                className="my-2"
+                                                checked={showBillingLimit}
+                                                onChange={onBillingLimitToggle}
+                                            />
+                                        )}
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
                 ) : null}
 
