@@ -71,3 +71,10 @@ NoOptions.args = {
     placeholder: 'No options...',
     options: [],
 }
+
+export const NoDropdown = Template.bind({})
+NoDropdown.args = {
+    mode: 'multiple-custom',
+    placeholder: 'data-attr',
+    hideDropdown: true,
+}
