@@ -13,7 +13,7 @@ jobs:
 
             - name: Check if any Dockerfile has changed
               id: changed-files
-              uses: tj-actions/changed-files@v9.3
+              uses: tj-actions/changed-files@v34
               with:
                   files: |
                       **Dockerfile

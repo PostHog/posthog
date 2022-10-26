@@ -26,7 +26,7 @@ jobs:
               with:
                   node-version: 16
 
-            - uses: actions/cache@v2
+            - uses: actions/cache@v3
               id: node-modules-cache
               with:
                   path: |
@@ -56,7 +56,7 @@ jobs:
             test-chunk-ids: ${{ steps['set-test-chunk-ids'].outputs['test-chunk-ids'] }}
         steps:
             - uses: actions/checkout@v3
-            - uses: actions/cache@v2
+            - uses: actions/cache@v3
               id: node-modules-cache
               with:
                   path: |
@@ -95,7 +95,7 @@ jobs:
               with:
                   node-version: 16
 
-            - uses: actions/cache@v2
+            - uses: actions/cache@v3
               id: node-modules-cache
               with:
                   path: |

@@ -105,7 +105,7 @@ jobs:
               id: yarn-cache-dir-path
               run: echo "dir=$(yarn config get cacheFolder)" >> $GITHUB_OUTPUT
 
-            - uses: actions/cache@v2
+            - uses: actions/cache@v3
               id: yarn-cache
               with:
                   path: |
@@ -186,7 +186,7 @@ jobs:
               id: yarn-cache-dir-path
               run: echo "dir=$(yarn config get cacheFolder)" >> $GITHUB_OUTPUT
 
-            - uses: actions/cache@v2
+            - uses: actions/cache@v3
               id: yarn-cache
               with:
                   path: |
@@ -221,7 +221,7 @@ jobs:
                   cd plugin-server && yarn functional_tests --maxConcurrency=1 --coverage
 
             - name: Uploader
-              uses: actions/upload-artifact@v2
+              uses: actions/upload-artifact@v3
               with:
                   name: functional-coverage
                   if-no-files-found: warn

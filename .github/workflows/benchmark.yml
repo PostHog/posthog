@@ -113,7 +113,7 @@ jobs:
                   commit_author: PostHog Bot <hey@posthog.com>
 
             - name: Upload results as artifacts
-              uses: actions/upload-artifact@v2
+              uses: actions/upload-artifact@v3
               with:
                   name: benchmarks
                   path: |
