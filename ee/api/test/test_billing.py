@@ -128,6 +128,7 @@ class TestBillingAPI(APILicensedTest):
             "exp": 1640996100,
             "id": self.license.key.split("::")[0],
             "organization_id": str(self.organization.id),
+            "organization_name": "Test",
         }
 
     @patch("ee.api.billing.requests.get")
