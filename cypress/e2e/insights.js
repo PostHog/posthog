@@ -7,7 +7,7 @@ function applyFilter() {
     cy.get('[data-attr=taxonomic-filter-searchfield]').click()
     cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
     cy.get('[data-attr=prop-val]').click()
-    cy.get('[data-attr=prop-val-0]').click({ force: true })
+    cy.get('[data-attr=prop-val-1]').click({ force: true })
 }
 
 function createANewInsight(insightName) {
@@ -40,15 +40,25 @@ describe('Insights', () => {
         cy.visit(urls.insightNew())
     })
 
-    it('can compare screenshot of insight trends view mode', () => {
-        createANewInsight()
-        cy.compareSnapshot('insight-trends-view')
-    })
+    describe('visual regression tests', () => {
+        it('can compare screenshot of insight trends view mode', () => {
+            createANewInsight()
 
-    it('can compare screenshot of insight trends edit mode', () => {
-        createANewInsight()
-        cy.get('[data-attr="insight-edit-button"]').click()
-        cy.compareSnapshot('insight-trends-edit')
+            cy.get('[data-attr=toast-close-button]').click()
+            cy.get('[data-attr=success-toast]').should('not.exist')
+
+            cy.compareSnapshot('insight-trends-view')
+        })
+
+        it('can compare screenshot of insight trends edit mode', () => {
+            createANewInsight()
+
+            cy.get('[data-attr=toast-close-button]').click()
+            cy.get('[data-attr=success-toast]').should('not.exist')
+
+            cy.get('[data-attr="insight-edit-button"]').click()
+            cy.compareSnapshot('insight-trends-edit')
+        })
     })
 
     it('Saving an insight sets breadcrumbs', () => {
