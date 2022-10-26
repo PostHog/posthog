@@ -59,7 +59,7 @@ import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { userLogic } from 'scenes/userLogic'
 import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
-import { groupsModel } from '~/models/groupsModel'
+import { Noun, groupsModel } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { LemonSelectOptions } from 'lib/components/LemonSelect'
@@ -1091,13 +1091,7 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         aggregationTargetLabel: [
             (s) => [s.filters, s.aggregationLabel],
-            (
-                filters,
-                aggregationLabel
-            ): {
-                singular: string
-                plural: string
-            } => aggregationLabel(filters.aggregation_group_type_index),
+            (filters, aggregationLabel): Noun => aggregationLabel(filters.aggregation_group_type_index),
         ],
         correlationMatrixAndScore: [
             (s) => [s.funnelCorrelationDetails, s.steps],

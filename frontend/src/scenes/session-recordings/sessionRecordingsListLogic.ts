@@ -52,9 +52,34 @@ export const DEFAULT_ENTITY_FILTERS = {
     ],
 }
 
+export const defaultEntityFilterOnFlag = (flagKey: string): Partial<FilterType> => ({
+    events: [
+        {
+            id: '$feature_flag_called',
+            name: '$feature_flag_called',
+            type: 'events',
+            properties: [
+                {
+                    key: '$feature/' + flagKey,
+                    type: 'event',
+                    value: ['true'],
+                    operator: 'exact',
+                },
+                {
+                    key: '$feature_flag',
+                    type: 'event',
+                    value: flagKey,
+                    operator: 'exact',
+                },
+            ],
+        },
+    ],
+})
+
 export interface SessionRecordingTableLogicProps {
     personUUID?: PersonUUID
     key?: string
+    flagKey?: string
 }
 
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
@@ -71,6 +96,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             id,
         }),
         setEntityFilters: (filters: Partial<FilterType>) => ({ filters }),
+        setEntityFiltersNoRefresh: (filters: Partial<FilterType>) => ({ filters }),
         setPropertyFilters: (filters: AnyPropertyFilter[]) => {
             return { filters }
         },
@@ -112,8 +138,11 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             },
         ],
     }),
-    events: ({ actions }) => ({
+    events: ({ actions, props }) => ({
         afterMount: () => {
+            if (props.flagKey) {
+                actions.setEntityFiltersNoRefresh(defaultEntityFilterOnFlag(props.flagKey))
+            }
             actions.getSessionRecordings()
         },
     }),
@@ -156,6 +185,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             DEFAULT_ENTITY_FILTERS as FilterType,
             {
                 setEntityFilters: (_, { filters }) => ({ ...filters }),
+                setEntityFiltersNoRefresh: (_, { filters }) => ({ ...filters }),
             },
         ],
         propertyFilters: [

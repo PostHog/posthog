@@ -46,7 +46,8 @@ export const urls = {
     savedInsights: (): string => '/insights',
     webPerformance: (): string => '/web-performance',
     webPerformanceWaterfall: (id: string): string => `/web-performance/${id}/waterfall`,
-    sessionRecordings: (): string => '/recordings',
+    sessionRecordings: (filters?: Partial<FilterType>): string =>
+        combineUrl('/recordings', filters ? { filters } : {}).url,
     person: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     persons: (): string => '/persons',

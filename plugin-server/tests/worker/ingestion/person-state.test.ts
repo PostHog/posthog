@@ -353,7 +353,7 @@ describe('PersonState.update()', () => {
         })
     })
 
-    describe('on $identify event', () => {
+    describe.skip('on $identify event', () => {
         it('creates person and sets is_identified false when $anon_distinct_id not passed', async () => {
             const personContainer = await personState({
                 event: '$identify',

@@ -6,7 +6,7 @@ import { InsightLogicProps, FilterType, InsightType, TrendResult, ActionFilter, 
 import type { trendsLogicType } from './trendsLogicType'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { isTrendsInsight, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { groupsModel } from '~/models/groupsModel'
+import { Noun, groupsModel } from '~/models/groupsModel'
 import { subscriptions } from 'kea-subscriptions'
 
 export const trendsLogic = kea<trendsLogicType>([
@@ -103,13 +103,7 @@ export const trendsLogic = kea<trendsLogicType>([
         ],
         aggregationTargetLabel: [
             (s) => [s.aggregationLabel, s.targetAction],
-            (
-                aggregationLabel,
-                targetAction
-            ): {
-                singular: string
-                plural: string
-            } => {
+            (aggregationLabel, targetAction): Noun => {
                 return aggregationLabel(targetAction.math_group_type_index)
             },
         ],
