@@ -3,14 +3,16 @@ import { Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { IconDelete } from 'lib/components/icons'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Field } from 'lib/forms/Field'
+import { humanFriendlyNumber } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { RolloutConditionType } from '~/types'
 import { featureFlagLogic } from './featureFlagLogic'
 
 export function FeatureFlagAutoRollback(): JSX.Element {
-    const { featureFlag } = useValues(featureFlagLogic)
+    const { featureFlag, sentryErrorCount } = useValues(featureFlagLogic)
     const { addRollbackCondition, removeRollbackCondition } = useActions(featureFlagLogic)
 
     return (
@@ -48,17 +50,14 @@ export function FeatureFlagAutoRollback(): JSX.Element {
                                         )}
                                     </Field>
                                 </Row>
-
-                                {featureFlag.rollback_conditions.length > 1 && (
-                                    <LemonButton
-                                        icon={<IconDelete />}
-                                        status="muted"
-                                        noPadding
-                                        onClick={() => {
-                                            removeRollbackCondition(index)
-                                        }}
-                                    />
-                                )}
+                                <LemonButton
+                                    icon={<IconDelete />}
+                                    status="muted"
+                                    noPadding
+                                    onClick={() => {
+                                        removeRollbackCondition(index)
+                                    }}
+                                />
                             </Row>
                             <LemonDivider className="my-3" />
                             {featureFlag.rollback_conditions[index].threshold_type == 'insight' ? (
@@ -75,8 +74,9 @@ export function FeatureFlagAutoRollback(): JSX.Element {
                                                 }}
                                                 typeKey={'feature-flag-rollback-trends-' + index}
                                                 buttonCopy={'Add graph series'}
-                                                showSeriesIndicator
+                                                showSeriesIndicator={false}
                                                 showNestedArrow
+                                                hideRename={true}
                                                 entitiesLimit={1}
                                                 propertiesTaxonomicGroupTypes={[
                                                     TaxonomicFilterGroupType.EventProperties,
@@ -106,33 +106,62 @@ export function FeatureFlagAutoRollback(): JSX.Element {
                                     </Field>
                                 </div>
                             ) : (
-                                <Row align="middle">
-                                    Trigger when there is a
-                                    <Field name="threshold" className="ml-3 mr-3">
-                                        {({ value, onChange }) => (
-                                            <LemonInput
-                                                value={value}
-                                                suffix={<>%</>}
-                                                type="number"
-                                                min={0}
-                                                onChange={onChange}
-                                            />
+                                <div>
+                                    <Row align="middle">
+                                        {sentryErrorCount ? (
+                                            <span>
+                                                <b>{humanFriendlyNumber(sentryErrorCount as number)} </b> sentry errors
+                                                in the past 24 hours.{' '}
+                                            </span>
+                                        ) : (
+                                            <Spinner />
                                         )}
-                                    </Field>
-                                    <Field name="operator" className="mr-3">
-                                        {({ value, onChange }) => (
-                                            <LemonSelect
-                                                options={[
-                                                    { label: 'increase', value: 'gt' },
-                                                    { label: 'decrease', value: 'lt' },
-                                                ]}
-                                                value={value}
-                                                onChange={onChange}
-                                            />
-                                        )}
-                                    </Field>
-                                    in errors.
-                                </Row>
+                                        <span>&nbsp;Trigger when there is a</span>
+                                        <Field name="threshold" className="ml-3 mr-3">
+                                            {({ value, onChange }) => (
+                                                <LemonInput
+                                                    value={value}
+                                                    suffix={<>%</>}
+                                                    type="number"
+                                                    min={0}
+                                                    onChange={onChange}
+                                                />
+                                            )}
+                                        </Field>
+                                        <Field name="operator" className="mr-3">
+                                            {({ value, onChange }) => (
+                                                <LemonSelect
+                                                    options={[
+                                                        { label: 'increase', value: 'gt' },
+                                                        { label: 'decrease', value: 'lt' },
+                                                    ]}
+                                                    value={value}
+                                                    onChange={onChange}
+                                                />
+                                            )}
+                                        </Field>
+                                        <span>
+                                            to{' '}
+                                            {sentryErrorCount ? (
+                                                <b>
+                                                    {humanFriendlyNumber(
+                                                        Math.round(
+                                                            (sentryErrorCount as number) *
+                                                                (1 +
+                                                                    (featureFlag.rollback_conditions[index].threshold ||
+                                                                        0) /
+                                                                        100)
+                                                        )
+                                                    )}
+                                                </b>
+                                            ) : (
+                                                <Spinner />
+                                            )}{' '}
+                                            errors.
+                                        </span>
+                                        <div />
+                                    </Row>
+                                </div>
                             )}
                         </Group>
                     </div>

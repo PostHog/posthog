@@ -463,5 +463,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
         }
+        actions.loadSentryErrorCount()
     }),
 ])
