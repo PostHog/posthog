@@ -30,6 +30,7 @@ def create_billing_customer(**kwargs) -> Dict[str, Any]:
         "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
         "current_total_amount_usd": "100.00",
         "available_features": [],
+        "deativated": False,
         "products": [
             {
                 "name": "Product OS",
@@ -54,9 +55,22 @@ def create_billing_customer(**kwargs) -> Dict[str, Any]:
 
 def create_billing_products_response(**kwargs) -> Dict[str, Any]:
     data: Any = {
-        "products": [
+        "standard": [
             {
                 "name": "Product OS",
+                "description": "Product Analytics, event pipelines, data warehousing",
+                "price_description": None,
+                "type": "EVENTS",
+                "free_allocation": 10000,
+                "tiers": [
+                    {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
+                    {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
+                ],
+            }
+        ],
+        "enterprise": [
+            {
+                "name": "Product OS Enterprise",
                 "description": "Product Analytics, event pipelines, data warehousing",
                 "price_description": None,
                 "type": "EVENTS",
@@ -138,6 +152,7 @@ class TestBillingAPI(APILicensedTest):
             "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
             "current_total_amount_usd": "100.00",
             "available_features": [],
+            "deativated": False,
             "products": [
                 {
                     "name": "Product OS",
@@ -201,6 +216,28 @@ class TestBillingAPI(APILicensedTest):
                         "percentage_usage": 0.0,
                     }
                 ],
+                "products_enterprise": [
+                    {
+                        "current_usage": 0,
+                        "description": "Product Analytics, event pipelines, data warehousing",
+                        "free_allocation": 10000,
+                        "name": "Product OS Enterprise",
+                        "price_description": None,
+                        "tiers": [
+                            {
+                                "current_amount_usd": "0.00",
+                                "unit_amount_usd": "0.00",
+                                "up_to": 1000000,
+                            },
+                            {
+                                "current_amount_usd": None,
+                                "unit_amount_usd": "0.00045",
+                                "up_to": 2000000,
+                            },
+                        ],
+                        "type": "EVENTS",
+                    },
+                ],
             }
 
     @patch("ee.api.billing.requests.get")
@@ -210,7 +247,6 @@ class TestBillingAPI(APILicensedTest):
         mock_request.return_value.status_code = 200
         mock_request.return_value.json.return_value = {
             "license": {
-                "valid_until": "2100-01-01T00:00:00Z",
                 "type": "scale",
             }
         }
@@ -249,12 +285,12 @@ class TestBillingAPI(APILicensedTest):
             "type": "validation_error",
         }
 
+    @freeze_time("2022-01-01T12:00:00Z")
     @patch("ee.api.billing.requests.get")
     def test_license_is_updated_on_billing_load(self, mock_request):
         mock_request.return_value.status_code = 200
         mock_request.return_value.json.return_value = {
             "license": {
-                "valid_until": "2100-01-01T00:00:00Z",
                 "type": "scale",
             },
             "customer": create_billing_customer(),
@@ -263,11 +299,13 @@ class TestBillingAPI(APILicensedTest):
         assert self.license.plan == "enterprise"
         self.client.get("/api/billing-v2")
         self.license.refresh_from_db()
+
+        self.license.valid_until = datetime(2022, 1, 2, 0, 0, 0, tzinfo=pytz.UTC)
+        self.license.save()
         assert self.license.plan == "scale"
 
         mock_request.return_value.json.return_value = {
             "license": {
-                "valid_until": "2200-01-01T00:00:00Z",
                 "type": "enterprise",
             },
             "customer": create_billing_customer(),
@@ -276,7 +314,8 @@ class TestBillingAPI(APILicensedTest):
         self.client.get("/api/billing-v2")
         self.license.refresh_from_db()
         assert self.license.plan == "enterprise"
-        assert self.license.valid_until == datetime(2200, 1, 1, 0, 0, 0, tzinfo=pytz.UTC)
+        # Should be extended by 30 days
+        assert self.license.valid_until == datetime(2022, 1, 31, 12, 0, 0, tzinfo=pytz.UTC)
 
     @patch("ee.api.billing.requests.get")
     def test_organization_available_features_updated_if_different(self, mock_request):
