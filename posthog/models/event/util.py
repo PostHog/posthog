@@ -352,21 +352,6 @@ def get_agg_event_count_for_teams(team_ids: List[Union[str, int]]) -> int:
     return result
 
 
-def get_agg_event_count_for_teams_and_period(
-    team_ids: List[int], begin: timezone.datetime, end: timezone.datetime
-) -> int:
-    result = sync_execute(
-        """
-        SELECT count(1) as count
-        FROM events
-        WHERE team_id IN (%(team_id_clause)s)
-        AND timestamp between %(begin)s AND %(end)s
-    """,
-        {"team_id_clause": team_ids, "begin": begin, "end": end},
-    )[0][0]
-    return result
-
-
 def get_agg_events_with_groups_count_for_teams_and_period(
     team_ids: List[Union[str, int]], begin: timezone.datetime, end: timezone.datetime
 ) -> int:
@@ -391,22 +376,6 @@ def get_event_count_for_team(team_id: Union[str, int]) -> int:
         WHERE team_id = %(team_id)s
     """,
         {"team_id": str(team_id)},
-    )[0][0]
-    return result
-
-
-def get_event_count_with_groups_count_for_team_and_period(
-    team_id: Union[str, int], begin: timezone.datetime, end: timezone.datetime
-) -> int:
-    result = sync_execute(
-        """
-        SELECT count(1) as count
-        FROM events
-        WHERE team_id IN (%(team_id)s)
-        AND timestamp between %(begin)s AND %(end)s
-        AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
-    """,
-        {"team_id": team_id, "begin": begin, "end": end},
     )[0][0]
     return result
 
@@ -446,35 +415,3 @@ def get_event_count_month_to_date() -> int:
     """
     )[0][0]
     return result
-
-
-def get_events_count_for_team_by_client_lib(
-    team_id: Union[str, int], begin: timezone.datetime, end: timezone.datetime
-) -> dict:
-    results = sync_execute(
-        """
-        SELECT JSONExtractString(properties, '$lib') as lib, COUNT(1) as freq
-        FROM events
-        WHERE team_id = %(team_id)s
-        AND timestamp between %(begin)s AND %(end)s
-        GROUP BY lib
-    """,
-        {"team_id": str(team_id), "begin": begin, "end": end},
-    )
-    return {result[0]: result[1] for result in results}
-
-
-def get_events_count_for_team_by_event_type(
-    team_id: Union[str, int], begin: timezone.datetime, end: timezone.datetime
-) -> dict:
-    results = sync_execute(
-        """
-        SELECT event, COUNT(1) as freq
-        FROM events
-        WHERE team_id = %(team_id)s
-        AND timestamp between %(begin)s AND %(end)s
-        GROUP BY event
-    """,
-        {"team_id": str(team_id), "begin": begin, "end": end},
-    )
-    return {result[0]: result[1] for result in results}
