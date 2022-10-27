@@ -33,6 +33,13 @@ export enum AppMetricsTab {
     Activity = 'activity',
 }
 
+export type TabWithMetrics =
+    | AppMetricsTab.ProcessEvent
+    | AppMetricsTab.OnEvent
+    | AppMetricsTab.ExportEvents
+    | AppMetricsTab.ScheduledTask
+    | AppMetricsTab.HistoricalExports
+
 export interface HistoricalExportInfo {
     job_id: string
     status: 'success' | 'fail' | 'not_finished'
