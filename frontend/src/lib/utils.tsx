@@ -1060,7 +1060,7 @@ export function identifierToHuman(identifier: string | number, caseType: 'senten
 
 export function parseGithubRepoURL(url: string): Record<string, string> {
     const match = url.match(
-        /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)(\/(commit|tree|releases\/tag)\/([A-Za-z0-9_.\-\/]+))?/
+        /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.\-]+)\/([A-Za-z0-9_.\-]+)(\/(commit|tree|releases\/tag)\/([A-Za-z0-9_.\-\/]+))?/
     )
 
     if (!match) {
