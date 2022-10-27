@@ -230,7 +230,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
                 item_id=person_id,
                 scope="Person",
                 activity="deleted",
-                detail=Detail(name=str(person_id)),
+                detail=Detail(name=str(person.uuid)),
             )
 
             return response.Response(status=204)
@@ -294,7 +294,10 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             item_id=person.id,
             scope="Person",
             activity="split_person",
-            detail=Detail(changes=[Change(type="Person", action="split", after={"distinct_ids": distinct_ids})]),
+            detail=Detail(
+                name=str(person.uuid),
+                changes=[Change(type="Person", action="split", after={"distinct_ids": distinct_ids})],
+            ),
         )
 
         return response.Response({"success": True}, status=201)
@@ -325,7 +328,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             item_id=person.id,
             scope="Person",
             activity="delete_property",
-            detail=Detail(changes=[Change(type="Person", action="changed")]),
+            detail=Detail(name=str(person.uuid), changes=[Change(type="Person", action="changed")]),
         )
 
         return response.Response({"success": True}, status=201)
