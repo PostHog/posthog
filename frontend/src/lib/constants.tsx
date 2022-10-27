@@ -126,7 +126,6 @@ export const FEATURE_FLAGS = {
     TEXT_CARDS: 'text-cards', // owner: @pauldambra
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
     CURRENCY_UNITS: 'currency-units', // owner: @pauldambra
-    APP_METRICS: 'app-metrics', // owner: @macobo
     FEEDBACK_BUTTON: 'feedback-button', // owner: @luke
     RECORDING_LIST_ICONS: 'recording-list-icons', // owner: @benjackwhite
     RECORDINGS_ON_FEATURE_FLAGS: 'recordings-on-feature-flags', // owner: @EDsCODE

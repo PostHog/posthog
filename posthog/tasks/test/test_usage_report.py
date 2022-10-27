@@ -2,18 +2,17 @@ from datetime import datetime, timedelta
 from typing import Dict, List
 from unittest.mock import ANY, MagicMock, Mock, call, patch
 from uuid import uuid4
-import pytest
 
+import pytest
 import structlog
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
-from ee.api.billing import build_billing_token
 
+from ee.api.billing import build_billing_token
 from ee.api.test.base import LicensedTestMixin
 from ee.models.license import License
 from ee.settings import BILLING_SERVICE_URL
-
 from posthog.models import Organization, Plugin, Team
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping

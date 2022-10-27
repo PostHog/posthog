@@ -55,8 +55,6 @@ class UsageReportCounters:
     # Recordings
     recording_count_in_period: int
     recording_count_total: int
-    # duplicate_distinct_ids: Dict
-    # multiple_ids_per_person: Dict
     # Persons and Groups
     group_types_total: int
     # person_count_total: int
