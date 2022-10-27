@@ -4,10 +4,6 @@ import { UUID } from '../../../src/utils/utils'
 import { PromiseManager } from '../../../src/worker/vm/promise-manager'
 
 const mockHub: Hub = {
-    graphileWorker: {
-        enqueue: jest.fn(),
-        addJob: jest.fn(),
-    } as any,
     instanceId: new UUID('F8B2F832-6639-4596-ABFC-F9664BC88E84'),
     promiseManager: new PromiseManager({ MAX_PENDING_PROMISES_PER_WORKER: 1 } as any),
     JOB_QUEUES: 'fs',
@@ -19,6 +15,10 @@ describe('Graphile Worker schedule', () => {
     })
 
     test('runScheduledTasks()', async () => {
+        const mockPiscina = {
+            run: jest.fn(),
+        }
+
         const mockHubWithPluginSchedule = {
             ...mockHub,
             pluginSchedule: {
@@ -28,56 +28,23 @@ describe('Graphile Worker schedule', () => {
             },
         }
 
-        await runScheduledTasks(mockHubWithPluginSchedule, 'runEveryMinute')
+        await runScheduledTasks(mockHubWithPluginSchedule, mockPiscina as any, 'iDontExist')
+        expect(mockPiscina.run).not.toHaveBeenCalled()
 
-        expect(mockHub.graphileWorker.enqueue).toHaveBeenNthCalledWith(1, 'pluginScheduledTask', {
-            pluginConfigId: 1,
-            task: 'runEveryMinute',
-            timestamp: expect.any(Number),
-        })
-        expect(mockHub.graphileWorker.enqueue).toHaveBeenNthCalledWith(2, 'pluginScheduledTask', {
-            pluginConfigId: 2,
-            task: 'runEveryMinute',
-            timestamp: expect.any(Number),
-        })
-        expect(mockHub.graphileWorker.enqueue).toHaveBeenNthCalledWith(3, 'pluginScheduledTask', {
-            pluginConfigId: 3,
-            task: 'runEveryMinute',
-            timestamp: expect.any(Number),
-        })
+        await runScheduledTasks(mockHubWithPluginSchedule, mockPiscina as any, 'runEveryMinute')
 
-        await runScheduledTasks(mockHubWithPluginSchedule, 'runEveryHour')
-        expect(mockHub.graphileWorker.enqueue).toHaveBeenNthCalledWith(4, 'pluginScheduledTask', {
-            pluginConfigId: 4,
-            task: 'runEveryHour',
-            timestamp: expect.any(Number),
-        })
-        expect(mockHub.graphileWorker.enqueue).toHaveBeenNthCalledWith(5, 'pluginScheduledTask', {
-            pluginConfigId: 5,
-            task: 'runEveryHour',
-            timestamp: expect.any(Number),
-        })
-        expect(mockHub.graphileWorker.enqueue).toHaveBeenNthCalledWith(6, 'pluginScheduledTask', {
-            pluginConfigId: 6,
-            task: 'runEveryHour',
-            timestamp: expect.any(Number),
-        })
+        expect(mockPiscina.run).toHaveBeenNthCalledWith(1, { args: { pluginConfigId: 1 }, task: 'runEveryMinute' })
+        expect(mockPiscina.run).toHaveBeenNthCalledWith(2, { args: { pluginConfigId: 2 }, task: 'runEveryMinute' })
+        expect(mockPiscina.run).toHaveBeenNthCalledWith(3, { args: { pluginConfigId: 3 }, task: 'runEveryMinute' })
 
-        await runScheduledTasks(mockHubWithPluginSchedule, 'runEveryDay')
-        expect(mockHub.graphileWorker.enqueue).toHaveBeenNthCalledWith(7, 'pluginScheduledTask', {
-            pluginConfigId: 7,
-            task: 'runEveryDay',
-            timestamp: expect.any(Number),
-        })
-        expect(mockHub.graphileWorker.enqueue).toHaveBeenNthCalledWith(8, 'pluginScheduledTask', {
-            pluginConfigId: 8,
-            task: 'runEveryDay',
-            timestamp: expect.any(Number),
-        })
-        expect(mockHub.graphileWorker.enqueue).toHaveBeenNthCalledWith(9, 'pluginScheduledTask', {
-            pluginConfigId: 9,
-            task: 'runEveryDay',
-            timestamp: expect.any(Number),
-        })
+        await runScheduledTasks(mockHubWithPluginSchedule, mockPiscina as any, 'runEveryHour')
+        expect(mockPiscina.run).toHaveBeenNthCalledWith(4, { args: { pluginConfigId: 4 }, task: 'runEveryHour' })
+        expect(mockPiscina.run).toHaveBeenNthCalledWith(5, { args: { pluginConfigId: 5 }, task: 'runEveryHour' })
+        expect(mockPiscina.run).toHaveBeenNthCalledWith(6, { args: { pluginConfigId: 6 }, task: 'runEveryHour' })
+
+        await runScheduledTasks(mockHubWithPluginSchedule, mockPiscina as any, 'runEveryDay')
+        expect(mockPiscina.run).toHaveBeenNthCalledWith(7, { args: { pluginConfigId: 7 }, task: 'runEveryDay' })
+        expect(mockPiscina.run).toHaveBeenNthCalledWith(8, { args: { pluginConfigId: 8 }, task: 'runEveryDay' })
+        expect(mockPiscina.run).toHaveBeenNthCalledWith(9, { args: { pluginConfigId: 9 }, task: 'runEveryDay' })
     })
 })

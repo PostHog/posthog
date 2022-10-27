@@ -217,13 +217,7 @@ export interface PluginServerCapabilities {
     http?: boolean
 }
 
-export type PluginScheduledTask = 'runEveryMinute' | 'runEveryHour' | 'runEveryDay'
-
-export type EnqueuedJob =
-    | EnqueuedPluginJob
-    | EnqueuedBufferJob
-    | GraphileWorkerCronScheduleJob
-    | EnqueuedScheduledTaskJob
+export type EnqueuedJob = EnqueuedPluginJob | EnqueuedBufferJob | GraphileWorkerCronScheduleJob
 export interface EnqueuedPluginJob {
     type: string
     payload: Record<string, any>
@@ -240,13 +234,6 @@ export interface EnqueuedBufferJob {
 }
 
 export interface GraphileWorkerCronScheduleJob {
-    timestamp?: number
-    jobKey?: string
-}
-
-export interface EnqueuedScheduledTaskJob {
-    task: PluginScheduledTask
-    pluginConfigId: number
     timestamp?: number
     jobKey?: string
 }

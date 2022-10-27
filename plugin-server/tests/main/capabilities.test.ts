@@ -110,7 +110,6 @@ describe('capabilities', () => {
                     runEveryMinute: expect.anything(),
                     runEveryHour: expect.anything(),
                     runEveryDay: expect.anything(),
-                    pluginScheduledTask: expect.anything(),
                 },
                 [
                     {
