@@ -302,7 +302,7 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
 def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> List[Tuple[int, str, int]]:
     results = sync_execute(
         """
-        SELECT team_id, JSONExtractString(properties, '$lib') as lib, COUNT(1) as freq
+        SELECT team_id, JSONExtractString(properties, '$lib') as lib, COUNT(1) as count
         FROM events
         WHERE timestamp between %(begin)s AND %(end)s
         GROUP BY lib, team_id
@@ -315,7 +315,7 @@ def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> List[Tu
 def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[Tuple[int, str, int]]:
     results = sync_execute(
         """
-        SELECT team_id, event, COUNT(1) as freq
+        SELECT team_id, event, COUNT(1) as count
         FROM events
         WHERE timestamp between %(begin)s AND %(end)s
         GROUP BY event, team_id
@@ -351,7 +351,10 @@ def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
 
 def find_count_for_team_in_rows(team_id: int, rows: list) -> int:
     for row in rows:
-        if row[0] == team_id:
+        if "team_id" in row:
+            if row["team_id"] == team_id:
+                return row["total"]
+        elif row[0] == team_id:
             return row[1]
     return 0
 

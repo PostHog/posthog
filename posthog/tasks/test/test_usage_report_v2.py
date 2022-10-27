@@ -98,6 +98,36 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                     team=self.org_1_team_1,
                 )
 
+            # Some groups
+            GroupTypeMapping.objects.create(team=self.org_1_team_1, group_type="organization", group_type_index=0)
+            GroupTypeMapping.objects.create(team=self.org_1_team_1, group_type="company", group_type_index=1)
+            create_group(
+                team_id=self.org_1_team_1.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"}
+            )
+            create_group(
+                team_id=self.org_1_team_1.pk,
+                group_type_index=0,
+                group_key="org:6",
+                properties={"industry": "technology"},
+            )
+
+            _create_event(
+                event="event",
+                lib="web",
+                distinct_id=distinct_id,
+                team=self.team,
+                timestamp=now() - relativedelta(hours=12),
+                properties={"$group_0": "org:5"},
+            )
+            _create_event(
+                event="event",
+                lib="web",
+                distinct_id=distinct_id,
+                team=self.team,
+                timestamp=now() - relativedelta(hours=12),
+                properties={"$group_0": "org:6"},
+            )
+
             # Events for org 1 team 2
             distinct_id = str(uuid4())
             _create_person(distinct_ids=[distinct_id], team=self.org_1_team_2)
@@ -110,6 +140,28 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                     timestamp=now() - relativedelta(hours=12),
                     team=self.org_1_team_2,
                 )
+
+            # recordings in period  - 5 sessions with 5 snapshots each
+            for i in range(0, 5):
+                for j in range(0, 5):
+                    create_snapshot(
+                        has_full_snapshot=True,
+                        distinct_id=distinct_id,
+                        session_id=i,
+                        timestamp=now() - relativedelta(hours=12),
+                        team_id=self.org_1_team_2.id,
+                    )
+
+            # recordings out of period  - 5 sessions with 5 snapshots each
+            for i in range(0, 10):
+                for j in range(0, 5):
+                    create_snapshot(
+                        has_full_snapshot=True,
+                        distinct_id=distinct_id,
+                        session_id=i + 10,
+                        timestamp=now() - relativedelta(hours=48),
+                        team_id=self.org_1_team_2.id,
+                    )
 
             # Events for org 2 team 3
             distinct_id = str(uuid4())
@@ -138,6 +190,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
 
         with self.settings(SITE_URL="http://test.posthog.com"):
             self._create_sample_usage_data()
+            self._create_plugin("Installed but not enabled", False)
+            self._create_plugin("Installed and enabled", True)
             all_reports = send_all_org_usage_reports(dry_run=True)
 
             report = all_reports[0]
@@ -165,15 +219,15 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                     "users_who_signed_up": [],
                     "users_who_signed_up_count": 0,
                     "table_sizes": all_reports[0]["table_sizes"],
-                    "plugins_installed": {},
-                    "plugins_enabled": {},
-                    "event_count_lifetime": 40,
-                    "event_count_in_period": 20,
-                    "event_count_in_month": 30,
-                    "event_count_with_groups_in_period": 0,
-                    "recording_count_in_period": 0,
-                    "recording_count_total": 0,
-                    "group_types_total": 0,
+                    "plugins_installed": {"Installed and enabled": 1, "Installed but not enabled": 1},
+                    "plugins_enabled": {"Installed and enabled": 1},
+                    "event_count_lifetime": 42,
+                    "event_count_in_period": 22,
+                    "event_count_in_month": 32,
+                    "event_count_with_groups_in_period": 2,
+                    "recording_count_in_period": 5,
+                    "recording_count_total": 15,
+                    "group_types_total": 2,
                     "dashboard_count": 0,
                     "dashboard_template_count": 0,
                     "dashboard_shared_count": 0,
@@ -188,13 +242,13 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                     "team_count": 1,
                     "teams": {
                         self.org_1_team_1.id: {
-                            "event_count_lifetime": 20,
-                            "event_count_in_period": 10,
-                            "event_count_in_month": 30,
-                            "event_count_with_groups_in_period": 0,
+                            "event_count_lifetime": 32,
+                            "event_count_in_period": 12,
+                            "event_count_in_month": 22,
+                            "event_count_with_groups_in_period": 2,
                             "recording_count_in_period": 0,
                             "recording_count_total": 0,
-                            "group_types_total": 0,
+                            "group_types_total": 2,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
                             "dashboard_shared_count": 0,
@@ -207,8 +261,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                             "event_count_in_period": 10,
                             "event_count_in_month": 10,
                             "event_count_with_groups_in_period": 0,
-                            "recording_count_in_period": 0,
-                            "recording_count_total": 0,
+                            "recording_count_in_period": 5,
+                            "recording_count_total": 15,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
@@ -236,8 +290,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                     "users_who_signed_up": [],
                     "users_who_signed_up_count": 0,
                     "table_sizes": all_reports[1]["table_sizes"],
-                    "plugins_installed": {},
-                    "plugins_enabled": {},
+                    "plugins_installed": {"Installed and enabled": 1, "Installed but not enabled": 1},
+                    "plugins_enabled": {"Installed and enabled": 1},
                     "event_count_lifetime": 10,
                     "event_count_in_period": 10,
                     "event_count_in_month": 10,
@@ -279,114 +333,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
 
             assert expectation == all_reports
 
-
-#     def test_groups_usage(self) -> None:
-#         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-#         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
-#         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
-#         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
-
-#         with freeze_time("2021-11-11 00:30:00"):
-#             _create_event(
-#                 event="event",
-#                 lib="web",
-#                 distinct_id="user_1",
-#                 team=self.team,
-#                 timestamp="2021-11-10 02:00:00",
-#                 properties={"$group_0": "org:5"},
-#             )
-#             _create_event(
-#                 event="event",
-#                 lib="web",
-#                 distinct_id="user_1",
-#                 team=self.team,
-#                 timestamp="2021-11-10 05:00:00",
-#                 properties={"$group_0": "org:6"},
-#             )
-
-#             _create_event(
-#                 event="event", lib="web", distinct_id="user_7", team=self.team, timestamp="2021-11-10 10:00:00"
-#             )
-
-#             all_reports = send_all_org_usage_reports(dry_run=True)
-#             org_report = self._select_report_by_org_id(str(self.organization.id), all_reports)
-
-#             team_id = list(org_report["teams"].keys())[0]
-#             self.assertEqual(org_report["teams"][team_id]["group_types_total"], 2)
-#             self.assertEqual(org_report["event_count_in_period"], 3)
-#             self.assertEqual(org_report["event_count_with_groups_in_period"], 2)
-
-#     def test_recording_usage(self) -> None:
-#         default_team = self._create_new_org_and_team()
-#         with freeze_time("2021-11-11 00:30:00"):
-
-#             create_snapshot(
-#                 has_full_snapshot=False,
-#                 distinct_id="user",
-#                 session_id="1",
-#                 timestamp=now() - relativedelta(days=0, hours=2),
-#                 team_id=default_team.id,
-#             )
-#             create_snapshot(
-#                 has_full_snapshot=False,
-#                 distinct_id="user",
-#                 session_id="1",
-#                 timestamp=now() - relativedelta(days=0, hours=2),
-#                 team_id=default_team.id,
-#             )
-#             create_snapshot(
-#                 has_full_snapshot=False,
-#                 distinct_id="user2",
-#                 session_id="2",
-#                 timestamp=now() - relativedelta(days=0, hours=2),
-#                 team_id=default_team.id,
-#             )
-#             create_snapshot(
-#                 has_full_snapshot=False,
-#                 distinct_id="user",
-#                 session_id="1",
-#                 timestamp=now() - relativedelta(days=0, hours=2),
-#                 team_id=default_team.id,
-#             )
-#             all_reports = send_all_org_usage_reports(dry_run=True)
-#             org_report = self._select_report_by_org_id(str(default_team.organization.id), all_reports)
-
-#             self.assertEqual(org_report["recording_count_in_period"], 2)
-
-#             create_snapshot(
-#                 has_full_snapshot=False,
-#                 distinct_id="user2",
-#                 session_id="3",
-#                 timestamp=now(),
-#                 team_id=default_team.id,
-#             )
-#             create_snapshot(
-#                 has_full_snapshot=False,
-#                 distinct_id="user",
-#                 session_id="4",
-#                 timestamp=now(),
-#                 team_id=default_team.id,
-#             )
-#             # Check recording usage in current period is unchanged
-#             updated_org_reports = send_all_org_usage_reports(dry_run=True)
-#             updated_org_report = self._select_report_by_org_id(str(default_team.organization.id), updated_org_reports)
-
-#             self.assertEqual(
-#                 updated_org_report["recording_count_in_period"],
-#                 org_report["recording_count_in_period"],
-#             )
-
-#     def test_status_report_plugins(self) -> None:
-#         self._create_plugin("Installed but not enabled", False)
-#         self._create_plugin("Installed and enabled", True)
-#         all_reports = send_all_org_usage_reports(dry_run=True)
-#         org_report = self._select_report_by_org_id(str(self.organization.id), all_reports)
-
-#         self.assertEqual(
-#             org_report["plugins_installed"],
-#             {"Installed but not enabled": 1, "Installed and enabled": 1},
-#         )
-#         self.assertEqual(org_report["plugins_enabled"], {"Installed and enabled": 1})
 
 #     def test_status_report_duplicate_distinct_ids(self) -> None:
 #         create_person_distinct_id(self.team.id, "duplicate_id1", str(UUIDT()))
