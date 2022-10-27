@@ -299,11 +299,24 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
         return response.Response({"success": True}, status=201)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("key", OpenApiTypes.STR, description="Specify the property key", required=True),
+            OpenApiParameter("value", OpenApiTypes.ANY, description="Specify the property value", required=True),
+        ]
+    )
     @action(methods=["POST"], detail=True)
     def update_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         self._set_properties({request.data["key"]: request.data["value"]}, request.user)
         return Response(status=204)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "$unset", OpenApiTypes.STR, description="Specify the property key to delete", required=True
+            ),
+        ]
+    )
     @action(methods=["POST"], detail=True)
     def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
