@@ -162,6 +162,8 @@ def get_persons_by_uuids(team: Team, uuids: List[str]) -> QuerySet:
 
 
 def delete_person(person: Person) -> None:
+    # This is racy https://github.com/PostHog/posthog/issues/11590
+    distinct_ids_to_version = person.get_distinct_ids_with_version()
     create_person(
         uuid=str(person.uuid),
         team_id=person.team.id,
@@ -171,15 +173,16 @@ def delete_person(person: Person) -> None:
         version=int(person.version or 0) + 100,  # keep in sync with deletePerson in plugin-server/src/utils/db/db.ts
         is_deleted=True,
     )
+    _delete_ch_distinct_ids(person=person, distinct_ids_to_version=distinct_ids_to_version)
 
 
-def delete_ch_distinct_ids(person: Person):
-    for distinct_id in person.distinct_ids:
+def _delete_ch_distinct_ids(person: Person, distinct_ids_to_version: Dict[str, int]):
+    for distinct_id, version in distinct_ids_to_version.items():
         create_person_distinct_id(
             team_id=person.team_id,
             distinct_id=distinct_id,
             person_id=str(person.uuid),
-            version=0,  # this is incorrect, see https://github.com/PostHog/posthog/issues/11590
+            version=version + 100,
             is_deleted=True,
         )
 

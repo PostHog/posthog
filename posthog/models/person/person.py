@@ -1,4 +1,4 @@
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from django.db import models, transaction
 
@@ -31,6 +31,14 @@ class Person(models.Model):
             .order_by("id")
             .values_list("distinct_id")
         ]
+
+    def get_distinct_ids_with_version(self) -> Dict[str, int]:
+        return {
+            obj[0]: int(obj[1] or 0)
+            for obj in PersonDistinctId.objects.filter(person=self, team_id=self.team_id)
+            .order_by("id")
+            .values_list("distinct_id", "version")
+        }
 
     # :DEPRECATED: This should happen through the plugin server
     def add_distinct_id(self, distinct_id: str) -> None:
