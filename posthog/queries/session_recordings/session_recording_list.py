@@ -400,7 +400,7 @@ class SessionRecordingList(EventQuery):
                             dict(zip(["timestamp", "uuid", "session_id", "window_id"], event)) for event in row[i + 1]
                         ]
                     }
-                    for i in range(len(default_columns) + 1, len(row), 2)
+                    for i in range(len(default_columns), len(row), 2)
                 ],
             }
             for row in results
