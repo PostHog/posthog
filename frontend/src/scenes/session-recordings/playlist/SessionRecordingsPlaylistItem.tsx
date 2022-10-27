@@ -40,22 +40,28 @@ export function SessionRecordingPlaylistItem({
 
     const propertyIcons = (
         <div className="flex flex-row flex-nowrap shrink-0 gap-1">
-            {iconPropertyKeys.map((property) => (
-                <PropertyIcon
-                    key={property}
-                    onClick={onPropertyClick}
-                    className={iconClassnames}
-                    property={property}
-                    value={iconProperties?.[property]}
-                    tooltipTitle={(_, value) => (
-                        <div className="text-center">
-                            Click to filter for
-                            <br />
-                            <span className="font-medium">{value ?? 'N/A'}</span>
-                        </div>
-                    )}
-                />
-            ))}
+            {iconPropertyKeys.map((property) => {
+                const value =
+                    property === '$device_type'
+                        ? iconProperties?.['$device_type'] || iconProperties?.['$initial_device_type']
+                        : iconProperties?.[property]
+                return (
+                    <PropertyIcon
+                        key={property}
+                        onClick={onPropertyClick}
+                        className={iconClassnames}
+                        property={property}
+                        value={value}
+                        tooltipTitle={(_, value) => (
+                            <div className="text-center">
+                                Click to filter for
+                                <br />
+                                <span className="font-medium">{value ?? 'N/A'}</span>
+                            </div>
+                        )}
+                    />
+                )
+            })}
         </div>
     )
 
