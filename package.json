@@ -66,7 +66,7 @@
         "@types/react-textfit": "^1.1.0",
         "@types/react-transition-group": "^4.4.4",
         "@types/react-virtualized": "^9.21.14",
-        "antd": "4.23.4",
+        "antd": "^4.23.1",
         "antd-dayjs-webpack-plugin": "^1.0.6",
         "babel-preset-nano-react-app": "^0.1.0",
         "chart.js": "^3.9.1",
