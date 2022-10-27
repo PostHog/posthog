@@ -109,7 +109,7 @@ export function getScheduledTaskHandlers(hub: Hub, piscina: Piscina): TaskList {
             const task = (job as EnqueuedScheduledTaskJob).task
             const pluginConfigId = (job as EnqueuedScheduledTaskJob).pluginConfigId
 
-            status.info('⏲️', `Running plugin task`, {task, pluginConfigId})
+            status.info('⏲️', 'Running plugin task', { task, pluginConfigId })
 
             await piscina.run({
                 task,

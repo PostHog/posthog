@@ -32,13 +32,13 @@ export async function loadPluginSchedule(piscina: Piscina, maxIterations = 2000)
 // Triggered by a Graphile Worker cron task
 // Enqueue a job per <task,pluginConfigId> combination
 // This allows us to spread the load of processing plugin scheduled tasks across the fleet
-export async function runScheduledTasks(server: Hub, taskType: PluginScheduledTask): Promise<void> {
-    for (const pluginConfigId of server.pluginSchedule?.[taskType] || []) {
-        status.info('⬆️', `Scheduling ${taskType} for plugin config with ID ${pluginConfigId}`)
+export async function runScheduledTasks(server: Hub, task: PluginScheduledTask): Promise<void> {
+    for (const pluginConfigId of server.pluginSchedule?.[task] || []) {
+        status.info('⬆️', 'Scheduling task', { task, pluginConfigId })
 
         await server.graphileWorker.enqueue('pluginScheduledTask', {
             pluginConfigId,
-            task: taskType,
+            task: task,
             timestamp: Date.now(),
         })
     }
