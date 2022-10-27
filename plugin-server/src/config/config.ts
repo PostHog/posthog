@@ -102,6 +102,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         HISTORICAL_EXPORTS_MAX_RETRY_COUNT: 15,
         HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: 10 * 60 * 1000,
         HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: 1.5,
+        APP_METRICS_GATHERED_FOR_ALL: false,
     }
 }
 
@@ -183,6 +184,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
             'the top level folder for storing session recordings inside the storage bucket',
         OBJECT_STORAGE_BUCKET: 'the object storage bucket name',
         HISTORICAL_EXPORTS_ENABLED: 'enables historical exports for export apps',
+        APP_METRICS_GATHERED_FOR_ALL: 'whether to gather app metrics for all teams',
     }
 }
 
