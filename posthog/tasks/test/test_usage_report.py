@@ -1,25 +1,23 @@
-from typing import Any, Dict, List
-from unittest.mock import ANY, MagicMock, Mock, patch
+from datetime import datetime, timedelta
+from typing import Dict, List
+from unittest.mock import ANY, MagicMock, Mock, call, patch
 from uuid import uuid4
-
 import pytest
+
 import structlog
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
-
 from ee.api.billing import build_billing_token
+
 from ee.api.test.base import LicensedTestMixin
 from ee.models.license import License
 from ee.settings import BILLING_SERVICE_URL
-from posthog.client import sync_execute
-from posthog.models import Organization, Plugin, Team, User
+
+from posthog.models import Organization, Plugin, Team
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.organization import OrganizationMembership
-from posthog.models.person.util import create_person_distinct_id
 from posthog.models.plugin import PluginConfig
-from posthog.models.utils import UUIDT
 from posthog.session_recordings.test.test_factory import create_snapshot
 from posthog.tasks.usage_report import send_all_org_usage_reports
 from posthog.test.base import (
@@ -36,7 +34,12 @@ logger = structlog.get_logger(__name__)
 
 
 @freeze_time("2022-01-10T00:01:00Z")
-class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
+class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+    def setUp(self) -> None:
+        super().setUp()
+
+        self.expected_properties: dict = {}
+
     def _create_sample_usage_data(self) -> None:
         """
         For this test, we create a lot of data around the current date 2022-01-01
@@ -185,14 +188,14 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
         plugin = Plugin.objects.create(organization_id=self.team.organization.pk, name=name)
         PluginConfig.objects.create(plugin=plugin, enabled=enabled, order=1)
 
-    @patch("os.environ", {"DEPLOYMENT": "tests"})
-    def test_usage_report(self) -> None:
+    def _test_usage_report(self) -> List[dict]:
 
         with self.settings(SITE_URL="http://test.posthog.com"):
             self._create_sample_usage_data()
             self._create_plugin("Installed but not enabled", False)
             self._create_plugin("Installed and enabled", True)
-            all_reports = send_all_org_usage_reports(dry_run=True)
+
+            all_reports = send_all_org_usage_reports(dry_run=False)
 
             report = all_reports[0]
             assert report["table_sizes"]
@@ -331,211 +334,165 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                 },
             ]
 
-            assert expectation == all_reports
+            for item in expectation:
+                item.update(**self.expected_properties)
+
+            # tricky: list could be in different order
+            assert len(all_reports) == 2
+            assert expectation[0] in all_reports
+            assert expectation[1] in all_reports
+
+            return all_reports
+
+    @patch("os.environ", {"DEPLOYMENT": "tests"})
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("requests.post")
+    def test_unlicensed_usage_report(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
+        self.expected_properties = {}
+        mockresponse = Mock()
+        mock_post.return_value = mockresponse
+        mockresponse.status_code = 200
+        mockresponse.json = lambda: {"ok": True}
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
+
+        all_reports = self._test_usage_report()
+
+        # Check calls to other services
+        mock_post.assert_not_called()
+
+        calls = [
+            call(
+                get_machine_id(),
+                "organization usage report",
+                {**all_reports[0], "scope": "machine"},
+                groups={"instance": ANY},
+                timestamp=None,
+            ),
+            call(
+                get_machine_id(),
+                "organization usage report",
+                {**all_reports[1], "scope": "machine"},
+                groups={"instance": ANY},
+                timestamp=None,
+            ),
+        ]
+
+        mock_posthog.capture.assert_has_calls(calls, any_order=True)
 
 
-#     def test_status_report_duplicate_distinct_ids(self) -> None:
-#         create_person_distinct_id(self.team.id, "duplicate_id1", str(UUIDT()))
-#         create_person_distinct_id(self.team.id, "duplicate_id1", str(UUIDT()))
-#         create_person_distinct_id(self.team.id, "duplicate_id2", str(UUIDT()))
-#         create_person_distinct_id(self.team.id, "duplicate_id2", str(UUIDT()))
-#         create_person_distinct_id(self.team.id, "duplicate_id2", str(UUIDT()))
+class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
 
-#         for index in range(0, 2):
-#             sync_execute(
-#                 "INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, 1, %(timestamp)s, 0 VALUES",
-#                 {
-#                     "distinct_id": "duplicate_id_old",
-#                     "person_id": str(UUIDT()),
-#                     "team_id": self.team.id,
-#                     "timestamp": "2020-01-01 12:01:0%s" % index,
-#                 },
-#             )
+        self.team2 = Team.objects.create(organization=self.organization)
 
-#         all_reports = send_all_org_usage_reports(dry_run=True)
-#         report = all_reports[0]
-#         team_id = list(report["teams"].keys())[0]
-#         team_report = report["teams"][team_id]
+        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
+        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")
+        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T13:01:01Z")
+        _create_event(
+            event="$$internal_metrics_shouldnt_be_billed",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-09T13:01:01Z",
+        )
+        _create_event(event="$pageview", team=self.team2, distinct_id=1, timestamp="2021-10-09T14:01:01Z")
+        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
+        flush_persons_and_events()
 
-#         duplicate_ids_report = team_report["duplicate_distinct_ids"]
+    @freeze_time("2021-10-10T23:01:00Z")
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("requests.post")
+    def test_send_usage(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
+        mockresponse = Mock()
+        mock_post.return_value = mockresponse
+        mockresponse.status_code = 200
+        mockresponse.json = lambda: {"ok": True}
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
 
-#         expected_result = {
-#             "prev_total_ids_with_duplicates": 1,
-#             "prev_total_extra_distinct_id_rows": 1,
-#             "new_total_ids_with_duplicates": 2,
-#             "new_total_extra_distinct_id_rows": 4,
-#         }
+        all_reports = send_all_org_usage_reports(dry_run=False)
+        license = License.objects.first()
+        assert license
+        token = build_billing_token(license, self.organization)
+        mock_post.assert_called_once_with(
+            f"{BILLING_SERVICE_URL}/api/usage", json=all_reports[0], headers={"Authorization": f"Bearer {token}"}
+        )
 
-#         self.assertEqual(duplicate_ids_report, expected_result)
+        mock_posthog.capture.assert_any_call(
+            get_machine_id(),
+            "organization usage report",
+            {**all_reports[0], "scope": "machine"},
+            groups={"instance": ANY},
+            timestamp=None,
+        )
 
-#     # CH only
-#     def test_status_report_multiple_ids_per_person(self) -> None:
-#         person_id1 = str(UUIDT())
-#         person_id2 = str(UUIDT())
+    @freeze_time("2021-10-10T23:01:00Z")
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("requests.post")
+    def test_send_usage_cloud(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
+        with self.is_cloud(True):
+            mockresponse = Mock()
+            mock_post.return_value = mockresponse
+            mockresponse.status_code = 200
+            mockresponse.json = lambda: {"ok": True}
+            mock_posthog = MagicMock()
+            mock_client.return_value = mock_posthog
 
-#         create_person_distinct_id(self.team.id, "id1", person_id1)
-#         create_person_distinct_id(self.team.id, "id2", person_id1)
-#         create_person_distinct_id(self.team.id, "id3", person_id1)
-#         create_person_distinct_id(self.team.id, "id4", person_id1)
-#         create_person_distinct_id(self.team.id, "id5", person_id1)
+            all_reports = send_all_org_usage_reports(dry_run=False)
+            license = License.objects.first()
+            assert license
+            token = build_billing_token(license, self.organization)
+            mock_post.assert_called_once_with(
+                f"{BILLING_SERVICE_URL}/api/usage", json=all_reports[0], headers={"Authorization": f"Bearer {token}"}
+            )
 
-#         create_person_distinct_id(self.team.id, "id6", person_id2)
-#         create_person_distinct_id(self.team.id, "id7", person_id2)
-#         create_person_distinct_id(self.team.id, "id8", person_id2)
+            mock_posthog.capture.assert_any_call(
+                self.user.distinct_id,
+                "organization usage report",
+                {**all_reports[0], "scope": "user"},
+                groups={"instance": "http://localhost:8000", "organization": str(self.organization.id)},
+                timestamp=None,
+            )
 
-#         all_reports = send_all_org_usage_reports(dry_run=True)
-#         report = all_reports[0]
-#         team_id = list(report["teams"].keys())[0]
-#         team_report = report["teams"][team_id]
+    @freeze_time("2021-10-10T23:01:00Z")
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("requests.post")
+    def test_send_usage_billing_service_not_reachable(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
+        mockresponse = Mock()
+        mock_post.return_value = mockresponse
+        mockresponse.status_code = 404
+        mockresponse.ok = False
+        mockresponse.json = lambda: {"code": "not_found"}
+        mockresponse.content = ""
 
-#         multiple_ids_report = team_report["multiple_ids_per_person"]
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
 
-#         expected_result = {"total_persons_with_more_than_2_ids": 2, "max_distinct_ids_for_one_person": 5}
-
-#         self.assertEqual(multiple_ids_report, expected_result)
-
-
-# class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
-#     def setUp(self) -> None:
-#         super().setUp()
-
-#         self.team2 = Team.objects.create(organization=self.organization)
-
-#         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
-#         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")
-#         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T13:01:01Z")
-#         _create_event(
-#             event="$$internal_metrics_shouldnt_be_billed",
-#             team=self.team,
-#             distinct_id=1,
-#             timestamp="2021-10-09T13:01:01Z",
-#         )
-#         _create_event(event="$pageview", team=self.team2, distinct_id=1, timestamp="2021-10-09T14:01:01Z")
-#         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
-#         flush_persons_and_events()
-
-#     @freeze_time("2021-10-10T23:01:00Z")
-#     @patch("posthog.tasks.usage_report.Client")
-#     @patch("requests.post")
-#     def test_send_usage(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
-#         mockresponse = Mock()
-#         mock_post.return_value = mockresponse
-#         mockresponse.status_code = 200
-#         mockresponse.json = lambda: {"ok": True}
-#         mock_posthog = MagicMock()
-#         mock_client.return_value = mock_posthog
-
-#         all_reports = send_all_org_usage_reports(dry_run=False)
-#         license = License.objects.first()
-#         assert license
-#         token = build_billing_token(license, self.organization)
-#         mock_post.assert_called_once_with(
-#             f"{BILLING_SERVICE_URL}/api/usage", json=all_reports[0], headers={"Authorization": f"Bearer {token}"}
-#         )
-
-#         mock_posthog.capture.assert_any_call(
-#             get_machine_id(),
-#             "organization usage report",
-#             {**all_reports[0], "scope": "machine"},
-#             groups={"instance": ANY},
-#             timestamp=None,
-#         )
-
-#     @freeze_time("2021-10-10T23:01:00Z")
-#     @patch("posthog.tasks.usage_report.Client")
-#     @patch("requests.post")
-#     def test_send_usage_cloud(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
-#         with self.is_cloud(True):
-#             mockresponse = Mock()
-#             mock_post.return_value = mockresponse
-#             mockresponse.status_code = 200
-#             mockresponse.json = lambda: {"ok": True}
-#             mock_posthog = MagicMock()
-#             mock_client.return_value = mock_posthog
-
-#             all_reports = send_all_org_usage_reports(dry_run=False)
-#             license = License.objects.first()
-#             assert license
-#             token = build_billing_token(license, self.organization)
-#             mock_post.assert_called_once_with(
-#                 f"{BILLING_SERVICE_URL}/api/usage", json=all_reports[0], headers={"Authorization": f"Bearer {token}"}
-#             )
-
-#             mock_posthog.capture.assert_any_call(
-#                 self.user.distinct_id,
-#                 "organization usage report",
-#                 {**all_reports[0], "scope": "user"},
-#                 groups={"instance": "http://localhost:8000", "organization": str(self.organization.id)},
-#                 timestamp=None,
-#             )
-
-#     @freeze_time("2021-10-10T23:01:00Z")
-#     @patch("posthog.tasks.usage_report.Client")
-#     @patch("requests.post")
-#     def test_send_usage_billing_service_not_reachable(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
-#         mockresponse = Mock()
-#         mock_post.return_value = mockresponse
-#         mockresponse.status_code = 404
-#         mockresponse.ok = False
-#         mockresponse.json = lambda: {"code": "not_found"}
-#         mockresponse.content = ""
-
-#         mock_posthog = MagicMock()
-#         mock_client.return_value = mock_posthog
-
-#         send_all_org_usage_reports(dry_run=False)
-#         mock_posthog.capture.assert_any_call(
-#             get_machine_id(),
-#             "billing service usage report failure",
-#             {"code": 404, "scope": "machine"},
-#             groups={"instance": ANY},
-#             timestamp=None,
-#         )
-
-#     @freeze_time("2021-10-10T23:01:00Z")
-#     @patch("posthog.tasks.usage_report.get_org_usage_report")
-#     @patch("posthog.tasks.usage_report.Client")
-#     @patch("requests.post")
-#     def test_send_usage_backup(
-#         self, mock_post: MagicMock, mock_client: MagicMock, mock_get_org_usage_report: MagicMock
-#     ) -> None:
-#         mockresponse = Mock()
-#         mock_post.return_value = mockresponse
-#         mockresponse.status_code = 200
-#         mockresponse.json = lambda: {"ok": True}
-#         mock_get_org_usage_report.side_effect = Exception("something went wrong")
-
-#         with pytest.raises(Exception):
-#             send_all_org_usage_reports(dry_run=False)
-#         license = License.objects.first()
-#         assert license
-#         token = build_billing_token(license, self.organization)
-#         mock_post.assert_called_once_with(
-#             f"{BILLING_SERVICE_URL}/api/usage",
-#             json={
-#                 "organization_id": str(self.organization.id),
-#                 "date": "2021-10-09",
-#                 "event_count_in_period": 4,
-#                 "recording_count_in_period": 0,
-#             },
-#             headers={"Authorization": f"Bearer {token}"},
-#         )
+        send_all_org_usage_reports(dry_run=False)
+        mock_posthog.capture.assert_any_call(
+            get_machine_id(),
+            "billing service usage report failure",
+            {"code": 404, "scope": "machine"},
+            groups={"instance": ANY},
+            timestamp=None,
+        )
 
 
-# class SendUsageNoLicenseTest(APIBaseTest):
-#     @freeze_time("2021-10-10T23:01:00Z")
-#     @patch("posthog.tasks.usage_report.Client")
-#     @patch("requests.post")
-#     def test_no_license(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
-#         # Same test, we just don't include the LicensedTestMixin so no license
-#         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
-#         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")
-#         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T13:01:01Z")
-#         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T14:01:01Z")
-#         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
+class SendUsageNoLicenseTest(APIBaseTest):
+    @freeze_time("2021-10-10T23:01:00Z")
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("requests.post")
+    def test_no_license(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
+        # Same test, we just don't include the LicensedTestMixin so no license
+        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
+        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")
+        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T13:01:01Z")
+        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T14:01:01Z")
+        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
 
-#         flush_persons_and_events()
+        flush_persons_and_events()
 
-#         all_reports = send_all_org_usage_reports()
+        send_all_org_usage_reports()
 
-#         mock_post.assert_called_once_with(f"{BILLING_SERVICE_URL}/api/usage", json=all_reports[0], headers={})
+        mock_post.assert_not_called()

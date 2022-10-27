@@ -226,6 +226,9 @@ def send_report_to_billing_service(organization: Organization, report: Dict) -> 
     license = License.objects.first_valid()
     token = build_billing_token(license, organization) if license else None
 
+    if not license:
+        return None
+
     headers = {}
     if token:
         headers = {"Authorization": f"Bearer {token}"}
@@ -359,7 +362,7 @@ def find_count_for_team_in_rows(team_id: int, rows: list) -> int:
     return 0
 
 
-@app.task(ignore_result=True)
+@app.task(ignore_result=True, retries=3)
 def send_all_org_usage_reports(dry_run: bool = False, at: Optional[str] = None) -> List[dict]:  # Dict[str, OrgReport]:
     at_date = dateutil.parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
@@ -476,20 +479,19 @@ def send_all_org_usage_reports(dry_run: bool = False, at: Optional[str] = None) 
         full_report_dict = dataclasses.asdict(full_report)
         all_reports.append(full_report_dict)
 
-        if not dry_run:
+        if dry_run:
             continue
 
         try:
-            send_report_to_billing_service(orgs_by_id[team.organization.id], full_report_dict)
             capture_event(
                 "organization usage report", str(org_report.organization_id), full_report_dict, timestamp=at_date
             )
+            send_report_to_billing_service(orgs_by_id[team.organization.id], full_report_dict)
             logger.info("Usage report for organization %s sent!", org_report.organization_id)
 
         except Exception as err:
-            # logger.error("Usage report for organization %s failed!", org_report.organization_id)
-            # capture_exception(err)
-            # capture_event("organization usage report failure", str(org_report.organization_id), {"error": str(err)})
-            raise err
+            logger.info("Usage report for organization %s failed!", org_report.organization_id)
+            capture_exception(err)
+            capture_event("organization usage report failure", str(org_report.organization_id), {"error": str(err)})
 
     return all_reports
