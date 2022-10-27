@@ -250,7 +250,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                     "detail": {
                         "changes": None,
                         "trigger": None,
-                        "name": str(person.pk),
+                        "name": str(person.uuid),
                         "short_id": None,
                     },
                     "created_at": "2021-08-25T22:09:14.252000Z",
@@ -330,7 +330,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                                 "after": {"distinct_ids": ["1", "2", "3"]},
                             }
                         ],
-                        "name": None,
+                        "name": str(person1.uuid),
                         "trigger": None,
                         "short_id": None,
                     },
