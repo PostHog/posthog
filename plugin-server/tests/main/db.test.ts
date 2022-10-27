@@ -693,8 +693,7 @@ describe('DB', () => {
 
                 expect(redisGetSpy).toHaveBeenCalled()
                 expect(fetchGroupSpy).toHaveBeenCalled()
-                expect(db.statsd?.increment).toHaveBeenCalledTimes(2)
-                expect(db.statsd?.increment).toHaveBeenLastCalledWith('groups_data_missing_entirely')
+                expect(db.statsd?.increment).toHaveBeenNthCalledWith(2, 'groups_data_missing_entirely')
             })
         })
 
