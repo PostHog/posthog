@@ -25,10 +25,6 @@ class SessionRecordingQueryResult(NamedTuple):
     has_more_recording: bool
 
 
-class SessionRecordingMetadataQueryResult(NamedTuple):
-    results: List
-
-
 class SessionRecordingList(EventQuery):
     _filter: SessionRecordingsFilter
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
@@ -431,7 +427,7 @@ class SessionRecordingList(EventQuery):
         session_recordings = self._data_to_return(query_results)
         return self._paginate_results(session_recordings)
 
-    def get_metadata(self, *args, **kwargs) -> SessionRecordingMetadataQueryResult:
+    def get_metadata(self, *args, **kwargs) -> List:
         query, query_params = self.get_metadata_query()
         query_results = sync_execute(query, query_params)
         session_recording_metadata = self._data_to_return_metadata(query_results)
