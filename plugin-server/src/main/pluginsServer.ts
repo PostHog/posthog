@@ -91,7 +91,9 @@ export async function startPluginsServer(
     let lastActivityCheck: NodeJS.Timeout | undefined
     let stopEventLoopMetrics: (() => void) | undefined
 
+    let shuttingDown = false
     async function closeJobs(): Promise<void> {
+        shuttingDown = true
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
         cancelAllScheduledJobs()
@@ -167,13 +169,9 @@ export async function startPluginsServer(
         //
         // See https://nodejs.org/api/process.html#event-uncaughtexception for
         // details on the handler.
+        if (shuttingDown) {return}
         status.error('🤮', `uncaught_exception`, { error: error.stack })
-
-        if (error.message === 'nudge called after worker terminated') {
-            // Be specific about the error, otherwise we appear to end up in a
-            // recursive situation.
-            await closeJobs()
-        }
+        await closeJobs()
 
         process.exit(1)
     })
