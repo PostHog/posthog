@@ -31,6 +31,7 @@ TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 
 SESSION_RECORDINGS_FILTER_TYPE_DURATION = "session_recording_duration"
+SESSION_RECORDINGS_FILTER_TYPE_INCLUDE_METADATA_FOR_RECORDINGS = "include_metadata_for_recordings"
 
 TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
 TRENDS_LINEAR = "ActionsLineGraph"

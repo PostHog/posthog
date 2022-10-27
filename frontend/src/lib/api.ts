@@ -26,6 +26,8 @@ import {
     TeamType,
     UserType,
     MediaUploadResponse,
+    SessionRecordingsResponse,
+    SessionRecordingMetaDataType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -227,6 +229,11 @@ class ApiRequest {
 
     public cohortsDetail(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId)
+    }
+
+    // Recordings
+    public recordings(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('session_recordings')
     }
 
     // # Dashboards
@@ -773,6 +780,15 @@ const api = {
         },
         async delete(licenseId: LicenseType['id']): Promise<LicenseType> {
             return await new ApiRequest().license(licenseId).delete()
+        },
+    },
+
+    recordings: {
+        async list(params: string): Promise<SessionRecordingsResponse> {
+            return await new ApiRequest().recordings().withQueryString(params).get()
+        },
+        async listMetadata(params: string): Promise<PaginatedResponse<SessionRecordingMetaDataType>> {
+            return await new ApiRequest().recordings().withAction('metadata').withQueryString(params).get()
         },
     },
 

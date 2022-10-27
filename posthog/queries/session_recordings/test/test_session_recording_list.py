@@ -69,10 +69,6 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(session_recordings[1]["distinct_id"], "user")
             self.assertEqual(more_recordings_available, False)
 
-            # no event means no properties
-            self.assertEqual(session_recordings[0]["properties"], {})
-            self.assertEqual(session_recordings[1]["properties"], {})
-
         @freeze_time("2021-01-21T20:00:00.000Z")
         def test_properties(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})

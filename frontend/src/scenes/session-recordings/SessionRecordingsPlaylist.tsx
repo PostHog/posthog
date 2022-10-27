@@ -30,6 +30,8 @@ interface SessionRecordingsTableProps {
 
 interface SessionRecordingPlaylistItemProps {
     recording: SessionRecordingType
+    recordingProperties?: Record<string, any> // Loaded and rendered later
+    recordingPropertiesLoading: boolean
     isActive: boolean
     onClick: () => void
     onPropertyClick: (property: string, value?: string) => void
@@ -40,6 +42,8 @@ const SessionRecordingPlaylistItem = ({
     isActive,
     onClick,
     onPropertyClick,
+    recordingProperties,
+    recordingPropertiesLoading,
 }: SessionRecordingPlaylistItemProps): JSX.Element => {
     const formattedDuration = colonDelimitedDuration(recording.recording_duration)
     const durationParts = formattedDuration.split(':')
@@ -52,28 +56,35 @@ const SessionRecordingPlaylistItem = ({
         !isActive && 'opacity-75'
     )
     const iconPropertyKeys = ['$browser', '$device_type', '$os', '$geoip_country_code']
-    const iconProperties = recording.properties || recording.person?.properties || {}
+    const iconProperties =
+        recordingProperties && Object.keys(recordingProperties).length > 0
+            ? recordingProperties
+            : recording.person?.properties || {}
 
     const indicatorRight = listIcons === 'bottom' || listIcons === 'none' || listIcons === 'middle' || !listIcons
 
     const propertyIcons = (
         <div className="flex flex-row flex-nowrap shrink-0 gap-1">
-            {iconPropertyKeys.map((property) => (
-                <PropertyIcon
-                    key={property}
-                    onClick={onPropertyClick}
-                    className={iconClassnames}
-                    property={property}
-                    value={iconProperties?.[property]}
-                    tooltipTitle={(_, value) => (
-                        <div className="text-center">
-                            Click to filter for
-                            <br />
-                            <span className="font-medium">{value ?? 'N/A'}</span>
-                        </div>
-                    )}
-                />
-            ))}
+            {!recordingPropertiesLoading ? (
+                iconPropertyKeys.map((property) => (
+                    <PropertyIcon
+                        key={property}
+                        onClick={onPropertyClick}
+                        className={iconClassnames}
+                        property={property}
+                        value={iconProperties?.[property]}
+                        tooltipTitle={(_, value) => (
+                            <div className="text-center">
+                                Click to filter for
+                                <br />
+                                <span className="font-medium">{value ?? 'N/A'}</span>
+                            </div>
+                        )}
+                    />
+                ))
+            ) : (
+                <LemonSkeleton className="w-16 py-1" />
+            )}
         </div>
     )
 
@@ -161,7 +172,9 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
     const logic = sessionRecordingsListLogic(logicProps)
     const {
         sessionRecordings,
+        sessionRecordingIdToMetaData,
         sessionRecordingsResponseLoading,
+        sessionRecordingsMetaDataResponseLoading,
         hasNext,
         hasPrev,
         activeSessionRecording,
@@ -250,6 +263,8 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                                     <SessionRecordingPlaylistItem
                                         key={rec.id}
                                         recording={rec}
+                                        recordingProperties={sessionRecordingIdToMetaData[rec.id]}
+                                        recordingPropertiesLoading={sessionRecordingsMetaDataResponseLoading}
                                         onClick={() => onRecordingClick(rec)}
                                         onPropertyClick={onPropertyClick}
                                         isActive={activeSessionRecording?.id === rec.id}

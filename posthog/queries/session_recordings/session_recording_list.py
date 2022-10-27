@@ -25,6 +25,10 @@ class SessionRecordingQueryResult(NamedTuple):
     has_more_recording: bool
 
 
+class SessionRecordingMetadataQueryResult(NamedTuple):
+    results: List
+
+
 class SessionRecordingList(EventQuery):
     _filter: SessionRecordingsFilter
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
@@ -270,7 +274,7 @@ class SessionRecordingList(EventQuery):
     def format_session_recording_id_filters(self) -> Tuple[str, Dict]:
         where_conditions = "AND session_id IN %(session_ids)s"
         session_ids: List[str] = self._filter.include_metadata_for_recordings
-        return where_conditions, {session_ids: session_ids}
+        return where_conditions, {"session_ids": list(session_ids)}
 
     def format_event_filters(self) -> EventFiltersSQL:
         aggregate_select_clause = ""
@@ -427,7 +431,7 @@ class SessionRecordingList(EventQuery):
         session_recordings = self._data_to_return(query_results)
         return self._paginate_results(session_recordings)
 
-    def get_metadata(self, *args, **kwargs) -> SessionRecordingQueryResult:
+    def get_metadata(self, *args, **kwargs) -> SessionRecordingMetadataQueryResult:
         query, query_params = self.get_metadata_query()
         query_results = sync_execute(query, query_params)
         session_recording_metadata = self._data_to_return_metadata(query_results)

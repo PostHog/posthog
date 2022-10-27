@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
     AnyPropertyFilter,
@@ -10,6 +10,7 @@ import {
     RecordingDurationFilter,
     RecordingFilters,
     SessionRecordingId,
+    SessionRecordingMetaDataType,
     SessionRecordingsResponse,
     SessionRecordingType,
 } from '~/types'
@@ -143,7 +144,10 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
     key: (props) => `${props.key || props.personUUID || 'global'}`,
     connect: {
         values: [teamLogic, ['currentTeamId']],
-        actions: [eventUsageLogic, ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded']],
+        actions: [
+            eventUsageLogic,
+            ['reportRecordingsListFetched', 'reportRecordingsListMetaDataFetched', 'reportRecordingsListFilterAdded'],
+        ],
     },
     actions: {
         getSessionRecordings: true,
@@ -182,10 +186,38 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
                     await breakpoint(100) // Debounce for lots of quick filter changes
 
                     const startTime = performance.now()
-                    const response = await api.get(`api/projects/${values.currentTeamId}/session_recordings?${params}`)
+                    const response = await api.recordings.list(params)
                     const loadTimeMs = performance.now() - startTime
 
                     actions.reportRecordingsListFetched(loadTimeMs)
+
+                    breakpoint()
+                    return response
+                },
+            },
+        ],
+        sessionRecordingsMetaDataResponse: [
+            {
+                results: [],
+            } as PaginatedResponse<SessionRecordingMetaDataType>,
+            {
+                getSessionRecordingsMetaData: async (_, breakpoint) => {
+                    if (values.sessionRecordingsResponse.results.length < 1) {
+                        return {
+                            results: [],
+                        }
+                    }
+                    const paramsDict = {
+                        include_metadata_for_recordings: values.sessionRecordingsResponse.results.map(({ id }) => id),
+                    }
+                    const params = toParams(paramsDict)
+                    await breakpoint(100) // Debounce for lots of quick filter changes
+
+                    const startTime = performance.now()
+                    const response = await api.recordings.listMetadata(params)
+                    const loadTimeMs = performance.now() - startTime
+
+                    actions.reportRecordingsListMetaDataFetched(loadTimeMs)
 
                     breakpoint()
                     return response
@@ -295,8 +327,17 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
         loadPrev: () => {
             actions.getSessionRecordings()
         },
+        getSessionRecordingsSuccess: () => {
+            actions.getSessionRecordingsMetaData({})
+        },
     }),
     selectors: {
+        sessionRecordingIdToMetaData: [
+            (s) => [s.sessionRecordingsMetaDataResponse],
+            (metaDataResponse: PaginatedResponse<SessionRecordingMetaDataType>) => {
+                return Object.fromEntries(metaDataResponse.results.map(({ id, properties }) => [id, properties])) ?? {}
+            },
+        ],
         activeSessionRecording: [
             (s) => [s.selectedRecordingId, s.sessionRecordings],
             (selectedRecordingId, sessionRecordings): Partial<SessionRecordingType> | undefined => {

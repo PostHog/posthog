@@ -52,6 +52,17 @@ class SessionRecordingSerializer(serializers.Serializer):
         }
 
 
+class SessionRecordingMetaDataSerializer(serializers.Serializer):
+    session_id = serializers.CharField()
+    properties = serializers.DictField(required=False)
+
+    def to_representation(self, instance):
+        return {
+            "id": instance["session_id"],
+            "properties": instance["properties"],
+        }
+
+
 class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     throttle_classes = [PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle]
@@ -203,3 +214,18 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 }
             }
         )
+
+    # Returns metadata given a list of session recording ids
+    @action(methods=["GET"], detail=False)
+    def metadata(self, request: request.Request, **kwargs):
+        filter = SessionRecordingsFilter(request=request)
+        session_recordings_metadata = self._get_session_recording_list_meta_data(filter)
+
+        if not request.user.is_authenticated:  # for mypy
+            raise exceptions.NotAuthenticated()
+
+        session_recording_serializer = SessionRecordingMetaDataSerializer(data=session_recordings_metadata, many=True)
+
+        session_recording_serializer.is_valid(raise_exception=True)
+
+        return Response({"results": session_recording_serializer.data})
