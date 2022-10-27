@@ -184,13 +184,13 @@ function SystemStatus(): JSX.Element {
 
 function Version(): JSX.Element {
     const { closeSitePopover } = useActions(navigationLogic)
-    const { updateAvailable, latestVersion } = useValues(navigationLogic)
+    const { minorUpdateAvailable, anyUpdateAvailable, latestVersion } = useValues(navigationLogic)
     const { preflight } = useValues(preflightLogic)
 
     return (
         <LemonRow
-            status={updateAvailable ? 'warning' : 'success'}
-            icon={updateAvailable ? <IconUpdate /> : <IconCheckmark />}
+            status={minorUpdateAvailable ? 'warning' : 'success'}
+            icon={minorUpdateAvailable ? <IconUpdate /> : <IconCheckmark />}
             fullWidth
         >
             <>
@@ -198,7 +198,7 @@ function Version(): JSX.Element {
                     <div>
                         Version <strong>{preflight?.posthog_version}</strong>
                     </div>
-                    {updateAvailable && <div className="supplement">{latestVersion} is available</div>}
+                    {anyUpdateAvailable && <div className="supplement">{latestVersion} is available</div>}
                 </div>
                 {latestVersion && (
                     <Link
