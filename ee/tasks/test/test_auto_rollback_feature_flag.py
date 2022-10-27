@@ -127,7 +127,7 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
             )
 
         flag = FeatureFlag.objects.get(pk=flag.pk)
-        self.assertEqual(flag.performed_rollback, False)
+        self.assertEqual(flag.performed_rollback, None)
         self.assertEqual(flag.active, True)
 
         with freeze_time("2021-08-23T20:00:00.000Z"):
