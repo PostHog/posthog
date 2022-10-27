@@ -77,6 +77,10 @@ export class AppMetrics {
     }
 
     async isAvailable(metric: AppMetric, errorWithContext?: ErrorWithContext): Promise<boolean> {
+        if (this.hub.APP_METRICS_GATHERED_FOR_ALL) {
+            return true
+        }
+
         // :TRICKY: If postgres connection is down, we ignore this metric
         try {
             return await this.hub.organizationManager.hasAvailableFeature(metric.teamId, 'app_metrics')

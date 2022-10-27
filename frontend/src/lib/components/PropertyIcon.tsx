@@ -94,7 +94,7 @@ export function PropertyIcon({
                     onClick(property, value)
                 }
             }}
-            className={clsx('inline-flex items-center text-lg', className)}
+            className={clsx('inline-flex items-center', className)}
         >
             {icon}
         </div>
