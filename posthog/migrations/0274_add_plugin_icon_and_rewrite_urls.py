@@ -9,8 +9,8 @@ def update_app_urls_and_icons(apps, schema_edirtor):
             icon = plugin_map[plugin.url][1]
             plugin.icon = icon
             plugin.url = url
-            plugin.tag = "0.0.2"
-            plugin.latest_tag = "0.0.2"
+            plugin.tag = "0.0.3"
+            plugin.latest_tag = "0.0.3"
             plugin.save()
 
 
@@ -28,9 +28,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="plugin",
-            name="icon",
-            field=models.CharField(blank=True, max_length=800, null=True),
+            model_name="plugin", name="icon", field=models.CharField(blank=True, max_length=800, null=True),
         ),
         migrations.RunPython(update_app_urls_and_icons, migrations.RunPython.noop),
     ]
