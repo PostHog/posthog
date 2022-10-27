@@ -1533,7 +1533,7 @@ export interface FeatureFlagRollbackConditions {
     threshold: number
     threshold_type: string
     threshold_metric?: FilterType
-    operator?: 'gt' | 'lt'
+    operator?: string
 }
 
 export interface CombinedFeatureFlagAndValueType {
