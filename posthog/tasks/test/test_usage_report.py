@@ -11,7 +11,6 @@ from ee.api.billing import build_billing_token
 from ee.api.test.base import LicensedTestMixin
 from ee.models.license import License
 from ee.settings import BILLING_SERVICE_URL
-from ee.tasks.usage_report import send_all_org_usage_reports
 from posthog.models import Organization, Plugin, Team, User
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
