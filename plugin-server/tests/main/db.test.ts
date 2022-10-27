@@ -685,6 +685,8 @@ describe('DB', () => {
 
                 db.statsd = {
                     increment: jest.fn(),
+                    timing: jest.fn(),
+                    gauge: jest.fn(),
                 } as any
 
                 await db.getGroupsColumns(1, [[0, '0']])
