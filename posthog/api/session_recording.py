@@ -48,7 +48,6 @@ class SessionRecordingSerializer(serializers.Serializer):
             "start_time": instance["start_time"],
             "end_time": instance["end_time"],
             "distinct_id": instance["distinct_id"],
-            "properties": instance["properties"],
             "matching_events": instance["matching_events"],
         }
 
