@@ -34,10 +34,6 @@ from posthog.utils import get_machine_id
 logger = structlog.get_logger(__name__)
 
 
-def send_all_org_usage_reports_with_wait(*args: Any, **kwargs: Any) -> List[Dict]:
-    return send_all_org_usage_reports(*args, **kwargs)
-
-
 @freeze_time("2021-08-25T22:09:14.252Z")
 class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
     def _create_new_org_and_team(
@@ -60,7 +56,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
     @patch("os.environ", {"DEPLOYMENT": "tests"})
     def test_usage_report(self) -> None:
         with self.settings(SITE_URL="http://test.posthog.com"):
-            all_reports = send_all_org_usage_reports_with_wait(dry_run=True)
+            all_reports = send_all_org_usage_reports(dry_run=True)
             report = all_reports[0]
 
             assert report["table_sizes"]
@@ -196,7 +192,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                     team=default_team,
                 )
 
-                all_reports = send_all_org_usage_reports_with_wait(dry_run=True)
+                all_reports = send_all_org_usage_reports(dry_run=True)
                 print(all_reports)
                 org_report = self._select_report_by_org_id(str(default_team.organization.id), all_reports)
                 _test_org_report(org_report)
@@ -233,7 +229,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                 )
 
                 # Check event totals are updated
-                updated_org_reports = send_all_org_usage_reports_with_wait(dry_run=True)
+                updated_org_reports = send_all_org_usage_reports(dry_run=True)
                 updated_org_report = self._select_report_by_org_id(
                     str(default_team.organization.id), updated_org_reports
                 )
@@ -276,7 +272,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                 )
 
                 # Verify that internal metrics events are not counted
-                org_reports_after_internal_org = send_all_org_usage_reports_with_wait(dry_run=True)
+                org_reports_after_internal_org = send_all_org_usage_reports(dry_run=True)
                 org_report_after_internal_org = self._select_report_by_org_id(
                     str(default_team.organization.id), org_reports_after_internal_org
                 )
@@ -313,7 +309,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                 event="event", lib="web", distinct_id="user_7", team=self.team, timestamp="2021-11-10 10:00:00"
             )
 
-            all_reports = send_all_org_usage_reports_with_wait(dry_run=True)
+            all_reports = send_all_org_usage_reports(dry_run=True)
             org_report = self._select_report_by_org_id(str(self.organization.id), all_reports)
 
             team_id = list(org_report["teams"].keys())[0]
@@ -353,7 +349,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                 timestamp=now() - relativedelta(days=0, hours=2),
                 team_id=default_team.id,
             )
-            all_reports = send_all_org_usage_reports_with_wait(dry_run=True)
+            all_reports = send_all_org_usage_reports(dry_run=True)
             org_report = self._select_report_by_org_id(str(default_team.organization.id), all_reports)
 
             self.assertEqual(org_report["recording_count_in_period"], 2)
@@ -373,7 +369,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                 team_id=default_team.id,
             )
             # Check recording usage in current period is unchanged
-            updated_org_reports = send_all_org_usage_reports_with_wait(dry_run=True)
+            updated_org_reports = send_all_org_usage_reports(dry_run=True)
             updated_org_report = self._select_report_by_org_id(str(default_team.organization.id), updated_org_reports)
 
             self.assertEqual(
@@ -384,7 +380,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
     def test_status_report_plugins(self) -> None:
         self._create_plugin("Installed but not enabled", False)
         self._create_plugin("Installed and enabled", True)
-        all_reports = send_all_org_usage_reports_with_wait(dry_run=True)
+        all_reports = send_all_org_usage_reports(dry_run=True)
         org_report = self._select_report_by_org_id(str(self.organization.id), all_reports)
 
         self.assertEqual(
@@ -411,7 +407,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
                 },
             )
 
-        all_reports = send_all_org_usage_reports_with_wait(dry_run=True)
+        all_reports = send_all_org_usage_reports(dry_run=True)
         report = all_reports[0]
         team_id = list(report["teams"].keys())[0]
         team_report = report["teams"][team_id]
@@ -442,7 +438,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin):
         create_person_distinct_id(self.team.id, "id7", person_id2)
         create_person_distinct_id(self.team.id, "id8", person_id2)
 
-        all_reports = send_all_org_usage_reports_with_wait(dry_run=True)
+        all_reports = send_all_org_usage_reports(dry_run=True)
         report = all_reports[0]
         team_id = list(report["teams"].keys())[0]
         team_report = report["teams"][team_id]
@@ -484,7 +480,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
 
-        all_reports = send_all_org_usage_reports_with_wait(dry_run=False)
+        all_reports = send_all_org_usage_reports(dry_run=False)
         license = License.objects.first()
         assert license
         token = build_billing_token(license, self.organization)
@@ -512,7 +508,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             mock_posthog = MagicMock()
             mock_client.return_value = mock_posthog
 
-            all_reports = send_all_org_usage_reports_with_wait(dry_run=False)
+            all_reports = send_all_org_usage_reports(dry_run=False)
             license = License.objects.first()
             assert license
             token = build_billing_token(license, self.organization)
@@ -542,7 +538,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
 
-        send_all_org_usage_reports_with_wait(dry_run=False)
+        send_all_org_usage_reports(dry_run=False)
         mock_posthog.capture.assert_any_call(
             get_machine_id(),
             "billing service usage report failure",
@@ -565,7 +561,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mock_get_org_usage_report.side_effect = Exception("something went wrong")
 
         with pytest.raises(Exception):
-            send_all_org_usage_reports_with_wait(dry_run=False)
+            send_all_org_usage_reports(dry_run=False)
         license = License.objects.first()
         assert license
         token = build_billing_token(license, self.organization)
@@ -595,6 +591,6 @@ class SendUsageNoLicenseTest(APIBaseTest):
 
         flush_persons_and_events()
 
-        all_reports = send_all_org_usage_reports_with_wait()
+        all_reports = send_all_org_usage_reports()
 
         mock_post.assert_called_once_with(f"{BILLING_SERVICE_URL}/api/usage", json=all_reports[0], headers={})
