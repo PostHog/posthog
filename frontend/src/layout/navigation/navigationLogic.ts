@@ -151,8 +151,10 @@ export const navigationLogic = kea<navigationLogicType>({
                 if (latestVersionLoading || preflight?.cloud || !latestVersion || !preflight?.posthog_version) {
                     return false
                 }
-                const [latestMajor, latestMinor, latestPatch] = latestVersion.split('.').map(parseInt)
-                const [currentMajor, currentMinor, currentPatch] = preflight.posthog_version.split('.').map(parseInt)
+                const [latestMajor, latestMinor, latestPatch] = latestVersion.split('.').map((n) => parseInt(n))
+                const [currentMajor, currentMinor, currentPatch] = preflight.posthog_version
+                    .split('.')
+                    .map((n) => parseInt(n))
                 return latestMajor > currentMajor || latestMinor > currentMinor || latestPatch > currentPatch
             },
         ],
@@ -167,8 +169,8 @@ export const navigationLogic = kea<navigationLogicType>({
                 if (latestVersionLoading || preflight?.cloud || !latestVersion || !preflight?.posthog_version) {
                     return false
                 }
-                const [latestMajor, latestMinor] = latestVersion.split('.').map(parseInt)
-                const [currentMajor, currentMinor] = preflight.posthog_version.split('.').map(parseInt)
+                const [latestMajor, latestMinor] = latestVersion.split('.').map((n) => parseInt(n))
+                const [currentMajor, currentMinor] = preflight.posthog_version.split('.').map((n) => parseInt(n))
                 return latestMajor > currentMajor || latestMinor > currentMinor
             },
         ],
