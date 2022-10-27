@@ -1057,14 +1057,23 @@ export function identifierToHuman(identifier: string | number, caseType: 'senten
         words.map((word) => (caseType === 'sentence' ? word : capitalizeFirstLetter(word))).join(' ')
     )
 }
+// "https://github.com/PostHog/apps/tree/main/src/packages/currency-normalization-plugin"
 
 export function parseGithubRepoURL(url: string): Record<string, string> {
-    const match = url.match(/^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/?$/)
-    if (!match) {
-        throw new Error('Must be in the format: https://github.com/user/repo')
+    // complex url with path
+    const match = url.match(
+        /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.\-]+)\/([A-Za-z0-9_.\-]+)(|\/tree\/([A-Za-z0-9_.\-]+)\/([A-Za-z0-9_.\-\/]*))$/
+    )
+    if (match) {
+        const [, user, repo, secondPart, branch, path] = match
+        if (secondPart) {
+            return { user, repo, branch, path }
+        } else {
+            return { user, repo, branch: 'main', path: '' }
+        }
     }
-    const [, user, repo] = match
-    return { user, repo }
+
+    throw new Error('Must be in the format: https://github.com/user/repo/tree/branch/path')
 }
 
 export function someParentMatchesSelector(element: HTMLElement, selector: string): boolean {

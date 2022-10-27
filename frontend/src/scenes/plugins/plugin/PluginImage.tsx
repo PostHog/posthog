@@ -18,8 +18,16 @@ export function PluginImage({
 
     useEffect(() => {
         if (url?.includes('github.com')) {
-            const { user, repo } = parseGithubRepoURL(url)
-            setState({ ...state, image: `https://raw.githubusercontent.com/${user}/${repo}/main/logo.png` })
+            try {
+                const { user, repo, branch, path } = parseGithubRepoURL(url)
+                setState({
+                    ...state,
+                    image: `https://raw.githubusercontent.com/${user}/${repo}/${branch}/${path}/logo.png`,
+                })
+            } catch (e) {
+                // parseGithubRepoURL throws if the github URL is in a bad format. We don't want the component to crash then.
+                console.log(e)
+            }
         }
     }, [url])
 
