@@ -452,6 +452,7 @@ def send_all_org_usage_reports(dry_run: bool = False, at: Optional[str] = None) 
             org_reports[team.organization.id] = org_report
         else:
             org_report = org_reports[team.organization.id]
+            org_report.teams[team.id] = team_report
 
             # Iterate on all fields of the UsageReportCounters and add the values from the team report to the org report
             for field in dataclasses.fields(UsageReportCounters):
