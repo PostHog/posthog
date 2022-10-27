@@ -19,7 +19,7 @@ class Command(BaseCommand):
                     and "-- not-null-ignore" not in sql
                 ):
                     print(
-                        f"\n\n\033[91mFound a non-null field added to an existing model. This will lock up the table while migrating. Please add 'null=True, blank=True' to the field"
+                        f"\n\n\033[91mFound a non-null field or default added to an existing model. This will lock up the table while migrating. Please add 'null=True, blank=True' to the field"
                     )
                     sys.exit(1)
 
