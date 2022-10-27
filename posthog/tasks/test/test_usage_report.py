@@ -56,7 +56,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             distinct_id = str(uuid4())
             _create_person(distinct_ids=[distinct_id], team=self.org_internal_team_0)
 
-            for i in range(0, 10):
+            for _ in range(0, 10):
                 _create_event(
                     distinct_id=distinct_id,
                     event="$event1",
@@ -69,7 +69,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             distinct_id = str(uuid4())
             _create_person(distinct_ids=[distinct_id], team=self.org_1_team_1)
 
-            for i in range(0, 10):
+            for _ in range(0, 10):
                 _create_event(
                     distinct_id=distinct_id,
                     event="$event1",
@@ -79,7 +79,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 )
 
             # Events before the period
-            for i in range(0, 10):
+            for _ in range(0, 10):
                 _create_event(
                     distinct_id=distinct_id,
                     event="$out-of-range",
@@ -89,7 +89,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 )
 
             # Events after the period
-            for i in range(0, 10):
+            for _ in range(0, 10):
                 _create_event(
                     distinct_id=distinct_id,
                     event="$out-of-range",
@@ -132,7 +132,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             distinct_id = str(uuid4())
             _create_person(distinct_ids=[distinct_id], team=self.org_1_team_2)
 
-            for i in range(0, 10):
+            for _ in range(0, 10):
                 _create_event(
                     distinct_id=distinct_id,
                     event="$event1",
@@ -143,7 +143,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
             # recordings in period  - 5 sessions with 5 snapshots each
             for i in range(0, 5):
-                for j in range(0, 5):
+                for _ in range(0, 5):
                     create_snapshot(
                         has_full_snapshot=True,
                         distinct_id=distinct_id,
@@ -154,7 +154,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
             # recordings out of period  - 5 sessions with 5 snapshots each
             for i in range(0, 10):
-                for j in range(0, 5):
+                for _ in range(0, 5):
                     create_snapshot(
                         has_full_snapshot=True,
                         distinct_id=distinct_id,
@@ -167,7 +167,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             distinct_id = str(uuid4())
             _create_person(distinct_ids=[distinct_id], team=self.org_2_team_3)
 
-            for i in range(0, 10):
+            for _ in range(0, 10):
                 _create_event(
                     distinct_id=distinct_id,
                     event="$event1",
