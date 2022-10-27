@@ -70,27 +70,34 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(more_recordings_available, False)
 
         @freeze_time("2021-01-21T20:00:00.000Z")
-        def test_properties(self):
+        def test_metadata_list(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+            create_snapshot(distinct_id="user", session_id="2", timestamp=self.base_time, team_id=self.team.id)
+            event_props = {
+                "$session_id": "1",
+                "$window_id": "1",
+                "should_not_be_included": "1",
+                "$browser": "Chrome",
+                "$os": "Mac OS X",
+                "$device_type": "Desktop",
+                "$current_url": "https://blah.com/blah",
+                "$host": "blah.com",
+                "$pathname": "/blah",
+                "$geoip_country_code": "KR",
+            }
             self.create_event(
                 "user",
                 self.base_time,
-                properties={
-                    "$session_id": "1",
-                    "$window_id": "1",
-                    "should_not_be_included": "1",
-                    "$browser": "Chrome",
-                    "$os": "Mac OS X",
-                    "$device_type": "Desktop",
-                    "$current_url": "https://blah.com/blah",
-                    "$host": "blah.com",
-                    "$pathname": "/blah",
-                    "$geoip_country_code": "KR",
-                },
+                properties=event_props,
+            )
+            self.create_event(
+                "user",
+                self.base_time,
+                properties=event_props,
             )
 
-            filter = SessionRecordingsFilter(team=self.team, data={"include_metadata_for_recordings": ["1"]})
+            filter = SessionRecordingsFilter(team=self.team, data={"include_metadata_for_recordings": '["1"]'})
             session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             session_recordings_metadata = session_recording_list_instance.get_metadata()
             self.assertEqual(len(session_recordings_metadata), 1)
