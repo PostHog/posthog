@@ -489,7 +489,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         all_reports = send_all_org_usage_reports_with_wait(dry_run=False)
         license = License.objects.first()
         assert license
-        token = build_billing_token(license, str(self.organization.id))
+        token = build_billing_token(license, self.organization)
         mock_post.assert_called_once_with(
             f"{BILLING_SERVICE_URL}/api/usage", json=all_reports[0], headers={"Authorization": f"Bearer {token}"}
         )
@@ -517,7 +517,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             all_reports = send_all_org_usage_reports_with_wait(dry_run=False)
             license = License.objects.first()
             assert license
-            token = build_billing_token(license, str(self.organization.id))
+            token = build_billing_token(license, self.organization)
             mock_post.assert_called_once_with(
                 f"{BILLING_SERVICE_URL}/api/usage", json=all_reports[0], headers={"Authorization": f"Bearer {token}"}
             )
@@ -570,7 +570,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             send_all_org_usage_reports_with_wait(dry_run=False)
         license = License.objects.first()
         assert license
-        token = build_billing_token(license, str(self.organization.id))
+        token = build_billing_token(license, self.organization)
         mock_post.assert_called_once_with(
             f"{BILLING_SERVICE_URL}/api/usage",
             json={

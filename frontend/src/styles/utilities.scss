@@ -28,6 +28,14 @@
         gap: #{$space/4}rem;
     }
 
+    .gap-x-#{$space} {
+        column-gap: #{$space/4}rem;
+    }
+
+    .gap-y-#{$space} {
+        row-gap: #{$space/4}rem;
+    }
+
     .w-#{$space} {
         width: #{$space/4}rem;
     }

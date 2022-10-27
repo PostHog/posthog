@@ -20,7 +20,7 @@ interface RecordingRowProps {
     recording: SessionRecordingType
 }
 
-function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
+export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { reportRecordingOpenedFromRecentRecordingList } = useActions(eventUsageLogic)
 

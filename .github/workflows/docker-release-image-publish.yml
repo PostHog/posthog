@@ -17,7 +17,7 @@ jobs:
             id-token: write
         steps:
             - name: Checkout default branch
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
 
             - name: Get tag name
               run: echo "TAG_NAME=$(echo ${GITHUB_REF#refs/tags/} | tr / -)" >> $GITHUB_ENV
@@ -29,7 +29,7 @@ jobs:
               uses: depot/setup-action@v1
 
             - name: Login to DockerHub
-              uses: docker/login-action@v1
+              uses: docker/login-action@v2
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}

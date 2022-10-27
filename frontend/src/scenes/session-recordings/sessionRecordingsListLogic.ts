@@ -5,11 +5,13 @@ import {
     AnyPropertyFilter,
     EntityTypes,
     FilterType,
+    PropertyFilter,
     PropertyOperator,
     RecordingDurationFilter,
     RecordingFilters,
     SessionRecordingId,
     SessionRecordingsResponse,
+    SessionRecordingType,
 } from '~/types'
 import type { sessionRecordingsListLogicType } from './sessionRecordingsListLogicType'
 import { router } from 'kea-router'
@@ -17,7 +19,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
 import { teamLogic } from '../teamLogic'
 import { dayjs } from 'lib/dayjs'
-import { SessionRecordingType } from '~/types'
 
 export type PersonUUID = string
 interface Params {
@@ -52,9 +53,88 @@ export const DEFAULT_ENTITY_FILTERS = {
     ],
 }
 
+export const defaultEntityFilterOnFlag = (flagKey: string): Partial<FilterType> => ({
+    events: [
+        {
+            id: '$feature_flag_called',
+            name: '$feature_flag_called',
+            type: 'events',
+            properties: [
+                {
+                    key: '$feature/' + flagKey,
+                    type: 'event',
+                    value: ['true'],
+                    operator: 'exact',
+                },
+                {
+                    key: '$feature_flag',
+                    type: 'event',
+                    value: flagKey,
+                    operator: 'exact',
+                },
+            ],
+        },
+    ],
+})
+
+export const defaultPageviewPropertyEntityFilter = (
+    oldEntityFilters: FilterType,
+    property: string,
+    value?: string
+): FilterType => {
+    const existingPageview = oldEntityFilters.events?.find(({ name }) => name === '$pageview')
+    const eventEntityFilters = oldEntityFilters.events ?? []
+    const propToAdd = value
+        ? {
+              key: property,
+              value: [value],
+              operator: PropertyOperator.Exact,
+              type: 'event',
+          }
+        : {
+              key: property,
+              value: PropertyOperator.IsNotSet,
+              operator: PropertyOperator.IsNotSet,
+              type: 'event',
+          }
+
+    // If pageview exists, add property to the first pageview event
+    if (existingPageview) {
+        return {
+            ...oldEntityFilters,
+            events: eventEntityFilters.map((eventFilter) =>
+                eventFilter.order === existingPageview.order
+                    ? {
+                          ...eventFilter,
+                          properties: [
+                              ...(eventFilter.properties?.filter(({ key }: PropertyFilter) => key !== property) ?? []),
+                              propToAdd,
+                          ],
+                      }
+                    : eventFilter
+            ),
+        }
+    } else {
+        return {
+            ...oldEntityFilters,
+            events: [
+                ...eventEntityFilters,
+                {
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: 'events',
+                    order: eventEntityFilters.length,
+                    properties: [propToAdd],
+                },
+            ],
+        }
+    }
+}
+
 export interface SessionRecordingTableLogicProps {
     personUUID?: PersonUUID
     key?: string
+    flagKey?: string
 }
 
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
@@ -71,6 +151,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             id,
         }),
         setEntityFilters: (filters: Partial<FilterType>) => ({ filters }),
+        setEntityFiltersNoRefresh: (filters: Partial<FilterType>) => ({ filters }),
         setPropertyFilters: (filters: AnyPropertyFilter[]) => {
             return { filters }
         },
@@ -112,8 +193,11 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             },
         ],
     }),
-    events: ({ actions }) => ({
+    events: ({ actions, props }) => ({
         afterMount: () => {
+            if (props.flagKey) {
+                actions.setEntityFiltersNoRefresh(defaultEntityFilterOnFlag(props.flagKey))
+            }
             actions.getSessionRecordings()
         },
     }),
@@ -156,6 +240,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             DEFAULT_ENTITY_FILTERS as FilterType,
             {
                 setEntityFilters: (_, { filters }) => ({ ...filters }),
+                setEntityFiltersNoRefresh: (_, { filters }) => ({ ...filters }),
             },
         ],
         propertyFilters: [
