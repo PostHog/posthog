@@ -194,6 +194,15 @@ describe('AppMetrics()', () => {
             await appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp)
             expect(appMetrics.queuedData).toEqual({})
         })
+
+        it('does not query `hasAvailableFeature` if not needed', async () => {
+            hub.APP_METRICS_GATHERED_FOR_ALL = true
+
+            await appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp)
+
+            expect(appMetrics.queuedData).not.toEqual({})
+            expect(hub.organizationManager.hasAvailableFeature).not.toHaveBeenCalled()
+        })
     })
 
     describe('queueError()', () => {
