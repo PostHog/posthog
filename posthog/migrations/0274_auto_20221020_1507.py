@@ -13,11 +13,11 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="featureflag",
             name="rollback_conditions",
-            field=models.JSONField(default=list, null=True),
+            field=models.JSONField(default=list, null=True, blank=True),
         ),
         migrations.AddField(
             model_name="featureflag",
             name="performed_rollback",
-            field=models.BooleanField(default=False, null=True),
+            field=models.BooleanField(default=False, null=True, blank=True),
         ),
     ]

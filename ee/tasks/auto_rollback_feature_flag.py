@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Dict
 
+import pytz
 from celery import shared_task
 
 from ee.api.sentry_stats import get_stats_for_timerange
@@ -46,10 +47,14 @@ def check_condition(rollback_condition: Dict, feature_flag: FeatureFlag) -> bool
             return target > float(rollback_condition["threshold"]) * base
 
     elif rollback_condition["threshold_type"] == "insight":
+        curr = datetime.now(tz=pytz.timezone(feature_flag.team.timezone))
+
+        # rolling average last 7 days
         filter = Filter(
             data={
                 **rollback_condition["threshold_metric"],
-                "date_from": feature_flag.created_at.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "date_from": (curr - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "date_to": curr.strftime("%Y-%m-%d %H:%M:%S.%f"),
             },
             team=feature_flag.team,
         )
@@ -60,16 +65,11 @@ def check_condition(rollback_condition: Dict, feature_flag: FeatureFlag) -> bool
             return False
 
         data = result[0]["data"]
-
-        if len(data) <= 2:
-            return False
-
-        # Don't look at latest
-        data = data[1 : len(data) - 1]
+        data = data[0:7]
 
         if rollback_condition["operator"] == "lt":
-            return any(data_point < rollback_condition["threshold"] for data_point in data)
+            return sum(data) / len(data) < rollback_condition["threshold"]
         else:
-            return any(data_point > rollback_condition["threshold"] for data_point in data)
+            return sum(data) / len(data) > rollback_condition["threshold"]
 
     return False

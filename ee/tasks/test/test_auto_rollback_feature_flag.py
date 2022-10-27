@@ -4,10 +4,10 @@ from freezegun import freeze_time
 
 from ee.tasks.auto_rollback_feature_flag import check_condition, check_feature_flag_rollback_conditions
 from posthog.models.feature_flag import FeatureFlag
-from posthog.test.base import APIBaseTest, _create_event
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 
 
-class AutoRollbackTest(APIBaseTest):
+class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
     def test_check_condition(self):
         rollback_condition = {
             "threshold": 10,
@@ -27,11 +27,11 @@ class AutoRollbackTest(APIBaseTest):
             rollback_conditions=[rollback_condition],
         )
 
-        self.assertEqual(check_condition(rollback_condition, flag), False)
+        self.assertEqual(check_condition(rollback_condition, flag), True)
 
     def test_check_condition_valid(self):
         rollback_condition = {
-            "threshold": 5,
+            "threshold": 3,
             "threshold_metric": {
                 "insight": "trends",
                 "events": [{"order": 0, "id": "$pageview"}],
@@ -53,6 +53,15 @@ class AutoRollbackTest(APIBaseTest):
                 distinct_id="1",
                 team=self.team,
                 timestamp="2021-08-22 00:00:00",
+                properties={"prop": 1},
+            )
+
+        for _ in range(20):
+            _create_event(
+                event="$pageview",
+                distinct_id="1",
+                team=self.team,
+                timestamp="2021-08-23 00:00:00",
                 properties={"prop": 1},
             )
 
@@ -66,15 +75,15 @@ class AutoRollbackTest(APIBaseTest):
             )
 
         with freeze_time("2021-08-23T20:00:00.000Z"):
-            self.assertEqual(check_condition(rollback_condition, flag), False)
+            self.assertEqual(check_condition(rollback_condition, flag), True)
 
         # Go another day with 0 events
         with freeze_time("2021-08-26T20:00:00.000Z"):
-            self.assertEqual(check_condition(rollback_condition, flag), True)
+            self.assertEqual(check_condition(rollback_condition, flag), False)
 
     def test_feature_flag_rolledback(self):
         rollback_condition = {
-            "threshold": 5,
+            "threshold": 3,
             "threshold_metric": {
                 "insight": "trends",
                 "events": [{"order": 0, "id": "$pageview"}],
@@ -96,6 +105,15 @@ class AutoRollbackTest(APIBaseTest):
                 distinct_id="1",
                 team=self.team,
                 timestamp="2021-08-22 00:00:00",
+                properties={"prop": 1},
+            )
+
+        for _ in range(20):
+            _create_event(
+                event="$pageview",
+                distinct_id="1",
+                team=self.team,
+                timestamp="2021-08-23 00:00:00",
                 properties={"prop": 1},
             )
 
@@ -112,7 +130,7 @@ class AutoRollbackTest(APIBaseTest):
         self.assertEqual(flag.performed_rollback, False)
         self.assertEqual(flag.active, True)
 
-        with freeze_time("2021-08-25T20:00:00.000Z"):
+        with freeze_time("2021-08-23T20:00:00.000Z"):
             check_feature_flag_rollback_conditions(feature_flag_id=flag.pk)
             flag = FeatureFlag.objects.get(pk=flag.pk)
             self.assertEqual(flag.performed_rollback, True)
