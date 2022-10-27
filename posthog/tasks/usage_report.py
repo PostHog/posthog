@@ -39,7 +39,6 @@ from posthog.models.event.util import (
 )
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.organization import Organization
-from posthog.models.person.util import count_duplicate_distinct_ids_for_team, count_total_persons_with_multiple_ids
 from posthog.models.plugin import PluginConfig
 from posthog.models.session_recording_event.util import (
     get_agg_recording_count_for_teams_and_period,
@@ -67,8 +66,6 @@ class TeamUsageReport:
     # Recordings
     recording_count_in_period: int
     recording_count_total: int
-    duplicate_distinct_ids: Dict
-    multiple_ids_per_person: Dict
     # Persons and Groups
     group_types_total: int
     # person_count_total: int
@@ -181,8 +178,6 @@ def get_org_usage_report(period: Tuple[datetime, datetime], team_ids: List[int])
             event_count_by_name=get_events_count_for_team_by_event_type(team_id, period_start, period_end),
             recording_count_in_period=get_recording_count_for_team_and_period(team_id, period_start, period_end),
             recording_count_total=get_recording_count_for_team(team_id),
-            duplicate_distinct_ids=count_duplicate_distinct_ids_for_team(team_id),
-            multiple_ids_per_person=count_total_persons_with_multiple_ids(team_id),
             group_types_total=GroupTypeMapping.objects.filter(team_id=team_id).count(),
             # NOTE: Below is disabled until we figure out a CH query - Postgres count is far too slow
             # person_count_total=get_person_count_for_team(team_id),
