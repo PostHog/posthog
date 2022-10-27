@@ -399,7 +399,7 @@ def send_all_org_usage_reports(dry_run: bool = False, at: Optional[str] = None) 
             .order_by("team_id")
         ),
         teams_with_dashboard_tagged_count=list(
-            Dashboard.objects.filter(tagged_items__isnull=True)
+            Dashboard.objects.filter(tagged_items__isnull=False)
             .values("team_id")
             .annotate(total=Count("id"))
             .order_by("team_id")
@@ -432,12 +432,14 @@ def send_all_org_usage_reports(dry_run: bool = False, at: Optional[str] = None) 
             ),
             recording_count_total=find_count_for_team_in_rows(team.id, all_data["teams_with_recording_count_total"]),
             group_types_total=find_count_for_team_in_rows(team.id, all_data["teams_with_group_types_total"]),
-            dashboard_count=0,
-            dashboard_template_count=0,
-            dashboard_shared_count=0,
-            dashboard_tagged_count=0,
-            ff_count=0,
-            ff_active_count=0,
+            dashboard_count=find_count_for_team_in_rows(team.id, all_data["teams_with_dashboard_count"]),
+            dashboard_template_count=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_dashboard_template_count"]
+            ),
+            dashboard_shared_count=find_count_for_team_in_rows(team.id, all_data["teams_with_dashboard_shared_count"]),
+            dashboard_tagged_count=find_count_for_team_in_rows(team.id, all_data["teams_with_dashboard_tagged_count"]),
+            ff_count=find_count_for_team_in_rows(team.id, all_data["teams_with_ff_count"]),
+            ff_active_count=find_count_for_team_in_rows(team.id, all_data["teams_with_ff_active_count"]),
         )
 
         if team.organization.id not in org_reports:

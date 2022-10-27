@@ -12,9 +12,12 @@ from ee.api.test.base import LicensedTestMixin
 from ee.models.license import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.models import Organization, Plugin, Team
+from posthog.models.dashboard import Dashboard
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.plugin import PluginConfig
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.test.test_factory import create_snapshot
 from posthog.tasks.usage_report import send_all_org_usage_reports
 from posthog.test.base import (
@@ -68,6 +71,35 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             # Events for org 1 team 1
             distinct_id = str(uuid4())
             _create_person(distinct_ids=[distinct_id], team=self.org_1_team_1)
+
+            Dashboard.objects.create(team=self.org_1_team_1, name="Dash one", created_by=self.user)
+
+            dashboard = Dashboard.objects.create(
+                team=self.org_1_team_1,
+                name="Dash public",
+                created_by=self.user,
+            )
+            SharingConfiguration.objects.create(
+                team=self.org_1_team_1, dashboard=dashboard, access_token="testtoken", enabled=True
+            )
+
+            FeatureFlag.objects.create(
+                team=self.org_1_team_1,
+                rollout_percentage=30,
+                name="Disabled",
+                key="disabled-flag",
+                created_by=self.user,
+                active=False,
+            )
+
+            FeatureFlag.objects.create(
+                team=self.org_1_team_1,
+                rollout_percentage=30,
+                name="Enabled",
+                key="enabled-flag",
+                created_by=self.user,
+                active=True,
+            )
 
             for _ in range(0, 10):
                 _create_event(
@@ -228,12 +260,12 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "recording_count_in_period": 5,
                     "recording_count_total": 15,
                     "group_types_total": 2,
-                    "dashboard_count": 0,
+                    "dashboard_count": 2,
                     "dashboard_template_count": 0,
-                    "dashboard_shared_count": 0,
+                    "dashboard_shared_count": 1,
                     "dashboard_tagged_count": 0,
-                    "ff_count": 0,
-                    "ff_active_count": 0,
+                    "ff_count": 2,
+                    "ff_active_count": 1,
                     "date": "2022-01-09",
                     "organization_id": str(self.organization.id),
                     "organization_name": "Test",
@@ -249,12 +281,12 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "recording_count_in_period": 0,
                             "recording_count_total": 0,
                             "group_types_total": 2,
-                            "dashboard_count": 0,
+                            "dashboard_count": 2,
                             "dashboard_template_count": 0,
-                            "dashboard_shared_count": 0,
+                            "dashboard_shared_count": 1,
                             "dashboard_tagged_count": 0,
-                            "ff_count": 0,
-                            "ff_active_count": 0,
+                            "ff_count": 2,
+                            "ff_active_count": 1,
                         },
                         self.org_1_team_2.id: {
                             "event_count_lifetime": 10,
@@ -336,8 +368,11 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
             # tricky: list could be in different order
             assert len(all_reports) == 2
-            assert expectation[0] in all_reports
-            assert expectation[1] in all_reports
+            for report in all_reports:
+                if report["organization_id"] == expectation[0]["organization_id"]:
+                    assert report == expectation[0]
+                elif report["organization_id"] == expectation[1]["organization_id"]:
+                    assert report == expectation[1]
 
             return all_reports
 
