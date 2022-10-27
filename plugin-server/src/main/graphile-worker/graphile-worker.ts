@@ -65,15 +65,6 @@ export class GraphileWorker {
         instrumentationContext?: InstrumentationContext,
         retryOnFailure = false
     ): Promise<void> {
-        const jobType = 'type' in job ? job.type : 'buffer'
-
-        let jobPayload: Record<string, any> = {}
-        if ('payload' in job) {
-            jobPayload = job.payload
-        } else if ('eventPayload' in job) {
-            jobPayload = job.eventPayload
-        }
-
         let enqueueFn = () => this._enqueue(jobName, job)
 
         // This branch will be removed once we implement a Kafka queue for all jobs
@@ -101,8 +92,8 @@ export class GraphileWorker {
                 metricName: 'job_queues_enqueue',
                 key: instrumentationContext?.key ?? '?',
                 tag: instrumentationContext?.tag ?? '?',
-                tags: { jobName, type: jobType },
-                data: { timestamp: job.timestamp, type: jobType, payload: jobPayload },
+                tags: { jobName, ...('type' in job ? { pluginJobName: job.type } : {}) },
+                data: { job },
             },
             enqueueFn
         )

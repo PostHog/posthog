@@ -3,6 +3,7 @@ import Piscina from '@posthog/piscina'
 import { Hub, PluginConfigId } from '../../types'
 import { status } from '../../utils/status'
 import { delay } from '../../utils/utils'
+import { PluginScheduledTask } from './../../types'
 
 export async function loadPluginSchedule(piscina: Piscina, maxIterations = 2000): Promise<Hub['pluginSchedule']> {
     let allThreadsReady = false
@@ -28,9 +29,17 @@ export async function loadPluginSchedule(piscina: Piscina, maxIterations = 2000)
     throw new Error('Could not load plugin schedule in time')
 }
 
-export async function runScheduledTasks(server: Hub, piscina: Piscina, taskType: string): Promise<void> {
-    for (const pluginConfigId of server.pluginSchedule?.[taskType] || []) {
-        status.info('⏲️', `Running ${taskType} for plugin config with ID ${pluginConfigId}`)
-        await piscina.run({ task: taskType, args: { pluginConfigId } })
+// Triggered by a Graphile Worker cron task
+// Enqueue a job per <task,pluginConfigId> combination
+// This allows us to spread the load of processing plugin scheduled tasks across the fleet
+export async function runScheduledTasks(server: Hub, task: PluginScheduledTask): Promise<void> {
+    for (const pluginConfigId of server.pluginSchedule?.[task] || []) {
+        status.info('⬆️', 'Scheduling task', { task, pluginConfigId })
+
+        await server.graphileWorker.enqueue('pluginScheduledTask', {
+            pluginConfigId,
+            task: task,
+            timestamp: Date.now(),
+        })
     }
 }
