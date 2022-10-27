@@ -53,7 +53,6 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "ensure_experience_continuity",
             "experiment_set",
             "rollback_conditions",
-            "auto_rollback",
             "performed_rollback",
         ]
 

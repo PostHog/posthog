@@ -4,6 +4,7 @@ import {
     AnyPropertyFilter,
     Breadcrumb,
     FeatureFlagType,
+    FilterType,
     InsightModel,
     InsightType,
     MultivariateFlagOptions,
@@ -13,7 +14,7 @@ import {
 } from '~/types'
 import api from 'lib/api'
 import { router } from 'kea-router'
-import { convertPropertyGroupToProperties, deleteWithUndo } from 'lib/utils'
+import { convertPropertyGroupToProperties, deleteWithUndo, sum, toParams } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { teamLogic } from '../teamLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
@@ -26,11 +27,12 @@ import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dayjs } from 'lib/dayjs'
+import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 
 const DEFAULT_ROLLBACK_CONDITION = {
     operator: 'gt',
     threshold_type: RolloutConditionType.Sentry,
-    threshold: 30,
+    threshold: 50,
     threshold_metric: {
         ...cleanFilters({
             insight: InsightType.TRENDS,
@@ -54,7 +56,6 @@ const NEW_FLAG: FeatureFlagType = {
     ensure_experience_continuity: false,
     experiment_set: null,
     rollback_conditions: [],
-    auto_rollback: false,
     performed_rollback: false,
 }
 const NEW_VARIANT = {
@@ -115,6 +116,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         editFeatureFlag: (editing: boolean) => ({ editing }),
         distributeVariantsEqually: true,
         setFilters: (filters) => ({ filters }),
+        loadInsightAtIndex: (index: number, filters: Partial<FilterType>) => ({ index, filters }),
+        setInsightResultAtIndex: (index: number, average: number) => ({ index, average }),
     }),
     forms(({ actions }) => ({
         featureFlag: {
@@ -311,6 +314,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 editFeatureFlag: (_, { editing }) => editing,
             },
         ],
+        insightRollingAverages: [
+            {},
+            {
+                setInsightResultAtIndex: (state, { index, average }) => ({
+                    ...state,
+                    [`${index}`]: average,
+                }),
+            },
+        ],
     }),
     loaders(({ values, props, actions }) => ({
         featureFlag: {
@@ -396,6 +408,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         loadFeatureFlagSuccess: async () => {
             actions.loadRecentInsights()
+        },
+        loadInsightAtIndex: async ({ index, filters }) => {
+            if (filters) {
+                const response = await api.get(
+                    `api/projects/${values.currentTeamId}/insights/trend/?${toParams(
+                        filterTrendsClientSideParams(filters)
+                    )}`
+                )
+                const counts = response.result?.[0]?.data
+                const firstWeek = counts.slice(0, 7)
+                const avg = Math.round(sum(firstWeek) / 7)
+                actions.setInsightResultAtIndex(index, avg)
+            }
+        },
+        addRollbackCondition: () => {
+            const index = values.featureFlag.rollback_conditions.length - 1
+            actions.loadInsightAtIndex(
+                index,
+                values.featureFlag.rollback_conditions[index].threshold_metric as FilterType
+            )
         },
     })),
     selectors({

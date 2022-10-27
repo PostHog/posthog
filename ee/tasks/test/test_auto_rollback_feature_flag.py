@@ -24,7 +24,6 @@ class AutoRollbackTest(APIBaseTest):
             created_by=self.user,
             key="test-ff",
             rollout_percentage=50,
-            auto_rollback=True,
             rollback_conditions=[rollback_condition],
         )
 
@@ -63,7 +62,6 @@ class AutoRollbackTest(APIBaseTest):
                 created_by=self.user,
                 key="test-ff",
                 rollout_percentage=50,
-                auto_rollback=True,
                 rollback_conditions=[rollback_condition],
             )
 
@@ -107,7 +105,6 @@ class AutoRollbackTest(APIBaseTest):
                 created_by=self.user,
                 key="test-ff",
                 rollout_percentage=50,
-                auto_rollback=True,
                 rollback_conditions=[rollback_condition],
             )
 
@@ -136,7 +133,6 @@ class AutoRollbackTest(APIBaseTest):
                 created_by=self.user,
                 key="test-ff",
                 rollout_percentage=50,
-                auto_rollback=True,
                 rollback_conditions=[rollback_condition],
             )
 

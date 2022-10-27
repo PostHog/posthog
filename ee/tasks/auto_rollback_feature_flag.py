@@ -22,7 +22,7 @@ def check_flags_to_rollback():
 def check_feature_flag_rollback_conditions(feature_flag_id: int) -> None:
     flag: FeatureFlag = FeatureFlag.objects.get(pk=feature_flag_id)
 
-    if flag.auto_rollback and any(check_condition(condition, flag) for condition in flag.rollback_conditions):
+    if any(check_condition(condition, flag) for condition in flag.rollback_conditions):
         flag.performed_rollback = True
         flag.active = False
         flag.save()

@@ -8,14 +8,17 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Field } from 'lib/forms/Field'
 import { humanFriendlyNumber } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { RolloutConditionType } from '~/types'
 import { featureFlagLogic } from './featureFlagLogic'
 
 export function FeatureFlagAutoRollback(): JSX.Element {
-    const { featureFlag, sentryIntegrationEnabled, sentryErrorCount } = useValues(featureFlagLogic)
-    const { addRollbackCondition, removeRollbackCondition } = useActions(featureFlagLogic)
+    const { featureFlag, sentryIntegrationEnabled, sentryErrorCount, insightRollingAverages } =
+        useValues(featureFlagLogic)
+    const { addRollbackCondition, removeRollbackCondition, loadInsightAtIndex } = useActions(featureFlagLogic)
     const { user } = useValues(userLogic)
 
     return (
@@ -26,7 +29,7 @@ export function FeatureFlagAutoRollback(): JSX.Element {
                     Beta
                 </LemonTag>
                 <div className="mt-2">
-                    Specify the conditions in which this feature flag will trigger a warning or automatically roll back.
+                    Specify the conditions in which this feature flag will automatically roll back.
                 </div>
             </div>
 
@@ -65,7 +68,6 @@ export function FeatureFlagAutoRollback(): JSX.Element {
                             <LemonDivider className="my-3" />
                             {featureFlag.rollback_conditions[index].threshold_type == 'insight' ? (
                                 <div className="flex gap-2 items-center mt-4">
-                                    When
                                     <Field name="threshold_metric">
                                         {({ value, onChange }) => (
                                             <ActionFilter
@@ -74,6 +76,7 @@ export function FeatureFlagAutoRollback(): JSX.Element {
                                                     onChange({
                                                         ...payload,
                                                     })
+                                                    loadInsightAtIndex(index, payload)
                                                 }}
                                                 typeKey={'feature-flag-rollback-trends-' + index}
                                                 buttonCopy={'Add graph series'}
@@ -81,6 +84,7 @@ export function FeatureFlagAutoRollback(): JSX.Element {
                                                 showNestedArrow
                                                 hideRename={true}
                                                 entitiesLimit={1}
+                                                mathAvailability={MathAvailability.None}
                                                 propertiesTaxonomicGroupTypes={[
                                                     TaxonomicFilterGroupType.EventProperties,
                                                     TaxonomicFilterGroupType.PersonProperties,
@@ -91,7 +95,15 @@ export function FeatureFlagAutoRollback(): JSX.Element {
                                             />
                                         )}
                                     </Field>
-                                    is
+                                    <span>
+                                        trailing 7 day average is&nbsp;
+                                        {insightRollingAverages[index] !== undefined ? (
+                                            <b>{insightRollingAverages[index]}</b>
+                                        ) : (
+                                            <Spinner />
+                                        )}
+                                        . Trigger when trailing average is
+                                    </span>
                                     <Field name="operator">
                                         {({ value, onChange }) => (
                                             <LemonSelect

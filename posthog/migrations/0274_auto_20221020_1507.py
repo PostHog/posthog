@@ -12,11 +12,6 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="featureflag",
-            name="auto_rollback",
-            field=models.BooleanField(default=False, null=True),
-        ),
-        migrations.AddField(
-            model_name="featureflag",
             name="rollback_conditions",
             field=models.JSONField(default=list, null=True),
         ),
