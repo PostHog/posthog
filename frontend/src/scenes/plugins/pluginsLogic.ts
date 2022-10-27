@@ -100,9 +100,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
         savePluginOrders: (newOrders: Record<number, number>) => ({ newOrders }),
         cancelRearranging: true,
         showPluginLogs: (id: number) => ({ id }),
-        showPluginHistory: (id: number) => ({ id }),
         hidePluginLogs: true,
-        hidePluginHistory: true,
         processSearchInput: (term: string) => ({ term }),
         setSearchTerm: (term: string | null) => ({ term }),
         setPluginConfigPollTimeout: (timeout: number | null) => ({ timeout }),
@@ -424,13 +422,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 showPluginLogs: (_, { id }) => id,
             },
         ],
-        showingHistoryPluginId: [
-            null as number | null,
-            {
-                showPluginHistory: (_, { id }) => id,
-                hidePluginHistory: () => null,
-            },
-        ],
         searchTerm: [
             null as string | null,
             {
@@ -587,11 +578,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
             (s) => [s.lastShownLogsPluginId, s.installedPlugins],
             (lastShownLogsPluginId, installedPlugins) =>
                 lastShownLogsPluginId ? installedPlugins.find((plugin) => plugin.id === lastShownLogsPluginId) : null,
-        ],
-        showingHistoryPlugin: [
-            (s) => [s.showingHistoryPluginId, s.installedPlugins],
-            (showingHistoryPluginId, installedPlugins) =>
-                showingHistoryPluginId ? installedPlugins.find((plugin) => plugin.id === showingHistoryPluginId) : null,
         ],
         filteredUninstalledPlugins: [
             (s) => [s.searchTerm, s.uninstalledPlugins],

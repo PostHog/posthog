@@ -3,14 +3,15 @@ import { loaders } from 'kea-loaders'
 
 import type { appMetricsSceneLogicType } from './appMetricsSceneLogicType'
 import { urls } from 'scenes/urls'
-import { Breadcrumb, PluginConfigWithPluginInfo, UserBasicType } from '~/types'
+import { AvailableFeature, Breadcrumb, PluginConfigWithPluginInfo, UserBasicType } from '~/types'
 import api from 'lib/api'
-import { teamLogic } from '../teamLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { toParams } from 'lib/utils'
 import { HISTORICAL_EXPORT_JOB_NAME_V2 } from 'scenes/plugins/edit/interface-jobs/PluginJobConfiguration'
 import { interfaceJobsLogic, InterfaceJobsProps } from '../plugins/edit/interface-jobs/interfaceJobsLogic'
 import { dayjs } from 'lib/dayjs'
+import { userLogic } from 'scenes/userLogic'
 
 export interface AppMetricsLogicProps {
     /** Used as the logic's key */
@@ -193,6 +194,11 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             ],
         ],
 
+        shouldShowAppMetrics: [
+            () => [userLogic.selectors.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.APP_METRICS),
+        ],
+
         defaultTab: [
             (s) => [s.pluginConfig],
             () => INITIAL_TABS.filter((tab) => values.showTab(tab))[0] ?? AppMetricsTab.Activity,
@@ -225,8 +231,8 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
         ],
 
         showTab: [
-            () => [],
-            () =>
+            (s) => [s.shouldShowAppMetrics],
+            (shouldShowAppMetrics) =>
                 (tab: AppMetricsTab): boolean => {
                     if (
                         values.pluginConfigLoading ||
@@ -240,7 +246,13 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
 
                     if (tab === AppMetricsTab.Activity) {
                         return true
-                    } else if (tab === AppMetricsTab.HistoricalExports) {
+                    }
+
+                    if (!shouldShowAppMetrics) {
+                        return false
+                    }
+
+                    if (tab === AppMetricsTab.HistoricalExports) {
                         return isExportEvents
                     } else if (tab === AppMetricsTab.OnEvent && isExportEvents) {
                         // Hide onEvent tab for plugins using exportEvents

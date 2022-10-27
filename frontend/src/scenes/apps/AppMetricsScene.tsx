@@ -19,14 +19,19 @@ export const scene: SceneExport = {
 }
 
 export function AppMetrics(): JSX.Element {
-    const { activeTab, pluginConfig, pluginConfigLoading, showTab } = useValues(appMetricsSceneLogic)
+    const { activeTab, pluginConfig, pluginConfigLoading, showTab, shouldShowAppMetrics } =
+        useValues(appMetricsSceneLogic)
     const { setActiveTab } = useActions(appMetricsSceneLogic)
 
     return (
         <div>
             <PageHeader
                 title={pluginConfig ? pluginConfig.plugin_info.name : <LemonSkeleton />}
-                caption="An overview of metrics and exports for this app."
+                caption={
+                    shouldShowAppMetrics && pluginConfig
+                        ? 'An overview of metrics and exports for this app.'
+                        : undefined
+                }
             />
 
             {pluginConfigLoading || !activeTab ? (
