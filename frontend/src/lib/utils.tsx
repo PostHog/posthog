@@ -1057,7 +1057,6 @@ export function identifierToHuman(identifier: string | number, caseType: 'senten
         words.map((word) => (caseType === 'sentence' ? word : capitalizeFirstLetter(word))).join(' ')
     )
 }
-// "https://github.com/PostHog/apps/tree/main/src/packages/currency-normalization-plugin"
 
 export function parseGithubRepoURL(url: string): Record<string, string> {
     // complex url with path
