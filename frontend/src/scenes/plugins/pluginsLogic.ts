@@ -20,8 +20,6 @@ import { teamLogic } from '../teamLogic'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { urls } from 'scenes/urls'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export type PluginForm = FormInstance
 
@@ -104,9 +102,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
         savePluginOrders: (newOrders: Record<number, number>) => ({ newOrders }),
         cancelRearranging: true,
         showPluginLogs: (id: number) => ({ id }),
-        showPluginHistory: (id: number) => ({ id }),
         hidePluginLogs: true,
-        hidePluginHistory: true,
         processSearchInput: (term: string) => ({ term }),
         setSearchTerm: (term: string | null) => ({ term }),
         setPluginConfigPollTimeout: (timeout: number | null) => ({ timeout }),
@@ -430,13 +426,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 showPluginLogs: (_, { id }) => id,
             },
         ],
-        showingHistoryPluginId: [
-            null as number | null,
-            {
-                showPluginHistory: (_, { id }) => id,
-                hidePluginHistory: () => null,
-            },
-        ],
         searchTerm: [
             null as string | null,
             {
@@ -594,11 +583,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
             (lastShownLogsPluginId, installedPlugins) =>
                 lastShownLogsPluginId ? installedPlugins.find((plugin) => plugin.id === lastShownLogsPluginId) : null,
         ],
-        showingHistoryPlugin: [
-            (s) => [s.showingHistoryPluginId, s.installedPlugins],
-            (showingHistoryPluginId, installedPlugins) =>
-                showingHistoryPluginId ? installedPlugins.find((plugin) => plugin.id === showingHistoryPluginId) : null,
-        ],
         filteredUninstalledPlugins: [
             (s) => [s.searchTerm, s.uninstalledPlugins],
             (searchTerm, uninstalledPlugins) =>
@@ -680,9 +664,8 @@ export const pluginsLogic = kea<pluginsLogicType>([
             },
         ],
         shouldShowAppMetrics: [
-            () => [userLogic.selectors.hasAvailableFeature, featureFlagLogic.selectors.featureFlags],
-            (hasAvailableFeature, featureFlags) =>
-                hasAvailableFeature(AvailableFeature.APP_METRICS) && featureFlags[FEATURE_FLAGS.APP_METRICS],
+            () => [userLogic.selectors.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.APP_METRICS),
         ],
         showAppMetricsForPlugin: [
             (s) => [s.shouldShowAppMetrics],

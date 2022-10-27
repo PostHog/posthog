@@ -9,19 +9,13 @@ import { DateTime } from 'luxon'
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 
 import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
-import {
-    KAFKA_GROUPS,
-    KAFKA_PERSON_DISTINCT_ID,
-    KAFKA_PERSON_UNIQUE_ID,
-    KAFKA_PLUGIN_LOG_ENTRIES,
-} from '../../config/kafka-topics'
+import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import {
     Action,
     ActionStep,
     ClickHouseEvent,
     ClickhouseGroup,
     ClickHousePerson,
-    ClickHousePersonDistinctId,
     ClickHousePersonDistinctId2,
     Cohort,
     CohortPeople,
@@ -715,7 +709,7 @@ export class DB {
             } else {
                 // We couldn't find the data from the cache nor Postgres, so record this in a metric and in Sentry
                 this.statsd?.increment('groups_data_missing_entirely')
-                captureException(new Error('Missing groups data entirely'), { extra: { groupCacheKey } })
+                status.debug('🔍', `Could not find group data for group ${groupCacheKey} in cache or storage`)
 
                 groupColumns[propertiesColumnName] = '{}'
                 groupColumns[createdAtColumnName] = castTimestampOrNow(
@@ -976,30 +970,24 @@ export class DB {
     // PersonDistinctId
 
     public async fetchDistinctIds(person: Person, database?: Database.Postgres): Promise<PersonDistinctId[]>
-    public async fetchDistinctIds(person: Person, database: Database.ClickHouse): Promise<ClickHousePersonDistinctId[]>
+    public async fetchDistinctIds(person: Person, database: Database.ClickHouse): Promise<ClickHousePersonDistinctId2[]>
     public async fetchDistinctIds(
         person: Person,
-        database: Database.ClickHouse,
-        clichouseTable: 'person_distinct_id2'
-    ): Promise<ClickHousePersonDistinctId2[]>
-    public async fetchDistinctIds(
-        person: Person,
-        database: Database = Database.Postgres,
-        clickhouseTable = 'person_distinct_id'
-    ): Promise<PersonDistinctId[] | ClickHousePersonDistinctId[] | ClickHousePersonDistinctId2[]> {
+        database: Database = Database.Postgres
+    ): Promise<PersonDistinctId[] | ClickHousePersonDistinctId2[]> {
         if (database === Database.ClickHouse) {
             return (
                 await this.clickhouseQuery(
                     `
                         SELECT *
-                        FROM ${clickhouseTable}
+                        FROM person_distinct_id2
                         FINAL
                         WHERE person_id='${escapeClickHouseString(person.uuid)}'
                           AND team_id='${person.team_id}'
                           AND is_deleted=0
                         ORDER BY _offset`
                 )
-            ).data as ClickHousePersonDistinctId[]
+            ).data as ClickHousePersonDistinctId2[]
         } else if (database === Database.Postgres) {
             const result = await this.postgresQuery(
                 'SELECT * FROM posthog_persondistinctid WHERE person_id=$1 AND team_id=$2 ORDER BY id',
@@ -1056,21 +1044,6 @@ export class DB {
             },
         ]
 
-        if (await this.fetchWriteToPersonUniqueId()) {
-            messages.push({
-                topic: KAFKA_PERSON_UNIQUE_ID,
-                messages: [
-                    {
-                        value: JSON.stringify({
-                            ...personDistinctIdCreated,
-                            person_id: person.uuid,
-                            is_deleted: 0,
-                        }),
-                    },
-                ],
-            })
-        }
-
         return messages
     }
 
@@ -1126,19 +1099,6 @@ export class DB {
                 ],
             })
 
-            if (await this.fetchWriteToPersonUniqueId()) {
-                kafkaMessages.push({
-                    topic: KAFKA_PERSON_UNIQUE_ID,
-                    messages: [
-                        {
-                            value: JSON.stringify({ ...usefulColumns, person_id: target.uuid, is_deleted: 0 }),
-                        },
-                        {
-                            value: JSON.stringify({ ...usefulColumns, person_id: source.uuid, is_deleted: 1 }),
-                        },
-                    ],
-                })
-            }
             // Update person info cache - we want to await to make sure the Event gets the right properties
             await this.updatePersonIdCache(usefulColumns.team_id, usefulColumns.distinct_id, usefulColumns.person_id)
         }
@@ -1461,26 +1421,6 @@ export class DB {
             'fetchTeam'
         )
         return selectResult.rows[0]
-    }
-
-    public async fetchAsyncMigrationComplete(migrationName: string): Promise<boolean> {
-        const { rows } = await this.postgresQuery(
-            `
-            SELECT name
-            FROM posthog_asyncmigration
-            WHERE name = $1 AND status = 2
-            `,
-            [migrationName],
-            'fetchAsyncMigrationComplete'
-        )
-        return rows.length > 0
-    }
-
-    public async fetchWriteToPersonUniqueId(): Promise<boolean> {
-        if (this.writeToPersonUniqueId === undefined) {
-            this.writeToPersonUniqueId = !(await this.fetchAsyncMigrationComplete('0003_fill_person_distinct_id2'))
-        }
-        return this.writeToPersonUniqueId as boolean
     }
 
     /** Return the ID of the team that is used exclusively internally by the instance for storing metrics data. */

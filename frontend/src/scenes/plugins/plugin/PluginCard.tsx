@@ -88,15 +88,8 @@ export function PluginCard({
         organization_name,
     } = plugin
 
-    const {
-        editPlugin,
-        toggleEnabled,
-        installPlugin,
-        resetPluginConfigError,
-        rearrange,
-        showPluginLogs,
-        showPluginHistory,
-    } = useActions(pluginsLogic)
+    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, rearrange, showPluginLogs } =
+        useActions(pluginsLogic)
     const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer, showAppMetricsForPlugin } =
         useValues(pluginsLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -239,16 +232,19 @@ export function PluginCard({
                                             </Button>
                                         </Tooltip>
                                     ) : null}
-                                    <Tooltip title="Activity history">
-                                        <Button
-                                            className="padding-under-500"
-                                            disabled={rearranging}
-                                            onClick={() => showPluginHistory(pluginId)}
-                                            data-attr="plugin-history"
-                                        >
-                                            <ClockCircleOutlined />
-                                        </Button>
-                                    </Tooltip>
+                                    {pluginConfig?.id ? (
+                                        <Tooltip title="Activity history">
+                                            <Button
+                                                className="padding-under-500"
+                                                disabled={rearranging}
+                                                data-attr="plugin-history"
+                                            >
+                                                <Link to={urls.appActivity(pluginConfig.id)}>
+                                                    <ClockCircleOutlined />
+                                                </Link>
+                                            </Button>
+                                        </Tooltip>
+                                    ) : null}
                                     <Tooltip
                                         title={
                                             pluginConfig?.id

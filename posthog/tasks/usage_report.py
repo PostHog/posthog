@@ -7,6 +7,7 @@ from typing import (
     Dict,
     List,
     Optional,
+    Sequence,
     Tuple,
     TypedDict,
     Union,
@@ -16,36 +17,23 @@ from typing import (
 import dateutil
 import requests
 import structlog
-from celery import group
 from django.conf import settings
 from django.db import connection
-from django.db.models.manager import BaseManager
+from django.db.models import Count
 from posthoganalytics.client import Client
 from psycopg2 import sql
 from sentry_sdk import capture_exception
 
 from posthog import version_requirement
 from posthog.celery import app
+from posthog.client import sync_execute
 from posthog.cloud_utils import is_cloud
 from posthog.models import GroupTypeMapping, OrganizationMembership, User
 from posthog.models.dashboard import Dashboard
-from posthog.models.event.util import (
-    get_agg_event_count_for_teams_and_period,
-    get_event_count_for_team,
-    get_event_count_for_team_and_period,
-    get_event_count_with_groups_count_for_team_and_period,
-    get_events_count_for_team_by_client_lib,
-    get_events_count_for_team_by_event_type,
-)
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.organization import Organization
-from posthog.models.person.util import count_duplicate_distinct_ids_for_team, count_total_persons_with_multiple_ids
 from posthog.models.plugin import PluginConfig
-from posthog.models.session_recording_event.util import (
-    get_agg_recording_count_for_teams_and_period,
-    get_recording_count_for_team,
-    get_recording_count_for_team_and_period,
-)
+from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_day
 from posthog.version import VERSION
@@ -57,18 +45,16 @@ TableSizes = TypedDict("TableSizes", {"posthog_event": int, "posthog_sessionreco
 
 
 @dataclasses.dataclass
-class TeamUsageReport:
+class UsageReportCounters:
     event_count_lifetime: int
     event_count_in_period: int
     event_count_in_month: int
     event_count_with_groups_in_period: int
-    event_count_by_lib: Dict
-    event_count_by_name: Dict
+    # event_count_by_lib: Dict
+    # event_count_by_name: Dict
     # Recordings
     recording_count_in_period: int
     recording_count_total: int
-    duplicate_distinct_ids: Dict
-    multiple_ids_per_person: Dict
     # Persons and Groups
     group_types_total: int
     # person_count_total: int
@@ -83,32 +69,9 @@ class TeamUsageReport:
     ff_active_count: int
 
 
+# Instance metadata to be included in oveall report
 @dataclasses.dataclass
-class OrgUsageSummary:
-    # Events
-    event_count_lifetime: int
-    event_count_in_period: int
-    event_count_in_month: int
-    event_count_with_groups_in_period: int
-    event_count_with_groups_in_month: int
-    # Recordins
-    recording_count_in_period: int
-    recording_count_total: int
-    # Persons and groups
-    # person_count_in_period: int
-    # person_count_total: int
-    using_groups: bool
-    group_types_total: int
-    # Dashboards
-    dashboard_count: int
-    # Feature flags
-    ff_count: int
-    ff_active_count: int
-    teams: Dict[int, TeamUsageReport]
-
-
-@dataclasses.dataclass
-class OrgMetadata:
+class InstanceMetadata:
     posthog_version: str
     deployment_infrastructure: str
     realm: str
@@ -127,92 +90,41 @@ class OrgMetadata:
 
 
 @dataclasses.dataclass
-class OrgReport:
+class OrgReport(UsageReportCounters):
     date: str
-    admin_distinct_id: int
     organization_id: str
     organization_name: str
     organization_created_at: str
     organization_user_count: int
     team_count: int
+    teams: Dict[int, UsageReportCounters]
 
 
 @dataclasses.dataclass
-class OrgReportFull(OrgReport, OrgMetadata, OrgUsageSummary):
+class FullUsageReport(OrgReport, InstanceMetadata):
     pass
 
 
-def get_org_usage_report(period: Tuple[datetime, datetime], team_ids: List[int]) -> OrgUsageSummary:
-    period_start, period_end = period
-
-    org_usage_summary = OrgUsageSummary(
-        event_count_lifetime=0,
-        event_count_in_period=0,
-        event_count_in_month=0,
-        event_count_with_groups_in_period=0,
-        event_count_with_groups_in_month=0,
-        recording_count_in_period=0,
-        recording_count_total=0,
-        # person_count_in_period=0,
-        # person_count_total=0,
-        using_groups=False,
-        group_types_total=0,
-        dashboard_count=0,
-        ff_count=0,
-        ff_active_count=0,
-        teams={},
-    )
-
-    for team_id in team_ids:
-        # Dashboards
-        team_dashboards = Dashboard.objects.filter(team_id=team_id).exclude(deleted=True)
-
-        # Feature Flags
-        feature_flags = FeatureFlag.objects.filter(team_id=team_id).exclude(deleted=True)
-
-        team_report = TeamUsageReport(
-            event_count_lifetime=get_event_count_for_team(team_id),
-            event_count_in_period=get_event_count_for_team_and_period(team_id, period_start, period_end),
-            event_count_in_month=get_event_count_for_team_and_period(team_id, period_start.replace(day=1), period_end),
-            event_count_with_groups_in_period=get_event_count_with_groups_count_for_team_and_period(
-                team_id, period_start, period_end
-            ),
-            event_count_by_lib=get_events_count_for_team_by_client_lib(team_id, period_start, period_end),
-            event_count_by_name=get_events_count_for_team_by_event_type(team_id, period_start, period_end),
-            recording_count_in_period=get_recording_count_for_team_and_period(team_id, period_start, period_end),
-            recording_count_total=get_recording_count_for_team(team_id),
-            duplicate_distinct_ids=count_duplicate_distinct_ids_for_team(team_id),
-            multiple_ids_per_person=count_total_persons_with_multiple_ids(team_id),
-            group_types_total=GroupTypeMapping.objects.filter(team_id=team_id).count(),
-            # NOTE: Below is disabled until we figure out a CH query - Postgres count is far too slow
-            # person_count_total=get_person_count_for_team(team_id),
-            # person_count_in_period=get_person_count_for_team_and_period(team_id, period_start, period_end),
-            dashboard_count=team_dashboards.count(),
-            dashboard_template_count=team_dashboards.filter(creation_mode="template").count(),
-            dashboard_shared_count=team_dashboards.filter(sharingconfiguration__enabled=True).count(),
-            dashboard_tagged_count=team_dashboards.exclude(tagged_items__isnull=True).count(),
-            ff_count=feature_flags.count(),
-            ff_active_count=feature_flags.filter(active=True).count(),
-        )
-
-        # Iterate on all fields of the OrgusageSummary and add the values from the team report
-        for field in dataclasses.fields(OrgUsageSummary):
-            if hasattr(team_report, field.name):
-                setattr(
-                    org_usage_summary,
-                    field.name,
-                    getattr(org_usage_summary, field.name) + getattr(team_report, field.name),
-                )
-
-        if team_report.group_types_total > 0:
-            org_usage_summary.using_groups = True
-
-        org_usage_summary.teams[team_id] = team_report
-
-    return org_usage_summary
+def fetch_table_size(table_name: str) -> int:
+    return fetch_sql("SELECT pg_total_relation_size(%s) as size", (table_name,))[0].size
 
 
-def get_instance_metadata(period: Tuple[datetime, datetime]) -> OrgMetadata:
+def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
+    with connection.cursor() as cursor:
+        cursor.execute(sql.SQL(sql_), params)
+        return namedtuplefetchall(cursor)
+
+
+def get_product_name(realm: str, has_license: bool) -> str:
+    if realm == "cloud":
+        return "cloud"
+    elif realm in {"hosted", "hosted-clickhouse"}:
+        return "scale" if has_license else "open source"
+    else:
+        return "unknown"
+
+
+def get_instance_metadata(period: Tuple[datetime, datetime]) -> InstanceMetadata:
     has_license = False
 
     if settings.EE_AVAILABLE:
@@ -224,7 +136,7 @@ def get_instance_metadata(period: Tuple[datetime, datetime]) -> OrgMetadata:
     period_start, period_end = period
 
     realm = get_instance_realm()
-    metadata = OrgMetadata(
+    metadata = InstanceMetadata(
         posthog_version=VERSION,
         deployment_infrastructure=os.getenv("DEPLOYMENT", "unknown"),
         realm=realm,
@@ -251,8 +163,17 @@ def get_instance_metadata(period: Tuple[datetime, datetime]) -> OrgMetadata:
             {"id": user.id, "distinct_id": user.distinct_id}
             if user.anonymize_data
             else {"id": user.id, "distinct_id": user.distinct_id, "first_name": user.first_name, "email": user.email}
-            for user in User.objects.filter(is_active=True, last_login__gte=period_start)
+            for user in User.objects.filter(is_active=True, last_login__gte=period_start, last_login__lte=period_end)
         ]
+        metadata.users_who_logged_in_count = len(metadata.users_who_logged_in)
+
+        metadata.users_who_signed_up = [
+            {"id": user.id, "distinct_id": user.distinct_id}
+            if user.anonymize_data
+            else {"id": user.id, "distinct_id": user.distinct_id, "first_name": user.first_name, "email": user.email}
+            for user in User.objects.filter(is_active=True, date_joined__gte=period_start, date_joined__lte=period_end)
+        ]
+        metadata.users_who_signed_up_count = len(metadata.users_who_signed_up)
 
         metadata.table_sizes = {
             "posthog_event": fetch_table_size("posthog_event"),
@@ -269,48 +190,16 @@ def get_instance_metadata(period: Tuple[datetime, datetime]) -> OrgMetadata:
     return metadata
 
 
-def send_report_to_billing_service(organization_id: str, report: Dict) -> None:
-    if not settings.EE_AVAILABLE:
-        return
-
-    from ee.api.billing import build_billing_token
-    from ee.models.license import License
-    from ee.settings import BILLING_SERVICE_URL
-
-    license = License.objects.first_valid()
-    token = build_billing_token(license, organization_id) if license else None
-
-    headers = {}
-    if token:
-        headers = {"Authorization": f"Bearer {token}"}
-    response = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers)
-    if response.status_code != 200:
-        capture_event("billing service usage report failure", report["organization_id"], {"code": response.status_code})
-
-
-def get_product_name(realm: str, has_license: bool) -> str:
-    if realm == "cloud":
-        return "cloud"
-    elif realm in {"hosted", "hosted-clickhouse"}:
-        return "scale" if has_license else "open source"
-    else:
-        return "unknown"
-
-
-def get_org_memberships(organization_id: str) -> BaseManager:
-    return OrganizationMembership.objects.filter(organization_id=organization_id)
-
-
 def get_org_user_count(organization_id: str) -> int:
-    return get_org_memberships(organization_id=organization_id).count()
+    return OrganizationMembership.objects.filter(organization_id=organization_id).count()
 
 
 def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
     # Find the membership object for the org owner
     user = None
-    membership = (
-        get_org_memberships(organization_id=organization_id).filter(level=OrganizationMembership.Level.OWNER).first()
-    )
+    membership = OrganizationMembership.objects.filter(
+        organization_id=organization_id, level=OrganizationMembership.Level.OWNER
+    ).first()
     if not membership:
         # If no owner membership is present, pick the first membership association we can find
         membership = OrganizationMembership.objects.filter(organization_id=organization_id).first()
@@ -322,6 +211,28 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
             Exception("No user found for org while generating report"), {"org": {"organization_id": organization_id}}
         )
     return user
+
+
+def send_report_to_billing_service(organization: Organization, report: Dict) -> None:
+    if not settings.EE_AVAILABLE:
+        return
+
+    from ee.api.billing import build_billing_token
+    from ee.models.license import License
+    from ee.settings import BILLING_SERVICE_URL
+
+    license = License.objects.first_valid()
+    token = build_billing_token(license, organization) if license else None
+
+    if not license:
+        return None
+
+    headers = {}
+    if token:
+        headers = {"Authorization": f"Bearer {token}"}
+    response = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers)
+    if response.status_code != 200:
+        capture_event("billing service usage report failure", report["organization_id"], {"code": response.status_code})
 
 
 def capture_event(
@@ -351,100 +262,236 @@ def capture_event(
     phcloud_client.flush()
 
 
-def fetch_instance_params(report: Dict[str, Any]) -> dict:
-    return {
-        "site_url": settings.SITE_URL,
-        "machine_id": get_machine_id(),
-        "posthog_version": report["posthog_version"],
-        "deployment": report["deployment"],
-        "realm": report["realm"],
-        **report["org_usage_summary"],
-    }
+def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
+    result = sync_execute(
+        """
+        SELECT team_id, count(1) as count
+        FROM events
+        GROUP BY team_id
+    """
+    )
+    return result
 
 
-def fetch_table_size(table_name: str) -> int:
-    return fetch_sql("SELECT pg_total_relation_size(%s) as size", (table_name,))[0].size
+def get_teams_with_event_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
+    result = sync_execute(
+        """
+        SELECT team_id, count(1) as count
+        FROM events
+        WHERE timestamp between %(begin)s AND %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+    )
+    return result
 
 
-def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
-    with connection.cursor() as cursor:
-        cursor.execute(sql.SQL(sql_), params)
-        return namedtuplefetchall(cursor)
+def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
+    result = sync_execute(
+        """
+        SELECT team_id, count(1) as count
+        FROM events
+        WHERE timestamp between %(begin)s AND %(end)s
+        AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+    )
+    return result
 
 
-@app.task(autoretry_for=(Exception,), max_retries=3, retry_backoff=True, acks_late=True)
-def send_org_usage_report(
-    organization_id: Optional[str] = None, dry_run: bool = False, at: Optional[str] = None
-) -> Dict:
+def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> List[Tuple[int, str, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, JSONExtractString(properties, '$lib') as lib, COUNT(1) as count
+        FROM events
+        WHERE timestamp between %(begin)s AND %(end)s
+        GROUP BY lib, team_id
+    """,
+        {"begin": begin, "end": end},
+    )
+    return results
+
+
+def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[Tuple[int, str, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, event, COUNT(1) as count
+        FROM events
+        WHERE timestamp between %(begin)s AND %(end)s
+        GROUP BY event, team_id
+    """,
+        {"begin": begin, "end": end},
+    )
+    return results
+
+
+def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
+    result = sync_execute(
+        """
+        SELECT team_id, count(distinct session_id) as count
+        FROM session_recording_events
+        WHERE timestamp between %(begin)s AND %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+    )
+    return result
+
+
+def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
+    result = sync_execute(
+        """
+        SELECT team_id, count(distinct session_id) as count
+        FROM session_recording_events
+        GROUP BY team_id
+    """
+    )
+    return result
+
+
+def find_count_for_team_in_rows(team_id: int, rows: list) -> int:
+    for row in rows:
+        if "team_id" in row:
+            if row["team_id"] == team_id:
+                return row["total"]
+        elif row[0] == team_id:
+            return row[1]
+    return 0
+
+
+@app.task(ignore_result=True, retries=3)
+def send_all_org_usage_reports(dry_run: bool = False, at: Optional[str] = None) -> List[dict]:  # Dict[str, OrgReport]:
     at_date = dateutil.parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
     period_start, period_end = period
 
-    metadata = get_instance_metadata(period)
-    organization = Organization.objects.get(id=organization_id)
-    organization_id = str(organization.id)
-    teams = organization.teams.all()
-    team_ids: List[int] = [team.id for team in teams]
+    instance_metadata = get_instance_metadata(period)
 
-    try:
-        org_owner = get_org_owner_or_first_user(organization_id)
+    # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
+    all_data = dict(
+        teams_with_event_count_lifetime=get_teams_with_event_count_lifetime(),
+        teams_with_event_count_in_period=get_teams_with_event_count_in_period(period_start, period_end),
+        teams_with_event_count_in_month=get_teams_with_event_count_in_period(period_start.replace(day=1), period_end),
+        teams_with_event_count_with_groups_in_period=get_teams_with_event_count_with_groups_in_period(
+            period_start, period_end
+        ),
+        # teams_with_event_count_by_lib=get_teams_with_event_count_by_lib(period_start, period_end),
+        # teams_with_event_count_by_name=get_teams_with_event_count_by_name(period_start, period_end),
+        teams_with_recording_count_in_period=get_teams_with_recording_count_in_period(period_start, period_end),
+        teams_with_recording_count_total=get_teams_with_recording_count_total(),
+        teams_with_group_types_total=list(
+            GroupTypeMapping.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
+        ),
+        teams_with_dashboard_count=list(
+            Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
+        ),
+        teams_with_dashboard_template_count=list(
+            Dashboard.objects.filter(creation_mode="template")
+            .values("team_id")
+            .annotate(total=Count("id"))
+            .order_by("team_id")
+        ),
+        teams_with_dashboard_shared_count=list(
+            Dashboard.objects.filter(sharingconfiguration__enabled=True)
+            .values("team_id")
+            .annotate(total=Count("id"))
+            .order_by("team_id")
+        ),
+        teams_with_dashboard_tagged_count=list(
+            Dashboard.objects.filter(tagged_items__isnull=False)
+            .values("team_id")
+            .annotate(total=Count("id"))
+            .order_by("team_id")
+        ),
+        teams_with_ff_count=list(FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")),
+        teams_with_ff_active_count=list(
+            FeatureFlag.objects.filter(active=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
+        ),
+    )
 
-        if not org_owner:
-            raise Exception("No owner found for organization")
+    teams: Sequence[Team] = list(
+        Team.objects.select_related("organization").exclude(organization__for_internal_metrics=True)
+    )
 
-        logger.info("Sending usage report for organization %s ...", organization_id)
+    org_reports: Dict[str, OrgReport] = {}
+    orgs_by_id: Dict[str, Organization] = {}
 
-        distinct_id = org_owner.distinct_id
-        usage = get_org_usage_report(period, team_ids)
-
-        report = OrgReport(
-            admin_distinct_id=distinct_id,
-            organization_id=organization_id,
-            organization_name=organization.name,
-            organization_created_at=organization.created_at.isoformat(),
-            organization_user_count=get_org_user_count(organization_id),
-            team_count=len(team_ids),
-            date=period_start.strftime("%Y-%m-%d"),
+    for team in teams:
+        team_report = UsageReportCounters(
+            event_count_lifetime=find_count_for_team_in_rows(team.id, all_data["teams_with_event_count_lifetime"]),
+            event_count_in_period=find_count_for_team_in_rows(team.id, all_data["teams_with_event_count_in_period"]),
+            event_count_in_month=find_count_for_team_in_rows(team.id, all_data["teams_with_event_count_in_month"]),
+            event_count_with_groups_in_period=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_event_count_with_groups_in_period"]
+            ),
+            # event_count_by_lib: Difind_count_for_team_in_rows(team.id, all_data["teams_with_#"]),
+            # event_count_by_name: Difind_count_for_team_in_rows(team.id, all_data["teams_with_#"]),
+            recording_count_in_period=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_recording_count_in_period"]
+            ),
+            recording_count_total=find_count_for_team_in_rows(team.id, all_data["teams_with_recording_count_total"]),
+            group_types_total=find_count_for_team_in_rows(team.id, all_data["teams_with_group_types_total"]),
+            dashboard_count=find_count_for_team_in_rows(team.id, all_data["teams_with_dashboard_count"]),
+            dashboard_template_count=find_count_for_team_in_rows(
+                team.id, all_data["teams_with_dashboard_template_count"]
+            ),
+            dashboard_shared_count=find_count_for_team_in_rows(team.id, all_data["teams_with_dashboard_shared_count"]),
+            dashboard_tagged_count=find_count_for_team_in_rows(team.id, all_data["teams_with_dashboard_tagged_count"]),
+            ff_count=find_count_for_team_in_rows(team.id, all_data["teams_with_ff_count"]),
+            ff_active_count=find_count_for_team_in_rows(team.id, all_data["teams_with_ff_active_count"]),
         )
 
-        full_report = OrgReportFull(
-            **dataclasses.asdict(report),
-            **dataclasses.asdict(metadata),
-            **dataclasses.asdict(usage),
+        if team.organization.id not in org_reports:
+            orgs_by_id[team.organization.id] = team.organization
+
+            org_report = OrgReport(
+                date=period_start.strftime("%Y-%m-%d"),
+                organization_id=str(team.organization.id),
+                organization_name=team.organization.name,
+                organization_created_at=team.organization.created_at.isoformat(),
+                organization_user_count=get_org_user_count(team.organization.id),
+                team_count=1,
+                teams={team.id: team_report},
+                **dataclasses.asdict(team_report),  # Clone the team report as the basis
+            )
+            org_reports[team.organization.id] = org_report
+        else:
+            org_report = org_reports[team.organization.id]
+            org_report.teams[team.id] = team_report
+
+            # Iterate on all fields of the UsageReportCounters and add the values from the team report to the org report
+            for field in dataclasses.fields(UsageReportCounters):
+                if hasattr(team_report, field.name):
+                    setattr(
+                        org_report,
+                        field.name,
+                        getattr(org_report, field.name) + getattr(team_report, field.name),
+                    )
+
+    all_reports = []
+
+    for org_report in org_reports.values():
+        full_report = FullUsageReport(
+            **dataclasses.asdict(org_report),
+            **dataclasses.asdict(instance_metadata),
         )
         full_report_dict = dataclasses.asdict(full_report)
+        all_reports.append(full_report_dict)
 
-        if not dry_run:
-            capture_event("organization usage report", organization_id, full_report_dict, timestamp=at_date)
-            send_report_to_billing_service(organization_id, full_report_dict)
+        if dry_run:
+            continue
 
-        logger.info("Usage report for organization %s sent!", organization_id)
+        try:
+            capture_event(
+                "organization usage report", str(org_report.organization_id), full_report_dict, timestamp=at_date
+            )
+            send_report_to_billing_service(orgs_by_id[team.organization.id], full_report_dict)
+            logger.info("Usage report for organization %s sent!", org_report.organization_id)
 
-        return full_report_dict
-
-    except Exception as err:
-        logger.error("Usage report for organization %s failed!", organization_id)
-        if not dry_run:
-            # If we except we still want to capture the minimum amount of info for the Billing Service
-            minimal_report_dict = {
-                "organization_id": organization_id,
-                "date": period_start.strftime("%Y-%m-%d"),
-                "event_count_in_period": get_agg_event_count_for_teams_and_period(team_ids, period_start, period_end),
-                "recording_count_in_period": get_agg_recording_count_for_teams_and_period(
-                    team_ids, period_start, period_end
-                ),
-            }
-            send_report_to_billing_service(organization_id, minimal_report_dict)
+        except Exception as err:
+            logger.info("Usage report for organization %s failed!", org_report.organization_id)
             capture_exception(err)
-            capture_event("organization usage report failure", organization_id, {"error": str(err)})
+            capture_event("organization usage report failure", str(org_report.organization_id), {"error": str(err)})
 
-        raise err
-
-
-@app.task(ignore_result=True)
-def send_all_org_usage_reports(dry_run: bool = False, at: Optional[str] = None) -> Any:
-
-    all_orgs = Organization.objects.exclude(for_internal_metrics=True).values("id")
-    tasks = [send_org_usage_report.s(org["id"], dry_run=dry_run, at=at) for org in all_orgs]
-
-    return group(tasks).apply_async()
+    return all_reports

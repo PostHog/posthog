@@ -22,8 +22,12 @@ export function PluginImage({
         if (icon) {
             setState((state) => ({ ...state, image: icon }))
         } else if (url?.includes('github.com')) {
-            const { user, repo } = parseGithubRepoURL(url)
-            setState({ ...state, image: `https://raw.githubusercontent.com/${user}/${repo}/main/logo.png` })
+            const { user, repo, path } = parseGithubRepoURL(url)
+
+            setState({
+                ...state,
+                image: `https://raw.githubusercontent.com/${user}/${repo}/${path || 'main'}/logo.png`,
+            })
         }
     }, [url])
 
