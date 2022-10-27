@@ -19,6 +19,7 @@ import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/fun
 import { useResizeObserver } from '../../lib/hooks/useResizeObserver'
 import { getSeriesColor } from 'lib/colors'
 import { FunnelStepMore } from './FunnelStepMore'
+import { Noun } from '~/models/groupsModel'
 
 interface BarProps {
     percentage: number
@@ -31,7 +32,7 @@ interface BarProps {
     breakdownSumPercentage?: number
     popoverTitle?: string | JSX.Element | null
     popoverMetrics?: { title: string; value: number | string; visible?: boolean }[]
-    aggregationTargetLabel: { singular: string; plural: string }
+    aggregationTargetLabel: Noun
 }
 
 type LabelPosition = 'inside' | 'outside'
@@ -201,7 +202,7 @@ interface AverageTimeInspectorProps {
     onClick: (e?: React.MouseEvent) => void
     disabled?: boolean
     averageTime: number
-    aggregationTargetLabel: { singular: string; plural: string }
+    aggregationTargetLabel: Noun
 }
 
 function AverageTimeInspector({

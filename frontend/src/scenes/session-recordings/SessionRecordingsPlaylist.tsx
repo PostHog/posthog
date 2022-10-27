@@ -2,7 +2,11 @@ import { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { colonDelimitedDuration, range } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
-import { PLAYLIST_LIMIT, sessionRecordingsListLogic } from './sessionRecordingsListLogic'
+import {
+    defaultPageviewPropertyEntityFilter,
+    PLAYLIST_LIMIT,
+    sessionRecordingsListLogic,
+} from './sessionRecordingsListLogic'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import './SessionRecordingsPlaylist.scss'
 import { TZLabel } from 'lib/components/TimezoneAware'
@@ -24,38 +28,70 @@ interface SessionRecordingsTableProps {
     isPersonPage?: boolean
 }
 
+interface SessionRecordingPlaylistItemProps {
+    recording: SessionRecordingType
+    isActive: boolean
+    onClick: () => void
+    onPropertyClick: (property: string, value?: string) => void
+}
+
 const SessionRecordingPlaylistItem = ({
     recording,
     isActive,
     onClick,
-}: {
-    recording: SessionRecordingType
-    isActive: boolean
-    onClick: () => void
-}): JSX.Element => {
-    const iconClassnames = isActive ? 'text-lg text-muted-alt' : 'text-lg text-muted-alt opacity-75'
+    onPropertyClick,
+}: SessionRecordingPlaylistItemProps): JSX.Element => {
     const formattedDuration = colonDelimitedDuration(recording.recording_duration)
     const durationParts = formattedDuration.split(':')
 
     const { featureFlags } = useValues(featureFlagLogic)
 
     const listIcons = featureFlags[FEATURE_FLAGS.RECORDING_LIST_ICONS] || 'none'
+    const iconClassnames = clsx(
+        'SessionRecordingsPlaylist__list-item__property-icon text-base text-muted-alt',
+        !isActive && 'opacity-75'
+    )
+    const iconPropertyKeys = ['$browser', '$device_type', '$os', '$geoip_country_code']
+    const iconProperties = recording.properties || recording.person?.properties || {}
+
+    const indicatorRight = listIcons === 'bottom' || listIcons === 'none' || listIcons === 'middle' || !listIcons
 
     const propertyIcons = (
         <div className="flex flex-row flex-nowrap shrink-0 gap-1">
-            <PropertyIcon className={iconClassnames} property="$browser" value={recording.properties?.['$browser']} />
-            <PropertyIcon
-                className={iconClassnames}
-                property="$device_type"
-                value={recording.properties?.['$device_type']}
-            />
-            <PropertyIcon className={iconClassnames} property="$os" value={recording.properties?.['$os']} />
-            <PropertyIcon
-                className={iconClassnames}
-                property="$geoip_country_code"
-                value={recording.properties?.['$geoip_country_code']}
-            />
+            {iconPropertyKeys.map((property) => (
+                <PropertyIcon
+                    key={property}
+                    onClick={onPropertyClick}
+                    className={iconClassnames}
+                    property={property}
+                    value={iconProperties?.[property]}
+                    tooltipTitle={(_, value) => (
+                        <div className="text-center">
+                            Click to filter for
+                            <br />
+                            <span className="font-medium">{value ?? 'N/A'}</span>
+                        </div>
+                    )}
+                />
+            ))}
         </div>
+    )
+
+    const duration = (
+        <span className="flex items-center font-semibold">
+            <IconSchedule className={iconClassnames} />
+            <span>
+                <span className={clsx(durationParts[0] === '00' && 'opacity-50 font-normal')}>{durationParts[0]}:</span>
+                <span
+                    className={clsx({
+                        'opacity-50 font-normal': durationParts[0] === '00' && durationParts[1] === '00',
+                    })}
+                >
+                    {durationParts[1]}:
+                </span>
+                {durationParts[2]}
+            </span>
+        </span>
     )
 
     return (
@@ -63,60 +99,57 @@ const SessionRecordingPlaylistItem = ({
             key={recording.id}
             className={clsx(
                 'SessionRecordingsPlaylist__list-item',
-                'p-2 px-4 cursor-pointer relative overflow-hidden',
+                'flex flex-row py-2 pr-4 pl-0 cursor-pointer relative overflow-hidden',
                 isActive && 'bg-primary-highlight font-semibold',
-                !recording.viewed && listIcons !== 'none' && 'SessionRecordingsPlaylist__list-item--unwatched'
+                indicatorRight && 'pl-4'
             )}
             onClick={() => onClick()}
         >
-            <div className="flex justify-between items-center">
-                <div className="truncate font-medium text-primary ph-no-capture">{asDisplay(recording.person, 25)}</div>
+            {!indicatorRight && (
+                <div className="w-2 h-2 mx-2">
+                    {!recording.viewed ? (
+                        <Tooltip title={'Indicates the recording has not been watched yet'}>
+                            <div
+                                className="w-2 h-2 mt-2 rounded-full bg-primary-light"
+                                aria-label="unwatched-recording-label"
+                            />
+                        </Tooltip>
+                    ) : null}
+                </div>
+            )}
+            <div className="grow">
+                <div className="flex items-center justify-between">
+                    <div className="truncate font-medium text-primary ph-no-capture">
+                        {asDisplay(recording.person, 25)}
+                    </div>
 
-                {listIcons === 'top' && propertyIcons}
-                {!recording.viewed && (
-                    <>
-                        {listIcons === 'none' ? (
-                            <Tooltip title={'Indicates the recording has not been watched yet'}>
-                                <div
-                                    className="w-2 h-2 rounded bg-primary-light"
-                                    aria-label="unwatched-recording-label"
-                                />
-                            </Tooltip>
-                        ) : (
-                            <Tooltip title={'Indicates the recording has not been watched yet'}>
-                                <div
-                                    className="absolute top-0 right-0 w-3 h-3 bg-transparent z-10"
-                                    aria-label="unwatched-recording-label"
-                                />
-                            </Tooltip>
-                        )}
-                    </>
-                )}
-            </div>
+                    <div className="flex-1" />
 
-            <div className="flex justify-between items-center gap-2">
-                <TZLabel
-                    className="overflow-hidden text-ellipsis"
-                    time={recording.start_time}
-                    formatDate="MMMM DD, YYYY"
-                    formatTime="h:mm A"
-                />
-                <div className="flex items-center gap-2">
-                    {listIcons === 'bottom' && propertyIcons}
-                    <span className="flex items-center font-normal">
-                        <IconSchedule className={iconClassnames} />
-                        <span>
-                            <span className={clsx(durationParts[0] === '00' && 'opacity-50')}>{durationParts[0]}:</span>
-                            <span
-                                className={clsx({
-                                    'opacity-50': durationParts[0] === '00' && durationParts[1] === '00',
-                                })}
-                            >
-                                {durationParts[1]}:
-                            </span>
-                            {durationParts[2]}
-                        </span>
-                    </span>
+                    {listIcons === 'top-right' && propertyIcons}
+                    {listIcons === 'bottom-right' && duration}
+                    {indicatorRight && !recording.viewed && (
+                        <Tooltip title={'Indicates the recording has not been watched yet'}>
+                            <div
+                                className="w-2 h-2 rounded-full bg-primary-light"
+                                aria-label="unwatched-recording-label"
+                            />
+                        </Tooltip>
+                    )}
+                </div>
+
+                {listIcons === 'middle' && <div>{propertyIcons}</div>}
+
+                <div className="flex items-center justify-between">
+                    <TZLabel
+                        className="overflow-hidden text-ellipsis"
+                        time={recording.start_time}
+                        formatDate="MMMM DD, YYYY"
+                        formatTime="h:mm A"
+                    />
+                    <div className="flex items-center gap-2 flex-1 justify-end">
+                        {listIcons === 'bottom' && propertyIcons}
+                        {listIcons !== 'bottom-right' ? duration : propertyIcons}
+                    </div>
                 </div>
             </div>
         </li>
@@ -124,10 +157,18 @@ const SessionRecordingPlaylistItem = ({
 }
 
 export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTableProps): JSX.Element {
-    const logic = sessionRecordingsListLogic({ personUUID })
-    const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev, activeSessionRecording, offset } =
-        useValues(logic)
-    const { setSelectedRecordingId, loadNext, loadPrev } = useActions(logic)
+    const logicProps = { personUUID }
+    const logic = sessionRecordingsListLogic(logicProps)
+    const {
+        sessionRecordings,
+        sessionRecordingsResponseLoading,
+        hasNext,
+        hasPrev,
+        activeSessionRecording,
+        offset,
+        entityFilters,
+    } = useValues(logic)
+    const { setSelectedRecordingId, loadNext, loadPrev, setEntityFilters } = useActions(logic)
     const playlistRef = useRef<HTMLDivElement>(null)
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
@@ -142,6 +183,10 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                 behavior: 'smooth',
             })
         }
+    }
+
+    const onPropertyClick = (property: string, value?: string): void => {
+        setEntityFilters(defaultPageviewPropertyEntityFilter(entityFilters, property, value))
     }
 
     const nextLength = offset + (sessionRecordingsResponseLoading ? PLAYLIST_LIMIT : sessionRecordings.length)
@@ -206,6 +251,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                                         key={rec.id}
                                         recording={rec}
                                         onClick={() => onRecordingClick(rec)}
+                                        onPropertyClick={onPropertyClick}
                                         isActive={activeSessionRecording?.id === rec.id}
                                     />
                                 </>

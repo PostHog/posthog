@@ -34,10 +34,10 @@ jobs:
                 working-directory: 'plugin-server'
 
         steps:
-            - uses: actions/checkout@v1
+            - uses: actions/checkout@v3
 
             - name: Set up Node 16
-              uses: actions/setup-node@v1
+              uses: actions/setup-node@v3
               with:
                   node-version: 16
 
@@ -67,7 +67,7 @@ jobs:
 
         steps:
             - name: Code check out
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
 
             - name: Stop/Start stack with Docker Compose
               run: |
@@ -78,11 +78,11 @@ jobs:
               run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
             - name: Set up Python
-              uses: actions/setup-python@v2
+              uses: actions/setup-python@v4
               with:
                   python-version: 3.8.14
 
-            - uses: syphar/restore-virtualenv@v1.2
+            - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
                   custom_cache_key_element: v1-
@@ -97,15 +97,15 @@ jobs:
                   python -m pip install -r requirements.txt
 
             - name: Set up Node 16
-              uses: actions/setup-node@v2
+              uses: actions/setup-node@v3
               with:
                   node-version: 16
 
             - name: Get yarn cache directory path
               id: yarn-cache-dir-path
-              run: echo "::set-output name=dir::$(yarn config get cacheFolder)"
+              run: echo "dir=$(yarn config get cacheFolder)" >> $GITHUB_OUTPUT
 
-            - uses: actions/cache@v2
+            - uses: actions/cache@v3
               id: yarn-cache
               with:
                   path: |
@@ -148,7 +148,7 @@ jobs:
 
         steps:
             - name: Code check out
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
 
             - name: Stop/Start stack with Docker Compose
               run: |
@@ -159,11 +159,11 @@ jobs:
               run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
             - name: Set up Python
-              uses: actions/setup-python@v2
+              uses: actions/setup-python@v4
               with:
                   python-version: 3.8.14
 
-            - uses: syphar/restore-virtualenv@v1.2
+            - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
                   custom_cache_key_element: v1-
@@ -178,15 +178,15 @@ jobs:
                   python -m pip install -r requirements.txt
 
             - name: Set up Node 16
-              uses: actions/setup-node@v2
+              uses: actions/setup-node@v3
               with:
                   node-version: 16
 
             - name: Get yarn cache directory path
               id: yarn-cache-dir-path
-              run: echo "::set-output name=dir::$(yarn config get cacheFolder)"
+              run: echo "dir=$(yarn config get cacheFolder)" >> $GITHUB_OUTPUT
 
-            - uses: actions/cache@v2
+            - uses: actions/cache@v3
               id: yarn-cache
               with:
                   path: |
@@ -221,7 +221,7 @@ jobs:
                   cd plugin-server && yarn functional_tests --maxConcurrency=1 --coverage
 
             - name: Uploader
-              uses: actions/upload-artifact@v2
+              uses: actions/upload-artifact@v3
               with:
                   name: functional-coverage
                   if-no-files-found: warn
