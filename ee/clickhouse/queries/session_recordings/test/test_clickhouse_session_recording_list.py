@@ -22,13 +22,13 @@ from posthog.test.base import (
 
 class TestClickhouseSessionRecordingsList(
     ClickhouseTestMixin,
-    factory_session_recordings_list_test(
+    factory_session_recordings_list_test(  # type: ignore
         SessionRecordingList, _create_event, Action.objects.create, ActionStep.objects.create
     ),
-    factory_session_recordings_properties_test(
+    factory_session_recordings_properties_test(  # type: ignore
         SessionRecordingProperties, _create_event, Action.objects.create, ActionStep.objects.create
     ),
-):  # type: ignore
+):
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
     @test_with_materialized_columns(person_properties=["email"])

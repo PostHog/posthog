@@ -12,13 +12,6 @@ def factory_session_recordings_properties_test(
     session_recording_properties, event_factory, action_factory, action_step_factory
 ):
     class TestSessionRecordingsList(BaseTest):
-        def create_action(self, name, team_id=None, properties=[]):
-            if team_id is None:
-                team_id = self.team.pk
-            action = action_factory(team_id=team_id, name=name)
-            action_step_factory(action=action, event=name, properties=properties)
-            return action
-
         def create_event(
             self,
             distinct_id,
@@ -66,7 +59,7 @@ def factory_session_recordings_properties_test(
                 properties=event_props,
             )
 
-            filter = SessionRecordingsFilter(team=self.team)
+            filter = SessionRecordingsFilter(team=self.team, data={"no_filter": None})
             session_recording_properties_instance = session_recording_properties(
                 filter=filter, team=self.team, session_ids=["1"]
             )
