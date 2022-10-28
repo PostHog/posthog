@@ -455,21 +455,6 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(Plugin.objects.count(), 1)
         self.assertEqual(mock_reload.call_count, 1)
 
-    def test_create_plugin_with_icon(self, mock_get, mock_reload):
-        self.assertEqual(mock_reload.call_count, 0)
-        response = self.client.post(
-            "/api/organizations/@current/plugins/",
-            {
-                "url": "https://github.com/PostHog/helloworldplugin",
-                "icon": "https://raw.githubusercontent.com/PostHog/helloworldplugin/main/logo.png",
-            },
-        )
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(
-            response.json()["icon"], "https://raw.githubusercontent.com/PostHog/helloworldplugin/main/logo.png"
-        )
-        self.assertEqual(mock_reload.call_count, 1)
-
     def test_create_plugin_version_range_eq_current(self, mock_get, mock_reload):
         with self.is_cloud(False):
             response = self.client.post(
