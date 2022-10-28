@@ -15,6 +15,7 @@ export type BridgePageProps = {
     noLogo?: boolean
     sideLogo?: boolean
     message?: React.ReactNode
+    showSelfHostCta?: boolean
     fixedWidth?: boolean
 }
 
@@ -29,6 +30,7 @@ export function BridgePage({
     noLogo = false,
     sideLogo = false,
     fixedWidth = true,
+    showSelfHostCta = false,
 }: BridgePageProps): JSX.Element {
     const [messageShowing, setMessageShowing] = useState(false)
 
@@ -54,6 +56,23 @@ export function BridgePage({
                                 <div className="BridgePage__art__message">{message}</div>
                             </CSSTransition>
                         ) : null}
+
+                        {showSelfHostCta && (
+                            <div
+                                style={{
+                                    border: '1px solid var(--border)',
+                                    borderRadius: 'var(--radius)',
+                                    padding: '1rem',
+                                    marginTop: '2rem',
+                                    textAlign: 'center',
+                                }}
+                            >
+                                Interested in self-hosting PostHog?&nbsp;
+                                <a href="https://license.posthog.com">
+                                    <strong>Get a license key</strong>
+                                </a>
+                            </div>
+                        )}
                     </div>
                 ) : null}
                 <div className="BridgePage__content-wrapper">
