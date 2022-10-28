@@ -70,10 +70,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
     actions({
         editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
-        installPlugin: (pluginUrl: string, pluginType: PluginInstallationType) => ({
-            pluginUrl,
-            pluginType,
-        }),
+        installPlugin: (pluginUrl: string, pluginType: PluginInstallationType) => ({ pluginUrl, pluginType }),
         uninstallPlugin: (name: string) => ({ name }),
         setCustomPluginUrl: (customPluginUrl: string) => ({ customPluginUrl }),
         setLocalPluginUrl: (localPluginUrl: string) => ({ localPluginUrl }),
