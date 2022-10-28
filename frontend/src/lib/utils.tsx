@@ -850,7 +850,7 @@ export function dateFilterToText(
     if (isDate.test(dateFrom || '') && !isDate.test(dateTo || '')) {
         const days = dayjs().diff(dayjs(dateFrom), 'days')
         if (days > 366) {
-            return isDateFormatted ? `${dateFrom} - Today` : formatDateRange(dayjs(dateFrom), dayjs())
+            return isDateFormatted ? `${dateFrom} - today` : formatDateRange(dayjs(dateFrom), dayjs())
         } else if (days > 0) {
             return isDateFormatted ? formatDateRange(dayjs(dateFrom), dayjs()) : `Last ${days} days`
         } else if (days === 0) {
