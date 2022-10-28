@@ -248,7 +248,7 @@ def capture_event(
         org_owner = get_org_owner_or_first_user(organization_id)
         distinct_id = org_owner.distinct_id if org_owner and org_owner.distinct_id else f"org-{organization_id}"
         pha_client.capture(
-            distinct_id,  # type: ignore
+            distinct_id,
             name,
             {**properties, "scope": "user"},
             groups={"organization": organization_id, "instance": settings.SITE_URL},
