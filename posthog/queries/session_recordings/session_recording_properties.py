@@ -36,7 +36,7 @@ class SessionRecordingProperties(EventQuery):
     # First $pageview event in a recording is used to extract metadata (brower, location, etc.) without
     # having to return all events.
     _core_single_pageview_event_query = """
-         SELECT DISTINCT ON (session_id)
+         SELECT
             $session_id as session_id,
             any(properties) as properties
          FROM events
