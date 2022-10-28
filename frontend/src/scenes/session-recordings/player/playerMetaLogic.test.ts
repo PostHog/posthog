@@ -7,8 +7,8 @@ import recordingMetaJson from '../__mocks__/recording_meta.json'
 import recordingEventsJson from '../__mocks__/recording_events.json'
 import recordingSnapshotsJson from '../__mocks__/recording_snapshots.json'
 import { useMocks } from '~/mocks/jest'
-import { sessionRecordingsListLogic } from '../sessionRecordingsListLogic'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { sessionRecordingsListLogic } from '../playlist/sessionRecordingsListLogic'
 
 const playerProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
