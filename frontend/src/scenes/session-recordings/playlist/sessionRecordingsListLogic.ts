@@ -17,7 +17,7 @@ import type { sessionRecordingsListLogicType } from './sessionRecordingsListLogi
 import { router } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
-import { teamLogic } from '../teamLogic'
+import { teamLogic } from '../../teamLogic'
 import { dayjs } from 'lib/dayjs'
 
 export type PersonUUID = string
@@ -138,7 +138,7 @@ export interface SessionRecordingTableLogicProps {
 }
 
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
-    path: (key) => ['scenes', 'session-recordings', 'sessionRecordingsListLogic', key],
+    path: (key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsListLogic', key],
     props: {} as SessionRecordingTableLogicProps,
     key: (props) => `${props.key || props.personUUID || 'global'}`,
     connect: {
