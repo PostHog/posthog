@@ -5,7 +5,6 @@ from posthog.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity
 from posthog.models.action.util import format_entity_filter
-from posthog.models.event.util import parse_properties
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.utils import PersonPropertiesMode
@@ -28,15 +27,6 @@ class SessionRecordingQueryResult(NamedTuple):
 class SessionRecordingList(EventQuery):
     _filter: SessionRecordingsFilter
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
-    SESSION_RECORDING_PROPERTIES_METADATA_ALLOWLIST = {
-        "$os",
-        "$browser",
-        "$device_type",
-        "$current_url",
-        "$host",
-        "$pathname",
-        "$geoip_country_code",
-    }
 
     _core_events_query = """
         SELECT
@@ -53,20 +43,6 @@ class SessionRecordingList(EventQuery):
             team_id = %(team_id)s
             {event_filter_where_conditions}
             {events_timestamp_clause}
-    """
-
-    # First $pageview event in a recording is used to extract metadata (brower, location, etc.) without
-    # having to return all events.
-    _core_single_pageview_event_query = """
-         SELECT
-            $session_id as pageview_session_id,
-            any(properties) as pageview_properties
-         FROM events
-         PREWHERE
-             team_id = %(team_id)s
-             AND event IN ['$pageview']
-             {events_timestamp_clause}
-             GROUP BY pageview_session_id
     """
 
     _event_and_recording_match_conditions_clause = """
@@ -115,8 +91,7 @@ class SessionRecordingList(EventQuery):
         any(session_recordings.start_time) as start_time,
         any(session_recordings.end_time) as end_time,
         any(session_recordings.duration) as duration,
-        any(session_recordings.distinct_id) as distinct_id,
-        any(first_pageview_event.pageview_properties) as first_pageview_event_properties
+        any(session_recordings.distinct_id) as distinct_id
         {event_filter_aggregate_select_clause}
     FROM (
         {core_events_query}
@@ -125,15 +100,7 @@ class SessionRecordingList(EventQuery):
         {core_recordings_query}
     ) AS session_recordings
     ON session_recordings.distinct_id = events.distinct_id
-    LEFT OUTER JOIN (
-        {core_single_pageview_event_query}
-    ) AS first_pageview_event
-    ON session_recordings.session_id = first_pageview_event.pageview_session_id
-    JOIN (
-        {person_distinct_id_query}
-    ) as pdi
-    ON pdi.distinct_id = session_recordings.distinct_id
-    {person_query}
+    {recording_person_query}
     WHERE
         {event_and_recording_match_comditions_clause}
         {prop_filter_clause}
@@ -151,20 +118,11 @@ class SessionRecordingList(EventQuery):
         any(session_recordings.start_time) as start_time,
         any(session_recordings.end_time) as end_time,
         any(session_recordings.duration) as duration,
-        any(session_recordings.distinct_id) as distinct_id,
-        any(first_pageview_event.pageview_properties) as first_pageview_event_properties
+        any(session_recordings.distinct_id) as distinct_id
     FROM (
         {core_recordings_query}
     ) AS session_recordings
-    LEFT OUTER JOIN (
-        {core_single_pageview_event_query}
-    ) AS first_pageview_event
-    ON session_recordings.session_id = first_pageview_event.pageview_session_id
-    JOIN (
-        {person_distinct_id_query}
-    ) as pdi
-    ON pdi.distinct_id = session_recordings.distinct_id
-    {person_query}
+    {recording_person_query}
     WHERE 1 = 1
         {prop_filter_clause}
         {person_id_clause}
@@ -246,6 +204,22 @@ class SessionRecordingList(EventQuery):
             duration_params = {"recording_duration": self._filter.recording_duration_filter.value}
         return duration_clause, duration_params
 
+    def _get_recording_person_query(self) -> Tuple[str, Dict]:
+        person_query, person_query_params = self._get_person_query()
+        person_distinct_id_query = get_team_distinct_ids_query(self._team_id)
+        if person_query:
+            return (
+                f"""
+                    JOIN (
+                    {person_distinct_id_query}
+                    ) as pdi
+                    ON pdi.distinct_id = session_recordings.distinct_id
+                    {person_query}
+                """,
+                person_query_params,
+            )
+        return person_query, person_query_params
+
     def format_event_filter(self, entity: Entity, prepend: str, team_id: int) -> Tuple[str, Dict[str, Any]]:
         filter_sql, params = format_entity_filter(
             team_id=team_id,
@@ -304,7 +278,7 @@ class SessionRecordingList(EventQuery):
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         offset = self._filter.offset or 0
         base_params = {"team_id": self._team_id, "limit": self.limit + 1, "offset": offset}
-        person_query, person_query_params = self._get_person_query()
+        recording_person_query, recording_person_query_params = self._get_recording_person_query()
 
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
@@ -321,24 +295,19 @@ class SessionRecordingList(EventQuery):
             duration_clause=duration_clause,
             events_timestamp_clause=events_timestamp_clause,
         )
-        core_single_pageview_event_query = self._core_single_pageview_event_query.format(
-            events_timestamp_clause=events_timestamp_clause,
-        )
 
         if not self._determine_should_join_events():
             return (
                 self._session_recordings_query.format(
                     core_recordings_query=core_recordings_query,
-                    core_single_pageview_event_query=core_single_pageview_event_query,
-                    person_distinct_id_query=get_team_distinct_ids_query(self._team_id),
-                    person_query=person_query,
+                    recording_person_query=recording_person_query,
                     prop_filter_clause=prop_query,
                     person_id_clause=person_id_clause,
                 ),
                 {
                     **base_params,
                     **person_id_params,
-                    **person_query_params,
+                    **recording_person_query_params,
                     **prop_params,
                     **events_timestamp_params,
                     **duration_params,
@@ -359,9 +328,7 @@ class SessionRecordingList(EventQuery):
                 event_filter_aggregate_select_clause=event_filters.aggregate_select_clause,
                 core_events_query=core_events_query,
                 core_recordings_query=core_recordings_query,
-                core_single_pageview_event_query=core_single_pageview_event_query,
-                person_distinct_id_query=get_team_distinct_ids_query(self._team_id),
-                person_query=person_query,
+                recording_person_query=recording_person_query,
                 event_and_recording_match_comditions_clause=self._event_and_recording_match_conditions_clause,
                 prop_filter_clause=prop_query,
                 person_id_clause=person_id_clause,
@@ -370,7 +337,7 @@ class SessionRecordingList(EventQuery):
             {
                 **base_params,
                 **person_id_params,
-                **person_query_params,
+                **recording_person_query_params,
                 **prop_params,
                 **events_timestamp_params,
                 **duration_params,
@@ -391,16 +358,13 @@ class SessionRecordingList(EventQuery):
         return [
             {
                 **dict(zip(default_columns, row[: len(default_columns)])),
-                "properties": parse_properties(
-                    row[len(default_columns)], self.SESSION_RECORDING_PROPERTIES_METADATA_ALLOWLIST
-                ),
                 "matching_events": [
                     {
                         "events": [
                             dict(zip(["timestamp", "uuid", "session_id", "window_id"], event)) for event in row[i + 1]
                         ]
                     }
-                    for i in range(len(default_columns) + 1, len(row), 2)
+                    for i in range(len(default_columns), len(row), 2)
                 ],
             }
             for row in results
