@@ -146,7 +146,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
         values: [teamLogic, ['currentTeamId']],
         actions: [
             eventUsageLogic,
-            ['reportRecordingsListFetched', 'reportRecordingsListMetaDataFetched', 'reportRecordingsListFilterAdded'],
+            ['reportRecordingsListFetched', 'reportRecordingsListPropertiesFetched', 'reportRecordingsListFilterAdded'],
         ],
     },
     actions: {
@@ -217,7 +217,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
                     const response = await api.recordings.listProperties(params)
                     const loadTimeMs = performance.now() - startTime
 
-                    actions.reportRecordingsListMetaDataFetched(loadTimeMs)
+                    actions.reportRecordingsListPropertiesFetched(loadTimeMs)
 
                     breakpoint()
                     return response

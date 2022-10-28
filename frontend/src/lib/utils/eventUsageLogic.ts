@@ -368,7 +368,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
         reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
         reportRecordingsListFetched: (loadTime: number) => ({ loadTime }),
-        reportRecordingsListMetaDataFetched: (loadTime: number) => ({ loadTime }),
+        reportRecordingsListPropertiesFetched: (loadTime: number) => ({ loadTime }),
         reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => ({ filterType }),
         reportRecordingPlayerSeekbarEventHovered: true,
         reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
@@ -942,7 +942,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingsListFetched: ({ loadTime }) => {
             posthog.capture('recording list fetched', { load_time: loadTime })
         },
-        reportRecordingsListMetaDataFetched: ({ loadTime }) => {
+        reportRecordingsListPropertiesFetched: ({ loadTime }) => {
             posthog.capture('recording list metadata fetched', { load_time: loadTime })
         },
         reportRecordingPlayerSeekbarEventHovered: () => {
