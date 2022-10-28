@@ -9,9 +9,12 @@ import { IconSchedule } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TimezoneAware'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 interface SessionRecordingPlaylistItemProps {
     recording: SessionRecordingType
+    recordingProperties?: Record<string, any> // Loaded and rendered later
+    recordingPropertiesLoading: boolean
     isActive: boolean
     onClick: () => void
     onPropertyClick: (property: string, value?: string) => void
@@ -22,6 +25,8 @@ export function SessionRecordingPlaylistItem({
     isActive,
     onClick,
     onPropertyClick,
+    recordingProperties,
+    recordingPropertiesLoading,
 }: SessionRecordingPlaylistItemProps): JSX.Element {
     const formattedDuration = colonDelimitedDuration(recording.recording_duration)
     const durationParts = formattedDuration.split(':')
@@ -34,34 +39,41 @@ export function SessionRecordingPlaylistItem({
         !isActive && 'opacity-75'
     )
     const iconPropertyKeys = ['$browser', '$device_type', '$os', '$geoip_country_code']
-    const iconProperties = recording.properties || recording.person?.properties || {}
+    const iconProperties =
+        recordingProperties && Object.keys(recordingProperties).length > 0
+            ? recordingProperties
+            : recording.person?.properties || {}
 
     const indicatorRight = listIcons === 'bottom' || listIcons === 'none' || listIcons === 'middle' || !listIcons
 
     const propertyIcons = (
         <div className="flex flex-row flex-nowrap shrink-0 gap-1">
-            {iconPropertyKeys.map((property) => {
-                const value =
-                    property === '$device_type'
-                        ? iconProperties?.['$device_type'] || iconProperties?.['$initial_device_type']
-                        : iconProperties?.[property]
-                return (
-                    <PropertyIcon
-                        key={property}
-                        onClick={onPropertyClick}
-                        className={iconClassnames}
-                        property={property}
-                        value={value}
-                        tooltipTitle={(_, value) => (
-                            <div className="text-center">
-                                Click to filter for
-                                <br />
-                                <span className="font-medium">{value ?? 'N/A'}</span>
-                            </div>
-                        )}
-                    />
-                )
-            })}
+            {!recordingPropertiesLoading ? (
+                iconPropertyKeys.map((property) => {
+                    const value =
+                        property === '$device_type'
+                            ? iconProperties?.['$device_type'] || iconProperties?.['$initial_device_type']
+                            : iconProperties?.[property]
+                    return (
+                        <PropertyIcon
+                            key={property}
+                            onClick={onPropertyClick}
+                            className={iconClassnames}
+                            property={property}
+                            value={value}
+                            tooltipTitle={(_, value) => (
+                                <div className="text-center">
+                                    Click to filter for
+                                    <br />
+                                    <span className="font-medium">{value ?? 'N/A'}</span>
+                                </div>
+                            )}
+                        />
+                    )
+                })
+            ) : (
+                <LemonSkeleton className="w-16 py-1" />
+            )}
         </div>
     )
 
