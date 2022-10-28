@@ -9,8 +9,8 @@ def update_app_urls_and_icons(apps, schema_edirtor):
             icon = plugin_map[plugin.url][1]
             plugin.icon = icon
             plugin.url = url
-            plugin.tag = "0.0.3"
-            plugin.latest_tag = "0.0.3"
+            plugin.tag = "0.0.6"
+            plugin.latest_tag = "0.0.6"
             plugin.save()
 
 
@@ -80,6 +80,10 @@ plugin_map = {
     "https://github.com/PostHog/customerio-plugin": [
         "https://www.npmjs.com/package/@posthog/customerio-plugin",
         "https://raw.githubusercontent.com/PostHog/apps/main/packages/customerio-plugin/logo.png",
+    ],
+    "https://github.com/PostHog/posthog-laudspeaker-app": [
+        "https://www.npmjs.com/package/@posthog/laudspeaker-plugin",
+        "https://raw.githubusercontent.com/PostHog/apps/main/packages/posthog-laduspeaker-app/logo.png",
     ],
     "https://github.com/PostHog/sendgrid-plugin": [
         "https://www.npmjs.com/package/@posthog/sendgrid-plugin",
