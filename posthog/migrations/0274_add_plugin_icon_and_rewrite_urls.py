@@ -11,7 +11,7 @@ def update_app_urls_and_icons(apps, schema_edirtor):
             plugin.url = url
             plugin.tag = "0.0.7"
             plugin.latest_tag = "0.0.7"
-            plugin.save()
+            plugin.save(update_fields=["icon", "url", "tag", "latest_tag"])
 
 
 # Because of the nature of this migration, there's no way to reverse it without potentially destroying customer data
