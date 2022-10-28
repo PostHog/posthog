@@ -9,8 +9,8 @@ def update_app_urls_and_icons(apps, schema_edirtor):
             icon = plugin_map[plugin.url][1]
             plugin.icon = icon
             plugin.url = url
-            plugin.tag = "0.0.6"
-            plugin.latest_tag = "0.0.6"
+            plugin.tag = "0.0.7"
+            plugin.latest_tag = "0.0.7"
             plugin.save()
 
 
