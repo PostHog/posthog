@@ -8,9 +8,7 @@ import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { useMemo, useState } from 'react'
 import { FilterType, ItemMode } from '~/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useActions } from 'kea'
 import { PureField } from 'lib/forms/Field'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { useDebouncedCallback } from 'use-debounce'
@@ -28,7 +26,6 @@ const aggregationDisplayMap = aggregationAxisFormatSelectOptions.reduce((acc, op
 }, {})
 
 export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { reportAxisUnitsChanged } = useActions(eventUsageLogic)
     const [isVisible, setIsVisible] = useState(false)
     const [localAxisFormat, setLocalAxisFormat] = useState(filters.aggregation_axis_format || undefined)
@@ -127,25 +124,23 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
                                     {label}
                                 </LemonButton>
                             ))}
-                            {!!featureFlags[FEATURE_FLAGS.CURRENCY_UNITS] && (
-                                <>
-                                    <LemonDivider />
-                                    <PureField label={'prefix:'}>
-                                        <LemonInput
-                                            value={localAxisPrefix}
-                                            onChange={(prefix) => handleChange({ prefix })}
-                                            onPressEnter={(prefix) => handleChange({ prefix, close: true })}
-                                        />
-                                    </PureField>
-                                    <PureField label={'postfix:'}>
-                                        <LemonInput
-                                            value={localAxisPostfix}
-                                            onChange={(postfix) => handleChange({ postfix })}
-                                            onPressEnter={(postfix) => handleChange({ postfix, close: true })}
-                                        />
-                                    </PureField>
-                                </>
-                            )}
+                            <>
+                                <LemonDivider />
+                                <PureField label={'prefix:'}>
+                                    <LemonInput
+                                        value={localAxisPrefix}
+                                        onChange={(prefix) => handleChange({ prefix })}
+                                        onPressEnter={(prefix) => handleChange({ prefix, close: true })}
+                                    />
+                                </PureField>
+                                <PureField label={'postfix:'}>
+                                    <LemonInput
+                                        value={localAxisPostfix}
+                                        onChange={(postfix) => handleChange({ postfix })}
+                                        onPressEnter={(postfix) => handleChange({ postfix, close: true })}
+                                    />
+                                </PureField>
+                            </>
                         </>
                     ),
                     placement: 'bottom-start',
