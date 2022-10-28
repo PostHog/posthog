@@ -74,7 +74,7 @@ plugin_map = {
         "https://raw.githubusercontent.com/PostHog/apps/main/packages/posthog-plugin-replicator/logo.png",
     ],
     "https://www.npmjs.com/package/@posthog/schema-enforcer-plugin": [
-        "https://www.npmjs.com/package/@posthog/schema-enforcer-plugin",
+        "https://www.npmjs.com/package/@posthog/schema-enforcer-app",
         "https://raw.githubusercontent.com/PostHog/apps/main/packages/schema-enforcer-plugin/logo.png",
     ],
     "https://github.com/PostHog/customerio-plugin": [
@@ -110,7 +110,7 @@ plugin_map = {
         "https://raw.githubusercontent.com/PostHog/apps/main/packages/snowflake-export-plugin/logo.png",
     ],
     "https://www.npmjs.com/package/useragent-plugin": [
-        "https://www.npmjs.com/package/@posthog/useragent-plugin",
+        "https://www.npmjs.com/package/@posthog/user-agent-plugin",
         "https://raw.githubusercontent.com/PostHog/apps/main/packages/useragentplugin/logo.png",
     ],
     "https://github.com/PostHog/timestamp-parser-plugin": [
