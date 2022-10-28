@@ -302,6 +302,24 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
         return response.Response({"success": True}, status=201)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("key", OpenApiTypes.STR, description="Specify the property key", required=True),
+            OpenApiParameter("value", OpenApiTypes.ANY, description="Specify the property value", required=True),
+        ]
+    )
+    @action(methods=["POST"], detail=True)
+    def update_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
+        self._set_properties({request.data["key"]: request.data["value"]}, request.user)
+        return Response(status=204)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "$unset", OpenApiTypes.STR, description="Specify the property key to delete", required=True
+            ),
+        ]
+    )
     @action(methods=["POST"], detail=True)
     def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
@@ -372,6 +390,15 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         return activity_page_response(activity_page, limit, page, request)
 
     def update(self, request, *args, **kwargs):
+        """
+        Only for setting properties on the person. "properties" from the request data will be updated via a "$set" event.
+        This means that only the properties listed will be updated, but other properties won't be removed nor updated.
+        If you would like to remove a property use the `delete_property` endpoint.
+        """
+        self._set_properties(request.data["properties"], request.user)
+        return Response(status=204)
+
+    def _set_properties(self, properties, user):
         instance = self.get_object()
         capture_internal(
             distinct_id=instance.distinct_ids[0],
@@ -382,7 +409,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             sent_at=None,
             event={
                 "event": "$set",
-                "properties": {"$set": request.data["properties"]},
+                "properties": {"$set": properties},
                 "distinct_id": instance.distinct_ids[0],
                 "timestamp": datetime.now().isoformat(),
             },
@@ -391,14 +418,12 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
-            user=request.user,
+            user=user,
             item_id=instance.pk,
             scope="Person",
             activity="updated",
             detail=Detail(changes=[Change(type="Person", action="changed", field="properties")]),
         )
-
-        return Response(status=204)
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
     def _respond_with_cached_results(self, results_package: Dict[str, Tuple[List, Optional[str], Optional[str], int]]):

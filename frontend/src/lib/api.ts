@@ -667,6 +667,27 @@ const api = {
         async update(id: number, person: Partial<PersonType>): Promise<PersonType> {
             return new ApiRequest().person(id).update({ data: person })
         },
+        async updateProperty(id: number, property: string, value: any): Promise<void> {
+            return new ApiRequest()
+                .person(id)
+                .withAction('update_property')
+                .create({
+                    data: {
+                        key: property,
+                        value: value,
+                    },
+                })
+        },
+        async deleteProperty(id: number, property: string): Promise<void> {
+            return new ApiRequest()
+                .person(id)
+                .withAction('delete_property')
+                .create({
+                    data: {
+                        $unset: property,
+                    },
+                })
+        },
         async list(params: PersonListParams = {}): Promise<PaginatedResponse<PersonType>> {
             return await new ApiRequest().persons().withQueryString(toParams(params)).get()
         },
