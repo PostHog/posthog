@@ -208,7 +208,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
                         }
                     }
                     const paramsDict = {
-                        include_metadata_for_recordings: values.sessionRecordingsResponse.results.map(({ id }) => id),
+                        session_ids: values.sessionRecordingsResponse.results.map(({ id }) => id).join(','),
                     }
                     const params = toParams(paramsDict)
                     await breakpoint(100) // Debounce for lots of quick filter changes

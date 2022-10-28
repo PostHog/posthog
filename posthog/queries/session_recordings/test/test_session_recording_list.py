@@ -7,7 +7,7 @@ from freezegun.api import freeze_time
 from posthog.models import Person, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.session_recordings.test.test_factory import create_snapshot
-from posthog.test.base import BaseTest, test_with_materialized_columns
+from posthog.test.base import BaseTest, snapshot_clickhouse_queries, test_with_materialized_columns
 
 
 def factory_session_recordings_list_test(session_recording_list, event_factory, action_factory, action_step_factory):
@@ -70,6 +70,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(more_recordings_available, False)
 
         @freeze_time("2021-01-21T20:00:00.000Z")
+        @snapshot_clickhouse_queries
         def test_metadata_list(self):
             Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
             create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)

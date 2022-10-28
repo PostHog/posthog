@@ -58,8 +58,7 @@ class SessionRecordingList(EventQuery):
     # First $pageview event in a recording is used to extract metadata (brower, location, etc.) without
     # having to return all events.
     _core_single_pageview_event_query = """
-         SELECT DISTINCT ON (session_id)
-            $session_id as session_id,
+         SELECT $session_id as session_id,
             any(properties) as properties
          FROM events
          PREWHERE
@@ -267,9 +266,8 @@ class SessionRecordingList(EventQuery):
 
         return filter_sql, params
 
-    def format_session_recording_id_filters(self) -> Tuple[str, Dict]:
+    def format_session_recording_id_filters(self, session_ids: List[str]) -> Tuple[str, Dict]:
         where_conditions = "AND session_id IN %(session_ids)s"
-        session_ids: List[str] = self._filter.include_metadata_for_recordings
         return where_conditions, {"session_ids": list(session_ids)}
 
     def format_event_filters(self) -> EventFiltersSQL:
@@ -376,10 +374,11 @@ class SessionRecordingList(EventQuery):
             },
         )
 
-    def get_metadata_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_metadata_query(self, session_ids: List[str]) -> Tuple[str, Dict[str, Any]]:
         base_params = {"team_id": self._team_id}
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause()
-        session_ids_clause, session_ids_params = self.format_session_recording_id_filters()
+
+        session_ids_clause, session_ids_params = self.format_session_recording_id_filters(session_ids)
 
         return (
             self._core_single_pageview_event_query.format(
@@ -427,8 +426,8 @@ class SessionRecordingList(EventQuery):
         session_recordings = self._data_to_return(query_results)
         return self._paginate_results(session_recordings)
 
-    def get_metadata(self, *args, **kwargs) -> List:
-        query, query_params = self.get_metadata_query()
+    def get_metadata(self, session_ids: List[str]) -> List:
+        query, query_params = self.get_metadata_query(session_ids)
         query_results = sync_execute(query, query_params)
         session_recording_metadata = self._data_to_return_metadata(query_results)
         return session_recording_metadata

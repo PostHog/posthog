@@ -10,6 +10,7 @@ from rest_framework.response import Response
 
 from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.client import sync_execute
 from posthog.models import Filter, PersonDistinctId
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person import Person
@@ -52,7 +53,7 @@ class SessionRecordingSerializer(serializers.Serializer):
         }
 
 
-class SessionRecordingMetaDataSerializer(serializers.Serializer):
+class SessionRecordingPropertiesSerializer(serializers.Serializer):
     session_id = serializers.CharField()
     properties = serializers.DictField(required=False)
 
@@ -71,7 +72,25 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         return SessionRecordingList(filter=filter, team=self.team).run()
 
     def _get_session_recording_list_meta_data(self, filter):
-        return SessionRecordingList(filter=filter, team=self.team).get_metadata()
+        session_ids = self.request.GET.get("session_ids", "").split(",")
+
+        # NOTE: this is just an example pseudo code @alex
+        query = """
+            SELECT $session_id as session_id,
+                any(properties) as properties
+            FROM events
+            PREWHERE
+                team_id = %(team_id)s
+                AND event IN ['$pageview']
+                AND session_id IN %(session_ids)s
+                {events_timestamp_clause}
+                GROUP BY session_id
+        """
+
+        query, query_params = self.get_metadata_query(session_ids)
+        query_results = sync_execute(query, query_params)
+
+        return SessionRecordingList(filter=filter, team=self.team).get_metadata(session_ids)
 
     def _get_session_recording_snapshots(
         self, request, session_recording_id, limit, offset, recording_start_time: Optional[datetime]
@@ -215,16 +234,16 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             }
         )
 
-    # Returns metadata given a list of session recording ids
+    # Returns properties given a list of session recording ids
     @action(methods=["GET"], detail=False)
-    def metadata(self, request: request.Request, **kwargs):
+    def properties(self, request: request.Request, **kwargs):
         filter = SessionRecordingsFilter(request=request)
         session_recordings_metadata = self._get_session_recording_list_meta_data(filter)
 
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
 
-        session_recording_serializer = SessionRecordingMetaDataSerializer(data=session_recordings_metadata, many=True)
+        session_recording_serializer = SessionRecordingPropertiesSerializer(data=session_recordings_metadata, many=True)
 
         session_recording_serializer.is_valid(raise_exception=True)
 
