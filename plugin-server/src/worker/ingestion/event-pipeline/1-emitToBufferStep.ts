@@ -27,7 +27,7 @@ export async function emitToBufferStep(
     if (shouldBuffer(runner.hub, event, person, event.team_id)) {
         const processEventAt = Date.now() + runner.hub.BUFFER_CONVERSION_SECONDS * 1000
         status.debug('🔁', 'Emitting event to buffer', {
-            event,
+            eventId: event.uuid,
             processEventAt,
             conversionBufferTopicEnabledTeams: runner.hub.conversionBufferTopicEnabledTeams,
         })

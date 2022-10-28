@@ -77,7 +77,9 @@ export const startAnonymousEventBufferConsumer = async ({
                 jobKey: message.headers.eventId.toString(), // Ensure we don't create duplicates
             }
 
-            status.debug('⬆️', 'Enqueuing anonymous event for processing', { job })
+            status.debug('⬆️', 'Enqueuing anonymous event for processing', {
+                eventId: message.headers.eventId.toString(),
+            })
             try {
                 await graphileWorker.enqueue(JobName.BUFFER_JOB, job, {
                     key: 'team_id',
