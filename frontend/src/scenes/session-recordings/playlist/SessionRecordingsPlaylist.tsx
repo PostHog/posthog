@@ -28,9 +28,9 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
     const logic = sessionRecordingsListLogic(logicProps)
     const {
         sessionRecordings,
-        sessionRecordingIdToMetaData,
+        sessionRecordingIdToProperties,
         sessionRecordingsResponseLoading,
-        sessionRecordingsMetaDataResponseLoading,
+        sessionRecordingsPropertiesResponseLoading,
         hasNext,
         hasPrev,
         activeSessionRecording,
@@ -119,8 +119,8 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                                     <SessionRecordingPlaylistItem
                                         key={rec.id}
                                         recording={rec}
-                                        recordingProperties={sessionRecordingIdToMetaData[rec.id]}
-                                        recordingPropertiesLoading={sessionRecordingsMetaDataResponseLoading}
+                                        recordingProperties={sessionRecordingIdToProperties[rec.id]}
+                                        recordingPropertiesLoading={sessionRecordingsPropertiesResponseLoading}
                                         onClick={() => onRecordingClick(rec)}
                                         onPropertyClick={onPropertyClick}
                                         isActive={activeSessionRecording?.id === rec.id}

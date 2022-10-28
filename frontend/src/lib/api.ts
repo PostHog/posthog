@@ -27,7 +27,7 @@ import {
     UserType,
     MediaUploadResponse,
     SessionRecordingsResponse,
-    SessionRecordingMetaDataType,
+    SessionRecordingPropertiesType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -808,7 +808,7 @@ const api = {
         async list(params: string): Promise<SessionRecordingsResponse> {
             return await new ApiRequest().recordings().withQueryString(params).get()
         },
-        async listProperties(params: string): Promise<PaginatedResponse<SessionRecordingMetaDataType>> {
+        async listProperties(params: string): Promise<PaginatedResponse<SessionRecordingPropertiesType>> {
             return await new ApiRequest().recordings().withAction('properties').withQueryString(params).get()
         },
     },

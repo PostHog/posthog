@@ -777,7 +777,7 @@ export interface SessionRecordingType {
     person?: PersonType
 }
 
-export interface SessionRecordingMetaDataType {
+export interface SessionRecordingPropertiesType {
     id: string
     properties?: Record<string, any>
 }

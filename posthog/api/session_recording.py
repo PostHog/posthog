@@ -224,12 +224,14 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         session_ids = [
             recording_id for recording_id in json.loads(self.request.GET.get("session_ids", "[]")) if recording_id
         ]
-        session_recordings_metadata = self._get_session_recording_list_properties(filter, session_ids)
+        session_recordings_properties = self._get_session_recording_list_properties(filter, session_ids)
 
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
 
-        session_recording_serializer = SessionRecordingPropertiesSerializer(data=session_recordings_metadata, many=True)
+        session_recording_serializer = SessionRecordingPropertiesSerializer(
+            data=session_recordings_properties, many=True
+        )
 
         session_recording_serializer.is_valid(raise_exception=True)
 

@@ -97,5 +97,5 @@ class SessionRecordingProperties(EventQuery):
     def run(self) -> List:
         query, query_params = self.get_query()
         query_results = sync_execute(query, query_params)
-        session_recording_metadata = self._data_to_return(query_results)
-        return session_recording_metadata
+        session_recording_properties = self._data_to_return(query_results)
+        return session_recording_properties

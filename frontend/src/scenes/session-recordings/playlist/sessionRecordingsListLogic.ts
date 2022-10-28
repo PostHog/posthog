@@ -10,7 +10,7 @@ import {
     RecordingDurationFilter,
     RecordingFilters,
     SessionRecordingId,
-    SessionRecordingMetaDataType,
+    SessionRecordingPropertiesType,
     SessionRecordingsResponse,
     SessionRecordingType,
 } from '~/types'
@@ -196,12 +196,12 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
                 },
             },
         ],
-        sessionRecordingsMetaDataResponse: [
+        sessionRecordingsPropertiesResponse: [
             {
                 results: [],
-            } as PaginatedResponse<SessionRecordingMetaDataType>,
+            } as PaginatedResponse<SessionRecordingPropertiesType>,
             {
-                getSessionRecordingsMetaData: async (_, breakpoint) => {
+                getSessionRecordingsProperties: async (_, breakpoint) => {
                     if (values.sessionRecordingsResponse.results.length < 1) {
                         return {
                             results: [],
@@ -328,14 +328,16 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             actions.getSessionRecordings()
         },
         getSessionRecordingsSuccess: () => {
-            actions.getSessionRecordingsMetaData({})
+            actions.getSessionRecordingsProperties({})
         },
     }),
     selectors: {
-        sessionRecordingIdToMetaData: [
-            (s) => [s.sessionRecordingsMetaDataResponse],
-            (metaDataResponse: PaginatedResponse<SessionRecordingMetaDataType>) => {
-                return Object.fromEntries(metaDataResponse.results.map(({ id, properties }) => [id, properties])) ?? {}
+        sessionRecordingIdToProperties: [
+            (s) => [s.sessionRecordingsPropertiesResponse],
+            (propertiesResponse: PaginatedResponse<SessionRecordingPropertiesType>) => {
+                return (
+                    Object.fromEntries(propertiesResponse.results.map(({ id, properties }) => [id, properties])) ?? {}
+                )
             },
         ],
         activeSessionRecording: [
