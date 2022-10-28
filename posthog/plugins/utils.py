@@ -145,7 +145,7 @@ def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Opti
             details = requests.get("https://registry.npmjs.org/{}/latest".format(parsed["pkg"]), headers=headers).json()
             parsed["tag"] = details["version"]
         except Exception:
-            raise Exception("Could not get latest version for: {}".format(parsed["url"]))
+            raise Exception("Could not get latest version for: {}".format(url))
     if parsed["tag"]:
         parsed["tagged_url"] = "https://www.npmjs.com/package/{}/v/{}{}".format(
             parsed["pkg"], parsed["tag"], "?private_token={}".format(private_token) if private_token else ""

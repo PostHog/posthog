@@ -362,6 +362,7 @@ class TestPluginAPI(APIBaseTest):
                 "name": "helloworldplugin",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "url": "https://github.com/PostHog/helloworldplugin",
+                "icon": None,
                 "config_schema": {
                     "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False}
                 },
@@ -400,6 +401,7 @@ class TestPluginAPI(APIBaseTest):
                 "name": "helloworldplugin",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "url": f"https://github.com/PostHog/helloworldplugin/commit/{HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}",
+                "icon": None,
                 "config_schema": {
                     "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False}
                 },
@@ -435,6 +437,7 @@ class TestPluginAPI(APIBaseTest):
                 "name": "helloworldplugin",
                 "description": "Greet the World and Foo a Bar, JS edition, vol 2!",
                 "url": f"https://github.com/PostHog/helloworldplugin/commit/{HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0]}",
+                "icon": None,
                 "config_schema": {
                     "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False},
                     "foodb": {"name": "Upload your database", "type": "attachment", "required": False},
@@ -594,6 +597,7 @@ class TestPluginAPI(APIBaseTest):
                 "url": None,
                 "config_schema": {},
                 "tag": None,
+                "icon": None,
                 "latest_tag": None,
                 "is_global": False,
                 "organization_id": response.json()["organization_id"],
@@ -661,6 +665,7 @@ class TestPluginAPI(APIBaseTest):
                     "name": "posthog-currency-normalization-plugin",
                     "url": "https://github.com/posthog/posthog-currency-normalization-plugin",
                     "description": "Normalise monerary values into a base currency",
+                    "icon": "https://raw.githubusercontent.com/posthog/posthog-currency-normalization-plugin/main/logo.png",
                     "verified": False,
                     "maintainer": "official",
                 },
@@ -668,6 +673,7 @@ class TestPluginAPI(APIBaseTest):
                     "name": "helloworldplugin",
                     "url": "https://github.com/posthog/helloworldplugin",
                     "description": "Greet the World and Foo a Bar",
+                    "icon": "https://raw.githubusercontent.com/posthog/helloworldplugin/main/logo.png",
                     "verified": True,
                     "maintainer": "community",
                 },

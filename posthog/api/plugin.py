@@ -195,6 +195,7 @@ class PluginSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "url",
+            "icon",
             "config_schema",
             "tag",
             "latest_tag",
@@ -285,7 +286,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def repository(self, request: request.Request, **kwargs):
-        url = "https://raw.githubusercontent.com/PostHog/integrations-repository/main/plugins.json"
+        url = "https://raw.githubusercontent.com/PostHog/apps/main/repository.json"
         plugins = requests.get(url)
         return Response(json.loads(plugins.text))
 
