@@ -738,7 +738,7 @@ export const dateMapping: DateMappingOption[] = [
     },
     {
         key: 'Yesterday',
-        values: ['-1d'],
+        values: ['-1dStart', 'dStart'],
         getFormattedDate: (date: dayjs.Dayjs): string => date.subtract(1, 'd').format(DATE_FORMAT),
         defaultInterval: 'hour',
     },
@@ -789,7 +789,6 @@ export const dateMapping: DateMappingOption[] = [
         key: 'This month',
         values: ['mStart'],
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('m'), date.endOf('d')),
-        inactive: true,
         defaultInterval: 'day',
     },
     {
