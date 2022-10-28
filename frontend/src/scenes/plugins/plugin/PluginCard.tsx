@@ -280,9 +280,7 @@ export function PluginCard({
                                     loading={loading && installingPluginUrl === url}
                                     disabled={loading && installingPluginUrl !== url}
                                     onClick={
-                                        url
-                                            ? () => installPlugin(url, PluginInstallationType.Repository, icon)
-                                            : undefined
+                                        url ? () => installPlugin(url, PluginInstallationType.Repository) : undefined
                                     }
                                     icon={<CloudDownloadOutlined />}
                                     data-attr="plugin-install"
