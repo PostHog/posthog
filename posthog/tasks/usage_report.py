@@ -244,11 +244,11 @@ def capture_event(
     properties: Dict[str, Any],
     timestamp: Optional[datetime] = None,
 ) -> None:
-
     if is_cloud():
         org_owner = get_org_owner_or_first_user(organization_id)
+        distinct_id = org_owner.distinct_id if org_owner else f"org-{organization_id}"
         pha_client.capture(
-            org_owner.distinct_id,  # type: ignore
+            distinct_id,  # type: ignore
             name,
             {**properties, "scope": "user"},
             groups={"organization": organization_id, "instance": settings.SITE_URL},

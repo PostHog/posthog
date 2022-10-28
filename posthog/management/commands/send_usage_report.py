@@ -21,13 +21,13 @@ class Command(BaseCommand):
 
         results = send_all_org_usage_reports(dry_run, date, event_name)
 
-        if dry_run:
-            if options["print_reports"]:
-                print("")  # noqa T201
-                pprint.pprint(results)  # noqa T203
-                print("")  # noqa T201
+        if options["print_reports"]:
+            print("")  # noqa T201
+            pprint.pprint(results)  # noqa T203
+            print("")  # noqa T201
 
-            print(f"{len(results)} Reports sent!")  # noqa T201
+        if dry_run:
             print("Dry run so not sent.")  # noqa T201
         else:
+            print(f"{len(results)} Reports sent!")  # noqa T201
             print("Done!")  # noqa T201
