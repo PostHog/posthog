@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { sessionRecordingsListLogic } from '../sessionRecordingsListLogic'
+import { sessionRecordingsListLogic } from '../playlist/sessionRecordingsListLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'

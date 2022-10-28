@@ -23,10 +23,11 @@ CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
  * We also flush the queue regularly to avoid dropping any messages as the program quits.
  */
 export class KafkaProducerWrapper {
-    /** Kafka producer used for syncing Postgres and ClickHouse person data. */
-    private producer: Producer
     /** StatsD instance used to do instrumentation */
     private statsd: StatsD | undefined
+
+    /** Kafka producer used for syncing Postgres and ClickHouse person data. */
+    producer: Producer
 
     lastFlushTime: number
     currentBatch: Array<ProducerRecord>

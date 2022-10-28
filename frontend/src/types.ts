@@ -775,6 +775,10 @@ export interface SessionRecordingType {
     distinct_id?: string
     email?: string
     person?: PersonType
+}
+
+export interface SessionRecordingPropertiesType {
+    id: string
     properties?: Record<string, any>
 }
 
@@ -989,6 +993,7 @@ export interface PluginType {
     description?: string
     url?: string
     tag?: string
+    icon?: string
     latest_tag?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string

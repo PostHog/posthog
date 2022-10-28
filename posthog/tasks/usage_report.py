@@ -232,34 +232,38 @@ def send_report_to_billing_service(organization: Organization, report: Dict) -> 
         headers = {"Authorization": f"Bearer {token}"}
     response = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers)
     if response.status_code != 200:
-        capture_event("billing service usage report failure", report["organization_id"], {"code": response.status_code})
+        raise Exception(
+            f"Failed to send usage report to billing service code:{response.status_code} response:{response.text}"
+        )
 
 
 def capture_event(
-    name: str, organization_id: str, properties: Dict[str, Any], timestamp: Optional[datetime] = None
+    pha_client: Client,
+    name: str,
+    organization_id: str,
+    properties: Dict[str, Any],
+    timestamp: Optional[datetime] = None,
 ) -> None:
-    phcloud_client = Client("sTMFPsFhdP1Ssg")
     if is_cloud():
         org_owner = get_org_owner_or_first_user(organization_id)
-        phcloud_client.capture(
-            org_owner.distinct_id,  # type: ignore
+        distinct_id = org_owner.distinct_id if org_owner and org_owner.distinct_id else f"org-{organization_id}"
+        pha_client.capture(
+            distinct_id,
             name,
             {**properties, "scope": "user"},
             groups={"organization": organization_id, "instance": settings.SITE_URL},
             timestamp=timestamp,
         )
-        phcloud_client.group_identify("organization", organization_id, properties)
+        pha_client.group_identify("organization", organization_id, properties)
     else:
-        phcloud_client.capture(
+        pha_client.capture(
             get_machine_id(),
             name,
             {**properties, "scope": "machine"},
             groups={"instance": settings.SITE_URL},
             timestamp=timestamp,
         )
-        phcloud_client.group_identify("instance", settings.SITE_URL, properties)
-
-    phcloud_client.flush()
+        pha_client.group_identify("instance", settings.SITE_URL, properties)
 
 
 def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
@@ -361,7 +365,12 @@ def find_count_for_team_in_rows(team_id: int, rows: list) -> int:
 
 
 @app.task(ignore_result=True, retries=3)
-def send_all_org_usage_reports(dry_run: bool = False, at: Optional[str] = None) -> List[dict]:  # Dict[str, OrgReport]:
+def send_all_org_usage_reports(
+    dry_run: bool = False, at: Optional[str] = None, capture_event_name: Optional[str] = None
+) -> List[dict]:  # Dict[str, OrgReport]:
+    pha_client = Client("sTMFPsFhdP1Ssg")
+    capture_event_name = capture_event_name or "organization usage report"
+
     at_date = dateutil.parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
     period_start, period_end = period
@@ -482,16 +491,28 @@ def send_all_org_usage_reports(dry_run: bool = False, at: Optional[str] = None) 
         if dry_run:
             continue
 
-        try:
-            capture_event(
-                "organization usage report", str(org_report.organization_id), full_report_dict, timestamp=at_date
-            )
-            send_report_to_billing_service(orgs_by_id[team.organization.id], full_report_dict)
-            logger.info("Usage report for organization %s sent!", org_report.organization_id)
+        org_id = str(org_report.organization_id)
 
+        # First capture the events to PostHog
+        try:
+            capture_event(pha_client, capture_event_name, org_id, full_report_dict, timestamp=at_date)
+            logger.info(f"UsageReport sent to PostHog for organization {org_id}")
         except Exception as err:
-            logger.info("Usage report for organization %s failed!", org_report.organization_id)
+            logger.error(
+                f"UsageReport sent to PostHog for organization {org_id} failed: {str(err)}",
+            )
             capture_exception(err)
-            capture_event("organization usage report failure", str(org_report.organization_id), {"error": str(err)})
+            capture_event(pha_client, f"{capture_event_name} failure", org_id, {"error": str(err)})
+
+        # Then capture the events to Billing
+        try:
+            send_report_to_billing_service(orgs_by_id[team.organization.id], full_report_dict)
+            logger.info(f"UsageReport sent to Billing for organization {org_id}")
+        except Exception as err:
+            logger.error(f"UsageReport sent to Billing for organization {org_id} failed: {err}")
+            capture_exception(err)
+            capture_event(pha_client, f"{capture_event_name} to billing service failure", org_id, {"err": str(err)})
+
+    pha_client.flush()
 
     return all_reports

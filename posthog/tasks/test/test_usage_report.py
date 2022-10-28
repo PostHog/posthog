@@ -504,8 +504,8 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         send_all_org_usage_reports(dry_run=False)
         mock_posthog.capture.assert_any_call(
             get_machine_id(),
-            "billing service usage report failure",
-            {"code": 404, "scope": "machine"},
+            "organization usage report to billing service failure",
+            {"err": ANY, "scope": "machine"},
             groups={"instance": ANY},
             timestamp=None,
         )

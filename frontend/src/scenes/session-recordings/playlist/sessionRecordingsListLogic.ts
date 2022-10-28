@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
     AnyPropertyFilter,
@@ -10,6 +10,7 @@ import {
     RecordingDurationFilter,
     RecordingFilters,
     SessionRecordingId,
+    SessionRecordingPropertiesType,
     SessionRecordingsResponse,
     SessionRecordingType,
 } from '~/types'
@@ -17,7 +18,7 @@ import type { sessionRecordingsListLogicType } from './sessionRecordingsListLogi
 import { router } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
-import { teamLogic } from '../teamLogic'
+import { teamLogic } from '../../teamLogic'
 import { dayjs } from 'lib/dayjs'
 
 export type PersonUUID = string
@@ -138,12 +139,15 @@ export interface SessionRecordingTableLogicProps {
 }
 
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
-    path: (key) => ['scenes', 'session-recordings', 'sessionRecordingsListLogic', key],
+    path: (key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsListLogic', key],
     props: {} as SessionRecordingTableLogicProps,
     key: (props) => `${props.key || props.personUUID || 'global'}`,
     connect: {
         values: [teamLogic, ['currentTeamId']],
-        actions: [eventUsageLogic, ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded']],
+        actions: [
+            eventUsageLogic,
+            ['reportRecordingsListFetched', 'reportRecordingsListPropertiesFetched', 'reportRecordingsListFilterAdded'],
+        ],
     },
     actions: {
         getSessionRecordings: true,
@@ -182,10 +186,38 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
                     await breakpoint(100) // Debounce for lots of quick filter changes
 
                     const startTime = performance.now()
-                    const response = await api.get(`api/projects/${values.currentTeamId}/session_recordings?${params}`)
+                    const response = await api.recordings.list(params)
                     const loadTimeMs = performance.now() - startTime
 
                     actions.reportRecordingsListFetched(loadTimeMs)
+
+                    breakpoint()
+                    return response
+                },
+            },
+        ],
+        sessionRecordingsPropertiesResponse: [
+            {
+                results: [],
+            } as PaginatedResponse<SessionRecordingPropertiesType>,
+            {
+                getSessionRecordingsProperties: async (_, breakpoint) => {
+                    if (values.sessionRecordingsResponse.results.length < 1) {
+                        return {
+                            results: [],
+                        }
+                    }
+                    const paramsDict = {
+                        session_ids: values.sessionRecordingsResponse.results.map(({ id }) => id),
+                    }
+                    const params = toParams(paramsDict)
+                    await breakpoint(100) // Debounce for lots of quick filter changes
+
+                    const startTime = performance.now()
+                    const response = await api.recordings.listProperties(params)
+                    const loadTimeMs = performance.now() - startTime
+
+                    actions.reportRecordingsListPropertiesFetched(loadTimeMs)
 
                     breakpoint()
                     return response
@@ -295,8 +327,19 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
         loadPrev: () => {
             actions.getSessionRecordings()
         },
+        getSessionRecordingsSuccess: () => {
+            actions.getSessionRecordingsProperties({})
+        },
     }),
     selectors: {
+        sessionRecordingIdToProperties: [
+            (s) => [s.sessionRecordingsPropertiesResponse],
+            (propertiesResponse: PaginatedResponse<SessionRecordingPropertiesType>) => {
+                return (
+                    Object.fromEntries(propertiesResponse.results.map(({ id, properties }) => [id, properties])) ?? {}
+                )
+            },
+        ],
         activeSessionRecording: [
             (s) => [s.selectedRecordingId, s.sessionRecordings],
             (selectedRecordingId, sessionRecordings): Partial<SessionRecordingType> | undefined => {

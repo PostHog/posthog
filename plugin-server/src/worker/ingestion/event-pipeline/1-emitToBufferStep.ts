@@ -27,7 +27,7 @@ export async function emitToBufferStep(
     if (shouldBuffer(runner.hub, event, person, event.team_id)) {
         const processEventAt = Date.now() + runner.hub.BUFFER_CONVERSION_SECONDS * 1000
         status.debug('🔁', 'Emitting event to buffer', {
-            event,
+            eventId: event.uuid,
             processEventAt,
             conversionBufferTopicEnabledTeams: runner.hub.conversionBufferTopicEnabledTeams,
         })
@@ -108,6 +108,12 @@ export function shouldSendEventToBuffer(
     person: IngestionPersonData | undefined,
     teamId: TeamId
 ): boolean {
+    // Libraries by default create a unique id for this `type-name_value` for $groupidentify,
+    // we don't want to buffer these to make group properties available asap
+    // identify and alias are identical and could merge the person - the sooner we update the person_id the better
+    const isIdentifyingEvent =
+        event.event == '$groupidentify' || event.event == '$identify' || event.event == `$create_alias`
+
     const isAnonymousEvent =
         event.properties && event.properties['$device_id'] && event.distinct_id === event.properties['$device_id']
 
@@ -118,7 +124,8 @@ export function shouldSendEventToBuffer(
     const isMobileLibrary =
         !!event.properties &&
         ['posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'].includes(event.properties['$lib'])
-    const sendToBuffer = !isMobileLibrary && !person && !isAnonymousEvent && event.event !== '$identify'
+
+    const sendToBuffer = !isMobileLibrary && !person && !isAnonymousEvent && !isIdentifyingEvent
 
     if (sendToBuffer) {
         hub.statsd?.increment('conversion_events_buffer_size', { teamId: event.team_id.toString() })

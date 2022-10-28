@@ -1,7 +1,8 @@
 import ClickHouse from '@posthog/clickhouse'
 import Redis from 'ioredis'
-import { Kafka, Partitioners, Producer } from 'kafkajs'
+import { Consumer, Kafka, KafkaMessage, Partitioners, Producer } from 'kafkajs'
 import { Pool } from 'pg'
+import { v4 as uuidv4 } from 'uuid'
 
 import { defaultConfig } from '../src/config/config'
 import { ONE_HOUR } from '../src/config/constants'
@@ -382,7 +383,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
     describe(`plugin jobs (${pluginServer.name})`, () => {
         const indexJs = `    
-            export function onEvent (event) {
+            export function onEvent (event, { jobs }) {
                 console.info(JSON.stringify(['onEvent', event]))
                 jobs.runMeAsync().runNow()
             }
@@ -467,6 +468,68 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
             expect(runNow.length).toBeGreaterThan(0)
         }, 120000)
+    })
+
+    describe(`jobs-consumer (${pluginServer.name})`, () => {
+        // Test out some error cases that we wouldn't be able to handle without
+        // producing to the jobs queue directly.
+
+        let dlq: KafkaMessage[]
+        let dlqConsumer: Consumer
+
+        beforeAll(async () => {
+            dlq = []
+            dlqConsumer = kafka.consumer({ groupId: 'jobs-consumer-test' })
+            await dlqConsumer.subscribe({ topic: 'jobs_dlq_test' })
+            await dlqConsumer.run({
+                eachMessage: ({ message }) => {
+                    dlq.push(message)
+                    return Promise.resolve()
+                },
+            })
+        })
+
+        afterAll(async () => {
+            await dlqConsumer.disconnect()
+        })
+
+        test('handles empty messages', async () => {
+            const key = uuidv4()
+
+            await producer.send({
+                topic: 'jobs_test',
+                messages: [
+                    {
+                        key: key,
+                        value: null,
+                    },
+                ],
+            })
+
+            const messages = await delayUntilEventIngested(() =>
+                dlq.filter((message) => message.key?.toString() === key)
+            )
+            expect(messages.length).toBe(1)
+        })
+
+        test('handles invalid JSON', async () => {
+            const key = uuidv4()
+
+            await producer.send({
+                topic: 'jobs_test',
+                messages: [
+                    {
+                        key: key,
+                        value: 'invalid json',
+                    },
+                ],
+            })
+
+            const messages = await delayUntilEventIngested(() =>
+                dlq.filter((message) => message.key?.toString() === key)
+            )
+            expect(messages.length).toBe(1)
+        })
     })
 })
 
