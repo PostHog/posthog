@@ -3,6 +3,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/2-pluginsProcessEventStep'
 import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
 import { runProcessEvent } from '../../../../src/worker/plugins/run'
+import { createTaskRunner } from '../../../../src/worker/worker'
 
 jest.mock('../../../../src/worker/plugins/run')
 
@@ -20,17 +21,24 @@ const pluginEvent: PluginEvent = {
 
 describe('pluginsProcessEventStep()', () => {
     let runner: any
+    let taskRunner: any
+    let hub: any
     let personContainer: any
 
     beforeEach(() => {
+        hub = {
+            statsd: {
+                increment: jest.fn(),
+                timing: jest.fn(),
+            },
+        }
+        taskRunner = createTaskRunner(hub)
         runner = {
             nextStep: (...args: any[]) => args,
-            hub: {
-                statsd: {
-                    increment: jest.fn(),
-                    timing: jest.fn(),
-                },
+            piscina: {
+                run: ({ task, args }: { task: string; args: any }) => taskRunner({ task, args }),
             },
+            hub: hub,
         }
         personContainer = new LazyPersonContainer(2, 'my_id', runner.hub)
     })

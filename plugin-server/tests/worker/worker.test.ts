@@ -63,12 +63,12 @@ describe('worker', () => {
     `
         await resetTestDatabase(testCode)
         const piscina = setupPiscina(workerThreads, 10)
+        const [hub, closeHub] = await createHub()
 
         const runEveryDay = (pluginConfigId: number) => piscina.run({ task: 'runEveryDay', args: { pluginConfigId } })
         const ingestEvent = async (event: PluginEvent) => {
-            const result = await piscina.run({ task: 'runEventPipeline', args: { event } })
-            const resultEvent = result.args[0]
-            return { ...result, event: resultEvent }
+            const result = await (new EventPipelineRunner(hub, piscina, event)).runEventPipeline(event)
+            return { ...result, event: result.args[0] }
         }
 
         const pluginSchedule = await loadPluginSchedule(piscina)
@@ -127,7 +127,7 @@ describe('worker', () => {
 
         try {
             await piscina.destroy()
-        } catch {}
+        } catch { }
     })
 
     describe('createTaskRunner()', () => {
@@ -147,40 +147,6 @@ describe('worker', () => {
             hub.pluginSchedule = { runEveryDay: [66] }
 
             expect(await taskRunner({ task: 'getPluginSchedule' })).toEqual(hub.pluginSchedule)
-        })
-
-        it('handles `runEventPipeline` tasks', async () => {
-            const spy = jest
-                .spyOn(EventPipelineRunner.prototype, 'runEventPipeline')
-                .mockResolvedValue('runEventPipeline result' as any)
-            const event = createEvent()
-
-            expect(await taskRunner({ task: 'runEventPipeline', args: { event } })).toEqual('runEventPipeline result')
-
-            expect(spy).toHaveBeenCalledWith(event)
-        })
-
-        it('handles `runBufferEventPipeline` tasks', async () => {
-            const spy = jest
-                .spyOn(EventPipelineRunner.prototype, 'runBufferEventPipeline')
-                .mockResolvedValue('runBufferEventPipeline result' as any)
-
-            const event: PreIngestionEvent = {
-                eventUuid: 'uuid1',
-                distinctId: 'my_id',
-                ip: '127.0.0.1',
-                teamId: 2,
-                timestamp: DateTime.fromISO('2020-02-23T02:15:00.000Z', { zone: 'utc' }).toISO() as any,
-                event: '$pageview',
-                properties: {},
-                elementsList: [],
-            }
-
-            expect(await taskRunner({ task: 'runBufferEventPipeline', args: { event } })).toEqual(
-                'runBufferEventPipeline result'
-            )
-
-            expect(spy).toHaveBeenCalledWith(event)
         })
 
         it('handles `runEvery` tasks', async () => {
