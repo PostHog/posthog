@@ -943,7 +943,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             posthog.capture('recording list fetched', { load_time: loadTime })
         },
         reportRecordingsListPropertiesFetched: ({ loadTime }) => {
-            posthog.capture('recording list metadata fetched', { load_time: loadTime })
+            posthog.capture('recording list properties fetched', { load_time: loadTime })
         },
         reportRecordingPlayerSeekbarEventHovered: () => {
             posthog.capture('recording player seekbar event hovered')
