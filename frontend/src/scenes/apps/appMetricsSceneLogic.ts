@@ -348,7 +348,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                 } else {
                     if (params.tab && INITIAL_TABS.includes(params.tab as any) && params.tab !== values.activeTab) {
                         actions.setActiveTab(params.tab as AppMetricsTab)
-                    } else if (values.defaultTab && values.activeTab !== values.defaultTab) {
+                    } else if (!values.pluginConfigLoading && values.activeTab !== values.defaultTab) {
                         actions.setActiveTab(values.defaultTab)
                     }
                     if (params.from && values.selectedDateFrom !== params.from) {

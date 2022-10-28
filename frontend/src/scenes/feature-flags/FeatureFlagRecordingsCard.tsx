@@ -5,7 +5,7 @@ import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/Sessi
 import { urls } from 'scenes/urls'
 import { SessionRecordingType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
-import { sessionRecordingsListLogic } from 'scenes/session-recordings/sessionRecordingsListLogic'
+import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 
 interface FeatureFlagRecordingsProps {
     flagKey: string

@@ -1059,12 +1059,16 @@ export function identifierToHuman(identifier: string | number, caseType: 'senten
 }
 
 export function parseGithubRepoURL(url: string): Record<string, string> {
-    const match = url.match(/^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/?$/)
+    const match = url.match(
+        /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.\-]+)\/([A-Za-z0-9_.\-]+)(\/(commit|tree|releases\/tag)\/([A-Za-z0-9_.\-\/]+))?/
+    )
+
     if (!match) {
-        throw new Error('Must be in the format: https://github.com/user/repo')
+        throw new Error(`${url} is not a valid GitHub URL`)
     }
-    const [, user, repo] = match
-    return { user, repo }
+
+    const [, user, repo, , type, path] = match
+    return { user, repo, type, path }
 }
 
 export function someParentMatchesSelector(element: HTMLElement, selector: string): boolean {
