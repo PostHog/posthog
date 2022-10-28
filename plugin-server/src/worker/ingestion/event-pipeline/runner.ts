@@ -1,3 +1,4 @@
+import Piscina from '@posthog/piscina'
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
@@ -61,10 +62,12 @@ const STEPS_TO_EMIT_TO_DLQ_ON_FAILURE: Array<StepType> = [
 
 export class EventPipelineRunner {
     hub: Hub
+    piscina: Piscina
     originalEvent: PluginEvent | ProcessedPluginEvent
 
-    constructor(hub: Hub, originalEvent: PluginEvent | ProcessedPluginEvent) {
+    constructor(hub: Hub, piscina: Piscina, originalEvent: PluginEvent | ProcessedPluginEvent) {
         this.hub = hub
+        this.piscina = piscina
         this.originalEvent = originalEvent
     }
 
@@ -107,6 +110,7 @@ export class EventPipelineRunner {
         while (true) {
             const timer = new Date()
             try {
+                status.debug('⏱️', `Running step ${currentStepName}`)
                 const stepResult = await this.runStep(currentStepName, ...currentArgs)
 
                 this.hub.statsd?.increment('kafka_queue.event_pipeline.step', { step: currentStepName })
@@ -169,7 +173,7 @@ export class EventPipelineRunner {
 
     private async handleError(err: any, currentStepName: StepType, currentArgs: any) {
         const serializedArgs = currentArgs.map((arg: any) => this.serialize(arg))
-        status.info('🔔', err)
+        status.error('🔔', `Error running step ${currentStepName}`, { err })
         Sentry.captureException(err, { extra: { currentStepName, serializedArgs, originalEvent: this.originalEvent } })
         this.hub.statsd?.increment('kafka_queue.event_pipeline.step.error', { step: currentStepName })
 

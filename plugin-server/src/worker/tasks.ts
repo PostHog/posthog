@@ -1,16 +1,20 @@
-import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
+import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { Action, EnqueuedPluginJob, Hub, PluginTaskType, PostIngestionEvent, Team } from '../types'
-import { convertToProcessedPluginEvent } from '../utils/event'
-import { EventPipelineRunner } from './ingestion/event-pipeline/runner'
+import { Action, EnqueuedPluginJob, Hub, PluginTaskType, Team } from '../types'
 import { loadSchedule } from './plugins/loadSchedule'
-import { runPluginTask, runProcessEvent } from './plugins/run'
+import { runOnEvent, runPluginTask, runProcessEvent } from './plugins/run'
 import { setupPlugins } from './plugins/setup'
 import { teardownPlugins } from './plugins/teardown'
 
 type TaskRunner = (hub: Hub, args: any) => Promise<any> | any
 
 export const workerTasks: Record<string, TaskRunner> = {
+    runOnEvent: async (hub: Hub, event: ProcessedPluginEvent) => {
+        return await runOnEvent(hub, event)
+    },
+    runProcessEvent: async (hub: Hub, event: PluginEvent) => {
+        return await runProcessEvent(hub, event)
+    },
     runPluginJob: (hub, { job }: { job: EnqueuedPluginJob }) => {
         return runPluginTask(hub, job.type, PluginTaskType.Job, job.pluginConfigId, job.payload)
     },
@@ -28,18 +32,6 @@ export const workerTasks: Record<string, TaskRunner> = {
     },
     pluginScheduleReady: (hub) => {
         return hub.pluginSchedule !== null
-    },
-    runEventPipeline: async (hub, args: { event: PluginEvent }) => {
-        const runner = new EventPipelineRunner(hub, args.event)
-        return await runner.runEventPipeline(args.event)
-    },
-    runBufferEventPipeline: async (hub, args: { event: PluginEvent }) => {
-        const runner = new EventPipelineRunner(hub, args.event)
-        return await runner.runBufferEventPipeline(args.event)
-    },
-    runAsyncHandlersEventPipeline: async (hub, args: { event: PostIngestionEvent }) => {
-        const runner = new EventPipelineRunner(hub, convertToProcessedPluginEvent(args.event))
-        return await runner.runAsyncHandlersEventPipeline(args.event)
     },
     reloadPlugins: async (hub) => {
         await setupPlugins(hub)

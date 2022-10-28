@@ -2,7 +2,9 @@ import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { Hub, PostIngestionEvent, WorkerMethods } from '../../types'
+import { convertToProcessedPluginEvent } from '../../utils/event'
 import { status } from '../../utils/status'
+import { EventPipelineRunner } from '../../worker/ingestion/event-pipeline/runner'
 import { KafkaQueue } from './kafka-queue'
 
 interface Queues {
@@ -25,15 +27,17 @@ export async function startQueues(
     workerMethods: Partial<WorkerMethods> = {}
 ): Promise<Queues> {
     const mergedWorkerMethods = {
-        runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => {
+        runAsyncHandlersEventPipeline: async (event: PostIngestionEvent) => {
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'runAsyncHandlersEventPipeline'
-            return piscina.run({ task: 'runAsyncHandlersEventPipeline', args: { event } })
+            const runner = new EventPipelineRunner(server, piscina, convertToProcessedPluginEvent(event))
+            await runner.runAsyncHandlersEventPipeline(event)
         },
-        runEventPipeline: (event: PluginEvent) => {
+        runEventPipeline: async (event: PluginEvent) => {
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'runEventPipeline'
-            return piscina.run({ task: 'runEventPipeline', args: { event } })
+            const runner = new EventPipelineRunner(server, piscina, event)
+            await runner.runEventPipeline(event)
         },
         ...workerMethods,
     }

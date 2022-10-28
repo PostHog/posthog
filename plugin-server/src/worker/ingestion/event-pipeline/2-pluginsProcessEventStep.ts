@@ -1,7 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { runInstrumentedFunction } from '../../../main/utils'
-import { runProcessEvent } from '../../plugins/run'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { EventPipelineRunner, StepResult } from './runner'
 
@@ -17,7 +16,7 @@ export async function pluginsProcessEventStep(
         processedEvent = await runInstrumentedFunction({
             server: runner.hub,
             event,
-            func: (event) => runProcessEvent(runner.hub, event),
+            func: (event) => runner.piscina.run({ task: 'runProcessEvent', args: event }),
             statsKey: 'kafka_queue.single_event',
             timeoutMessage: 'Still running plugins on event. Timeout warning after 30 sec!',
         })
