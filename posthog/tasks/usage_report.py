@@ -246,7 +246,7 @@ def capture_event(
 ) -> None:
     if is_cloud():
         org_owner = get_org_owner_or_first_user(organization_id)
-        distinct_id = org_owner.distinct_id if org_owner else f"org-{organization_id}"
+        distinct_id = org_owner.distinct_id if org_owner and org_owner.distinct_id else f"org-{organization_id}"
         pha_client.capture(
             distinct_id,  # type: ignore
             name,
