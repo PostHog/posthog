@@ -19,6 +19,7 @@ import { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
+import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { KafkaQueue } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
 import { createHttpServer } from './services/http-server'
@@ -82,6 +83,7 @@ export async function startPluginsServer(
     // (default 60 seconds) to allow for the person to be created in the
     // meantime.
     let bufferConsumer: Consumer | undefined
+    let jobsConsumer: Consumer | undefined
 
     let httpServer: Server | undefined // healthcheck server
     let mmdbServer: net.Server | undefined // geoip server
@@ -103,6 +105,7 @@ export async function startPluginsServer(
             pubSub?.stop(),
             hub?.graphileWorker.stop(),
             bufferConsumer?.disconnect(),
+            jobsConsumer?.disconnect(),
         ])
 
         await new Promise<void>((resolve, reject) =>
@@ -230,6 +233,15 @@ export async function startPluginsServer(
             bufferConsumer = await startAnonymousEventBufferConsumer({
                 kafka: hub.kafka,
                 producer: hub.kafkaProducer,
+                graphileWorker: hub.graphileWorker,
+                statsd: hub.statsd,
+            })
+        }
+
+        if (hub.capabilities.processPluginJobs) {
+            jobsConsumer = await startJobsConsumer({
+                kafka: hub.kafka,
+                producer: hub.kafkaProducer.producer,
                 graphileWorker: hub.graphileWorker,
                 statsd: hub.statsd,
             })
