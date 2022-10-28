@@ -11,10 +11,21 @@ jobs:
               with:
                   fetch-depth: 0 # 👈 Required to retrieve git history (https://www.chromatic.com/docs/github-actions)
 
+            # there's no need to run chromatic on every commit,
+            # so we only run it if the frontend has changed
+            - uses: dorny/paths-filter@v2
+              id: changes
+              with:
+                  filters: |
+                      frontend:
+                        - 'frontend/**'
+
             - name: Install dependencies and chromatic
+              if: steps.changes.outputs.frontend == 'true'
               run: yarn add --dev chromatic
 
             - name: Publish to Chromatic
+              if: steps.changes.outputs.frontend == 'true'
               uses: chromaui/action@v1
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}

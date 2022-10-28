@@ -91,7 +91,9 @@ export async function startPluginsServer(
     let lastActivityCheck: NodeJS.Timeout | undefined
     let stopEventLoopMetrics: (() => void) | undefined
 
+    let shuttingDown = false
     async function closeJobs(): Promise<void> {
+        shuttingDown = true
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
         cancelAllScheduledJobs()
@@ -154,6 +156,26 @@ export async function startPluginsServer(
         }
 
         Sentry.captureException(error)
+    })
+
+    process.on('uncaughtException', async (error: Error) => {
+        // If there are unhandled exceptions anywhere, perform a graceful
+        // shutdown. The initial trigger for including this handler is due to
+        // the graphile-worker code throwing an exception when it can't call
+        // `nudge` on a worker. Unsure as to why this happens, but at any rate,
+        // to ensure that we gracefully shutdown Kafka consumers, for which
+        // unclean shutdowns can cause considerable delay in starting to consume
+        // again, we try to gracefully shutdown.
+        //
+        // See https://nodejs.org/api/process.html#event-uncaughtexception for
+        // details on the handler.
+        if (shuttingDown) {
+            return
+        }
+        status.error('🤮', `uncaught_exception`, { error: error.stack })
+        await closeJobs()
+
+        process.exit(1)
     })
 
     try {

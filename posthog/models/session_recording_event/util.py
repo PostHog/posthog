@@ -1,7 +1,7 @@
 import datetime
 import json
 import uuid
-from typing import List, Union
+from typing import Union
 
 import structlog
 from django.utils import timezone
@@ -52,18 +52,6 @@ def create_session_recording_event(
     return str(uuid)
 
 
-def get_recording_count_for_team(team_id: Union[str, int]) -> int:
-    result = sync_execute(
-        """
-        SELECT count(distinct session_id) as count
-        FROM session_recording_events
-        WHERE team_id = %(team_id)s
-    """,
-        {"team_id": str(team_id)},
-    )[0][0]
-    return result
-
-
 def get_recording_count_for_team_and_period(
     team_id: Union[str, int], begin: timezone.datetime, end: timezone.datetime
 ) -> int:
@@ -75,20 +63,5 @@ def get_recording_count_for_team_and_period(
         AND timestamp between %(begin)s AND %(end)s
     """,
         {"team_id": str(team_id), "begin": begin, "end": end},
-    )[0][0]
-    return result
-
-
-def get_agg_recording_count_for_teams_and_period(
-    team_ids: List[int], begin: timezone.datetime, end: timezone.datetime
-) -> int:
-    result = sync_execute(
-        """
-        SELECT count(distinct session_id) as count
-        FROM session_recording_events
-        WHERE team_id IN (%(team_id_clause)s)
-        AND timestamp between %(begin)s AND %(end)s
-    """,
-        {"team_id_clause": team_ids, "begin": begin, "end": end},
     )[0][0]
     return result
