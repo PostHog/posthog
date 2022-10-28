@@ -366,9 +366,10 @@ def find_count_for_team_in_rows(team_id: int, rows: list) -> int:
 
 @app.task(ignore_result=True, retries=3)
 def send_all_org_usage_reports(
-    dry_run: bool = False, at: Optional[str] = None, capture_event_name: str = "organization usage report"
+    dry_run: bool = False, at: Optional[str] = None, capture_event_name: Optional[str] = None
 ) -> List[dict]:  # Dict[str, OrgReport]:
     pha_client = Client("sTMFPsFhdP1Ssg")
+    capture_event_name = capture_event_name or "organization usage report"
 
     at_date = dateutil.parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
