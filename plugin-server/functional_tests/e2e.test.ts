@@ -309,8 +309,8 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                 $anon_distinct_id: returningDistinctId,
             })
 
-            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 3, 500, 40)
-            const events = await fetchEvents(clickHouseClient, teamId)
+            const events = await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 3, 500, 40)
+            expect(events.length).toBe(3)
             expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
 
             await delayUntilEventIngested(() => fetchPersons(clickHouseClient, teamId), 1, 500, 40)
