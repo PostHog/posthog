@@ -75,10 +75,7 @@ def mocked_plugin_requests_get(*args, **kwargs):
         )
 
     if args[0] == "https://api.github.com/repos/PostHog/helloworldplugin/commits?sha=main&path=":
-        return MockJSONResponse(
-            {"commit": {"sha": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}},
-            200,
-        )
+        return MockJSONResponse({"commit": {"sha": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}}, 200,)
 
     if args[0].startswith("https://gitlab.com/api/v4/projects/mariusandra%2Fhelloworldplugin/repository/commits"):
         return MockJSONResponse(
@@ -163,7 +160,7 @@ def mocked_plugin_requests_get(*args, **kwargs):
     if args[0] == "https://registry.npmjs.org/posthog-helloworld-plugin/-/posthog-helloworld-plugin-0.0.0.tgz":
         return MockBase64Response(HELLO_WORLD_PLUGIN_NPM_TGZ[1], 200)
 
-    if args[0] == "https://raw.githubusercontent.com/PostHog/apps/main/manifest.json":
+    if args[0] == "https://raw.githubusercontent.com/PostHog/apps/main/repository.json":
         return MockTextResponse(
             json.dumps(
                 [
