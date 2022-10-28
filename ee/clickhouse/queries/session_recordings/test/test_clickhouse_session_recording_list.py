@@ -6,7 +6,11 @@ from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
+from posthog.queries.session_recordings.session_recording_properties import SessionRecordingProperties
 from posthog.queries.session_recordings.test.test_session_recording_list import factory_session_recordings_list_test
+from posthog.queries.session_recordings.test.test_session_recording_properties import (
+    factory_session_recordings_properties_test,
+)
 from posthog.session_recordings.test.test_factory import create_snapshot
 from posthog.test.base import (
     ClickhouseTestMixin,
@@ -16,7 +20,15 @@ from posthog.test.base import (
 )
 
 
-class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_recordings_list_test(SessionRecordingList, _create_event, Action.objects.create, ActionStep.objects.create)):  # type: ignore
+class TestClickhouseSessionRecordingsList(
+    ClickhouseTestMixin,
+    factory_session_recordings_list_test(
+        SessionRecordingList, _create_event, Action.objects.create, ActionStep.objects.create
+    ),
+    factory_session_recordings_properties_test(
+        SessionRecordingProperties, _create_event, Action.objects.create, ActionStep.objects.create
+    ),
+):  # type: ignore
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
     @test_with_materialized_columns(person_properties=["email"])

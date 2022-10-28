@@ -808,8 +808,8 @@ const api = {
         async list(params: string): Promise<SessionRecordingsResponse> {
             return await new ApiRequest().recordings().withQueryString(params).get()
         },
-        async listMetadata(params: string): Promise<PaginatedResponse<SessionRecordingMetaDataType>> {
-            return await new ApiRequest().recordings().withAction('metadata').withQueryString(params).get()
+        async listProperties(params: string): Promise<PaginatedResponse<SessionRecordingMetaDataType>> {
+            return await new ApiRequest().recordings().withAction('properties').withQueryString(params).get()
         },
     },
 

@@ -5,7 +5,6 @@ from posthog.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity
 from posthog.models.action.util import format_entity_filter
-from posthog.models.event.util import parse_properties
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.utils import PersonPropertiesMode
@@ -28,15 +27,6 @@ class SessionRecordingQueryResult(NamedTuple):
 class SessionRecordingList(EventQuery):
     _filter: SessionRecordingsFilter
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
-    SESSION_RECORDING_PROPERTIES_METADATA_ALLOWLIST = {
-        "$os",
-        "$browser",
-        "$device_type",
-        "$current_url",
-        "$host",
-        "$pathname",
-        "$geoip_country_code",
-    }
 
     _core_events_query = """
         SELECT
@@ -53,21 +43,6 @@ class SessionRecordingList(EventQuery):
             team_id = %(team_id)s
             {event_filter_where_conditions}
             {events_timestamp_clause}
-    """
-
-    # First $pageview event in a recording is used to extract metadata (brower, location, etc.) without
-    # having to return all events.
-    _core_single_pageview_event_query = """
-         SELECT DISTINCT ON (session_id)
-            $session_id as session_id,
-            any(properties) as properties
-         FROM events
-         PREWHERE
-             team_id = %(team_id)s
-             AND event IN ['$pageview']
-             {session_ids_clause}
-             {events_timestamp_clause}
-             GROUP BY session_id
     """
 
     _event_and_recording_match_conditions_clause = """
@@ -267,11 +242,6 @@ class SessionRecordingList(EventQuery):
 
         return filter_sql, params
 
-    def format_session_recording_id_filters(self) -> Tuple[str, Dict]:
-        where_conditions = "AND session_id IN %(session_ids)s"
-        session_ids: List[str] = self._filter.include_metadata_for_recordings
-        return where_conditions, {"session_ids": list(session_ids)}
-
     def format_event_filters(self) -> EventFiltersSQL:
         aggregate_select_clause = ""
         aggregate_having_clause = ""
@@ -376,18 +346,6 @@ class SessionRecordingList(EventQuery):
             },
         )
 
-    def get_metadata_query(self) -> Tuple[str, Dict[str, Any]]:
-        base_params = {"team_id": self._team_id}
-        events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause()
-        session_ids_clause, session_ids_params = self.format_session_recording_id_filters()
-
-        return (
-            self._core_single_pageview_event_query.format(
-                events_timestamp_clause=events_timestamp_clause, session_ids_clause=session_ids_clause
-            ),
-            {**base_params, **events_timestamp_params, **session_ids_params},
-        )
-
     def _paginate_results(self, session_recordings) -> SessionRecordingQueryResult:
         more_recordings_available = False
         if len(session_recordings) > self.limit:
@@ -412,23 +370,8 @@ class SessionRecordingList(EventQuery):
             for row in results
         ]
 
-    def _data_to_return_metadata(self, results: List[Any]) -> List[Dict[str, Any]]:
-        return [
-            {
-                "session_id": row[0],
-                "properties": parse_properties(row[1], self.SESSION_RECORDING_PROPERTIES_METADATA_ALLOWLIST),
-            }
-            for row in results
-        ]
-
     def run(self, *args, **kwargs) -> SessionRecordingQueryResult:
         query, query_params = self.get_query()
         query_results = sync_execute(query, query_params)
         session_recordings = self._data_to_return(query_results)
         return self._paginate_results(session_recordings)
-
-    def get_metadata(self, *args, **kwargs) -> List:
-        query, query_params = self.get_metadata_query()
-        query_results = sync_execute(query, query_params)
-        session_recording_metadata = self._data_to_return_metadata(query_results)
-        return session_recording_metadata

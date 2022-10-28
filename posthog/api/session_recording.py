@@ -1,6 +1,7 @@
 import dataclasses
+import json
 from datetime import datetime
-from typing import Any, Optional, Union
+from typing import Any, List, Optional, Union
 
 from dateutil import parser
 from rest_framework import exceptions, request, response, serializers, viewsets
@@ -17,6 +18,7 @@ from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.session_recordings.session_recording import SessionRecording
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
+from posthog.queries.session_recordings.session_recording_properties import SessionRecordingProperties
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
 from posthog.utils import format_query_params_absolute_url
 
@@ -52,7 +54,7 @@ class SessionRecordingSerializer(serializers.Serializer):
         }
 
 
-class SessionRecordingMetaDataSerializer(serializers.Serializer):
+class SessionRecordingPropertiesSerializer(serializers.Serializer):
     session_id = serializers.CharField()
     properties = serializers.DictField(required=False)
 
@@ -70,8 +72,8 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def _get_session_recording_list(self, filter):
         return SessionRecordingList(filter=filter, team=self.team).run()
 
-    def _get_session_recording_list_meta_data(self, filter):
-        return SessionRecordingList(filter=filter, team=self.team).get_metadata()
+    def _get_session_recording_list_properties(self, filter, session_ids: List[str]):
+        return SessionRecordingProperties(team=self.team, filter=filter, session_ids=session_ids).run()
 
     def _get_session_recording_snapshots(
         self, request, session_recording_id, limit, offset, recording_start_time: Optional[datetime]
@@ -215,16 +217,19 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             }
         )
 
-    # Returns metadata given a list of session recording ids
+    # Returns properties given a list of session recording ids
     @action(methods=["GET"], detail=False)
-    def metadata(self, request: request.Request, **kwargs):
+    def properties(self, request: request.Request, **kwargs):
         filter = SessionRecordingsFilter(request=request)
-        session_recordings_metadata = self._get_session_recording_list_meta_data(filter)
+        session_ids = [
+            recording_id for recording_id in json.loads(self.request.GET.get("session_ids", "[]")) if recording_id
+        ]
+        session_recordings_metadata = self._get_session_recording_list_properties(filter, session_ids)
 
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
 
-        session_recording_serializer = SessionRecordingMetaDataSerializer(data=session_recordings_metadata, many=True)
+        session_recording_serializer = SessionRecordingPropertiesSerializer(data=session_recordings_metadata, many=True)
 
         session_recording_serializer.is_valid(raise_exception=True)
 
