@@ -8,9 +8,7 @@ from posthog.session_recordings.test.test_factory import create_snapshot
 from posthog.test.base import BaseTest, snapshot_clickhouse_queries
 
 
-def factory_session_recordings_properties_test(
-    session_recording_properties, event_factory, action_factory, action_step_factory
-):
+def factory_session_recordings_properties_test(session_recording_properties, event_factory):
     class TestSessionRecordingsList(BaseTest):
         def create_event(
             self,
