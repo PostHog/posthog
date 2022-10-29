@@ -55,14 +55,15 @@ export const fetchEventsForInterval = async (
 
 const convertClickhouseEventToPluginEvent = (event: RawClickHouseEvent): HistoricalExportEvent => {
     const clickhouseEvent = parseRawClickHouseEvent(event)
-    if (clickhouseEvent.event === '$autocapture' && clickhouseEvent.elements_chain) {
-        clickhouseEvent.properties['$elements'] = convertDatabaseElementsToRawElements(clickhouseEvent.elements_chain)
-    }
     const parsedEvent = {
         uuid: clickhouseEvent.uuid,
         team_id: clickhouseEvent.team_id,
         distinct_id: clickhouseEvent.distinct_id,
         properties: clickhouseEvent.properties,
+        elements:
+            clickhouseEvent.event === '$autocapture' && clickhouseEvent.elements_chain
+                ? convertDatabaseElementsToRawElements(clickhouseEvent.elements_chain)
+                : undefined,
         timestamp: clickhouseEvent.timestamp.toISO(),
         now: DateTime.now().toISO(),
         event: clickhouseEvent.event || '',
@@ -85,9 +86,10 @@ const convertDatabaseElementsToRawElements = (elements: RawElement[]): RawElemen
         if (element.attributes && element.attributes.attr__class) {
             element.attr_class = element.attributes.attr__class
         }
-        if (element.text) {
-            element.$el_text = element.text
-        }
+
+        // Unify with the format used when processEvent is called with
+        // non-historically exported events.
+        element['order'] = undefined
     }
     return elements
 }

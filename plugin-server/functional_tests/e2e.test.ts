@@ -340,14 +340,13 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
             const uuid = new UUIDT().toString()
 
             // First let's ingest an event
-            await capture(producer, teamId, distinctId, uuid, 'custom event', {
+            await capture(producer, teamId, distinctId, uuid, '$autocapture', {
                 name: 'hehe',
                 uuid: new UUIDT().toString(),
+                $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
             })
 
-            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
-
-            const events = await fetchEvents(clickHouseClient, teamId)
+            const events = await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
             expect(events.length).toBe(1)
 
             // Then check that the exportEvents function was called
@@ -368,14 +367,200 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                 expect.objectContaining({
                     distinct_id: distinctId,
                     team_id: teamId,
-                    event: 'custom event',
+                    event: '$autocapture',
                     properties: expect.objectContaining({
                         name: 'hehe',
                         uuid: uuid,
                     }),
                     timestamp: expect.any(String),
                     uuid: uuid,
-                    elements: [],
+                    elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, text: '💻', attributes: {} }],
+                }),
+            ])
+        })
+
+        test('historical exports', async () => {
+            const teamId = await createTeam(postgres, organizationId)
+            const distinctId = new UUIDT().toString()
+            const uuid = new UUIDT().toString()
+
+            const plugin = await createPlugin(postgres, {
+                organization_id: organizationId,
+                name: 'export plugin',
+                plugin_type: 'source',
+                is_global: false,
+                source__index_ts: indexJs,
+            })
+            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+
+            // First let's capture an event and wait for it to be ingested so
+            // so we can check that the historical event is the same as the one
+            // passed to processEvent on initial ingestion.
+            await capture(producer, teamId, distinctId, uuid, '$autocapture', {
+                name: 'hehe',
+                uuid: new UUIDT().toString(),
+                $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+            })
+
+            // Then check that the exportEvents function was called
+            const exportEvents = await delayUntilEventIngested(
+                async () =>
+                    (
+                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                    ).filter(({ message: [method] }) => method === 'exportEvents'),
+                1,
+                500,
+                40
+            )
+
+            expect(exportEvents.length).toBeGreaterThan(0)
+            const [exportedEvent] = exportEvents[0].message[1]
+
+            // NOTE: the frontend doesn't actually push to this queue but rather
+            // adds directly to PostgreSQL using the graphile-worker stored
+            // procedure `add_job`. I'd rather keep these tests graphile
+            // unaware.
+            await producer.send({
+                topic: 'jobs_test',
+                messages: [
+                    {
+                        key: teamId.toString(),
+                        value: JSON.stringify({
+                            type: 'Export historical events',
+                            pluginConfigId: pluginConfig.id,
+                            pluginConfigTeam: teamId,
+                            payload: {
+                                dateFrom: new Date(Date.now() - 60000).toISOString(),
+                                dateTo: new Date(Date.now()).toISOString(),
+                            },
+                        }),
+                    },
+                ],
+            })
+
+            // Then check that the exportEvents function was called with the
+            // same data that was used with the non-historical export, with the
+            // additions of details related to the historical export.
+            const historicallyExportedEvents = await delayUntilEventIngested(
+                async () =>
+                    (await fetchPluginLogEntries(clickHouseClient, pluginConfig.id))
+                        .filter(({ message: [method] }) => method === 'exportEvents')
+                        .filter(({ message: [, events] }) =>
+                            events.some((event) => event.properties['$$is_historical_export_event'])
+                        ),
+                1,
+                500,
+                40
+            )
+
+            expect(historicallyExportedEvents.length).toBeGreaterThan(0)
+
+            const historicallyExportedEvent = historicallyExportedEvents[0].message[1]
+            expect(historicallyExportedEvent).toEqual([
+                expect.objectContaining({
+                    ...exportedEvent,
+                    ip: '', // NOTE: for some reason this is "" when exported historically, but null otherwise.
+                    properties: {
+                        ...exportedEvent.properties,
+                        $$is_historical_export_event: true,
+                        $$historical_export_timestamp: expect.any(String),
+                        $$historical_export_source_db: 'clickhouse',
+                    },
+                }),
+            ])
+        })
+
+        test('historical exports v2', async () => {
+            const teamId = await createTeam(postgres, organizationId)
+            const distinctId = new UUIDT().toString()
+            const uuid = new UUIDT().toString()
+
+            const plugin = await createPlugin(postgres, {
+                organization_id: organizationId,
+                name: 'export plugin',
+                plugin_type: 'source',
+                is_global: false,
+                source__index_ts: indexJs,
+            })
+            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+
+            // First let's capture an event and wait for it to be ingested so
+            // so we can check that the historical event is the same as the one
+            // passed to processEvent on initial ingestion.
+            await capture(producer, teamId, distinctId, uuid, '$autocapture', {
+                name: 'hehe',
+                uuid: new UUIDT().toString(),
+                $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+            })
+
+            // Then check that the exportEvents function was called
+            const exportEvents = await delayUntilEventIngested(
+                async () =>
+                    (
+                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                    ).filter(({ message: [method] }) => method === 'exportEvents'),
+                1,
+                500,
+                40
+            )
+
+            expect(exportEvents.length).toBeGreaterThan(0)
+            const [exportedEvent] = exportEvents[0].message[1]
+
+            // NOTE: the frontend doesn't actually push to this queue but rather
+            // adds directly to PostgreSQL using the graphile-worker stored
+            // procedure `add_job`. I'd rather keep these tests graphile
+            // unaware.
+            await producer.send({
+                topic: 'jobs_test',
+                messages: [
+                    {
+                        key: teamId.toString(),
+                        value: JSON.stringify({
+                            type: 'Export historical events V2',
+                            pluginConfigId: pluginConfig.id,
+                            pluginConfigTeam: teamId,
+                            payload: {
+                                dateRange: [
+                                    new Date(Date.now() - 60000).toISOString(),
+                                    new Date(Date.now()).toISOString(),
+                                ],
+                                $job_id: 'test',
+                                parallelism: 1,
+                            },
+                        }),
+                    },
+                ],
+            })
+
+            // Then check that the exportEvents function was called with the
+            // same data that was used with the non-historical export, with the
+            // additions of details related to the historical export.
+            const historicallyExportedEvents = await delayUntilEventIngested(
+                async () =>
+                    (await fetchPluginLogEntries(clickHouseClient, pluginConfig.id))
+                        .filter(({ message: [method] }) => method === 'exportEvents')
+                        .filter(({ message: [, events] }) =>
+                            events.some((event) => event.properties['$$is_historical_export_event'])
+                        ),
+                1,
+                500,
+                40
+            )
+
+            expect(historicallyExportedEvents.length).toBeGreaterThan(0)
+
+            const historicallyExportedEvent = historicallyExportedEvents[0].message[1]
+            expect(historicallyExportedEvent).toEqual([
+                expect.objectContaining({
+                    ...exportedEvent,
+                    ip: '', // NOTE: for some reason this is "" when exported historically, but null otherwise.
+                    properties: {
+                        ...exportedEvent.properties,
+                        $$is_historical_export_event: true,
+                        $$historical_export_timestamp: expect.any(String),
+                        $$historical_export_source_db: 'clickhouse',
+                    },
                 }),
             ])
         })
