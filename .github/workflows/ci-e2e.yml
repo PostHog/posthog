@@ -238,10 +238,9 @@ jobs:
 
             - name: Stop/Start stack with Docker Compose
               run: |
-                  curl -SL https://github.com/docker/compose/releases/download/v2.12.2/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose
-                  chmod +x /usr/local/bin/docker-compose
-                  /usr/local/bin/docker-compose -f docker-compose.dev.yml down
-                  /usr/local/bin/docker-compose -f docker-compose.dev.yml up -d
+                  apt-get install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+                  docker-compose -f docker-compose.dev.yml down
+                  docker-compose -f docker-compose.dev.yml up -d
 
             - name: Wait for ClickHouse
               run: ./bin/check_kafka_clickhouse_up
