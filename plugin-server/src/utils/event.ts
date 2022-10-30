@@ -2,6 +2,7 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { KafkaMessage } from 'kafkajs'
 
 import { ClickHouseEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
+import { convertDatabaseElementsToRawElements } from '../worker/vm/upgrades/utils/fetchEventsForInterval'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties } from './db/utils'
 import { clickHouseTimestampToDateTime, clickHouseTimestampToISO } from './utils'
@@ -17,7 +18,7 @@ export function convertToProcessedPluginEvent(event: PostIngestionEvent): Proces
         $set: event.properties.$set,
         $set_once: event.properties.$set_once,
         uuid: event.eventUuid,
-        elements: event.elementsList,
+        elements: convertDatabaseElementsToRawElements(event.elementsList),
     }
 }
 

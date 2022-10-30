@@ -81,15 +81,14 @@ const addHistoricalExportEventProperties = (event: HistoricalExportEvent): Histo
     return event
 }
 
-const convertDatabaseElementsToRawElements = (elements: RawElement[]): RawElement[] => {
+export const convertDatabaseElementsToRawElements = (elements: RawElement[]): RawElement[] => {
     for (const element of elements) {
         if (element.attributes && element.attributes.attr__class) {
             element.attr_class = element.attributes.attr__class
         }
-
-        // Unify with the format used when processEvent is called with
-        // non-historically exported events.
-        element['order'] = undefined
+        if (element.text) {
+            element.$el_text = element.text
+        }
     }
     return elements
 }

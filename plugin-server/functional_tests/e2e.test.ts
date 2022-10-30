@@ -326,7 +326,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
             }
         `
 
-        test('exporting events', async () => {
+        test('exporting events on ingestion', async () => {
             const plugin = await createPlugin(postgres, {
                 organization_id: organizationId,
                 name: 'export plugin',
@@ -374,7 +374,17 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                     }),
                     timestamp: expect.any(String),
                     uuid: uuid,
-                    elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, text: '💻', attributes: {} }],
+                    elements: [
+                        {
+                            tag_name: 'div',
+                            nth_child: 1,
+                            nth_of_type: 2,
+                            order: 0,
+                            $el_text: '💻',
+                            text: '💻',
+                            attributes: {},
+                        },
+                    ],
                 }),
             ])
         })
