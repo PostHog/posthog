@@ -238,7 +238,6 @@ jobs:
 
             - name: Stop/Start stack with Docker Compose
               run: |
-                  apt-get remove docker docker-engine docker.io containerd runc
                   apt-get update
                   apt-get install -y \
                     ca-certificates \
