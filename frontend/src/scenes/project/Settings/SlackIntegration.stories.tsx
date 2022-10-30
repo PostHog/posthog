@@ -8,7 +8,12 @@ import { SlackIntegration } from './SlackIntegration'
 export default {
     title: 'Components/Integrations/Slack',
     component: SlackIntegration,
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof SlackIntegration>
 
 const Template = (args: { instanceConfigured?: boolean; integrated?: boolean }): JSX.Element => {

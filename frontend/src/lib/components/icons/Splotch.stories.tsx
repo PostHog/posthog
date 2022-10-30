@@ -4,6 +4,7 @@ import { Splotch, SplotchColor, SplotchProps } from './Splotch'
 export default {
     title: 'Lemon UI/Splotch',
     component: Splotch,
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         color: {
             defaultValue: SplotchColor.Purple,

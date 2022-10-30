@@ -13,6 +13,7 @@ import { LemonSelect } from './LemonSelect'
 export default {
     title: 'Components/BillingAlerts',
     component: BillingAlerts,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof BillingAlerts>
 
 const Template = (): JSX.Element => {
