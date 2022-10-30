@@ -19,6 +19,7 @@ jobs:
                   filters: |
                       frontend:
                         - 'frontend/**'
+                        - '.storybook/**'
 
             - name: Install dependencies and chromatic
               if: steps.changes.outputs.frontend == 'true'
