@@ -2,8 +2,9 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import fetch from 'node-fetch'
 
-import { Hook, Hub } from '../../../../src/types'
+import { Hook, Hub, ISOTimestamp, PostIngestionEvent } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
+import { convertToProcessedPluginEvent } from '../../../../src/utils/event'
 import { UUIDT } from '../../../../src/utils/utils'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { setupPlugins } from '../../../../src/worker/plugins/setup'
@@ -17,7 +18,8 @@ describe('Event Pipeline integration test', () => {
     let hub: Hub
     let closeServer: () => Promise<void>
 
-    const ingestEvent = (event: PluginEvent) => new EventPipelineRunner(hub, event).runEventPipeline(event)
+    const ingestEvent = (event: PostIngestionEvent) =>
+        new EventPipelineRunner(hub, convertToProcessedPluginEvent(event)).runAsyncHandlersEventPipeline(event)
 
     beforeEach(async () => {
         await resetTestDatabase()
@@ -48,17 +50,15 @@ describe('Event Pipeline integration test', () => {
         `)
         await setupPlugins(hub)
 
-        const event: PluginEvent = {
+        const event: PostIngestionEvent = {
             event: 'xyz',
             properties: { foo: 'bar' },
-            $set: { personProp: 1, anotherValue: 2 },
-            timestamp: new Date().toISOString(),
-            now: new Date().toISOString(),
-            team_id: 2,
-            distinct_id: 'abc',
+            timestamp: new Date().toISOString() as ISOTimestamp,
+            teamId: 2,
+            distinctId: 'abc',
             ip: null,
-            site_url: 'https://example.com',
-            uuid: new UUIDT().toString(),
+            eventUuid: new UUIDT().toString(),
+            elementsList: [],
         }
 
         await ingestEvent(event)
@@ -69,7 +69,7 @@ describe('Event Pipeline integration test', () => {
         expect(events.length).toEqual(1)
         expect(events[0]).toEqual(
             expect.objectContaining({
-                uuid: event.uuid,
+                uuid: event.eventUuid,
                 event: 'xyz',
                 team_id: 2,
                 timestamp: DateTime.fromISO(event.timestamp!, { zone: 'utc' }),

@@ -5,6 +5,7 @@ import { format } from 'util'
 import { Action, Hook, IngestionPersonData, PostIngestionEvent } from '../../types'
 import { DB } from '../../utils/db/db'
 import fetch from '../../utils/fetch'
+import { status } from '../../utils/status'
 import { stringify } from '../../utils/utils'
 import { OrganizationManager } from './organization-manager'
 import { SiteUrlManager } from './site-url-manager'
@@ -183,9 +184,12 @@ export class HookCommander {
         person: IngestionPersonData | undefined,
         actionMatches: Action[]
     ): Promise<void> {
+        status.debug('🔍', `Looking for hooks to fire for event "${event.event}"`)
         if (!actionMatches.length) {
+            status.debug('🔍', `No hooks to fire for event "${event.event}"`)
             return
         }
+        status.debug('🔍', `Found ${actionMatches.length} matching actions`)
 
         const team = await this.teamManager.fetchTeam(event.teamId)
 

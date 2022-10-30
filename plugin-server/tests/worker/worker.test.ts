@@ -82,7 +82,7 @@ describe('worker', () => {
 
         const ingestResponse2 = await ingestEvent(createEvent())
         expect(ingestResponse2).toEqual({
-            lastStep: 'runAsyncHandlersStep',
+            lastStep: 'createEvent',
             args: expect.anything(),
             event: expect.anything(),
         })
