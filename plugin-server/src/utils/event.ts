@@ -18,7 +18,7 @@ export function convertToProcessedPluginEvent(event: PostIngestionEvent): Proces
         $set: event.properties.$set,
         $set_once: event.properties.$set_once,
         uuid: event.eventUuid,
-        elements: convertDatabaseElementsToRawElements(event.elementsList),
+        elements: convertDatabaseElementsToRawElements(event.elementsList ?? []),
     }
 }
 
