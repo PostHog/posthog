@@ -32,7 +32,7 @@ cd plugin-server
 
 if [[ -n $DEBUG ]]; then
   echo "🧐 Verifying installed packages..."
-  yarn --frozen-lockfile
+  yarn --immutable
 fi
 
 if [ $? -ne 0 ]; then

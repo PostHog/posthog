@@ -8,3 +8,12 @@ yalc.lock
 tmp
 *.0x
 coverage/
+
+# Yarn
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions

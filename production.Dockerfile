@@ -11,9 +11,9 @@ FROM node:18.8-alpine3.16 AS frontend
 
 WORKDIR /code
 
-COPY package.json yarn.lock ./
-RUN yarn config set network-timeout 300000 && \
-    yarn install --frozen-lockfile
+COPY package.json yarn.lock .yarnrc.yml ./
+COPY .yarn .yarn
+RUN yarn install --immutable
 
 COPY frontend/ frontend/
 COPY ./bin/ ./bin/
@@ -41,9 +41,9 @@ RUN apk --update --no-cache add \
 #
 # - we explicitly COPY the files so that we don't need to rebuild
 #   the container every time a dependency changes
-COPY ./plugin-server/package.json ./plugin-server/yarn.lock ./plugin-server/tsconfig.json ./
-RUN yarn config set network-timeout 300000 && \
-    yarn install
+COPY ./plugin-server/package.json ./plugin-server/yarn.lock ./plugin-server/tsconfig.json .yarnrc.yml ./
+COPY .yarn .yarn
+RUN yarn install
 
 # Build the plugin server
 #
@@ -139,7 +139,8 @@ RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collec
 
 # Add in the plugin-server compiled code, as well as the runtime dependencies
 WORKDIR /code/plugin-server
-COPY ./plugin-server/package.json ./plugin-server/yarn.lock ./
+COPY ./plugin-server/package.json ./plugin-server/yarn.lock .yarnrc.yml ./
+COPY .yarn .yarn
 
 # Switch to root and install yarn so we can install runtime deps. Node that we
 # still need yarn to run the plugin-server so we do not remove it.
@@ -149,7 +150,7 @@ RUN apk --update --no-cache add "yarn~=1"
 # NOTE: we need make and g++ for node-gyp
 # NOTE: npm is required for re2
 RUN apk --update --no-cache add "make~=4.3" "g++~=11.2" "npm~=8" --virtual .build-deps \
-    && yarn install --frozen-lockfile --production=true \
+    && yarn workspaces focus --all --production \
     && yarn cache clean \
     && apk del .build-deps
 

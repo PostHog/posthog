@@ -45,3 +45,12 @@ share/GeoLite2-City.mmdb
 a11y/
 # pyenv local config
 .python-version
+
+# Yarn
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions

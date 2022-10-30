@@ -37,7 +37,7 @@ jobs:
 
             - name: Install package.json dependencies with Yarn
               if: steps.node-modules-cache.outputs.cache-hit != 'true'
-              run: yarn install --frozen-lockfile
+              run: yarn install --immutable
 
             - name: Check formatting with prettier
               run: yarn prettier:check
@@ -64,7 +64,7 @@ jobs:
                   key: ${{ runner.os }}-node-modules-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
                       ${{ runner.os }}-node-modules-
-            - run: yarn install --frozen-lockfile
+            - run: yarn install --immutable
             - id: set-test-chunks
               name: Set Chunks
               # Looks at the output of 'yarn test --listTests --json'
@@ -106,7 +106,7 @@ jobs:
 
             - name: Install package.json dependencies with Yarn
               if: steps.node-modules-cache.outputs.cache-hit != 'true'
-              run: yarn install --frozen-lockfile
+              run: yarn install --immutable
 
             - name: Test with Jest
               # set maxWorkers or Jest only uses 1 CPU in GitHub Actions

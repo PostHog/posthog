@@ -15,6 +15,7 @@
     "engines": {
         "node": ">=16 <19"
     },
+    "packageManager": "yarn@3.2.4",
     "scripts": {
         "copy-scripts": "mkdir -p frontend/dist/ && yarn copy-scripts:array && yarn copy-scripts:recorder",
         "copy-scripts:array": "cp node_modules/posthog-js/dist/array.js* frontend/dist/",

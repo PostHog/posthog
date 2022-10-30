@@ -4,6 +4,7 @@
     "description": "PostHog Plugin Server",
     "types": "dist/index.d.ts",
     "main": "dist/index.js",
+    "packageManager": "yarn@3.2.4",
     "scripts": {
         "test": "jest --runInBand --forceExit tests/",
         "functional_tests": "jest --runInBand --config ./jest.config.functional.js",
@@ -11,7 +12,7 @@
         "start:dist": "BASE_DIR=.. node dist/index.js",
         "start:dev": "NODE_ENV=dev BASE_DIR=.. ts-node-dev --debug --exit-child src/index.ts",
         "build": "yarn clean && yarn compile",
-        "clean": "rimraf dist/*",
+        "clean": "rimraf 'dist/*'",
         "typescript:compile": "tsc -b",
         "typescript:check": "tsc --noEmit -p .",
         "compile": "yarn typescript:compile",

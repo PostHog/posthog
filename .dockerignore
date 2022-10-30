@@ -30,3 +30,11 @@
 !plugin-server/.eslintrc.js
 !plugin-server/.prettierrc
 !share/GeoLite2-City.mmdb
+
+# Yarn
+!.yarnrc.yml
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
