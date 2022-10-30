@@ -6,6 +6,7 @@ import { AvailableFeature } from '~/types'
 export default {
     title: 'Components/Pay Card',
     component: PayCard,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof PayCard>
 
 const Template: ComponentStory<typeof PayCard> = (args) => {

@@ -15,7 +15,12 @@ const fakeInsight: Partial<InsightModel> = {
 export default {
     title: 'Components/Sharing',
     component: SharingModal,
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof SharingModal>
 
 const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JSX.Element => {
