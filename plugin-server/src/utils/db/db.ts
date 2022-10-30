@@ -1325,7 +1325,7 @@ export class DB {
                 'fetchActions'
             )
         ).rows
-        console.log(rawActions)
+
         const pluginIds: number[] = rawActions.map(({ id }) => id)
         const actionSteps: (ActionStep & { team_id: Team['id'] })[] = (
             await this.postgresQuery(

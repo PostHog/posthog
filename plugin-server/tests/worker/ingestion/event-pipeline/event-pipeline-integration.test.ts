@@ -2,9 +2,8 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import fetch from 'node-fetch'
 
-import { Hook, Hub, ISOTimestamp, PostIngestionEvent } from '../../../../src/types'
+import { Hook, Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
-import { convertToProcessedPluginEvent } from '../../../../src/utils/event'
 import { UUIDT } from '../../../../src/utils/utils'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { setupPlugins } from '../../../../src/worker/plugins/setup'
@@ -18,8 +17,12 @@ describe('Event Pipeline integration test', () => {
     let hub: Hub
     let closeServer: () => Promise<void>
 
-    const ingestEvent = (event: PostIngestionEvent) =>
-        new EventPipelineRunner(hub, convertToProcessedPluginEvent(event)).runAsyncHandlersEventPipeline(event)
+    const ingestEvent = async (event: PluginEvent) => {
+        const runner = new EventPipelineRunner(hub, event)
+        const result = await runner.runEventPipeline(event)
+        const resultEvent = result.args[0]
+        return runner.runAsyncHandlersEventPipeline(resultEvent)
+    }
 
     beforeEach(async () => {
         await resetTestDatabase()
@@ -50,15 +53,17 @@ describe('Event Pipeline integration test', () => {
         `)
         await setupPlugins(hub)
 
-        const event: PostIngestionEvent = {
+        const event: PluginEvent = {
             event: 'xyz',
             properties: { foo: 'bar' },
-            timestamp: new Date().toISOString() as ISOTimestamp,
-            teamId: 2,
-            distinctId: 'abc',
+            $set: { personProp: 1, anotherValue: 2 },
+            timestamp: new Date().toISOString(),
+            now: new Date().toISOString(),
+            team_id: 2,
+            distinct_id: 'abc',
             ip: null,
-            eventUuid: new UUIDT().toString(),
-            elementsList: [],
+            site_url: 'https://example.com',
+            uuid: new UUIDT().toString(),
         }
 
         await ingestEvent(event)
@@ -69,7 +74,7 @@ describe('Event Pipeline integration test', () => {
         expect(events.length).toEqual(1)
         expect(events[0]).toEqual(
             expect.objectContaining({
-                uuid: event.eventUuid,
+                uuid: event.uuid,
                 event: 'xyz',
                 team_id: 2,
                 timestamp: DateTime.fromISO(event.timestamp!, { zone: 'utc' }),
@@ -211,7 +216,7 @@ describe('Event Pipeline integration test', () => {
             uuid: new UUIDT().toString(),
         }
 
-        await ingestEvent(event)
+        await new EventPipelineRunner(hub, event).runEventPipeline(event)
 
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
     })
