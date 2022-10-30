@@ -343,6 +343,58 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
             const uuid = new UUIDT().toString()
 
             // First let's ingest an event
+            await capture(producer, teamId, distinctId, uuid, 'custom event', {
+                name: 'hehe',
+                uuid: new UUIDT().toString(),
+            })
+
+            const events = await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
+            expect(events.length).toBe(1)
+
+            // Then check that the exportEvents function was called
+            const exportEvents = await delayUntilEventIngested(
+                async () =>
+                    (
+                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                    ).filter(({ message: [method] }) => method === 'exportEvents'),
+                1,
+                500,
+                40
+            )
+
+            expect(exportEvents.length).toBeGreaterThan(0)
+
+            const exportedEvents = exportEvents[0].message[1]
+            expect(exportedEvents).toEqual([
+                expect.objectContaining({
+                    distinct_id: distinctId,
+                    team_id: teamId,
+                    event: 'custom event',
+                    properties: expect.objectContaining({
+                        name: 'hehe',
+                        uuid: uuid,
+                    }),
+                    timestamp: expect.any(String),
+                    uuid: uuid,
+                    elements: [],
+                }),
+            ])
+        })
+
+        test('exporting $autocapture events on ingestion', async () => {
+            const plugin = await createPlugin(postgres, {
+                organization_id: organizationId,
+                name: 'export plugin',
+                plugin_type: 'source',
+                is_global: false,
+                source__index_ts: indexJs,
+            })
+            const teamId = await createTeam(postgres, organizationId)
+            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+            const distinctId = new UUIDT().toString()
+            const uuid = new UUIDT().toString()
+
+            // First let's ingest an event
             await capture(producer, teamId, distinctId, uuid, '$autocapture', {
                 name: 'hehe',
                 uuid: new UUIDT().toString(),
