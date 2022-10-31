@@ -70,8 +70,6 @@ export class GraphileWorker {
         let jobPayload: Record<string, any> = {}
         if ('payload' in job) {
             jobPayload = job.payload
-        } else if ('eventPayload' in job) {
-            jobPayload = job.eventPayload
         }
 
         let enqueueFn = () => this._enqueue(jobName, job)
