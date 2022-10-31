@@ -48,7 +48,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
                 } else if (currentTab === DashboardsTab.Shared) {
                     dashboards = dashboards.filter((d) => d.is_shared)
                 } else if (currentTab === DashboardsTab.Yours) {
-                    dashboards = dashboards.filter((d) => d.created_by?.uuid === user.uuid)
+                    dashboards = dashboards.filter((d) => d.created_by && user && d.created_by?.uuid === user.uuid)
                 }
                 if (!searchTerm) {
                     return dashboards
