@@ -21,8 +21,6 @@ import { ListRowOptions, PlayerListRow } from 'scenes/session-recordings/player/
 import { getRowExpandedState } from 'scenes/session-recordings/player/playerUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonButton } from 'lib/components/LemonButton'
-import { urls } from 'scenes/urls'
-import { IconOpenInNew } from 'lib/components/icons'
 import { openSessionRecordingSettingsDialog } from 'scenes/session-recordings/settings/SessionRecordingSettings'
 
 interface RowConfig<T extends Record<string, any>> {
