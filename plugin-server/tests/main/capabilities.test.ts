@@ -1,7 +1,7 @@
 import Piscina from '@posthog/piscina'
 
 import { startGraphileWorker } from '../../src/main/graphile-worker/worker-setup'
-import { KafkaQueue } from '../../src/main/ingestion-queues/kafka-queue'
+import { IngestionConsumer } from '../../src/main/ingestion-queues/kafka-queue'
 import { startQueues } from '../../src/main/ingestion-queues/queue'
 import { Hub, LogLevel } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
@@ -30,7 +30,7 @@ describe('capabilities', () => {
             const queues = await startQueues(hub, piscina)
 
             expect(queues).toEqual({
-                ingestion: expect.any(KafkaQueue),
+                ingestion: expect.any(IngestionConsumer),
             })
         })
 

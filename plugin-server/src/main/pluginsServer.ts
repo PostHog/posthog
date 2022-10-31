@@ -20,7 +20,7 @@ import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
-import { KafkaQueue } from './ingestion-queues/kafka-queue'
+import { IngestionConsumer } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
@@ -31,7 +31,7 @@ const { version } = require('../../package.json')
 export type ServerInstance = {
     hub: Hub
     piscina: Piscina
-    queue: KafkaQueue | null
+    queue: IngestionConsumer | null
     mmdb?: ReaderModel
     mmdbUpdateJob?: schedule.Job
     stop: () => Promise<void>
@@ -76,7 +76,7 @@ export async function startPluginsServer(
     //
     // The queue also handles async handlers, reading from
     // clickhouse_events_json topic.
-    let queue: KafkaQueue | undefined | null
+    let queue: IngestionConsumer | undefined | null
 
     // Kafka consumer. Handles events that we couldn't find an existing person
     // to associate. The buffer handles delaying the ingestion of these events

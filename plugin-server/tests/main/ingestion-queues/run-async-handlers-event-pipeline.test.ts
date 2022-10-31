@@ -12,7 +12,7 @@
 //
 //  1. using the Piscina task runner to run the pipeline results in the
 //     DependencyUnavailable Error being thrown.
-//  2. the KafkaQueue consumer handler will let the error bubble up to the
+//  2. the IngestionConsumer consumer handler will let the error bubble up to the
 //     KafkaJS consumer runner, which we assume will handle retries.
 
 import { RetryError } from '@posthog/plugin-scaffold'
@@ -20,7 +20,6 @@ import Redis from 'ioredis'
 import { KafkaJSError } from 'kafkajs'
 
 import { KAFKA_EVENTS_JSON } from '../../../src/config/kafka-topics'
-import { KafkaQueue } from '../../../src/main/ingestion-queues/kafka-queue'
 import { Hub } from '../../../src/types'
 import { DependencyUnavailable } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
@@ -243,7 +242,7 @@ describe('eachBatchAsyncHandlers', () => {
     })
 
     test('rejections from piscina are bubbled up to the consumer', async () => {
-        const kafkaQueue = new KafkaQueue(hub, {
+        const IngestionConsumer = new IngestionConsumer(hub, {
             runAsyncHandlersEventPipeline: () => {
                 throw new DependencyUnavailable('Failed to produce', 'Kafka', new KafkaJSError('Failed to produce'))
             },
@@ -253,7 +252,7 @@ describe('eachBatchAsyncHandlers', () => {
         })
 
         await expect(
-            kafkaQueue.eachBatchConsumer({
+            IngestionConsumer.eachBatchConsumer({
                 batch: {
                     topic: KAFKA_EVENTS_JSON,
                     partition: 0,
