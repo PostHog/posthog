@@ -239,7 +239,7 @@ export function PluginCard({
                                                 disabled={rearranging}
                                                 data-attr="plugin-history"
                                             >
-                                                <Link to={urls.appActivity(pluginConfig.id)}>
+                                                <Link to={urls.appHistory(pluginConfig.id)}>
                                                     <ClockCircleOutlined />
                                                 </Link>
                                             </Button>

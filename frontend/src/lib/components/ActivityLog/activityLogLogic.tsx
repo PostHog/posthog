@@ -148,7 +148,7 @@ export const activityLogLogic = kea<activityLogLogicType>({
                 onPageChange(searchParams, hashParams, ActivityScope.PLUGIN),
             [urls.featureFlag(':id')]: ({}, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG, true),
-            [urls.appActivity(':pluginConfigId')]: ({}, searchParams, hashParams) =>
+            [urls.appHistory(':pluginConfigId')]: ({}, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.PLUGIN, true),
         }
     },
