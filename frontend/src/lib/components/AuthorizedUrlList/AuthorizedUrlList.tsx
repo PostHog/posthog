@@ -7,7 +7,6 @@ import {
     authorizedUrlListLogic,
     AuthorizedUrlListProps,
 } from './authorizedUrlListLogic'
-import { LemonRow } from 'lib/components/LemonRow'
 import { IconDelete, IconEdit, IconOpenInApp, IconPlus } from 'lib/components/icons'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { Form } from 'kea-forms'
@@ -30,18 +29,22 @@ function EmptyState({
         return null
     }
 
-    return isSearching ? (
-        <LemonRow outlined fullWidth size="large" className="AuthorizedUrlRow">
-            There are no authorized {type === AuthorizedUrlListType.RECORDING_DOMAINS ? 'domains' : 'URLs'} that match
-            your search.
-        </LemonRow>
-    ) : isAddingEntry ? null : (
-        <LemonRow outlined fullWidth size="large" className="AuthorizedUrlRow">
-            {type === AuthorizedUrlListType.RECORDING_DOMAINS
-                ? 'No domains are specified, so recordings will be authorized on all domains.'
-                : 'There are no authorized urls. Add one to get started.'}
-        </LemonRow>
-    )
+    return isSearching || !isAddingEntry ? (
+        <div className="border rounded p-4 text-muted-alt">
+            {isSearching ? (
+                <>
+                    There are no authorized {type === AuthorizedUrlListType.RECORDING_DOMAINS ? 'domains' : 'URLs'} that
+                    match your search.
+                </>
+            ) : (
+                <>
+                    {type === AuthorizedUrlListType.RECORDING_DOMAINS
+                        ? 'No domains are specified, so recordings will be authorized on all domains.'
+                        : 'There are no authorized urls. Add one to get started.'}
+                </>
+            )}
+        </div>
+    ) : null
 }
 
 function AuthorizedUrlForm({ actionId, type }: AuthorizedUrlListProps): JSX.Element {
@@ -106,15 +109,15 @@ export function AuthorizedUrlList({
                 </LemonButton>
             </div>
             {suggestionsLoading ? (
-                <LemonRow outlined fullWidth size="large" key={-1}>
+                <div className="border rounded p-4" key={-1}>
                     <Spinner className="text-xl" />
-                </LemonRow>
+                </div>
             ) : (
                 <div className="space-y-2">
                     {isAddUrlFormVisible && (
-                        <LemonRow outlined fullWidth size="large">
+                        <div className="border rounded p-2">
                             <AuthorizedUrlForm type={type} actionId={actionId} />
-                        </LemonRow>
+                        </div>
                     )}
                     <EmptyState
                         numberOfResults={urlsKeyed.length}
@@ -123,82 +126,80 @@ export function AuthorizedUrlList({
                         type={type}
                     />
                     {urlsKeyed.map((keyedURL, index) => {
-                        return (
-                            <div key={index} className={clsx('border rounded flex items-center py-2 px-4 min-h-14')}>
-                                {editUrlIndex === index ? (
-                                    <AuthorizedUrlForm type={type} actionId={actionId} />
-                                ) : (
-                                    <>
-                                        {keyedURL.type === 'suggestion' && (
-                                            <LemonTag type="highlight" className="mr-4 uppercase">
-                                                Suggestion
-                                            </LemonTag>
-                                        )}
-                                        <span title={keyedURL.url} className="flex-1 truncate">
-                                            {keyedURL.url}
-                                        </span>
-                                        <div className="Actions flex space-x-2 shrink-0">
-                                            {keyedURL.type === 'suggestion' ? (
-                                                <LemonButton
-                                                    onClick={() => addUrl(keyedURL.url)}
-                                                    icon={<IconPlus />}
-                                                    data-attr="toolbar-apply-suggestion"
-                                                >
-                                                    Apply suggestion
-                                                </LemonButton>
-                                            ) : (
-                                                <>
-                                                    <LemonButton
-                                                        icon={<IconOpenInApp />}
-                                                        to={launchUrl(keyedURL.url)}
-                                                        targetBlank
-                                                        tooltip={
-                                                            type === AuthorizedUrlListType.TOOLBAR_URLS
-                                                                ? 'Launch toolbar'
-                                                                : 'Launch url'
-                                                        }
-                                                        center
-                                                        className="ActionButton"
-                                                        data-attr="toolbar-open"
-                                                    >
-                                                        Launch
-                                                    </LemonButton>
-
-                                                    <LemonButton
-                                                        icon={<IconEdit />}
-                                                        onClick={() => setEditUrlIndex(keyedURL.originalIndex)}
-                                                        tooltip={'Edit'}
-                                                        center
-                                                        className="ActionButton"
-                                                    />
-
-                                                    <LemonButton
-                                                        icon={<IconDelete />}
-                                                        tooltip={`Remove ${onlyAllowDomains ? 'domain' : 'URL'}`}
-                                                        center
-                                                        className="ActionButton"
-                                                        onClick={() => {
-                                                            LemonDialog.open({
-                                                                title: <>Remove {keyedURL.url} ?</>,
-                                                                description: `Are you want to remove this authorized ${
-                                                                    onlyAllowDomains ? 'domain' : 'URL'
-                                                                }?`,
-                                                                primaryButton: {
-                                                                    status: 'danger',
-                                                                    children: 'Remove',
-                                                                    onClick: () => removeUrl(index),
-                                                                },
-                                                                secondaryButton: {
-                                                                    children: 'Cancel',
-                                                                },
-                                                            })
-                                                        }}
-                                                    />
-                                                </>
-                                            )}
-                                        </div>
-                                    </>
+                        return editUrlIndex === index ? (
+                            <div className="border rounded p-2">
+                                <AuthorizedUrlForm type={type} actionId={actionId} />
+                            </div>
+                        ) : (
+                            <div key={index} className={clsx('border rounded flex items-center p-2 pl-4')}>
+                                {keyedURL.type === 'suggestion' && (
+                                    <LemonTag type="highlight" className="mr-4 uppercase">
+                                        Suggestion
+                                    </LemonTag>
                                 )}
+                                <span title={keyedURL.url} className="flex-1 truncate">
+                                    {keyedURL.url}
+                                </span>
+                                <div className="Actions flex space-x-2 shrink-0">
+                                    {keyedURL.type === 'suggestion' ? (
+                                        <LemonButton
+                                            onClick={() => addUrl(keyedURL.url)}
+                                            icon={<IconPlus />}
+                                            data-attr="toolbar-apply-suggestion"
+                                        >
+                                            Apply suggestion
+                                        </LemonButton>
+                                    ) : (
+                                        <>
+                                            <LemonButton
+                                                icon={<IconOpenInApp />}
+                                                to={launchUrl(keyedURL.url)}
+                                                targetBlank
+                                                tooltip={
+                                                    type === AuthorizedUrlListType.TOOLBAR_URLS
+                                                        ? 'Launch toolbar'
+                                                        : 'Launch url'
+                                                }
+                                                center
+                                                className="ActionButton"
+                                                data-attr="toolbar-open"
+                                            >
+                                                Launch
+                                            </LemonButton>
+
+                                            <LemonButton
+                                                icon={<IconEdit />}
+                                                onClick={() => setEditUrlIndex(keyedURL.originalIndex)}
+                                                tooltip={'Edit'}
+                                                center
+                                                className="ActionButton"
+                                            />
+
+                                            <LemonButton
+                                                icon={<IconDelete />}
+                                                tooltip={`Remove ${onlyAllowDomains ? 'domain' : 'URL'}`}
+                                                center
+                                                className="ActionButton"
+                                                onClick={() => {
+                                                    LemonDialog.open({
+                                                        title: <>Remove {keyedURL.url} ?</>,
+                                                        description: `Are you want to remove this authorized ${
+                                                            onlyAllowDomains ? 'domain' : 'URL'
+                                                        }?`,
+                                                        primaryButton: {
+                                                            status: 'danger',
+                                                            children: 'Remove',
+                                                            onClick: () => removeUrl(index),
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                        },
+                                                    })
+                                                }}
+                                            />
+                                        </>
+                                    )}
+                                </div>
                             </div>
                         )
                     })}
