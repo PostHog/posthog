@@ -1,4 +1,4 @@
-name: 'Storybook Chromatic'
+name: 'Storybook Chromatic - Add baselines on push to master'
 
 on:
     push:
