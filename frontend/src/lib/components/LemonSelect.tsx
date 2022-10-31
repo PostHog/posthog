@@ -115,81 +115,79 @@ export function LemonSelect<T>({
     const [sections, allOptions] = useMemo(() => boxToSections(options), [options])
 
     return (
-        <div className="flex">
-            <LemonButtonWithPopup
-                className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
-                popup={{
-                    ref: popup?.ref,
-                    overlay: sections.map((section, i) => (
-                        <div key={i} className="space-y-px">
-                            {section.title ? (
-                                typeof section.title === 'string' ? (
-                                    <h5>{section.title}</h5>
-                                ) : (
-                                    section.title
-                                )
-                            ) : null}
-                            {section.options.map((option, index) => (
-                                <LemonButton
-                                    key={index}
-                                    icon={option.icon}
-                                    sideIcon={option.sideIcon}
-                                    tooltip={option.tooltip}
-                                    tooltipPlacement={optionTooltipPlacement}
-                                    onClick={() => {
-                                        if (option.value !== localValue) {
-                                            onChange?.(option.value)
-                                            setLocalValue(option.value)
-                                        }
-                                        onSelect?.(option.value)
-                                    }}
-                                    status="stealth"
-                                    active={option.value === localValue}
-                                    disabled={option.disabled}
-                                    fullWidth
-                                    data-attr={option['data-attr']}
-                                >
-                                    {option.label ?? option.value}
-                                    {option.element}
-                                </LemonButton>
-                            ))}
-                            {section.footer ? <div>{section.footer}</div> : null}
-                            {i < sections.length - 1 ? <LemonDivider /> : null}
-                        </div>
-                    )),
-                    sameWidth: dropdownMatchSelectWidth,
-                    placement: dropdownPlacement,
-                    actionable: true,
-                    className: popup?.className,
-                    maxContentWidth: dropdownMaxContentWidth,
-                }}
-                icon={allOptions.find((o) => o.value === localValue)?.icon}
-                // so that the pop-up isn't shown along with the close button
-                sideIcon={isClearButtonShown ? <div /> : undefined}
-                type="secondary"
-                status="stealth"
-                {...buttonProps}
-            >
-                <span>
-                    {allOptions.find((o) => o.value === localValue)?.label ?? localValue ?? (
-                        <span className="text-muted">{placeholder}</span>
-                    )}
-                </span>
-                {isClearButtonShown && (
-                    <LemonButton
-                        className="LemonSelect--button--clearable"
-                        type="tertiary"
-                        status="stealth"
-                        noPadding
-                        icon={<IconClose />}
-                        tooltip="Clear selection"
-                        onClick={() => {
-                            onChange?.(null)
-                            setLocalValue(undefined)
-                        }}
-                    />
+        <LemonButtonWithPopup
+            className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
+            popup={{
+                ref: popup?.ref,
+                overlay: sections.map((section, i) => (
+                    <div key={i} className="space-y-px">
+                        {section.title ? (
+                            typeof section.title === 'string' ? (
+                                <h5>{section.title}</h5>
+                            ) : (
+                                section.title
+                            )
+                        ) : null}
+                        {section.options.map((option, index) => (
+                            <LemonButton
+                                key={index}
+                                icon={option.icon}
+                                sideIcon={option.sideIcon}
+                                tooltip={option.tooltip}
+                                tooltipPlacement={optionTooltipPlacement}
+                                onClick={() => {
+                                    if (option.value !== localValue) {
+                                        onChange?.(option.value)
+                                        setLocalValue(option.value)
+                                    }
+                                    onSelect?.(option.value)
+                                }}
+                                status="stealth"
+                                active={option.value === localValue}
+                                disabled={option.disabled}
+                                fullWidth
+                                data-attr={option['data-attr']}
+                            >
+                                {option.label ?? option.value}
+                                {option.element}
+                            </LemonButton>
+                        ))}
+                        {section.footer ? <div>{section.footer}</div> : null}
+                        {i < sections.length - 1 ? <LemonDivider /> : null}
+                    </div>
+                )),
+                sameWidth: dropdownMatchSelectWidth,
+                placement: dropdownPlacement,
+                actionable: true,
+                className: popup?.className,
+                maxContentWidth: dropdownMaxContentWidth,
+            }}
+            icon={allOptions.find((o) => o.value === localValue)?.icon}
+            // so that the pop-up isn't shown along with the close button
+            sideIcon={isClearButtonShown ? <div /> : undefined}
+            type="secondary"
+            status="stealth"
+            {...buttonProps}
+        >
+            <span>
+                {allOptions.find((o) => o.value === localValue)?.label ?? localValue ?? (
+                    <span className="text-muted">{placeholder}</span>
                 )}
-            </LemonButtonWithPopup>
-        </div>
+            </span>
+            {isClearButtonShown && (
+                <LemonButton
+                    className="LemonSelect--button--clearable"
+                    type="tertiary"
+                    status="stealth"
+                    noPadding
+                    icon={<IconClose />}
+                    tooltip="Clear selection"
+                    onClick={() => {
+                        onChange?.(null)
+                        setLocalValue(undefined)
+                    }}
+                />
+            )}
+        </LemonButtonWithPopup>
     )
 }

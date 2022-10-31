@@ -442,7 +442,7 @@ function useMathSelectorOptions(
             options.splice(1, 0, {
                 value: countPerActorMathTypeShown,
                 label: (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 pr-1">
                         <span>Count per user</span>
                         <LemonSelect
                             value={countPerActorMathTypeShown}
@@ -471,7 +471,7 @@ function useMathSelectorOptions(
         options.push({
             value: propertyMathTypeShown,
             label: (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 pr-1">
                     <span>Property value</span>
                     <LemonSelect
                         value={propertyMathTypeShown}
