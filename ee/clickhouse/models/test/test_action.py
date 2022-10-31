@@ -70,19 +70,20 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk})
-        assert len(result[0]) == 1
+
+        self.assertEqual(len(result), 1)
         self.assertEqual(str(result[0][0]), event_target_uuid)
 
     def test_filter_event_exact_url_with_query_params(self):
-        event_target_uuid = _create_event(
+        first_match_uuid = _create_event(
             event="$autocapture",
             team=self.team,
             distinct_id="whatever",
             properties={"$current_url": "https://posthog.com/feedback/123?vip=1"},
         )
 
-        _create_event(
-            event="autocapture",
+        second_match_uuid = _create_event(
+            event="$autocapture",
             team=self.team,
             distinct_id="whatever",
             properties={"$current_url": "https://posthog.com/feedback/123?vip=1"},
@@ -106,8 +107,10 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk})
-        assert len(result[0]) == 2
-        self.assertEqual(str(result[0][0]), event_target_uuid)
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(str(result[0][0]), first_match_uuid)
+        self.assertEqual(str(result[1][0]), second_match_uuid)
 
     def test_filter_event_contains_url(self):
 
