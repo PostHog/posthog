@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.utils.html import format_html
@@ -134,7 +135,14 @@ class OrganizationAdmin(admin.ModelAdmin):
         "usage",
     ]
     inlines = [OrganizationTeamInline, OrganizationMemberInline]
-    readonly_fields = ["created_at", "updated_at", "billing_plan", "organization_billing_link", "usage"]
+    readonly_fields = [
+        "created_at",
+        "updated_at",
+        "billing_plan",
+        "organization_billing_link",
+        "billing_link_v2",
+        "usage",
+    ]
     search_fields = ("name", "members__email")
     list_display = (
         "name",
@@ -143,6 +151,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "members_count",
         "first_member",
         "organization_billing_link",
+        "billing_link_v2",
     )
 
     def members_count(self, organization: Organization):
@@ -156,6 +165,10 @@ class OrganizationAdmin(admin.ModelAdmin):
         return format_html(
             '<a href="/admin/multi_tenancy/organizationbilling/{}/change/">Billing →</a>', organization.pk
         )
+
+    def billing_link_v2(self, organization: Organization) -> str:
+        url = f"{settings.BILLING_SERVICE_URL}/admin/billing/customer/?q={organization.pk}"
+        return format_html(f'<a href="{url}">Billing V2 →</a>')
 
     def usage(self, organization: Organization):
         return format_html(
