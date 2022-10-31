@@ -5,8 +5,9 @@ import { processError } from '../../src/utils/db/error'
 import { createHub } from '../../src/utils/db/hub'
 import { delay, IllegalOperationError } from '../../src/utils/utils'
 import { loadPlugin } from '../../src/worker/plugins/loadPlugin'
+import { loadSchedule } from '../../src/worker/plugins/loadSchedule'
 import { runProcessEvent } from '../../src/worker/plugins/run'
-import { loadSchedule, setupPlugins } from '../../src/worker/plugins/setup'
+import { setupPlugins } from '../../src/worker/plugins/setup'
 import {
     commonOrganizationId,
     mockPluginSourceCode,

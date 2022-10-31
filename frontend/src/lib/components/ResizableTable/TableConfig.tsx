@@ -21,7 +21,7 @@ import {
     SortableHandle as sortableHandle,
 } from 'react-sortable-hoc'
 import { RestrictedArea, RestrictedComponentProps, RestrictionScope } from '../RestrictedArea'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 
 const DragHandle = sortableHandle(() => (
     <span className="drag-handle">
@@ -229,7 +229,7 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
                 </Row>
                 <RestrictedArea
                     Component={SaveColumnsAsDefault}
-                    minimumAccessLevel={OrganizationMembershipLevel.Owner}
+                    minimumAccessLevel={TeamMembershipLevel.Admin}
                     scope={RestrictionScope.Project}
                 />
             </div>

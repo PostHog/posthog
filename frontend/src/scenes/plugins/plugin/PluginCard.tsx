@@ -31,7 +31,7 @@ import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { PluginsAccessLevel } from 'lib/constants'
 import { urls } from 'scenes/urls'
-import { DeliveryRateBadge } from './DeliveryRateBadge'
+import { SuccessRateBadge } from './SuccessRateBadge'
 
 export function PluginAboutButton({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
@@ -75,6 +75,7 @@ export function PluginCard({
         name,
         description,
         url,
+        icon,
         plugin_type: pluginType,
         pluginConfig,
         tag,
@@ -87,16 +88,9 @@ export function PluginCard({
         organization_name,
     } = plugin
 
-    const {
-        editPlugin,
-        toggleEnabled,
-        installPlugin,
-        resetPluginConfigError,
-        rearrange,
-        showPluginLogs,
-        showPluginHistory,
-    } = useActions(pluginsLogic)
-    const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer, shouldShowAppMetrics } =
+    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, rearrange, showPluginLogs } =
+        useActions(pluginsLogic)
+    const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer, showAppMetricsForPlugin } =
         useValues(pluginsLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { user } = useValues(userLogic)
@@ -152,13 +146,13 @@ export function PluginCard({
                         </Col>
                     )}
                     <Col className={pluginConfig ? 'hide-plugin-image-below-500' : ''}>
-                        <PluginImage pluginType={pluginType} url={url} />
+                        <PluginImage pluginType={pluginType} icon={icon} url={url} />
                     </Col>
                     <Col style={{ flex: 1 }}>
                         <div>
                             <strong style={{ marginRight: 8 }}>
-                                {shouldShowAppMetrics && pluginConfig?.id && (
-                                    <DeliveryRateBadge
+                                {showAppMetricsForPlugin(plugin) && pluginConfig?.id && (
+                                    <SuccessRateBadge
                                         deliveryRate={pluginConfig.delivery_rate_24h ?? null}
                                         pluginConfigId={pluginConfig.id}
                                     />
@@ -225,7 +219,7 @@ export function PluginCard({
                                 />
                             ) : pluginId ? (
                                 <>
-                                    {shouldShowAppMetrics && pluginConfig?.id ? (
+                                    {showAppMetricsForPlugin(plugin) && pluginConfig?.id ? (
                                         <Tooltip title="App metrics">
                                             <Button
                                                 className="padding-under-500"
@@ -238,16 +232,19 @@ export function PluginCard({
                                             </Button>
                                         </Tooltip>
                                     ) : null}
-                                    <Tooltip title="Activity history">
-                                        <Button
-                                            className="padding-under-500"
-                                            disabled={rearranging}
-                                            onClick={() => showPluginHistory(pluginId)}
-                                            data-attr="plugin-history"
-                                        >
-                                            <ClockCircleOutlined />
-                                        </Button>
-                                    </Tooltip>
+                                    {pluginConfig?.id ? (
+                                        <Tooltip title="Activity history">
+                                            <Button
+                                                className="padding-under-500"
+                                                disabled={rearranging}
+                                                data-attr="plugin-history"
+                                            >
+                                                <Link to={urls.appHistory(pluginConfig.id)}>
+                                                    <ClockCircleOutlined />
+                                                </Link>
+                                            </Button>
+                                        </Tooltip>
+                                    ) : null}
                                     <Tooltip
                                         title={
                                             pluginConfig?.id

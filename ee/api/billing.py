@@ -41,8 +41,8 @@ class LicenseKeySerializer(serializers.Serializer):
     license = serializers.CharField()
 
 
-def build_billing_token(license: License, organization_id: str):
-    if not organization_id or not license:
+def build_billing_token(license: License, organization: Organization):
+    if not organization or not license:
         raise NotAuthenticated()
 
     license_id = license.key.split("::")[0]
@@ -52,7 +52,8 @@ def build_billing_token(license: License, organization_id: str):
         {
             "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
             "id": license_id,
-            "organization_id": str(organization_id),
+            "organization_id": str(organization.id),
+            "organization_name": organization.name,
             "aud": "posthog:license-key",
         },
         license_secret,
@@ -85,18 +86,20 @@ def get_cached_current_usage(organization: Organization) -> Dict[str, int]:
     cache_key: str = f"monthly_usage_breakdown_{organization.id}"
     usage: Optional[Dict[str, int]] = cache.get(cache_key)
 
+    # TODO BW: For self-hosted this should be priced across all orgs
+
     if usage is None:
         teams = Team.objects.filter(organization=organization).exclude(organization__for_internal_metrics=True)
 
         usage = {
-            "EVENTS": 0,
-            "RECORDINGS": 0,
+            "events": 0,
+            "recordings": 0,
         }
 
         for team in teams:
             (start_period, end_period) = get_this_month_date_range()
-            usage["RECORDINGS"] += get_recording_count_for_team_and_period(team.id, start_period, end_period)
-            usage["EVENTS"] += get_event_count_for_team_and_period(team.id, start_period, end_period)
+            usage["recordings"] += get_recording_count_for_team_and_period(team.id, start_period, end_period)
+            usage["events"] += get_event_count_for_team_and_period(team.id, start_period, end_period)
 
         cache.set(
             cache_key,
@@ -134,43 +137,50 @@ class BillingViewset(viewsets.GenericViewSet):
             if org.billing.stripe_subscription_id:  # type: ignore
                 raise NotFound("Billing V1 is active for this organization")
 
+        billing_service_response: Dict[str, Any] = {}
         response: Dict[str, Any] = {}
 
+        # Load Billing info if we have a V2 license
         if org and license and license.is_v2_license:
             response["license"] = {"plan": license.plan}
-            billing_service_token = build_billing_token(license, str(org.id))
-
-            res = requests.get(
-                f"{BILLING_SERVICE_URL}/api/billing",
-                headers={"Authorization": f"Bearer {billing_service_token}"},
-            )
-
-            handle_billing_service_error(res)
-
-            data = res.json()
-
-            if data.get("license"):
-                self._update_license_details(license, data["license"])
-
-            if data.get("customer"):
-                response.update(data["customer"])
+            billing_service_response = self._get_billing(license, org)
 
         # If there isn't a valid v2 subscription then we only return sucessfully if BILLING_V2_ENABLED
-        if not response.get("has_active_subscription") and not settings.BILLING_V2_ENABLED:
+        if (
+            not billing_service_response.get("customer", {}).get("has_active_subscription")
+            and not settings.BILLING_V2_ENABLED
+        ):
             distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
             if not (distinct_id and posthoganalytics.get_feature_flag("billing-v2-enabled", distinct_id)):
                 raise NotFound("Billing V2 is not enabled for this organization")
 
-        # The default response is used if there is no subscription
+        # Sync the License and Org if we have a valid response
+        if license and billing_service_response.get("license"):
+            self._update_license_details(license, billing_service_response["license"])
+
+        if org and billing_service_response.get("customer"):
+            self._update_org_details(org, billing_service_response["customer"])
+            response.update(billing_service_response["customer"])
+
+        # If we don't have products then get the default ones with our local usage calculation
         if not response.get("products"):
             products = self._get_products()
+            response["products"] = products["standard"]
+            response["products_enterprise"] = products["enterprise"]
+
             calculated_usage = get_cached_current_usage(org) if org else None
 
             if calculated_usage is not None:
-                for product in products:
+                for product in response["products"] + response["products_enterprise"]:
                     if product["type"] in calculated_usage:
                         product["current_usage"] = calculated_usage[product["type"]]
-            response["products"] = products
+                    else:
+                        product["current_usage"] = 0
+
+        # Either way calculate the percentage_used for each product
+        for product in response["products"]:
+            usage_limit = product.get("usage_limit", product.get("free_allocation"))
+            product["percentage_usage"] = product["current_usage"] / usage_limit if usage_limit else 0
 
         return Response(response)
 
@@ -181,7 +191,7 @@ class BillingViewset(viewsets.GenericViewSet):
             raise Exception("There is no license configured for this instance yet.")
         org = self._get_org_required()
 
-        billing_service_token = build_billing_token(license, str(org.id))
+        billing_service_token = build_billing_token(license, org)
 
         res = requests.patch(
             f"{BILLING_SERVICE_URL}/api/billing/",
@@ -191,13 +201,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
         handle_billing_service_error(res)
 
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/billing/",
-            headers={"Authorization": f"Bearer {billing_service_token}"},
-        )
-
-        handle_billing_service_error(res)
-        return Response(res.json()["customer"])
+        return self.list(request, *args, **kwargs)
 
     @action(methods=["GET"], detail=False)
     def activation(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -205,10 +209,10 @@ class BillingViewset(viewsets.GenericViewSet):
         organization = self._get_org_required()
 
         redirect_uri = f"{settings.SITE_URL or request.headers.get('Host')}/organization/billing"
-        url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}"
+        url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}&plan={request.GET.get('plan', 'standard')}"
 
         if license:
-            billing_service_token = build_billing_token(license, str(organization.id))
+            billing_service_token = build_billing_token(license, organization)
             url = f"{url}&token={billing_service_token}"
 
         return redirect(url)
@@ -232,7 +236,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing",
-            headers={"Authorization": f"Bearer {build_billing_token(license, str(organization.id))}"},
+            headers={"Authorization": f"Bearer {build_billing_token(license, organization)}"},
         )
 
         if res.status_code != 200:
@@ -265,14 +269,60 @@ class BillingViewset(viewsets.GenericViewSet):
 
         handle_billing_service_error(res)
 
-        return res.json()["products"]
+        return res.json()
+
+    def _get_billing(self, license: License, organization: Organization) -> Dict[str, Any]:
+        """
+        Retrieves billing info and updates local models if necessary
+        """
+        billing_service_token = build_billing_token(license, organization)
+
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing",
+            headers={"Authorization": f"Bearer {billing_service_token}"},
+        )
+
+        handle_billing_service_error(res)
+
+        data = res.json()
+
+        return data
 
     def _update_license_details(self, license: License, data: Dict[str, Any]) -> License:
         """
         Ensure the license details are up-to-date locally
         """
-        license.valid_until = data["valid_until"]
-        license.plan = data["type"]
-        license.save()
+        license_modified = False
+
+        if not license.valid_until or license.valid_until < timezone.now() + timedelta(days=29):
+            # NOTE: License validity is a legacy concept. For now we always extend the license validity by 30 days.
+            license.valid_until = timezone.now() + timedelta(days=30)
+            license_modified = True
+
+        if license.plan != data["type"]:
+            license.plan = data["type"]
+            license_modified = True
+
+        if license_modified:
+            license.save()
 
         return license
+
+    def _update_org_details(self, organization: Organization, data: Dict[str, Any]) -> Organization:
+        """
+        Ensure the relevant organization details are up-to-date locally
+        """
+        org_modified = False
+
+        if data["available_features"] != organization.available_features:
+            organization.available_features = data["available_features"]
+            org_modified = True
+
+        if data.get("deactivated"):
+            # TODO: Mark the organization as deactivated
+            pass
+
+        if org_modified:
+            organization.save()
+
+        return organization

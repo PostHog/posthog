@@ -1,16 +1,6 @@
 .insights-label {
     max-width: 100%;
 
-    .label {
-        display: flex;
-        flex-direction: row;
-        width: 100%;
-
-        &.wrap {
-            flex-wrap: wrap;
-        }
-    }
-
     .value {
         margin-left: 0.3rem;
         font-size: 1.176em;
@@ -20,7 +10,6 @@
 
     .ant-tag {
         margin-right: 0;
-        margin-left: 0.3rem;
         background-color: var(--border-light);
         border: 0;
         color: var(--primary-alt);

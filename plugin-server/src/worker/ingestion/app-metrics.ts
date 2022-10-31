@@ -14,7 +14,7 @@ export interface AppMetricIdentifier {
     pluginConfigId: number
     jobId?: string
     // Keep in sync with posthog/queries/app_metrics/serializers.py
-    category: 'processEvent' | 'onEvent' | 'exportEvents'
+    category: 'processEvent' | 'onEvent' | 'exportEvents' | 'scheduledTask'
 }
 
 export interface AppMetric extends AppMetricIdentifier {
@@ -77,6 +77,10 @@ export class AppMetrics {
     }
 
     async isAvailable(metric: AppMetric, errorWithContext?: ErrorWithContext): Promise<boolean> {
+        if (this.hub.APP_METRICS_GATHERED_FOR_ALL) {
+            return true
+        }
+
         // :TRICKY: If postgres connection is down, we ignore this metric
         try {
             return await this.hub.organizationManager.hasAvailableFeature(metric.teamId, 'app_metrics')

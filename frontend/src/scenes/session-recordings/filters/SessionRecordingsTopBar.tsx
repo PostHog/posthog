@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { sessionRecordingsListLogic } from '../sessionRecordingsListLogic'
+import { sessionRecordingsListLogic } from '../playlist/sessionRecordingsListLogic'
 import { DurationFilter } from './DurationFilter'
 import { SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'

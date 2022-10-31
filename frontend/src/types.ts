@@ -777,6 +777,11 @@ export interface SessionRecordingType {
     person?: PersonType
 }
 
+export interface SessionRecordingPropertiesType {
+    id: string
+    properties?: Record<string, any>
+}
+
 export interface SessionRecordingEvents {
     next?: string
     events: RecordingEventType[]
@@ -817,15 +822,22 @@ export interface BillingProductV2Type {
         current_amount_usd?: string | null
         up_to: number | null
     }[]
+    tiered: boolean
     current_usage?: number
+    projected_usage?: number
+    percentage_usage: number
     current_amount_usd?: string
     usage_limit?: number
+    unit_amount_usd: string | null
 }
 
 export interface BillingV2Type {
+    has_active_subscription: boolean
     stripe_portal_url?: string
+    deactivated?: boolean
     current_total_amount_usd?: string
     products: BillingProductV2Type[]
+    products_enterprise?: BillingProductV2Type[]
 
     custom_limits_usd?: {
         [key: string]: string | null | undefined
@@ -981,6 +993,7 @@ export interface PluginType {
     description?: string
     url?: string
     tag?: string
+    icon?: string
     latest_tag?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
@@ -1034,6 +1047,7 @@ export interface PluginConfigType {
     config: Record<string, any>
     error?: PluginErrorType
     delivery_rate_24h?: number | null
+    created_at?: string
 }
 
 export interface PluginConfigWithPluginInfo extends PluginConfigType {
@@ -1981,10 +1995,10 @@ export interface InstanceSetting {
 }
 
 export enum BaseMathType {
-    Total = 'total',
-    DailyActive = 'dau',
-    WeeklyActive = 'weekly_active',
-    MonthlyActive = 'monthly_active',
+    TotalCount = 'total',
+    UniqueUsers = 'dau',
+    WeeklyActiveUsers = 'weekly_active',
+    MonthlyActiveUsers = 'monthly_active',
     UniqueSessions = 'unique_session',
 }
 
@@ -1997,6 +2011,16 @@ export enum PropertyMathType {
     P90 = 'p90',
     P95 = 'p95',
     P99 = 'p99',
+}
+
+export enum CountPerActorMathType {
+    Average = 'avg_count_per_actor',
+    Minimum = 'min_count_per_actor',
+    Maximum = 'max_count_per_actor',
+    Median = 'median_count_per_actor',
+    P90 = 'p90_count_per_actor',
+    P95 = 'p95_count_per_actor',
+    P99 = 'p99_count_per_actor',
 }
 
 export enum ActorGroupType {

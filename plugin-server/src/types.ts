@@ -160,6 +160,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
     HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: number
     HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: number
+    APP_METRICS_GATHERED_FOR_ALL: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -205,7 +206,6 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
-    conversionBufferTopicEnabledTeams: Set<number>
 }
 
 export interface PluginServerCapabilities {
@@ -216,19 +216,13 @@ export interface PluginServerCapabilities {
     http?: boolean
 }
 
-export type EnqueuedJob = EnqueuedPluginJob | EnqueuedBufferJob | GraphileWorkerCronScheduleJob
+export type EnqueuedJob = EnqueuedPluginJob | GraphileWorkerCronScheduleJob
 export interface EnqueuedPluginJob {
     type: string
     payload: Record<string, any>
     timestamp: number
     pluginConfigId: number
     pluginConfigTeam: number
-    jobKey?: string
-}
-
-export interface EnqueuedBufferJob {
-    eventPayload: PluginEvent
-    timestamp: number
     jobKey?: string
 }
 
@@ -396,6 +390,8 @@ export interface PluginTask {
     name: string
     type: PluginTaskType
     exec: (payload?: Record<string, any>) => Promise<any>
+
+    __ignoreForAppMetrics?: boolean
 }
 
 export type WorkerMethods = {
@@ -536,6 +532,11 @@ export interface RawClickHouseEvent extends BaseEvent {
     group2_properties?: string
     group3_properties?: string
     group4_properties?: string
+    group0_created_at?: ClickHouseTimestamp
+    group1_created_at?: ClickHouseTimestamp
+    group2_created_at?: ClickHouseTimestamp
+    group3_created_at?: ClickHouseTimestamp
+    group4_created_at?: ClickHouseTimestamp
 }
 
 /** Parsed event row from ClickHouse. */
@@ -551,6 +552,11 @@ export interface ClickHouseEvent extends BaseEvent {
     group2_properties: Record<string, any>
     group3_properties: Record<string, any>
     group4_properties: Record<string, any>
+    group0_created_at?: DateTime | null
+    group1_created_at?: DateTime | null
+    group2_created_at?: DateTime | null
+    group3_created_at?: DateTime | null
+    group4_created_at?: DateTime | null
 }
 
 /** Event in a database-agnostic shape, AKA an ingestion event.
@@ -658,10 +664,11 @@ export interface Group extends BaseGroup {
     version: number
 }
 
+export type GroupKey = string
 /** Clickhouse Group model */
 export interface ClickhouseGroup {
     group_type_index: GroupTypeIndex
-    group_key: string
+    group_key: GroupKey
     created_at: string
     team_id: number
     group_properties: string
@@ -674,14 +681,6 @@ export interface PersonDistinctId {
     person_id: number
     distinct_id: string
     version: string | null
-}
-
-/** ClickHouse PersonDistinctId model. (person_distinct_id table) */
-export interface ClickHousePersonDistinctId {
-    team_id: number
-    person_id: string
-    distinct_id: string
-    is_deleted: 0 | 1
 }
 
 /** ClickHouse PersonDistinctId model. (person_distinct_id2 table) */

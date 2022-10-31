@@ -37,8 +37,6 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import clsx from 'clsx'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { AlertMessage } from 'lib/components/AlertMessage'
-import { Link } from '@posthog/lemon-ui'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
@@ -74,7 +72,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     }, [insightId])
 
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
-    const actorOnEventsQueryingEnabled = featureFlags[FEATURE_FLAGS.ACTOR_ON_EVENTS_QUERYING]
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
@@ -279,18 +276,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     </>
                 }
             />
-
-            {actorOnEventsQueryingEnabled ? (
-                <div className="mb-4">
-                    <AlertMessage type="info">
-                        To speed up queries, we've adjusted how they're calculated. You might notice some differences in
-                        the insight results. Read more about what changes to expect{' '}
-                        <Link to={`https://posthog.com/docs/how-posthog-works/queries`}>here</Link>. Please{' '}
-                        <Link to={'https://posthog.com/support/'}>contact us</Link> if you have any further questions
-                        regarding the changes
-                    </AlertMessage>
-                </div>
-            ) : null}
 
             {!usingEditorPanels && insightMode === ItemMode.Edit && <InsightsNav />}
 

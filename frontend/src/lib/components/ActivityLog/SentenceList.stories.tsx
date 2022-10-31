@@ -4,6 +4,9 @@ import { SentenceList, SentenceListProps } from './SentenceList'
 export default {
     title: 'Components/SentenceList',
     component: SentenceList,
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof SentenceList>
 
 const Template: ComponentStory<typeof SentenceList> = (props: SentenceListProps) => {

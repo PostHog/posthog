@@ -1,53 +1,43 @@
 import { useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { colonDelimitedDuration, range } from '~/lib/utils'
+import { range } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
-import { PLAYLIST_LIMIT, sessionRecordingsListLogic } from './sessionRecordingsListLogic'
-import { asDisplay } from 'scenes/persons/PersonHeader'
+import {
+    defaultPageviewPropertyEntityFilter,
+    PLAYLIST_LIMIT,
+    sessionRecordingsListLogic,
+} from './sessionRecordingsListLogic'
 import './SessionRecordingsPlaylist.scss'
-import { TZLabel } from 'lib/components/TimezoneAware'
-import { SessionRecordingPlayer } from './player/SessionRecordingPlayer'
+import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconChevronLeft, IconChevronRight, IconSchedule } from 'lib/components/icons'
-import { SessionRecordingsFilters } from './filters/SessionRecordingsFilters'
+import { IconChevronLeft, IconChevronRight } from 'lib/components/icons'
+import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import clsx from 'clsx'
-import { Tooltip } from 'lib/components/Tooltip'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { LemonTableLoader } from 'lib/components/LemonTable/LemonTableLoader'
+import { SessionRecordingPlaylistItem } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistItem'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
     isPersonPage?: boolean
 }
 
-const DurationDisplay = ({ duration }: { duration: number }): JSX.Element => {
-    const formattedDuration = colonDelimitedDuration(duration)
-    const parts = formattedDuration.split(':')
-
-    return (
-        <span className="flex items-center gap-1">
-            <IconSchedule className="text-lg" />
-            <span>
-                <span className={clsx(parts[0] === '00' && 'opacity-50')}>{parts[0]}:</span>
-                <span
-                    className={clsx({
-                        'opacity-50': parts[0] === '00' && parts[1] === '00',
-                    })}
-                >
-                    {parts[1]}:
-                </span>
-                {parts[2]}
-            </span>
-        </span>
-    )
-}
-
 export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTableProps): JSX.Element {
-    const logic = sessionRecordingsListLogic({ personUUID })
-    const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev, activeSessionRecording, offset } =
-        useValues(logic)
-    const { setSelectedRecordingId, loadNext, loadPrev } = useActions(logic)
+    const logicProps = { personUUID }
+    const logic = sessionRecordingsListLogic(logicProps)
+    const {
+        sessionRecordings,
+        sessionRecordingIdToProperties,
+        sessionRecordingsResponseLoading,
+        sessionRecordingsPropertiesResponseLoading,
+        hasNext,
+        hasPrev,
+        activeSessionRecording,
+        offset,
+        entityFilters,
+    } = useValues(logic)
+    const { setSelectedRecordingId, loadNext, loadPrev, setEntityFilters } = useActions(logic)
     const playlistRef = useRef<HTMLDivElement>(null)
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
@@ -62,6 +52,10 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                 behavior: 'smooth',
             })
         }
+    }
+
+    const onPropertyClick = (property: string, value?: string): void => {
+        setEntityFilters(defaultPageviewPropertyEntityFilter(entityFilters, property, value))
     }
 
     const nextLength = offset + (sessionRecordingsResponseLoading ? PLAYLIST_LIMIT : sessionRecordings.length)
@@ -96,7 +90,6 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
         <div ref={playlistRef} className="SessionRecordingsPlaylist" data-attr="session-recordings-playlist">
             <div className="SessionRecordingsPlaylist__left-column space-y-4">
                 <SessionRecordingsFilters personUUID={personUUID} />
-
                 <div className="w-full overflow-hidden border rounded">
                     <div className="relative flex justify-between items-center bg-mid py-3 px-4 border-b">
                         <span className="font-bold uppercase text-xs my-1 tracking-wide">Recent Recordings</span>
@@ -121,36 +114,18 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                     ) : (
                         <ul className={clsx(sessionRecordingsResponseLoading ? 'opacity-50' : '')}>
                             {sessionRecordings.map((rec, i) => (
-                                <li
-                                    key={rec.id}
-                                    className={clsx(
-                                        'p-2 px-4 cursor-pointer',
-                                        activeSessionRecording?.id === rec.id
-                                            ? 'bg-primary-highlight font-semibold'
-                                            : '',
-                                        i !== 0 && 'border-t'
-                                    )}
-                                    onClick={() => onRecordingClick(rec)}
-                                >
-                                    <div className="flex justify-between items-center">
-                                        <div className="truncate font-medium text-primary ph-no-capture">
-                                            {asDisplay(rec.person, 25)}
-                                        </div>
-                                        {!rec.viewed && (
-                                            <Tooltip title={'Indicates the recording has not been watched yet'}>
-                                                <div
-                                                    className="w-2 h-2 rounded bg-primary-light"
-                                                    aria-label="unwatched-recording-label"
-                                                />
-                                            </Tooltip>
-                                        )}
-                                    </div>
-
-                                    <div className="flex justify-between">
-                                        <TZLabel time={rec.start_time} formatDate="MMMM DD, YYYY" formatTime="h:mm A" />
-                                        <DurationDisplay duration={rec.recording_duration} />
-                                    </div>
-                                </li>
+                                <>
+                                    {i > 0 && <div className="border-t" />}
+                                    <SessionRecordingPlaylistItem
+                                        key={rec.id}
+                                        recording={rec}
+                                        recordingProperties={sessionRecordingIdToProperties[rec.id]}
+                                        recordingPropertiesLoading={sessionRecordingsPropertiesResponseLoading}
+                                        onClick={() => onRecordingClick(rec)}
+                                        onPropertyClick={onPropertyClick}
+                                        isActive={activeSessionRecording?.id === rec.id}
+                                    />
+                                </>
                             ))}
                         </ul>
                     )}

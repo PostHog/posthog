@@ -368,6 +368,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
         reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
         reportRecordingsListFetched: (loadTime: number) => ({ loadTime }),
+        reportRecordingsListPropertiesFetched: (loadTime: number) => ({ loadTime }),
         reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => ({ filterType }),
         reportRecordingPlayerSeekbarEventHovered: true,
         reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
@@ -715,8 +716,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         }) => {
             // namesCount -> Number of invitees for which a name was provided
             posthog.capture('bulk invite attempted', { invitees_count: inviteesCount, name_count: namesCount })
+            for (let i = 0; i < inviteesCount; i++) {
+                posthog.capture('team member invited')
+            }
         },
         reportInviteAttempted: async ({ nameProvided, instanceEmailAvailable }) => {
+            posthog.capture('team member invited')
             posthog.capture('team invite attempted', {
                 name_provided: nameProvided,
                 instance_email_available: instanceEmailAvailable,
@@ -936,6 +941,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportRecordingsListFetched: ({ loadTime }) => {
             posthog.capture('recording list fetched', { load_time: loadTime })
+        },
+        reportRecordingsListPropertiesFetched: ({ loadTime }) => {
+            posthog.capture('recording list properties fetched', { load_time: loadTime })
         },
         reportRecordingPlayerSeekbarEventHovered: () => {
             posthog.capture('recording player seekbar event hovered')

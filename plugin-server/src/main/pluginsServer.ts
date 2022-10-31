@@ -19,6 +19,7 @@ import { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
+import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { KafkaQueue } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
 import { createHttpServer } from './services/http-server'
@@ -82,6 +83,7 @@ export async function startPluginsServer(
     // (default 60 seconds) to allow for the person to be created in the
     // meantime.
     let bufferConsumer: Consumer | undefined
+    let jobsConsumer: Consumer | undefined
 
     let httpServer: Server | undefined // healthcheck server
     let mmdbServer: net.Server | undefined // geoip server
@@ -91,15 +93,21 @@ export async function startPluginsServer(
     let lastActivityCheck: NodeJS.Timeout | undefined
     let stopEventLoopMetrics: (() => void) | undefined
 
+    let shuttingDown = false
     async function closeJobs(): Promise<void> {
+        shuttingDown = true
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
         cancelAllScheduledJobs()
         stopEventLoopMetrics?.()
-        await queue?.stop()
-        await pubSub?.stop()
-        await hub?.graphileWorker.stop()
-        await bufferConsumer?.disconnect()
+        await Promise.allSettled([
+            queue?.stop(),
+            pubSub?.stop(),
+            hub?.graphileWorker.stop(),
+            bufferConsumer?.disconnect(),
+            jobsConsumer?.disconnect(),
+        ])
+
         await new Promise<void>((resolve, reject) =>
             !mmdbServer
                 ? resolve()
@@ -112,6 +120,7 @@ export async function startPluginsServer(
                       }
                   })
         )
+
         if (piscina) {
             await stopPiscina(piscina)
         }
@@ -152,6 +161,26 @@ export async function startPluginsServer(
         Sentry.captureException(error)
     })
 
+    process.on('uncaughtException', async (error: Error) => {
+        // If there are unhandled exceptions anywhere, perform a graceful
+        // shutdown. The initial trigger for including this handler is due to
+        // the graphile-worker code throwing an exception when it can't call
+        // `nudge` on a worker. Unsure as to why this happens, but at any rate,
+        // to ensure that we gracefully shutdown Kafka consumers, for which
+        // unclean shutdowns can cause considerable delay in starting to consume
+        // again, we try to gracefully shutdown.
+        //
+        // See https://nodejs.org/api/process.html#event-uncaughtexception for
+        // details on the handler.
+        if (shuttingDown) {
+            return
+        }
+        status.error('🤮', `uncaught_exception`, { error: error.stack })
+        await closeJobs()
+
+        process.exit(1)
+    })
+
     try {
         ;[hub, closeHub] = await createHub(serverConfig, null, capabilities)
 
@@ -189,7 +218,7 @@ export async function startPluginsServer(
             httpServer = createHttpServer(hub!, serverInstance as ServerInstance)
         }
 
-        if (hub.capabilities.ingestion || hub.capabilities.processPluginJobs || hub.capabilities.pluginScheduledTasks) {
+        if (hub.capabilities.processPluginJobs || hub.capabilities.pluginScheduledTasks) {
             const graphileWorkerError = await startGraphileWorker(hub, piscina)
             if (graphileWorkerError instanceof Error) {
                 try {
@@ -202,8 +231,18 @@ export async function startPluginsServer(
 
         if (hub.capabilities.ingestion) {
             bufferConsumer = await startAnonymousEventBufferConsumer({
+                hub: hub,
+                piscina: piscina,
                 kafka: hub.kafka,
                 producer: hub.kafkaProducer,
+                statsd: hub.statsd,
+            })
+        }
+
+        if (hub.capabilities.processPluginJobs) {
+            jobsConsumer = await startJobsConsumer({
+                kafka: hub.kafka,
+                producer: hub.kafkaProducer.producer,
                 graphileWorker: hub.graphileWorker,
                 statsd: hub.statsd,
             })
@@ -228,6 +267,10 @@ export async function startPluginsServer(
                     await piscina.broadcastTask({ task: 'reloadSchedule' })
                     hub.pluginSchedule = await loadPluginSchedule(piscina)
                 }
+            },
+            ['reload-actions']: async () => {
+                status.info('⚡', 'Reloading actions!')
+                await piscina?.broadcastTask({ task: 'reloadAllActions' })
             },
             'reset-available-features-cache': async (message) => {
                 await piscina?.broadcastTask({ task: 'resetAvailableFeaturesCache', args: JSON.parse(message) })

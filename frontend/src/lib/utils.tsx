@@ -738,7 +738,7 @@ export const dateMapping: DateMappingOption[] = [
     },
     {
         key: 'Yesterday',
-        values: ['-1d'],
+        values: ['-1dStart', 'dStart'],
         getFormattedDate: (date: dayjs.Dayjs): string => date.subtract(1, 'd').format(DATE_FORMAT),
         defaultInterval: 'hour',
     },
@@ -789,7 +789,6 @@ export const dateMapping: DateMappingOption[] = [
         key: 'This month',
         values: ['mStart'],
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('m'), date.endOf('d')),
-        inactive: true,
         defaultInterval: 'day',
     },
     {
@@ -851,7 +850,7 @@ export function dateFilterToText(
     if (isDate.test(dateFrom || '') && !isDate.test(dateTo || '')) {
         const days = dayjs().diff(dayjs(dateFrom), 'days')
         if (days > 366) {
-            return isDateFormatted ? `${dateFrom} - Today` : formatDateRange(dayjs(dateFrom), dayjs())
+            return isDateFormatted ? `${dateFrom} - today` : formatDateRange(dayjs(dateFrom), dayjs())
         } else if (days > 0) {
             return isDateFormatted ? formatDateRange(dayjs(dateFrom), dayjs()) : `Last ${days} days`
         } else if (days === 0) {
@@ -1059,12 +1058,16 @@ export function identifierToHuman(identifier: string | number, caseType: 'senten
 }
 
 export function parseGithubRepoURL(url: string): Record<string, string> {
-    const match = url.match(/^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/?$/)
+    const match = url.match(
+        /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.\-]+)\/([A-Za-z0-9_.\-]+)(\/(commit|tree|releases\/tag)\/([A-Za-z0-9_.\-\/]+))?/
+    )
+
     if (!match) {
-        throw new Error('Must be in the format: https://github.com/user/repo')
+        throw new Error(`${url} is not a valid GitHub URL`)
     }
-    const [, user, repo] = match
-    return { user, repo }
+
+    const [, user, repo, , type, path] = match
+    return { user, repo, type, path }
 }
 
 export function someParentMatchesSelector(element: HTMLElement, selector: string): boolean {
@@ -1409,6 +1412,7 @@ export function convertPropertiesToPropertyGroup(
     return { type: FilterLogicalOperator.And, values: [] }
 }
 
+/** Flatten a filter group into an array of filters. NB: Logical operators (AND/OR) are lost in the process. */
 export function convertPropertyGroupToProperties(
     properties?: PropertyGroupFilter | AnyPropertyFilter[]
 ): PropertyFilter[] | undefined {

@@ -215,9 +215,12 @@ class TrendsBreakdown:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
 
             if self.entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
-                active_user_params = get_active_user_params(self.filter, self.entity, self.team_id)
+                active_user_format_params, active_user_query_params = get_active_user_params(
+                    self.filter, self.entity, self.team_id
+                )
+                self.params.update(active_user_query_params)
                 conditions = BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL.format(
-                    **breakdown_filter_params, **active_user_params
+                    **breakdown_filter_params, **active_user_format_params
                 )
                 inner_sql = BREAKDOWN_ACTIVE_USER_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
@@ -230,7 +233,7 @@ class TrendsBreakdown:
                     breakdown_value=breakdown_value,
                     conditions=conditions,
                     GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id),
-                    **active_user_params,
+                    **active_user_format_params,
                     **breakdown_filter_params,
                 )
             elif self.filter.display == TRENDS_CUMULATIVE and self.entity.math == "dau":
@@ -398,7 +401,7 @@ class TrendsBreakdown:
     ) -> Callable:
         def _parse(result: List) -> List:
             parsed_results = []
-            for idx, stats in enumerate(result):
+            for stats in result:
                 result_descriptors = self._breakdown_result_descriptors(stats[1], filter, entity)
                 filter_params = filter.to_params()
                 extra_params = {
@@ -426,7 +429,7 @@ class TrendsBreakdown:
     def _parse_trend_result(self, filter: Filter, entity: Entity) -> Callable:
         def _parse(result: List) -> List:
             parsed_results = []
-            for idx, stats in enumerate(result):
+            for stats in result:
                 result_descriptors = self._breakdown_result_descriptors(stats[2], filter, entity)
                 parsed_result = parse_response(stats, filter, additional_values=result_descriptors)
                 parsed_result.update(

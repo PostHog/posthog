@@ -1,11 +1,9 @@
 import Piscina from '@posthog/piscina'
 import { CronItem, TaskList } from 'graphile-worker'
 
-import { EnqueuedBufferJob, EnqueuedPluginJob, Hub } from '../../types'
+import { EnqueuedPluginJob, Hub } from '../../types'
 import { status } from '../../utils/status'
 import { pauseQueueIfWorkerFull } from '../ingestion-queues/queue'
-import { runInstrumentedFunction } from '../utils'
-import { runBufferEventPipeline } from './buffer'
 import { loadPluginSchedule, runScheduledTasks } from './schedule'
 
 export async function startGraphileWorker(hub: Hub, piscina: Piscina): Promise<Error | undefined> {
@@ -14,11 +12,6 @@ export async function startGraphileWorker(hub: Hub, piscina: Piscina): Promise<E
     let jobHandlers: TaskList = {}
 
     const crontab: CronItem[] = []
-
-    if (hub.capabilities.ingestion) {
-        jobHandlers = { ...jobHandlers, ...getIngestionJobHandlers(hub, piscina) }
-        status.info('🔄', 'Graphile Worker: set up ingestion job handlers ...')
-    }
 
     if (hub.capabilities.processPluginJobs) {
         jobHandlers = { ...jobHandlers, ...getPluginJobHandlers(hub, piscina) }
@@ -65,25 +58,6 @@ export async function startGraphileWorker(hub: Hub, piscina: Piscina): Promise<E
     } catch (error) {
         return error
     }
-}
-
-export function getIngestionJobHandlers(hub: Hub, piscina: Piscina): TaskList {
-    const ingestionJobHandlers: TaskList = {
-        bufferJob: async (job) => {
-            pauseQueueIfWorkerFull(() => hub.graphileWorker.pause(), hub, piscina)
-            const eventPayload = (job as EnqueuedBufferJob).eventPayload
-            await runInstrumentedFunction({
-                server: hub,
-                event: eventPayload,
-                func: () => runBufferEventPipeline(hub, piscina, eventPayload),
-                statsKey: `kafka_queue.ingest_buffer_event`,
-                timeoutMessage: 'After 30 seconds still running runBufferEventPipeline',
-            })
-            hub.statsd?.increment('events_deleted_from_buffer')
-        },
-    }
-
-    return ingestionJobHandlers
 }
 
 export function getPluginJobHandlers(hub: Hub, piscina: Piscina): TaskList {

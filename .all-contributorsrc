@@ -2223,6 +2223,24 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "justinjones",
+      "name": "Justin Jones",
+      "avatar_url": "https://avatars.githubusercontent.com/u/14925?v=4",
+      "profile": "https://www.linkedin.com/in/justin-jones-1300b613b/",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "mmmoussa",
+      "name": "Mohamed Moussa",
+      "avatar_url": "https://avatars.githubusercontent.com/u/9062287?v=4",
+      "profile": "http://mmmoussa.com",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

@@ -6,7 +6,7 @@ import { CompactList } from 'lib/components/CompactList/CompactList'
 import { LemonButton } from 'lib/components/LemonButton'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { asDisplay } from 'scenes/persons/PersonHeader'
-import { sessionRecordingsListLogic } from 'scenes/session-recordings/sessionRecordingsListLogic'
+import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { urls } from 'scenes/urls'
 import { SessionRecordingType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -20,7 +20,7 @@ interface RecordingRowProps {
     recording: SessionRecordingType
 }
 
-function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
+export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { reportRecordingOpenedFromRecentRecordingList } = useActions(eventUsageLogic)
 

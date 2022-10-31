@@ -10,12 +10,10 @@ export async function runAsyncHandlersStep(
     event: PostIngestionEvent,
     personContainer: LazyPersonContainer
 ): Promise<StepResult> {
-    if (runner.hub.capabilities.processAsyncHandlers) {
-        await Promise.all([
-            processOnEvent(runner, event),
-            processWebhooks(runner, event, personContainer, event.elementsList),
-        ])
-    }
+    await Promise.all([
+        processOnEvent(runner, event),
+        processWebhooks(runner, event, personContainer, event.elementsList),
+    ])
 
     return null
 }

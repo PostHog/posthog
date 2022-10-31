@@ -1,4 +1,5 @@
-@import '../../styles/mixins';
+@import '../../../styles/mixins';
+@import '../../../styles/vars';
 
 .SessionRecordingsPlaylist {
     display: flex;
@@ -18,6 +19,13 @@
             width: 30%;
             min-width: 350px;
             max-width: 500px;
+        }
+
+        .SessionRecordingsPlaylist__list-item {
+            .SessionRecordingsPlaylist__list-item__property-icon:hover {
+                transition: opacity 200ms;
+                opacity: 1;
+            }
         }
 
         .SessionRecordingsPlaylist__pagination-control {
