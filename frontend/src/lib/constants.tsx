@@ -127,7 +127,6 @@ export const FEATURE_FLAGS = {
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
     CURRENCY_UNITS: 'currency-units', // owner: @pauldambra
     FEEDBACK_BUTTON: 'feedback-button', // owner: @luke
-    RECORDING_LIST_ICONS: 'recording-list-icons', // owner: @benjackwhite
     RECORDINGS_ON_FEATURE_FLAGS: 'recordings-on-feature-flags', // owner: @EDsCODE
 }
 
