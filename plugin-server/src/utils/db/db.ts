@@ -67,6 +67,7 @@ import {
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { PromiseManager } from './../../worker/vm/promise-manager'
+import { DependencyUnavailableError } from './error'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import {
     generateKafkaPersonUpdateMessage,
@@ -129,6 +130,14 @@ export interface CachedGroupData {
     properties: Properties
     created_at: string
 }
+
+const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
+    'connection to server at',
+    'could not translate host',
+    'server conn crashed',
+    'no more connections allowed',
+    'server closed the connection unexpectedly',
+]
 
 /** The recommended way of accessing the database. */
 export class DB {
@@ -202,6 +211,14 @@ export class DB {
                 } else {
                     return await this.postgres.query(queryString, values)
                 }
+            } catch (error) {
+                if (
+                    error.message &&
+                    POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((message) => error.message.includes(message))
+                ) {
+                    throw new DependencyUnavailableError(error.message, 'Postgres', error)
+                }
+                throw error
             } finally {
                 clearTimeout(timeout)
             }
