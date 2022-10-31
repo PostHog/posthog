@@ -12,6 +12,7 @@ import { HISTORICAL_EXPORT_JOB_NAME_V2 } from 'scenes/plugins/edit/interface-job
 import { interfaceJobsLogic, InterfaceJobsProps } from '../plugins/edit/interface-jobs/interfaceJobsLogic'
 import { dayjs } from 'lib/dayjs'
 import { userLogic } from 'scenes/userLogic'
+import { router } from 'kea-router'
 
 export interface AppMetricsLogicProps {
     /** Used as the logic's key */
@@ -374,7 +375,7 @@ function getUrl(values: appMetricsSceneLogicType['values'], props: appMetricsSce
         return urls.appHistoricalExports(props.pluginConfigId)
     }
     if (values.activeTab === AppMetricsTab.Activity) {
-        return urls.appActivity(props.pluginConfigId)
+        return urls.appActivity(props.pluginConfigId, router.values.searchParams)
     }
 
     const params: AppMetricsUrlParams = {}

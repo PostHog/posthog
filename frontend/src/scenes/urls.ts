@@ -70,7 +70,8 @@ export const urls = {
     appMetrics: (pluginConfigId: string | number, params: AppMetricsUrlParams = {}): string =>
         combineUrl(`/app/${pluginConfigId}/metrics`, params).url,
     appHistoricalExports: (pluginConfigId: string | number): string => `/app/${pluginConfigId}/historical_exports`,
-    appActivity: (pluginConfigId: string | number): string => `/app/${pluginConfigId}/activity`,
+    appActivity: (pluginConfigId: string | number, searchParams?: Record<string, any>): string =>
+        combineUrl(`/app/${pluginConfigId}/activity`, searchParams).url,
     projectCreateFirst: (): string => '/project/create',
     projectHomepage: (): string => '/home',
     projectSettings: (section?: string): string => `/project/settings${section ? `#${section}` : ''}`,
