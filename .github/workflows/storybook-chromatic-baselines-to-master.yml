@@ -32,9 +32,7 @@ jobs:
               # chromatic can't detect accepted baseline because we do squash merges
               # so whenever we merge frontend changes to master, we need to accept a new baseline
               # see https://www.chromatic.com/docs/github-actions#github-squashrebase-merge-and-the-main-branch
-              if: |
-                  github.ref == 'refs/heads/master'
-                  && steps.changes.outputs.frontend == 'true'
+              if: steps.changes.outputs.frontend == 'true'
               uses: chromaui/action@v1
               # Required options for the Chromatic GitHub Action
               with:
