@@ -4,10 +4,10 @@ import { captureException } from '@sentry/node'
 import { Hub, PluginConfig, PluginError } from '../../types'
 import { setError } from './sql'
 
-export class DependencyUnavailable extends Error {
+export class DependencyUnavailableError extends Error {
     constructor(message: string, dependencyName: string, error: Error) {
         super(message)
-        this.name = 'DependencyUnavailable'
+        this.name = 'DependencyUnavailableError'
         this.dependencyName = dependencyName
         this.error = error
     }
@@ -26,7 +26,7 @@ export async function processError(
         return
     }
 
-    if (error instanceof DependencyUnavailable) {
+    if (error instanceof DependencyUnavailableError) {
         // For errors relating to PostHog dependencies that are unavailable,
         // e.g. Postgres, Kafka, Redis, we don't want to log the error to Sentry
         // but rather bubble this up the stack for someone else to decide on

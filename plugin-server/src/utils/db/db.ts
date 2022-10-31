@@ -67,6 +67,7 @@ import {
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { PromiseManager } from './../../worker/vm/promise-manager'
+import { DependencyUnavailableError } from './error'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import {
     generateKafkaPersonUpdateMessage,
@@ -129,6 +130,15 @@ export interface CachedGroupData {
     properties: Properties
     created_at: string
 }
+
+const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
+    'connection to server at',
+    'could not translate host',
+    'server conn crashed',
+    'no more connections allowed',
+    'server closed the connection unexpectedly',
+    'getaddrinfo EAI_AGAIN',
+]
 
 /** The recommended way of accessing the database. */
 export class DB {
@@ -202,6 +212,14 @@ export class DB {
                 } else {
                     return await this.postgres.query(queryString, values)
                 }
+            } catch (error) {
+                if (
+                    error.message &&
+                    POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((message) => error.message.includes(message))
+                ) {
+                    throw new DependencyUnavailableError(error.message, 'Postgres', error)
+                }
+                throw error
             } finally {
                 clearTimeout(timeout)
             }
@@ -222,6 +240,11 @@ export class DB {
                 return response
             } catch (e) {
                 await client.query('ROLLBACK')
+
+                // if Postgres is down the ROLLBACK above won't work, but the transaction shouldn't be committed either
+                if (e.message && POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((message) => e.message.includes(message))) {
+                    throw new DependencyUnavailableError(e.message, 'Postgres', e)
+                }
                 throw e
             } finally {
                 client.release()
