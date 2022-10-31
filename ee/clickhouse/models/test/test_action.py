@@ -70,6 +70,43 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk})
+        assert len(result[0]) == 1
+        self.assertEqual(str(result[0][0]), event_target_uuid)
+
+    def test_filter_event_exact_url_with_query_params(self):
+        event_target_uuid = _create_event(
+            event="$autocapture",
+            team=self.team,
+            distinct_id="whatever",
+            properties={"$current_url": "https://posthog.com/feedback/123?vip=1"},
+        )
+
+        _create_event(
+            event="autocapture",
+            team=self.team,
+            distinct_id="whatever",
+            properties={"$current_url": "https://posthog.com/feedback/123?vip=1"},
+        )
+
+        _create_event(
+            event="$autocapture",
+            team=self.team,
+            distinct_id="whatever",
+            properties={"$current_url": "https://posthog.com/feedback/123?vip=0"},
+        )
+
+        action1 = Action.objects.create(team=self.team, name="action1")
+        step1 = ActionStep.objects.create(
+            event="$autocapture",
+            action=action1,
+            url="https://posthog.com/feedback/123?vip=1",
+            url_matching=ActionStep.EXACT,
+        )
+        query, params = filter_event(step1)
+
+        full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
+        result = sync_execute(full_query, {**params, "team_id": self.team.pk})
+        assert len(result[0]) == 2
         self.assertEqual(str(result[0][0]), event_target_uuid)
 
     def test_filter_event_contains_url(self):
