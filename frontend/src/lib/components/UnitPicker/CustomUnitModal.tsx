@@ -35,7 +35,7 @@ export function CustomUnitModal({
     formativeElement: 'prefix' | 'postfix' | null
     filters: Partial<FilterType>
     onClose: () => void
-    overlayRef: RefCallback<HTMLDivElement> // if an open pop up should not close when this is clicked on
+    overlayRef: RefCallback<HTMLDivElement>
 }): JSX.Element | null {
     const [localFormativeElementValue, setLocalFormativeElementValue] = useState<string>(
         chooseFormativeElementValue(formativeElement, filters)
