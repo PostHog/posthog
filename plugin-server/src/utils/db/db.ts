@@ -239,6 +239,11 @@ export class DB {
                 return response
             } catch (e) {
                 await client.query('ROLLBACK')
+
+                // if Postgres is down the ROLLBACK above won't work, but the transaction shouldn't be committed either
+                if (e.message && POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((message) => e.message.includes(message))) {
+                    throw new DependencyUnavailableError(e.message, 'Postgres', e)
+                }
                 throw e
             } finally {
                 client.release()
