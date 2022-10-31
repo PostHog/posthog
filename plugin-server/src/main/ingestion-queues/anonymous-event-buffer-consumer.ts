@@ -64,16 +64,25 @@ export const startAnonymousEventBufferConsumer = async ({
             const processEventAt = Number.parseInt(message.headers.processEventAt.toString())
             const now = Date.now()
             if (processEventAt > now) {
+                const eventId = message.headers.eventId.toString()
                 status.info('🔁', 'Delaying event processing', {
                     topic: batch.topic,
                     partition: batch.partition,
-                    eventId: message.headers.eventId.toString(),
+                    eventId: eventId,
                     delayMs: processEventAt - now,
                     processEventAt,
                     now,
                 })
                 const resume = pause()
-                setTimeout(resume, processEventAt - now)
+                setTimeout(() => {
+                    status.info('🔁', 'Resuming event processing', {
+                        topic: batch.topic,
+                        partition: batch.partition,
+                        eventId: eventId,
+                        delayMs: processEventAt - now,
+                    })
+                    resume()
+                }, processEventAt - now)
 
                 return
             }
