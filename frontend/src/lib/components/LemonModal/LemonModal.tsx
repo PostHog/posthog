@@ -28,6 +28,8 @@ export interface LemonModalProps {
     closable?: boolean
     /** Expands the modal to fill the entire screen */
     fullScreen?: boolean
+    /** set the z-index of the modal should be high enough that it is above (almost) all other content */
+    bringToFront?: boolean
     contentRef?: React.RefCallback<HTMLDivElement>
     overlayRef?: React.RefCallback<HTMLDivElement>
 }
@@ -61,6 +63,7 @@ export function LemonModal({
     simple,
     closable = true,
     fullScreen = false,
+    bringToFront = false,
     contentRef,
     overlayRef,
 }: LemonModalProps): JSX.Element {
@@ -120,7 +123,7 @@ export function LemonModal({
             onAfterClose={onAfterClose}
             closeTimeoutMS={250}
             className={clsx('LemonModal', fullScreen && 'LemonModal--fullscreen')}
-            overlayClassName="LemonModal__overlay"
+            overlayClassName={clsx('LemonModal__overlay', bringToFront && 'LemonModal__overlay--bring-to-front')}
             style={{
                 content: {
                     width: width,

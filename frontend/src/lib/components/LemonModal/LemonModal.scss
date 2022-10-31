@@ -14,6 +14,10 @@
     align-items: center;
     justify-content: center;
 
+    &.LemonModal__overlay--bring-to-front {
+        z-index: var(--z-bring-to-front);
+    }
+
     &.ReactModal__Overlay--after-open {
         background-color: rgba(0, 0, 0, 0.2);
         backdrop-filter: blur(var(--modal-backdrop-blur));

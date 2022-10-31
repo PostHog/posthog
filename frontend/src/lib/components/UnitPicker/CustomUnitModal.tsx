@@ -50,6 +50,7 @@ export function CustomUnitModal({
             overlayRef={overlayRef}
             isOpen={isOpen}
             onClose={onClose}
+            bringToFront={true}
             title={`Custom ${formativeElement}`}
             footer={
                 <>
