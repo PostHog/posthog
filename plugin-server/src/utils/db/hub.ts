@@ -81,10 +81,6 @@ export async function createHub(
         serverConfig.CONVERSION_BUFFER_ENABLED_TEAMS.split(',').filter(String).map(Number)
     )
 
-    const conversionBufferTopicEnabledTeams = new Set(
-        serverConfig.CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS.split(',').filter(String).map(Number)
-    )
-
     if (serverConfig.STATSD_HOST) {
         status.info('🤔', `Connecting to StatsD...`)
         statsd = new StatsD({
@@ -295,7 +291,6 @@ export async function createHub(
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
         conversionBufferEnabledTeams,
-        conversionBufferTopicEnabledTeams,
     }
 
     // :TODO: This is only used on worker threads, not main
