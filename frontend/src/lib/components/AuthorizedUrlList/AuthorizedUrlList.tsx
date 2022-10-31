@@ -2,7 +2,6 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { LemonButton } from 'lib/components/LemonButton'
-import { Popconfirm } from 'antd'
 import {
     AuthorizedUrlListType as AuthorizedUrlListType,
     authorizedUrlListLogic,
@@ -14,6 +13,7 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { Form } from 'kea-forms'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { Field } from 'lib/forms/Field'
+import { LemonDialog } from '../LemonDialog'
 
 function EmptyState({
     numberOfResults,
@@ -171,23 +171,29 @@ export function AuthorizedUrlList({
                                                         center
                                                         className="ActionButton"
                                                     />
-                                                    <Popconfirm
-                                                        placement="topRight"
-                                                        title={
-                                                            <>
-                                                                Are you sure you want to remove this authorized{' '}
-                                                                {onlyAllowDomains ? 'domain' : 'URL'}?
-                                                            </>
-                                                        }
-                                                        onConfirm={() => removeUrl(index)}
-                                                    >
-                                                        <LemonButton
-                                                            icon={<IconDelete />}
-                                                            tooltip={`Remove ${onlyAllowDomains ? 'domain' : 'URL'}`}
-                                                            center
-                                                            className="ActionButton"
-                                                        />
-                                                    </Popconfirm>
+
+                                                    <LemonButton
+                                                        icon={<IconDelete />}
+                                                        tooltip={`Remove ${onlyAllowDomains ? 'domain' : 'URL'}`}
+                                                        center
+                                                        className="ActionButton"
+                                                        onClick={() => {
+                                                            LemonDialog.open({
+                                                                title: <>Remove {keyedURL.url} ?</>,
+                                                                description: `Are you want to remove this authorized ${
+                                                                    onlyAllowDomains ? 'domain' : 'URL'
+                                                                }?`,
+                                                                primaryButton: {
+                                                                    status: 'danger',
+                                                                    children: 'Remove',
+                                                                    onClick: () => removeUrl(index),
+                                                                },
+                                                                secondaryButton: {
+                                                                    children: 'Cancel',
+                                                                },
+                                                            })
+                                                        }}
+                                                    />
                                                 </>
                                             )}
                                         </div>

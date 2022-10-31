@@ -26,7 +26,7 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                     label="Record user sessions"
                     bordered={!inModal}
                     fullWidth={inModal}
-                    labelClassName={inModal ? 'text-base font-bold' : ''}
+                    labelClassName={inModal ? 'text-base font-semibold' : ''}
                     checked={!!currentTeam?.session_recording_opt_in}
                 />
 
@@ -57,7 +57,7 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                         updateCurrentTeam({ capture_console_log_opt_in: checked })
                     }}
                     label="Capture console logs within recordings"
-                    labelClassName={inModal ? 'text-base font-bold' : ''}
+                    labelClassName={inModal ? 'text-base font-semibold' : ''}
                     bordered={!inModal}
                     fullWidth={inModal}
                     checked={!!currentTeam?.capture_console_log_opt_in}
