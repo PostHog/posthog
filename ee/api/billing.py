@@ -24,6 +24,7 @@ from ee.settings import BILLING_SERVICE_URL
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models import Organization
 from posthog.models.event.util import get_event_count_for_team_and_period
+from posthog.models.organization import OrganizationUsageInfo
 from posthog.models.session_recording_event.util import get_recording_count_for_team_and_period
 from posthog.models.team.team import Team
 
@@ -313,6 +314,37 @@ class BillingViewset(viewsets.GenericViewSet):
         Ensure the relevant organization details are up-to-date locally
         """
         org_modified = False
+
+        usage: Dict[str, OrganizationUsageInfo] = {
+            "events": {
+                "usage": None,
+                "limit": None,
+            },
+            "recordings": {"usage": None, "limit": None},
+        }
+
+        if data.get("has_active_subscription", False):
+            # We don't have a subscription so use the calculated usage
+            calculated_usage = get_cached_current_usage(organization)
+
+            for key, value in calculated_usage.items():
+                if key in usage:
+                    usage[key]["usage"] = value
+
+            for product in data["products"]:
+                if product["type"] in usage:
+                    usage[product["type"]]["limit"] = product["usage_limit"]
+
+        else:
+            # If we have a subscription use the correct values from there
+            for product in data["products"]:
+                if product["type"] in usage:
+                    usage[product["type"]]["usage"] = product["current_usage"]
+                    usage[product["type"]]["limit"] = product["usage_limit"]
+
+        if usage != organization.usage:
+            organization.usage = usage
+            org_modified = True
 
         if data["available_features"] != organization.available_features:
             organization.available_features = data["available_features"]
