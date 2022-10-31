@@ -137,6 +137,7 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'server conn crashed',
     'no more connections allowed',
     'server closed the connection unexpectedly',
+    'getaddrinfo EAI_AGAIN',
 ]
 
 /** The recommended way of accessing the database. */
