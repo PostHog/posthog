@@ -23,7 +23,7 @@ export function SessionRecordingsTopBar({
     )
 
     return (
-        <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
+        <div className="flex flex-wrap items-end justify-between gap-4">
             <SessionRecordingsFiltersToggle personUUID={personUUID} isPersonPage={isPersonPage} />
 
             <div className="flex items-center gap-4">

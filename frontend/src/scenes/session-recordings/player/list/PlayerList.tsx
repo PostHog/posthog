@@ -23,6 +23,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { urls } from 'scenes/urls'
 import { IconOpenInNew } from 'lib/components/icons'
+import { openSessionRecordingSettingsDialog } from 'scenes/session-recordings/settings/SessionRecordingSettings'
 
 interface RowConfig<T extends Record<string, any>> {
     /** Class to append to each row. */
@@ -126,9 +127,8 @@ export function PlayerList<T extends Record<string, any>>({
                                                     Turn on console log capture for future recordings
                                                 </LemonButton>
                                                 <LemonButton
-                                                    to={urls.projectSettings() + '#recordings'}
+                                                    onClick={() => openSessionRecordingSettingsDialog()}
                                                     targetBlank
-                                                    sideIcon={<IconOpenInNew />}
                                                 >
                                                     Configure in settings
                                                 </LemonButton>

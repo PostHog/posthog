@@ -7,13 +7,29 @@ import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/s
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SessionRecordingsTopBar } from './filters/SessionRecordingsTopBar'
 import { AlertMessage } from 'lib/components/AlertMessage'
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+import { openSessionRecordingSettingsDialog } from './settings/SessionRecordingSettings'
+import { IconSettings } from 'lib/components/icons'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+
     return (
-        <div>
-            <PageHeader title={<div>Recordings</div>} />
+        <div className="space-y-4">
+            <PageHeader
+                title={<div>Recordings</div>}
+                buttons={
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            sideIcon={<IconSettings />}
+                            onClick={() => openSessionRecordingSettingsDialog()}
+                        >
+                            Configure
+                        </LemonButton>
+                    </>
+                }
+            />
             {currentTeam && !currentTeam?.session_recording_opt_in ? (
                 <div className="mb-4">
                     <AlertMessage type="info">
