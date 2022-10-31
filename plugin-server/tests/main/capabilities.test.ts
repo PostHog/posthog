@@ -47,22 +47,6 @@ describe('capabilities', () => {
     })
 
     describe('startGraphileWorker()', () => {
-        it('sets up bufferJob handler if ingestion is on', async () => {
-            jest.spyOn(hub.graphileWorker, 'start').mockImplementation(jest.fn())
-            hub.capabilities.ingestion = true
-            hub.capabilities.processPluginJobs = false
-            hub.capabilities.pluginScheduledTasks = false
-
-            await startGraphileWorker(hub, piscina)
-
-            expect(hub.graphileWorker.start).toHaveBeenCalledWith(
-                {
-                    bufferJob: expect.anything(),
-                },
-                []
-            )
-        })
-
         it('sets up pluginJob handler if processPluginJobs is on', async () => {
             jest.spyOn(hub.graphileWorker, 'start').mockImplementation(jest.fn())
             hub.capabilities.ingestion = false
@@ -73,23 +57,6 @@ describe('capabilities', () => {
 
             expect(hub.graphileWorker.start).toHaveBeenCalledWith(
                 {
-                    pluginJob: expect.anything(),
-                },
-                []
-            )
-        })
-
-        it('sets up bufferJob and pluginJob handlers if ingestion and processPluginJobs are on', async () => {
-            jest.spyOn(hub.graphileWorker, 'start').mockImplementation(jest.fn())
-            hub.capabilities.ingestion = true
-            hub.capabilities.processPluginJobs = true
-            hub.capabilities.pluginScheduledTasks = false
-
-            await startGraphileWorker(hub, piscina)
-
-            expect(hub.graphileWorker.start).toHaveBeenCalledWith(
-                {
-                    bufferJob: expect.anything(),
                     pluginJob: expect.anything(),
                 },
                 []
