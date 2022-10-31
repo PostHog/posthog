@@ -135,7 +135,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
     describe(`plugin method tests (${pluginServer.name})`, () => {
         const indexJs = `
-            export async function processEvent (event) {
+            export async function processEvent(event) {
                 event.properties.processed = 'hell yes'
                 event.properties.upperUuid = event.properties.uuid?.toUpperCase()
                 event.properties['$snapshot_data'] = 'no way'
@@ -632,20 +632,72 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
     })
 
     describe(`plugin jobs (${pluginServer.name})`, () => {
-        const indexJs = `    
-            export function onEvent (event, { jobs }) {
-                console.info(JSON.stringify(['onEvent', event]))
-                jobs.runMeAsync().runNow()
-            }
-
-            export const jobs = {
-                runMeAsync: async () => {
-                    console.info(JSON.stringify(['runMeAsync']))
+        test('can call runNow from onEvent', async () => {
+            const indexJs = `    
+                export function onEvent (event, { jobs }) {
+                    console.info(JSON.stringify(['onEvent', event]))
+                    jobs.runMeAsync().runNow()
                 }
-            }
-        `
 
-        test('runNow', async () => {
+                export const jobs = {
+                    runMeAsync: async () => {
+                        console.info(JSON.stringify(['runMeAsync']))
+                    }
+                }
+            `
+
+            const plugin = await createPlugin(postgres, {
+                organization_id: organizationId,
+                name: 'jobs plugin',
+                plugin_type: 'source',
+                is_global: false,
+                source__index_ts: indexJs,
+            })
+            const teamId = await createTeam(postgres, organizationId)
+            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+            const distinctId = new UUIDT().toString()
+            const uuid = new UUIDT().toString()
+
+            // First let's ingest an event
+            await capture(producer, teamId, distinctId, uuid, 'custom event', {
+                name: 'hehe',
+                uuid: new UUIDT().toString(),
+            })
+
+            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
+
+            const events = await fetchEvents(clickHouseClient, teamId)
+            expect(events.length).toBe(1)
+
+            // Then check that the runNow function was called
+            const runNow = await delayUntilEventIngested(
+                async () =>
+                    (
+                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                    ).filter(({ message: [method] }) => method === 'runMeAsync'),
+                1,
+                500,
+                40
+            )
+
+            expect(runNow.length).toBeGreaterThan(0)
+        })
+
+        test('can call runNow from processEvent', async () => {
+            const indexJs = `    
+                export function processEvent(event, { jobs }) {
+                    console.info(JSON.stringify(['processEvent', event]))
+                    jobs.runMeAsync().runNow()
+                    return event
+                }
+
+                export const jobs = {
+                    runMeAsync: async () => {
+                        console.info(JSON.stringify(['runMeAsync']))
+                    }
+                }
+            `
+
             const plugin = await createPlugin(postgres, {
                 organization_id: organizationId,
                 name: 'jobs plugin',

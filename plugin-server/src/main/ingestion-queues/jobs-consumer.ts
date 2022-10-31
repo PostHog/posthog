@@ -29,7 +29,7 @@ export const startJobsConsumer = async ({
     status.info('🔁', 'Starting jobs consumer')
 
     const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat }) => {
-        status.info('🔁', 'Processing batch', { size: batch.messages.length })
+        status.debug('🔁', 'Processing batch', { size: batch.messages.length })
         for (const message of batch.messages) {
             if (!message.value) {
                 status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
