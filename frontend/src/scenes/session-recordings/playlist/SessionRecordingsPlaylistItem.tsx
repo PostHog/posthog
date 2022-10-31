@@ -1,8 +1,5 @@
 import { SessionRecordingType } from '~/types'
 import { colonDelimitedDuration } from 'lib/utils'
-import { useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import clsx from 'clsx'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { IconSchedule } from 'lib/components/icons'
