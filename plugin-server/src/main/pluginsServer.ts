@@ -218,7 +218,7 @@ export async function startPluginsServer(
             httpServer = createHttpServer(hub!, serverInstance as ServerInstance)
         }
 
-        if (hub.capabilities.ingestion || hub.capabilities.processPluginJobs || hub.capabilities.pluginScheduledTasks) {
+        if (hub.capabilities.processPluginJobs || hub.capabilities.pluginScheduledTasks) {
             const graphileWorkerError = await startGraphileWorker(hub, piscina)
             if (graphileWorkerError instanceof Error) {
                 try {

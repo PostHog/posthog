@@ -206,7 +206,6 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
-    conversionBufferTopicEnabledTeams: Set<number>
 }
 
 export interface PluginServerCapabilities {
@@ -217,19 +216,13 @@ export interface PluginServerCapabilities {
     http?: boolean
 }
 
-export type EnqueuedJob = EnqueuedPluginJob | EnqueuedBufferJob | GraphileWorkerCronScheduleJob
+export type EnqueuedJob = EnqueuedPluginJob | GraphileWorkerCronScheduleJob
 export interface EnqueuedPluginJob {
     type: string
     payload: Record<string, any>
     timestamp: number
     pluginConfigId: number
     pluginConfigTeam: number
-    jobKey?: string
-}
-
-export interface EnqueuedBufferJob {
-    eventPayload: PluginEvent
-    timestamp: number
     jobKey?: string
 }
 

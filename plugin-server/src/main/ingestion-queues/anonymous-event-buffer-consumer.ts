@@ -48,7 +48,7 @@ export const startAnonymousEventBufferConsumer = async ({
     status.info('🔁', 'Starting anonymous event buffer consumer')
 
     const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat, pause }) => {
-        status.info('🔁', 'Processing batch', { size: batch.messages.length })
+        status.debug('🔁', 'Processing batch', { size: batch.messages.length })
         for (const message of batch.messages) {
             if (!message.value || !message.headers?.processEventAt || !message.headers?.eventId) {
                 status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
