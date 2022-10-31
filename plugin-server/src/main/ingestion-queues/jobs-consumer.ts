@@ -55,7 +55,12 @@ export const startJobsConsumer = async ({
                 continue
             }
 
-            status.debug('⬆️', 'Enqueuing plugin job', { job })
+            status.debug('⬆️', 'Enqueuing plugin job', {
+                type: job.type,
+                pluginConfigId: job.pluginConfigId,
+                pluginConfigTeam: job.pluginConfigTeam,
+            })
+
             try {
                 await graphileWorker.enqueue(JobName.PLUGIN_JOB, job)
                 resolveOffset(message.offset)

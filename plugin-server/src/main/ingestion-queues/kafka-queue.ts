@@ -51,9 +51,13 @@ export class KafkaQueue {
 
         if (this.pluginsServer.capabilities.ingestion) {
             topics.push(this.ingestionTopic)
-        } else if (this.pluginsServer.capabilities.processAsyncHandlers) {
+        }
+
+        if (this.pluginsServer.capabilities.processAsyncHandlers) {
             topics.push(this.eventsTopic)
-        } else {
+        }
+
+        if (topics.length === 0) {
             throw Error('No topics to consume, KafkaQueue should not be started')
         }
 

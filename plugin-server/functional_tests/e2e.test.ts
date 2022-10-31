@@ -1,4 +1,5 @@
 import ClickHouse from '@posthog/clickhouse'
+import { createServer, Server } from 'http'
 import Redis from 'ioredis'
 import { Consumer, Kafka, KafkaMessage, Partitioners, Producer } from 'kafkajs'
 import { Pool } from 'pg'
@@ -20,9 +21,11 @@ import {
 } from '../src/config/kafka-topics'
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
 import {
+    ActionStep,
     LogLevel,
     PluginLogEntry,
     PluginsServerConfig,
+    RawAction,
     RawClickHouseEvent,
     RawPerson,
     RawSessionRecordingEvent,
@@ -326,7 +329,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
             }
         `
 
-        test('exporting events', async () => {
+        test('exporting events on ingestion', async () => {
             const plugin = await createPlugin(postgres, {
                 organization_id: organizationId,
                 name: 'export plugin',
@@ -345,9 +348,7 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                 uuid: new UUIDT().toString(),
             })
 
-            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
-
-            const events = await fetchEvents(clickHouseClient, teamId)
+            const events = await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
             expect(events.length).toBe(1)
 
             // Then check that the exportEvents function was called
@@ -376,6 +377,255 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                     timestamp: expect.any(String),
                     uuid: uuid,
                     elements: [],
+                }),
+            ])
+        })
+
+        test('exporting $autocapture events on ingestion', async () => {
+            const plugin = await createPlugin(postgres, {
+                organization_id: organizationId,
+                name: 'export plugin',
+                plugin_type: 'source',
+                is_global: false,
+                source__index_ts: indexJs,
+            })
+            const teamId = await createTeam(postgres, organizationId)
+            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+            const distinctId = new UUIDT().toString()
+            const uuid = new UUIDT().toString()
+
+            // First let's ingest an event
+            await capture(producer, teamId, distinctId, uuid, '$autocapture', {
+                name: 'hehe',
+                uuid: new UUIDT().toString(),
+                $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+            })
+
+            const events = await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
+            expect(events.length).toBe(1)
+
+            // Then check that the exportEvents function was called
+            const exportEvents = await delayUntilEventIngested(
+                async () =>
+                    (
+                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                    ).filter(({ message: [method] }) => method === 'exportEvents'),
+                1,
+                500,
+                40
+            )
+
+            expect(exportEvents.length).toBeGreaterThan(0)
+
+            const exportedEvents = exportEvents[0].message[1]
+            expect(exportedEvents).toEqual([
+                expect.objectContaining({
+                    distinct_id: distinctId,
+                    team_id: teamId,
+                    event: '$autocapture',
+                    properties: expect.objectContaining({
+                        name: 'hehe',
+                        uuid: uuid,
+                    }),
+                    timestamp: expect.any(String),
+                    uuid: uuid,
+                    elements: [
+                        {
+                            tag_name: 'div',
+                            nth_child: 1,
+                            nth_of_type: 2,
+                            order: 0,
+                            $el_text: '💻',
+                            text: '💻',
+                            attributes: {},
+                        },
+                    ],
+                }),
+            ])
+        })
+
+        test('historical exports', async () => {
+            const teamId = await createTeam(postgres, organizationId)
+            const distinctId = new UUIDT().toString()
+            const uuid = new UUIDT().toString()
+
+            const plugin = await createPlugin(postgres, {
+                organization_id: organizationId,
+                name: 'export plugin',
+                plugin_type: 'source',
+                is_global: false,
+                source__index_ts: indexJs,
+            })
+            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+
+            // First let's capture an event and wait for it to be ingested so
+            // so we can check that the historical event is the same as the one
+            // passed to processEvent on initial ingestion.
+            await capture(producer, teamId, distinctId, uuid, '$autocapture', {
+                name: 'hehe',
+                uuid: new UUIDT().toString(),
+                $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+            })
+
+            // Then check that the exportEvents function was called
+            const exportEvents = await delayUntilEventIngested(
+                async () =>
+                    (
+                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                    ).filter(({ message: [method] }) => method === 'exportEvents'),
+                1,
+                500,
+                40
+            )
+
+            expect(exportEvents.length).toBeGreaterThan(0)
+            const [exportedEvent] = exportEvents[0].message[1]
+
+            // NOTE: the frontend doesn't actually push to this queue but rather
+            // adds directly to PostgreSQL using the graphile-worker stored
+            // procedure `add_job`. I'd rather keep these tests graphile
+            // unaware.
+            await producer.send({
+                topic: 'jobs_test',
+                messages: [
+                    {
+                        key: teamId.toString(),
+                        value: JSON.stringify({
+                            type: 'Export historical events',
+                            pluginConfigId: pluginConfig.id,
+                            pluginConfigTeam: teamId,
+                            payload: {
+                                dateFrom: new Date(Date.now() - 60000).toISOString(),
+                                dateTo: new Date(Date.now()).toISOString(),
+                            },
+                        }),
+                    },
+                ],
+            })
+
+            // Then check that the exportEvents function was called with the
+            // same data that was used with the non-historical export, with the
+            // additions of details related to the historical export.
+            const historicallyExportedEvents = await delayUntilEventIngested(
+                async () =>
+                    (await fetchPluginLogEntries(clickHouseClient, pluginConfig.id))
+                        .filter(({ message: [method] }) => method === 'exportEvents')
+                        .filter(({ message: [, events] }) =>
+                            events.some((event) => event.properties['$$is_historical_export_event'])
+                        ),
+                1,
+                500,
+                40
+            )
+
+            expect(historicallyExportedEvents.length).toBeGreaterThan(0)
+
+            const historicallyExportedEvent = historicallyExportedEvents[0].message[1]
+            expect(historicallyExportedEvent).toEqual([
+                expect.objectContaining({
+                    ...exportedEvent,
+                    ip: '', // NOTE: for some reason this is "" when exported historically, but null otherwise.
+                    properties: {
+                        ...exportedEvent.properties,
+                        $$is_historical_export_event: true,
+                        $$historical_export_timestamp: expect.any(String),
+                        $$historical_export_source_db: 'clickhouse',
+                    },
+                }),
+            ])
+        })
+
+        test('historical exports v2', async () => {
+            const teamId = await createTeam(postgres, organizationId)
+            const distinctId = new UUIDT().toString()
+            const uuid = new UUIDT().toString()
+
+            const plugin = await createPlugin(postgres, {
+                organization_id: organizationId,
+                name: 'export plugin',
+                plugin_type: 'source',
+                is_global: false,
+                source__index_ts: indexJs,
+            })
+            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+
+            // First let's capture an event and wait for it to be ingested so
+            // so we can check that the historical event is the same as the one
+            // passed to processEvent on initial ingestion.
+            await capture(producer, teamId, distinctId, uuid, '$autocapture', {
+                name: 'hehe',
+                uuid: new UUIDT().toString(),
+                $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+            })
+
+            // Then check that the exportEvents function was called
+            const exportEvents = await delayUntilEventIngested(
+                async () =>
+                    (
+                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                    ).filter(({ message: [method] }) => method === 'exportEvents'),
+                1,
+                500,
+                40
+            )
+
+            expect(exportEvents.length).toBeGreaterThan(0)
+            const [exportedEvent] = exportEvents[0].message[1]
+
+            // NOTE: the frontend doesn't actually push to this queue but rather
+            // adds directly to PostgreSQL using the graphile-worker stored
+            // procedure `add_job`. I'd rather keep these tests graphile
+            // unaware.
+            await producer.send({
+                topic: 'jobs_test',
+                messages: [
+                    {
+                        key: teamId.toString(),
+                        value: JSON.stringify({
+                            type: 'Export historical events V2',
+                            pluginConfigId: pluginConfig.id,
+                            pluginConfigTeam: teamId,
+                            payload: {
+                                dateRange: [
+                                    new Date(Date.now() - 60000).toISOString(),
+                                    new Date(Date.now()).toISOString(),
+                                ],
+                                $job_id: 'test',
+                                parallelism: 1,
+                            },
+                        }),
+                    },
+                ],
+            })
+
+            // Then check that the exportEvents function was called with the
+            // same data that was used with the non-historical export, with the
+            // additions of details related to the historical export.
+            const historicallyExportedEvents = await delayUntilEventIngested(
+                async () =>
+                    (await fetchPluginLogEntries(clickHouseClient, pluginConfig.id))
+                        .filter(({ message: [method] }) => method === 'exportEvents')
+                        .filter(({ message: [, events] }) =>
+                            events.some((event) => event.properties['$$is_historical_export_event'])
+                        ),
+                1,
+                500,
+                40
+            )
+
+            expect(historicallyExportedEvents.length).toBeGreaterThan(0)
+
+            const historicallyExportedEvent = historicallyExportedEvents[0].message[1]
+            expect(historicallyExportedEvent).toEqual([
+                expect.objectContaining({
+                    ...exportedEvent,
+                    ip: '', // NOTE: for some reason this is "" when exported historically, but null otherwise.
+                    properties: {
+                        ...exportedEvent.properties,
+                        $$is_historical_export_event: true,
+                        $$historical_export_timestamp: expect.any(String),
+                        $$historical_export_source_db: 'clickhouse',
+                    },
                 }),
             ])
         })
@@ -468,6 +718,93 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
 
             expect(runNow.length).toBeGreaterThan(0)
         }, 120000)
+    })
+
+    describe(`webhooks (${pluginServer.name})`, () => {
+        let server: Server
+        let webHookCalledWith: any
+
+        beforeAll(() => {
+            server = createServer((req, res) => {
+                let body = ''
+                req.on('data', (chunk) => {
+                    body += chunk
+                })
+                req.on('end', () => {
+                    webHookCalledWith = JSON.parse(body)
+                    res.writeHead(200, { 'Content-Type': 'text/plain' })
+                    res.end()
+                })
+            })
+            server.listen()
+        })
+
+        beforeEach(() => {
+            webHookCalledWith = undefined
+        })
+
+        afterAll(() => {
+            server.close()
+        })
+
+        test('fires slack webhook', async () => {
+            // Create an action with post_to_slack enabled.
+            // NOTE: I'm not 100% sure how this works i.e. what all the step
+            // configuration means so there's probably a more succinct way to do
+            // this.
+            const distinctId = new UUIDT().toString()
+
+            const teamId = await createTeam(postgres, organizationId, `http://localhost:${server.address()?.port}`)
+            const user = await createUser(postgres, teamId, new UUIDT().toString())
+            await createAction(
+                postgres,
+                {
+                    team_id: teamId,
+                    name: 'slack',
+                    description: 'slack',
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    deleted: false,
+                    post_to_slack: true,
+                    slack_message_format: 'default',
+                    created_by_id: user.id,
+                    is_calculating: false,
+                    last_calculated_at: new Date().toISOString(),
+                },
+                [
+                    {
+                        name: 'slack',
+                        tag_name: 'div',
+                        text: 'text',
+                        href: null,
+                        url: 'http://localhost:8000',
+                        url_matching: null,
+                        event: '$autocapture',
+                        properties: null,
+                        selector: null,
+                    },
+                ]
+            )
+
+            await reloadActions(redis)
+
+            await capture(producer, teamId, distinctId, new UUIDT().toString(), '$autocapture', {
+                name: 'hehe',
+                uuid: new UUIDT().toString(),
+                $current_url: 'http://localhost:8000',
+                $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }],
+            })
+
+            for (const attempt in Array.from(Array(10).keys())) {
+                console.debug(`Attempt ${attempt} to check webhook was called`)
+                if (webHookCalledWith) {
+                    break
+                }
+                await new Promise((resolve) => setTimeout(resolve, 1000))
+            }
+
+            expect(webHookCalledWith).toEqual({ text: 'default' })
+        })
     })
 
     describe(`jobs-consumer (${pluginServer.name})`, () => {
@@ -603,6 +940,10 @@ const createAndReloadPluginConfig = async (pgClient: Pool, teamId: number, plugi
     return pluginConfig
 }
 
+const reloadActions = async (redis: Redis.Redis) => {
+    await redis.publish('reload-actions', '')
+}
+
 const fetchEvents = async (clickHouseClient: ClickHouse, teamId: number) => {
     const queryResult = (await clickHouseClient.querying(
         `SELECT * FROM events WHERE team_id = ${teamId} ORDER BY timestamp ASC`
@@ -656,7 +997,7 @@ const createOrganization = async (pgClient: Pool) => {
     return organizationId
 }
 
-const createTeam = async (pgClient: Pool, organizationId: string) => {
+const createTeam = async (pgClient: Pool, organizationId: string, slack_incoming_webhook?: string) => {
     const team = await insertRow(pgClient, 'posthog_team', {
         organization_id: organizationId,
         app_urls: [],
@@ -682,6 +1023,38 @@ const createTeam = async (pgClient: Pool, organizationId: string) => {
         data_attributes: ['data-attr'],
         person_display_name_properties: [],
         access_control: false,
+        slack_incoming_webhook,
     })
     return team.id
+}
+
+const createAction = async (
+    pgClient: Pool,
+    action: Omit<RawAction, 'id'>,
+    steps: Omit<ActionStep, 'id' | 'action_id'>[]
+) => {
+    const actionRow = await insertRow(pgClient, 'posthog_action', action)
+    for (const step of steps) {
+        await insertRow(pgClient, 'posthog_actionstep', {
+            ...step,
+            action_id: actionRow.id,
+        })
+    }
+    return action
+}
+
+const createUser = async (pgClient: Pool, teamId: number, email: string) => {
+    return await insertRow(pgClient, 'posthog_user', {
+        password: 'abc',
+        email,
+        first_name: '',
+        last_name: '',
+        email_opt_in: false,
+        distinct_id: email,
+        is_staff: false,
+        is_active: true,
+        date_joined: new Date().toISOString(),
+        events_column_config: '{}',
+        uuid: new UUIDT().toString(),
+    })
 }
