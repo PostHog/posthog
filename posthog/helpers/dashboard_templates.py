@@ -61,15 +61,16 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
             "compare": True,
         },
         layouts={
-            "sm": {
+            "sm": {"i": "21", "x": 0, "y": 0, "w": 6, "h": 5, "minW": 3, "minH": 5},
+            "xs": {
+                "w": 1,
                 "h": 5,
-                "w": 4,
                 "x": 0,
                 "y": 0,
+                "i": "21",
+                "minW": 1,
                 "minH": 5,
-                "minW": 3,
             },
-            "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 3},
         },
         color="blue",
     )
@@ -99,36 +100,18 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
             },
         },
         layouts={
-            "sm": {"h": 5, "w": 4, "x": 4, "y": 0, "minH": 5, "minW": 3},
-            "xs": {"h": 5, "w": 1, "x": 0, "y": 5, "minH": 5, "minW": 3},
+            "sm": {"i": "22", "x": 6, "y": 0, "w": 6, "h": 5, "minW": 3, "minH": 5},
+            "xs": {
+                "w": 1,
+                "h": 5,
+                "x": 0,
+                "y": 5,
+                "i": "22",
+                "minW": 1,
+                "minH": 5,
+            },
         },
         color="green",
-    )
-
-    _create_tile_for_insight(
-        dashboard,
-        name="Blog Unique Users (Total)",
-        description="Page view events where url contains blog.",
-        filters={
-            TREND_FILTER_TYPE_EVENTS: [
-                {
-                    "id": "$pageview",
-                    "math": UNIQUE_USERS,
-                    "type": TREND_FILTER_TYPE_EVENTS,
-                    PROPERTIES: [{"key": "$current_url", "type": "event", "value": "blog", "operator": "icontains"}],
-                }
-            ],
-            INTERVAL: "day",
-            INSIGHT: INSIGHT_TRENDS,
-            DATE_FROM: "-30d",
-            DISPLAY: TRENDS_BOLD_NUMBER,
-            "compare": True,
-        },
-        layouts={
-            "sm": {"h": 5, "w": 4, "x": 8, "y": 0, "minH": 5, "minW": 3},
-            "xs": {"h": 5, "w": 1, "x": 0, "y": 10, "minH": 5, "minW": 3},
-        },
-        color="purple",
     )
 
     # row 2
@@ -144,15 +127,16 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
             DISPLAY: "ActionsBar",
         },
         layouts={
-            "sm": {
+            "sm": {"i": "23", "x": 0, "y": 5, "w": 6, "h": 5, "minW": 3, "minH": 5},
+            "xs": {
+                "w": 1,
                 "h": 5,
-                "w": 4,
                 "x": 0,
-                "y": 5,
+                "y": 10,
+                "i": "23",
+                "minW": 1,
                 "minH": 5,
-                "minW": 3,
             },
-            "xs": {"h": 5, "w": 1, "x": 0, "y": 15, "minH": 5, "minW": 3},
         },
         color="blue",
     )
@@ -179,49 +163,10 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
             DISPLAY: "ActionsBar",
         },
         layouts={
-            "sm": {
-                "h": 5,
-                "w": 4,
-                "x": 4,
-                "y": 5,
-                "minH": 5,
-                "minW": 3,
-            },
-            "xs": {"h": 5, "w": 1, "x": 0, "y": 20, "minH": 5, "minW": 3},
+            "sm": {"i": "24", "x": 6, "y": 5, "w": 6, "h": 5, "minW": 3, "minH": 5},
+            "xs": {"w": 1, "h": 5, "x": 0, "y": 15, "i": "24", "minW": 1, "minH": 5},
         },
         color="green",
-    )
-
-    _create_tile_for_insight(
-        dashboard,
-        name="Blog Unique Users (Breakdown)",
-        description="Page view events where url contains blog.",
-        filters={
-            TREND_FILTER_TYPE_EVENTS: [
-                {
-                    "id": "$pageview",
-                    "math": UNIQUE_USERS,
-                    "type": TREND_FILTER_TYPE_EVENTS,
-                    PROPERTIES: [{"key": "$current_url", "type": "event", "value": "blog", "operator": "icontains"}],
-                }
-            ],
-            INTERVAL: "week",
-            INSIGHT: INSIGHT_TRENDS,
-            DATE_FROM: "-30d",
-            DISPLAY: "ActionsBar",
-        },
-        layouts={
-            "sm": {
-                "h": 5,
-                "w": 4,
-                "x": 8,
-                "y": 5,
-                "minH": 5,
-                "minW": 3,
-            },
-            "xs": {"h": 5, "w": 1, "x": 0, "y": 25, "minH": 5, "minW": 3},
-        },
-        color="purple",
     )
 
     # row 3
@@ -256,16 +201,16 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
             "formula": "B/A",
         },
         layouts={
-            "sm": {
+            "sm": {"i": "25", "x": 0, "y": 10, "w": 6, "h": 5, "minW": 3, "minH": 5},
+            "xs": {
+                "w": 1,
                 "h": 5,
-                "i": "91",
-                "w": 6,
                 "x": 0,
-                "y": 10,
+                "y": 20,
+                "i": "25",
+                "minW": 1,
                 "minH": 5,
-                "minW": 3,
             },
-            "xs": {"h": 5, "i": "91", "w": 1, "x": 0, "y": 170, "minH": 5, "minW": 1},
         },
         color=None,
     )
@@ -300,16 +245,16 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
             "formula": "A/B",
         },
         layouts={
-            "sm": {
+            "sm": {"i": "26", "x": 6, "y": 10, "w": 6, "h": 5, "minW": 3, "minH": 5},
+            "xs": {
+                "w": 1,
                 "h": 5,
-                "i": "92",
-                "w": 6,
-                "x": 6,
-                "y": 10,
+                "x": 0,
+                "y": 25,
+                "i": "26",
+                "minW": 1,
                 "minH": 5,
-                "minW": 3,
             },
-            "xs": {"h": 5, "i": "92", "w": 1, "x": 0, "y": 175, "minH": 5, "minW": 1},
         },
         color=None,
     )
@@ -347,16 +292,16 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
             },
         },
         layouts={
-            "sm": {
-                "h": 8,
-                "i": "93",
-                "w": 6,
+            "sm": {"i": "27", "x": 0, "y": 15, "w": 6, "h": 8, "minW": 3, "minH": 5},
+            "xs": {
+                "w": 1,
+                "h": 5,
                 "x": 0,
-                "y": 15,
+                "y": 30,
+                "i": "27",
+                "minW": 1,
                 "minH": 5,
-                "minW": 3,
             },
-            "xs": {"h": 5, "i": "93", "w": 1, "x": 0, "y": 45, "minH": 5, "minW": 1},
         },
         color="black",
     )
@@ -395,111 +340,13 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
             },
         },
         layouts={
-            "sm": {
-                "h": 8,
-                "i": "94",
-                "w": 6,
-                "x": 6,
-                "y": 15,
-                "minH": 5,
-                "minW": 3,
-            },
-            "xs": {"h": 5, "i": "94", "w": 1, "x": 0, "y": 50, "minH": 5, "minW": 1},
+            "sm": {"i": "28", "x": 6, "y": 15, "w": 6, "h": 8, "minW": 3, "minH": 5},
+            "xs": {"w": 1, "h": 5, "x": 0, "y": 35, "i": "28", "minW": 1, "minH": 5},
         },
         color="black",
     )
 
     # row 5
-
-    _create_tile_for_insight(
-        dashboard,
-        name="Top Blog Pages (Overall)",
-        description="",
-        filters={
-            TREND_FILTER_TYPE_EVENTS: [
-                {
-                    "id": "$pageview",
-                    "math": "unique_session",
-                    "name": "$pageview",
-                    "type": TREND_FILTER_TYPE_EVENTS,
-                    "order": 0,
-                }
-            ],
-            INTERVAL: "day",
-            INSIGHT: INSIGHT_TRENDS,
-            DATE_FROM: "-30d",
-            DISPLAY: TRENDS_BAR_VALUE,
-            BREAKDOWN: "$current_url",
-            BREAKDOWN_TYPE: "event",
-            PROPERTIES: {
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [
-                            {"key": "$current_url", "type": "event", "value": "blog", "operator": "icontains"},
-                            {"key": "$current_url", "type": "event", "value": "?", "operator": "not_icontains"},
-                        ],
-                    }
-                ],
-            },
-        },
-        layouts={
-            "sm": {
-                "h": 8,
-                "i": "95",
-                "w": 6,
-                "x": 0,
-                "y": 23,
-                "minH": 5,
-                "minW": 3,
-            },
-            "xs": {"h": 5, "i": "95", "w": 1, "x": 0, "y": 55, "minH": 5, "minW": 1},
-        },
-        color="purple",
-    )
-
-    _create_tile_for_insight(
-        dashboard,
-        name="Top Blog Pages (via Google)",
-        description="",
-        filters={
-            TREND_FILTER_TYPE_EVENTS: [
-                {
-                    "id": "$pageview",
-                    "math": "unique_session",
-                    "name": "$pageview",
-                    "type": TREND_FILTER_TYPE_EVENTS,
-                    "order": 0,
-                }
-            ],
-            INTERVAL: "day",
-            INSIGHT: INSIGHT_TRENDS,
-            DATE_FROM: "-30d",
-            DISPLAY: TRENDS_BAR_VALUE,
-            BREAKDOWN: "$current_url",
-            BREAKDOWN_TYPE: "event",
-            PROPERTIES: {
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [
-                            {"key": "$current_url", "type": "event", "value": "blog", "operator": "icontains"},
-                            {"key": "$referring_domain", "type": "event", "value": "google", "operator": "icontains"},
-                        ],
-                    }
-                ],
-            },
-        },
-        layouts={
-            "sm": {"h": 8, "w": 6, "x": 6, "y": 52, "minH": 5, "minW": 3},
-            "xs": {"h": 5, "w": 1, "x": 0, "y": 35, "minH": 5, "minW": 3},
-        },
-        color="purple",
-    )
-
-    # row 6
 
     _create_tile_for_insight(
         dashboard,
@@ -523,15 +370,16 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
             BREAKDOWN_TYPE: "person",
         },
         layouts={
-            "sm": {
-                "h": 8,
-                "w": 12,
+            "sm": {"i": "29", "x": 0, "y": 23, "w": 12, "h": 8, "minW": 3, "minH": 5},
+            "xs": {
+                "w": 1,
+                "h": 5,
                 "x": 0,
-                "y": 84,
+                "y": 40,
+                "i": "29",
+                "minW": 1,
                 "minH": 5,
-                "minW": 3,
             },
-            "xs": {"h": 5, "w": 1, "x": 0, "y": 90, "minH": 5, "minW": 3},
         },
         color=None,
     )
