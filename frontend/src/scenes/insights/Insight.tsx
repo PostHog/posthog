@@ -67,6 +67,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
 
+    const { insightsTags } = useValues(savedInsightsLogic)
+
     useEffect(() => {
         reportInsightViewedForRecentInsights()
     }, [insightId])
@@ -255,7 +257,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 tags={insight.tags ?? []}
                                 onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
                                 saving={tagLoading}
-                                tagsAvailable={[]}
+                                tagsAvailable={insightsTags}
                                 className="insight-metadata-tags"
                                 data-attr="insight-tags"
                             />
