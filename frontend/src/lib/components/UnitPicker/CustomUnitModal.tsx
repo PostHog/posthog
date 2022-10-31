@@ -7,7 +7,10 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { HandleUnitChange } from 'lib/components/UnitPicker/UnitPicker'
 
-function chooseFormativeElement(formativeElement: 'prefix' | 'postfix' | null, filters: Partial<FilterType>): string {
+function chooseFormativeElementValue(
+    formativeElement: 'prefix' | 'postfix' | null,
+    filters: Partial<FilterType>
+): string {
     if (formativeElement === 'prefix') {
         return filters.aggregation_axis_prefix || ''
     }
@@ -34,11 +37,11 @@ export function CustomUnitModal({
     onClose: () => void
     overlayRef: RefCallback<HTMLDivElement> // if an open pop up should not close when this is clicked on
 }): JSX.Element | null {
-    const [localFormativeElement, setLocalFormativeElement] = useState<string>(
-        chooseFormativeElement(formativeElement, filters)
+    const [localFormativeElementValue, setLocalFormativeElementValue] = useState<string>(
+        chooseFormativeElementValue(formativeElement, filters)
     )
     useEffect(() => {
-        setLocalFormativeElement(chooseFormativeElement(formativeElement, filters))
+        setLocalFormativeElementValue(chooseFormativeElementValue(formativeElement, filters))
     }, [formativeElement])
 
     if (formativeElement === null) {
@@ -54,7 +57,10 @@ export function CustomUnitModal({
             title={`Custom ${formativeElement}`}
             footer={
                 <>
-                    <LemonButton type="primary" onClick={() => onSave({ [formativeElement]: localFormativeElement })}>
+                    <LemonButton
+                        type="primary"
+                        onClick={() => onSave({ [formativeElement]: localFormativeElementValue })}
+                    >
                         Save
                     </LemonButton>
                 </>
@@ -64,16 +70,16 @@ export function CustomUnitModal({
                 label={`${capitalizeFirstLetter(formativeElement)}:`}
                 help={
                     <>
-                        A {formativeElement} of <strong>{localFormativeElement || '$'}</strong> would mean `123.45`
+                        A {formativeElement} of <strong>{localFormativeElementValue || '$'}</strong> would mean `123.45`
                         would be displayed{' '}
                         <strong>
-                            {formativeElement === 'prefix' ? localFormativeElement || '$' : ''}123.45
-                            {formativeElement === 'postfix' ? localFormativeElement || '$' : ''}
+                            {formativeElement === 'prefix' ? localFormativeElementValue || '$' : ''}123.45
+                            {formativeElement === 'postfix' ? localFormativeElementValue || '$' : ''}
                         </strong>
                     </>
                 }
             >
-                <LemonInput value={localFormativeElement} onChange={setLocalFormativeElement} />
+                <LemonInput value={localFormativeElementValue} onChange={setLocalFormativeElementValue} />
             </PureField>
         </LemonModal>
     )
