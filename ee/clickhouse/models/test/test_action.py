@@ -72,7 +72,10 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         result = sync_execute(full_query, {**params, "team_id": self.team.pk})
 
         self.assertEqual(len(result), 1)
-        self.assertEqual(str(result[0][0]), event_target_uuid)
+        self.assertCountEqual(
+            [str(r[0]) for r in result],
+            [event_target_uuid],
+        )
 
     def test_filter_event_exact_url_with_query_params(self):
         first_match_uuid = _create_event(
@@ -109,8 +112,10 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         result = sync_execute(full_query, {**params, "team_id": self.team.pk})
 
         self.assertEqual(len(result), 2)
-        self.assertEqual(str(result[0][0]), first_match_uuid)
-        self.assertEqual(str(result[1][0]), second_match_uuid)
+        self.assertCountEqual(
+            [str(r[0]) for r in result],
+            [first_match_uuid, second_match_uuid],
+        )
 
     def test_filter_event_contains_url(self):
 
