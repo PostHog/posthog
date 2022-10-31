@@ -74,7 +74,7 @@ export function NewDashboardModal(): JSX.Element {
                         options={[
                             {
                                 value: 'DEFAULT_APP',
-                                label: 'Website app',
+                                label: 'Product analytics',
                                 'data-attr': 'dashboard-select-default-app',
                             },
                             {
