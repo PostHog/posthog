@@ -231,9 +231,10 @@ export async function startPluginsServer(
 
         if (hub.capabilities.ingestion) {
             bufferConsumer = await startAnonymousEventBufferConsumer({
+                hub: hub,
+                piscina: piscina,
                 kafka: hub.kafka,
                 producer: hub.kafkaProducer,
-                graphileWorker: hub.graphileWorker,
                 statsd: hub.statsd,
             })
         }
