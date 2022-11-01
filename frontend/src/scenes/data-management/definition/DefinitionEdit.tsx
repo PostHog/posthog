@@ -15,7 +15,7 @@ import { Form } from 'kea-forms'
 
 export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
     const logic = definitionEditLogic(props)
-    const { definitionLoading, definition, hasTaxonomyFeatures, isEvent } = useValues(logic)
+    const { definitionLoading, definition, hasTaxonomyFeatures, isEvent, tags, tagsLoading } = useValues(logic)
     const { setPageMode, saveDefinition } = useActions(logic)
 
     return (
@@ -90,10 +90,11 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                             {({ value, onChange }) => (
                                 <ObjectTags
                                     className="definition-tags"
-                                    saving={definitionLoading}
+                                    saving={definitionLoading || tagsLoading}
                                     tags={value || []}
                                     onChange={(_, tags) => onChange(tags)}
                                     style={{ marginBottom: 4 }}
+                                    tagsAvailable={tags}
                                 />
                             )}
                         </Field>

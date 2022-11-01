@@ -15,7 +15,12 @@ describe('definitionEditLogic', () => {
     beforeEach(async () => {
         useMocks({
             get: {
-                '/api/projects/:team/event_definitions/:id': mockEventDefinitions[0],
+                '/api/projects/:team/event_definitions/:id': (req) => {
+                    if (req.params['id'] === 'tags') {
+                        return [200, ['the', 'tags', 'array']]
+                    }
+                    return [200, mockEventDefinitions[0]]
+                },
                 '/api/projects/:team/property_definitions/:id': mockEventPropertyDefinition,
                 '/api/projects/@current/event_definitions/': {
                     results: mockEventDefinitions,
@@ -49,5 +54,15 @@ describe('definitionEditLogic', () => {
             'setDefinition',
             eventDefinitionsTableLogic.actionCreators.setLocalEventDefinition(mockEventDefinitions[0]),
         ])
+    })
+
+    it('can load tags for event definitions', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadTags()
+        })
+            .toFinishAllListeners()
+            .toMatchValues({
+                tags: ['the', 'tags', 'array'],
+            })
     })
 })
