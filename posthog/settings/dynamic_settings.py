@@ -1,3 +1,4 @@
+from posthog.settings.base_variables import E2E_TESTING, TEST
 from posthog.settings.utils import get_from_env, str_to_bool
 
 CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
@@ -27,7 +28,7 @@ CONSTANCE_CONFIG = {
         str,
     ),
     "PERSON_ON_EVENTS_ENABLED": (
-        get_from_env("PERSON_ON_EVENTS_ENABLED", True, type_cast=str_to_bool),
+        get_from_env("PERSON_ON_EVENTS_ENABLED", not TEST and not E2E_TESTING, type_cast=str_to_bool),
         "Whether to use query path using person_id, person_properties, and group_properties on events or the old query",
         bool,
     ),
