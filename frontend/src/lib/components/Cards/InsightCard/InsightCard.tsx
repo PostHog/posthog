@@ -30,7 +30,6 @@ import { LemonButton, LemonButtonWithPopup } from '../../LemonButton'
 import { More } from '../../LemonButton/More'
 import { LemonDivider } from '../../LemonDivider'
 import { Link } from '../../Link'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ResizeHandle1D, ResizeHandle2D } from './handles'
 import './InsightCard.scss'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
@@ -38,7 +37,7 @@ import { IconSubtitles, IconSubtitlesOff } from '../../icons'
 import { CSSTransition, Transition } from 'react-transition-group'
 import { InsightDetails } from './InsightDetails'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
-import { DashboardPrivilegeLevel } from 'lib/constants'
+import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
 import { DashboardInsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
@@ -52,10 +51,12 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { AlertMessage } from '../../AlertMessage'
-import { UserActivityIndicator } from '../../UserActivityIndicator/UserActivityIndicator'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { SpinnerOverlay } from '../../Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 
 // TODO: Add support for Retention to InsightDetails
 export const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -207,7 +208,7 @@ function InsightMeta({
     showDetailsControls = true,
     moreButtons,
 }: InsightMetaProps): JSX.Element {
-    const { short_id, name, description, tags, filters, dashboards } = insight
+    const { short_id, name, filters, dashboards } = insight
     const { exporterResourceParams, insightProps } = useValues(insightLogic)
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -217,6 +218,9 @@ function InsightMeta({
     const otherDashboards: DashboardType[] = nameSortedDashboards.filter(
         (d: DashboardType) => !dashboards?.includes(d.id)
     )
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const minimalistMode: boolean = !!featureFlags[FEATURE_FLAGS.MINIMALIST_MODE]
 
     const { ref: primaryRef, height: primaryHeight, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
@@ -465,14 +469,25 @@ function InsightMeta({
                                     )}
                                 </h4>
                             </Link>
-                            <div className="InsightMeta__description">{description || <i>No description</i>}</div>
-                            {tags && tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
-                            <UserActivityIndicator at={insight.last_modified_at} by={insight.last_modified_by} />
+                            {(!minimalistMode || !dashboardId) && (
+                                <>
+                                    <div className="InsightMeta__description">
+                                        {insight.description || <i>No description</i>}
+                                    </div>
+                                    {insight.tags && insight.tags.length > 0 && (
+                                        <ObjectTags tags={insight.tags} staticOnly />
+                                    )}
+                                    <UserActivityIndicator
+                                        at={insight.last_modified_at}
+                                        by={insight.last_modified_by}
+                                    />
+                                </>
+                            )}
                         </div>
                     </div>
                     <LemonDivider />
                     <Transition in={areDetailsShown} timeout={200} mountOnEnter unmountOnExit>
-                        <InsightDetails insight={insight} ref={detailsRef} />
+                        <InsightDetails insight={insight} ref={detailsRef} onDashboard={!!dashboardId} />
                     </Transition>
                 </div>
             )}

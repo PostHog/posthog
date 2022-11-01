@@ -19,6 +19,8 @@ import { TZLabel } from '../../TimezoneAware'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import React from 'react'
+import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 
 function CompactPropertyFiltersDisplay({
     groupFilter,
@@ -277,11 +279,24 @@ export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }):
     )
 }
 
-function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: React.Ref<HTMLDivElement>): JSX.Element {
-    const { filters, created_at, created_by } = insight
+function InsightDetailsInternal(
+    { insight, onDashboard }: { insight: InsightModel; onDashboard: boolean },
+    ref: React.Ref<HTMLDivElement>
+): JSX.Element {
+    const { filters, created_at, created_by, description, tags } = insight
+    const { featureFlags } = useValues(featureFlagLogic)
+    const minimalistMode: boolean = !!featureFlags[FEATURE_FLAGS.MINIMALIST_MODE]
 
     return (
         <div className="InsightDetails" ref={ref}>
+            {onDashboard && minimalistMode && (
+                <>
+                    <div className="InsightMeta__description">{description || <i>No description</i>}</div>
+                    <UserActivityIndicator at={insight.last_modified_at} by={insight.last_modified_by} />
+                    {tags && tags.length > 0 && <ObjectTags tags={tags} staticOnly className={'my-1'} />}
+                    <LemonDivider />
+                </>
+            )}
             <QuerySummary filters={filters} />
             <FiltersSummary filters={filters} />
             <div className="InsightDetails__footer">
