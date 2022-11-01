@@ -734,23 +734,30 @@ class TestPluginAPI(APIBaseTest):
         response_this = self.client.get(f"/api/organizations/@current/plugins/{this_orgs_plugin.id}/")
         self.assertEqual(response_this.status_code, 200)
 
-    def test_listing_plugins_is_not_nplus1(self, mock_get, mock_reload):
-        Plugin.objects.create(organization=self.organization)
-        Plugin.objects.create(organization=self.organization)
-
-        with self.assertNumQueries(9):
-            response_with_two = self.client.get(f"/api/organizations/@current/plugins/")
-            self.assertEqual(response_with_two.status_code, 200)
-            self.assertEqual(response_with_two.json()["count"], 2, response_with_two.json())
-            self.assertEqual(len(response_with_two.json()["results"]), 2, response_with_two.json())
+    def test_listing_plugins_is_not_nplus1(self, _mock_get, _mock_reload) -> None:
+        with self.assertNumQueries(8):
+            self._assert_number_of_when_listed_plugins(0)
 
         Plugin.objects.create(organization=self.organization)
 
         with self.assertNumQueries(9):
-            response_With_three = self.client.get(f"/api/organizations/@current/plugins/")
-            self.assertEqual(response_With_three.status_code, 200)
-            self.assertEqual(response_With_three.json()["count"], 3, response_With_three.json())
-            self.assertEqual(len(response_With_three.json()["results"]), 3, response_With_three.json())
+            self._assert_number_of_when_listed_plugins(1)
+
+        Plugin.objects.create(organization=self.organization)
+
+        with self.assertNumQueries(9):
+            self._assert_number_of_when_listed_plugins(2)
+
+        Plugin.objects.create(organization=self.organization)
+
+        with self.assertNumQueries(9):
+            self._assert_number_of_when_listed_plugins(3)
+
+    def _assert_number_of_when_listed_plugins(self, expected_plugins_count: int) -> None:
+        response_with_none = self.client.get(f"/api/organizations/@current/plugins/")
+        self.assertEqual(response_with_none.status_code, 200)
+        self.assertEqual(response_with_none.json()["count"], expected_plugins_count, response_with_none.json())
+        self.assertEqual(len(response_with_none.json()["results"]), expected_plugins_count, response_with_none.json())
 
     def test_create_plugin_config(self, mock_get, mock_reload):
         self.assertEqual(mock_reload.call_count, 0)
