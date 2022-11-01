@@ -72,13 +72,13 @@
       AND (   has(%(vglobal_0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kglobal_0)s), '^"|"$', ''))  AND distinct_id IN (
       SELECT distinct_id
       FROM (
-
+          
       SELECT distinct_id, argMax(person_id, version) as person_id
       FROM person_distinct_id2
       WHERE team_id = 1
       GROUP BY distinct_id
       HAVING argMax(is_deleted, version) = 0
-
+      
       )
       WHERE person_id IN
       (
