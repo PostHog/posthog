@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LockOutlined } from '@ant-design/icons'
-import { featureFlagLogic } from './featureFlagLogic'
+import { defaultPropertyOnFlag, featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -18,7 +18,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { userLogic } from 'scenes/userLogic'
-import { AnyPropertyFilter, AvailableFeature, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, AvailableFeature } from '~/types'
 import { Link } from 'lib/components/Link'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Field } from 'lib/forms/Field'
@@ -343,9 +343,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             </Col>
                                         </Row>
                                     </Tabs.TabPane>
-                                    {featureFlags[FEATURE_FLAGS.EXPOSURES_ON_FEATURE_FLAGS] && featureFlag.key && (
+                                    {featureFlags[FEATURE_FLAGS.EXPOSURES_ON_FEATURE_FLAGS] && featureFlag.key && id && (
                                         <Tabs.TabPane tab="Exposures" key="exposure">
-                                            <ExposureTab featureFlagKey={featureFlag.key} />
+                                            <ExposureTab id={id} featureFlagKey={featureFlag.key} />
                                         </Tabs.TabPane>
                                     )}
                                     {featureFlag.id && (
@@ -363,27 +363,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     )
 }
 
-function ExposureTab({ featureFlagKey }: { featureFlagKey: string }): JSX.Element {
+function ExposureTab({ id, featureFlagKey }: { id: string; featureFlagKey: string }): JSX.Element {
     return (
         <EventsTable
             fixedFilters={{
                 event_filter: '$feature_flag_called',
-                properties: [
-                    {
-                        key: '$feature/' + featureFlagKey,
-                        type: 'event',
-                        value: ['true'],
-                        operator: PropertyOperator.Exact,
-                    },
-                    {
-                        key: '$feature_flag',
-                        type: 'event',
-                        value: featureFlagKey,
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
+                properties: defaultPropertyOnFlag(featureFlagKey),
             }}
-            sceneUrl={urls.featureFlags()}
+            sceneUrl={urls.featureFlag(id)}
             fetchMonths={3}
             pageKey={`feature-flag-${featureFlagKey}}`}
             showEventFilter={false}

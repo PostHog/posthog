@@ -4,10 +4,12 @@ import {
     AnyPropertyFilter,
     Breadcrumb,
     FeatureFlagType,
+    FilterType,
     InsightModel,
     MultivariateFlagOptions,
     MultivariateFlagVariant,
     PropertyFilter,
+    PropertyOperator,
 } from '~/types'
 import api from 'lib/api'
 import { router } from 'kea-router'
@@ -51,6 +53,32 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
         },
     ],
 }
+
+export const defaultEntityFilterOnFlag = (flagKey: string): Partial<FilterType> => ({
+    events: [
+        {
+            id: '$feature_flag_called',
+            name: '$feature_flag_called',
+            type: 'events',
+            properties: defaultPropertyOnFlag(flagKey),
+        },
+    ],
+})
+
+export const defaultPropertyOnFlag = (flagKey: string): AnyPropertyFilter[] => [
+    {
+        key: '$feature/' + flagKey,
+        type: 'event',
+        value: ['false'],
+        operator: PropertyOperator.IsNot,
+    },
+    {
+        key: '$feature_flag',
+        type: 'event',
+        value: flagKey,
+        operator: PropertyOperator.Exact,
+    },
+]
 
 export interface FeatureFlagLogicProps {
     id: number | 'new'
