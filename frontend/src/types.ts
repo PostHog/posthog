@@ -636,7 +636,6 @@ export interface CohortGroupType {
     name?: string
 }
 
-// Note this will eventually replace CohortGroupType once `cohort-filters` FF is released
 // Synced with `posthog/models/property.py`
 export interface CohortCriteriaType {
     id: string // Criteria filter id
