@@ -734,6 +734,24 @@ class TestPluginAPI(APIBaseTest):
         response_this = self.client.get(f"/api/organizations/@current/plugins/{this_orgs_plugin.id}/")
         self.assertEqual(response_this.status_code, 200)
 
+    def test_listing_plugins_is_not_nplus1(self, mock_get, mock_reload):
+        Plugin.objects.create(organization=self.organization)
+        Plugin.objects.create(organization=self.organization)
+
+        with self.assertNumQueries(9):
+            response_with_two = self.client.get(f"/api/organizations/@current/plugins/")
+            self.assertEqual(response_with_two.status_code, 200)
+            self.assertEqual(response_with_two.json()["count"], 2, response_with_two.json())
+            self.assertEqual(len(response_with_two.json()["results"]), 2, response_with_two.json())
+
+        Plugin.objects.create(organization=self.organization)
+
+        with self.assertNumQueries(9):
+            response_With_three = self.client.get(f"/api/organizations/@current/plugins/")
+            self.assertEqual(response_With_three.status_code, 200)
+            self.assertEqual(response_With_three.json()["count"], 3, response_With_three.json())
+            self.assertEqual(len(response_With_three.json()["results"]), 3, response_With_three.json())
+
     def test_create_plugin_config(self, mock_get, mock_reload):
         self.assertEqual(mock_reload.call_count, 0)
         response = self.client.post(
