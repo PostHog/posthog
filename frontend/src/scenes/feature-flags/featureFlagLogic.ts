@@ -118,6 +118,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setFilters: (filters) => ({ filters }),
         loadInsightAtIndex: (index: number, filters: Partial<FilterType>) => ({ index, filters }),
         setInsightResultAtIndex: (index: number, average: number) => ({ index, average }),
+        loadAllInsightsForFlag: true,
     }),
     forms(({ actions }) => ({
         featureFlag: {
@@ -408,6 +409,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         loadFeatureFlagSuccess: async () => {
             actions.loadRecentInsights()
+            actions.loadAllInsightsForFlag()
         },
         loadInsightAtIndex: async ({ index, filters }) => {
             if (filters) {
@@ -421,6 +423,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 const avg = Math.round(sum(firstWeek) / 7)
                 actions.setInsightResultAtIndex(index, avg)
             }
+        },
+        loadAllInsightsForFlag: () => {
+            values.featureFlag.rollback_conditions.forEach((condition, index) => {
+                if (condition.threshold_metric) {
+                    actions.loadInsightAtIndex(index, condition.threshold_metric)
+                }
+            })
         },
         addRollbackCondition: () => {
             const index = values.featureFlag.rollback_conditions.length - 1
@@ -497,6 +506,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         if (foundFlag) {
             actions.setFeatureFlag(foundFlag)
             actions.loadRecentInsights()
+            actions.loadAllInsightsForFlag()
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
         }

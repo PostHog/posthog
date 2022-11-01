@@ -331,6 +331,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <Col span={13}>
                                                 <FeatureFlagRollout readOnly />
                                                 <FeatureFlagReleaseConditions readOnly />
+                                                {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
+                                                    <FeatureFlagAutoRollback readOnly />
+                                                )}
                                             </Col>
                                             <Col span={11} className="pl-4">
                                                 <RecentFeatureFlagInsights />
