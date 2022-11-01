@@ -26,7 +26,7 @@ from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_SECRET_GITHUB_ZIP,
 )
 from posthog.queries.app_metrics.test.test_app_metrics import create_app_metric
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from posthog.version import VERSION
 
 
@@ -36,7 +36,7 @@ def mocked_plugin_reload(*args, **kwargs):
 
 @mock.patch("posthog.models.plugin.reload_plugins_on_workers", side_effect=mocked_plugin_reload)
 @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
-class TestPluginAPI(APIBaseTest):
+class TestPluginAPI(APIBaseTest, QueryMatchingTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
@@ -734,6 +734,7 @@ class TestPluginAPI(APIBaseTest):
         response_this = self.client.get(f"/api/organizations/@current/plugins/{this_orgs_plugin.id}/")
         self.assertEqual(response_this.status_code, 200)
 
+    @snapshot_postgres_queries
     def test_listing_plugins_is_not_nplus1(self, _mock_get, _mock_reload) -> None:
         with self.assertNumQueries(8):
             self._assert_number_of_when_listed_plugins(0)
