@@ -6,6 +6,7 @@ describe('parseEntry()', () => {
             expect(parseEntry(entry as unknown as string)).toEqual({
                 type: 'string',
                 parsed: null,
+                rawString: '',
                 size: 0,
             })
         })
@@ -17,11 +18,13 @@ describe('parseEntry()', () => {
                 { key1: 'a', key2: 'b' },
                 { key1: 'a', key2: 'b' },
             ],
+            rawString: '[{"key1": "a","key2":"b"},{"key1": "a","key2":"b"}]',
             size: 2,
         })
         expect(parseEntry('{"key1": "a","key2":"b"}')).toEqual({
             type: 'object',
             parsed: { key1: 'a', key2: 'b' },
+            rawString: '{"key1": "a","key2":"b"}',
             size: 2,
         })
         expect(

@@ -42,7 +42,7 @@ export async function eachBatch(
             await heartbeat()
         }
 
-        status.info(
+        status.debug(
             '🧩',
             `Kafka batch of ${batch.messages.length} events completed in ${
                 new Date().valueOf() - batchStartTimer.valueOf()

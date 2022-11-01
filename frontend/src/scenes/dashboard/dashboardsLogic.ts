@@ -4,15 +4,18 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import type { dashboardsLogicType } from './dashboardsLogicType'
 import { DashboardType } from '~/types'
 import { uniqueBy } from 'lib/utils'
+import { userLogic } from 'scenes/userLogic'
 
 export enum DashboardsTab {
     All = 'all',
+    Yours = 'yours',
     Pinned = 'pinned',
     Shared = 'shared',
 }
 
 export const dashboardsLogic = kea<dashboardsLogicType>({
     path: ['scenes', 'dashboard', 'dashboardsLogic'],
+    connect: { values: [userLogic, ['user']] },
     actions: {
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setCurrentTab: (tab: DashboardsTab) => ({ tab }),
@@ -30,8 +33,13 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
     },
     selectors: {
         dashboards: [
-            (selectors) => [dashboardsModel.selectors.nameSortedDashboards, selectors.searchTerm, selectors.currentTab],
-            (dashboards, searchTerm, currentTab) => {
+            (selectors) => [
+                dashboardsModel.selectors.nameSortedDashboards,
+                selectors.searchTerm,
+                selectors.currentTab,
+                selectors.user,
+            ],
+            (dashboards, searchTerm, currentTab, user) => {
                 dashboards = dashboards
                     .filter((d) => !d.deleted)
                     .sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'))
@@ -39,6 +47,8 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
                     dashboards = dashboards.filter((d) => d.pinned)
                 } else if (currentTab === DashboardsTab.Shared) {
                     dashboards = dashboards.filter((d) => d.is_shared)
+                } else if (currentTab === DashboardsTab.Yours) {
+                    dashboards = dashboards.filter((d) => d.created_by && user && d.created_by?.uuid === user.uuid)
                 }
                 if (!searchTerm) {
                     return dashboards

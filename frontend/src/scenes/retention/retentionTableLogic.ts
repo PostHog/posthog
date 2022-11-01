@@ -8,7 +8,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { RetentionTablePayload, RetentionTablePeoplePayload, RetentionTrendPayload } from 'scenes/retention/types'
 import { actionsModel } from '~/models/actionsModel'
-import { groupsModel } from '~/models/groupsModel'
+import { Noun, groupsModel } from '~/models/groupsModel'
 import { ActionType, FilterType, InsightLogicProps, InsightType } from '~/types'
 import type { retentionTableLogicType } from './retentionTableLogicType'
 
@@ -170,13 +170,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         ],
         aggregationTargetLabel: [
             (s) => [s.filters, s.aggregationLabel],
-            (
-                filters,
-                aggregationLabel
-            ): {
-                singular: string
-                plural: string
-            } => {
+            (filters, aggregationLabel): Noun => {
                 return aggregationLabel(filters.aggregation_group_type_index)
             },
         ],

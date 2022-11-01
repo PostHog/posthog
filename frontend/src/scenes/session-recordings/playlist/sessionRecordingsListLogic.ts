@@ -1,23 +1,25 @@
 import { kea } from 'kea'
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
     AnyPropertyFilter,
     EntityTypes,
     FilterType,
+    PropertyFilter,
     PropertyOperator,
     RecordingDurationFilter,
     RecordingFilters,
     SessionRecordingId,
+    SessionRecordingPropertiesType,
     SessionRecordingsResponse,
+    SessionRecordingType,
 } from '~/types'
 import type { sessionRecordingsListLogicType } from './sessionRecordingsListLogicType'
 import { router } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
-import { teamLogic } from '../teamLogic'
+import { teamLogic } from '../../teamLogic'
 import { dayjs } from 'lib/dayjs'
-import { SessionRecordingType } from '~/types'
 
 export type PersonUUID = string
 interface Params {
@@ -76,6 +78,60 @@ export const defaultEntityFilterOnFlag = (flagKey: string): Partial<FilterType> 
     ],
 })
 
+export const defaultPageviewPropertyEntityFilter = (
+    oldEntityFilters: FilterType,
+    property: string,
+    value?: string
+): FilterType => {
+    const existingPageview = oldEntityFilters.events?.find(({ name }) => name === '$pageview')
+    const eventEntityFilters = oldEntityFilters.events ?? []
+    const propToAdd = value
+        ? {
+              key: property,
+              value: [value],
+              operator: PropertyOperator.Exact,
+              type: 'event',
+          }
+        : {
+              key: property,
+              value: PropertyOperator.IsNotSet,
+              operator: PropertyOperator.IsNotSet,
+              type: 'event',
+          }
+
+    // If pageview exists, add property to the first pageview event
+    if (existingPageview) {
+        return {
+            ...oldEntityFilters,
+            events: eventEntityFilters.map((eventFilter) =>
+                eventFilter.order === existingPageview.order
+                    ? {
+                          ...eventFilter,
+                          properties: [
+                              ...(eventFilter.properties?.filter(({ key }: PropertyFilter) => key !== property) ?? []),
+                              propToAdd,
+                          ],
+                      }
+                    : eventFilter
+            ),
+        }
+    } else {
+        return {
+            ...oldEntityFilters,
+            events: [
+                ...eventEntityFilters,
+                {
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: 'events',
+                    order: eventEntityFilters.length,
+                    properties: [propToAdd],
+                },
+            ],
+        }
+    }
+}
+
 export interface SessionRecordingTableLogicProps {
     personUUID?: PersonUUID
     key?: string
@@ -83,12 +139,15 @@ export interface SessionRecordingTableLogicProps {
 }
 
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
-    path: (key) => ['scenes', 'session-recordings', 'sessionRecordingsListLogic', key],
+    path: (key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsListLogic', key],
     props: {} as SessionRecordingTableLogicProps,
     key: (props) => `${props.key || props.personUUID || 'global'}`,
     connect: {
         values: [teamLogic, ['currentTeamId']],
-        actions: [eventUsageLogic, ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded']],
+        actions: [
+            eventUsageLogic,
+            ['reportRecordingsListFetched', 'reportRecordingsListPropertiesFetched', 'reportRecordingsListFilterAdded'],
+        ],
     },
     actions: {
         getSessionRecordings: true,
@@ -127,10 +186,38 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
                     await breakpoint(100) // Debounce for lots of quick filter changes
 
                     const startTime = performance.now()
-                    const response = await api.get(`api/projects/${values.currentTeamId}/session_recordings?${params}`)
+                    const response = await api.recordings.list(params)
                     const loadTimeMs = performance.now() - startTime
 
                     actions.reportRecordingsListFetched(loadTimeMs)
+
+                    breakpoint()
+                    return response
+                },
+            },
+        ],
+        sessionRecordingsPropertiesResponse: [
+            {
+                results: [],
+            } as PaginatedResponse<SessionRecordingPropertiesType>,
+            {
+                getSessionRecordingsProperties: async (_, breakpoint) => {
+                    if (values.sessionRecordingsResponse.results.length < 1) {
+                        return {
+                            results: [],
+                        }
+                    }
+                    const paramsDict = {
+                        session_ids: values.sessionRecordingsResponse.results.map(({ id }) => id),
+                    }
+                    const params = toParams(paramsDict)
+                    await breakpoint(100) // Debounce for lots of quick filter changes
+
+                    const startTime = performance.now()
+                    const response = await api.recordings.listProperties(params)
+                    const loadTimeMs = performance.now() - startTime
+
+                    actions.reportRecordingsListPropertiesFetched(loadTimeMs)
 
                     breakpoint()
                     return response
@@ -240,8 +327,19 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
         loadPrev: () => {
             actions.getSessionRecordings()
         },
+        getSessionRecordingsSuccess: () => {
+            actions.getSessionRecordingsProperties({})
+        },
     }),
     selectors: {
+        sessionRecordingIdToProperties: [
+            (s) => [s.sessionRecordingsPropertiesResponse],
+            (propertiesResponse: PaginatedResponse<SessionRecordingPropertiesType>) => {
+                return (
+                    Object.fromEntries(propertiesResponse.results.map(({ id, properties }) => [id, properties])) ?? {}
+                )
+            },
+        ],
         activeSessionRecording: [
             (s) => [s.selectedRecordingId, s.sessionRecordings],
             (selectedRecordingId, sessionRecordings): Partial<SessionRecordingType> | undefined => {

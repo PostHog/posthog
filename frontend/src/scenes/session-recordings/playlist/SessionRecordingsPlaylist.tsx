@@ -1,133 +1,43 @@
 import { useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { colonDelimitedDuration, range } from '~/lib/utils'
+import { range } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
-import { PLAYLIST_LIMIT, sessionRecordingsListLogic } from './sessionRecordingsListLogic'
-import { asDisplay } from 'scenes/persons/PersonHeader'
+import {
+    defaultPageviewPropertyEntityFilter,
+    PLAYLIST_LIMIT,
+    sessionRecordingsListLogic,
+} from './sessionRecordingsListLogic'
 import './SessionRecordingsPlaylist.scss'
-import { TZLabel } from 'lib/components/TimezoneAware'
-import { SessionRecordingPlayer } from './player/SessionRecordingPlayer'
+import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconChevronLeft, IconChevronRight, IconSchedule } from 'lib/components/icons'
-import { SessionRecordingsFilters } from './filters/SessionRecordingsFilters'
+import { IconChevronLeft, IconChevronRight } from 'lib/components/icons'
+import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import clsx from 'clsx'
-import { Tooltip } from 'lib/components/Tooltip'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { LemonTableLoader } from 'lib/components/LemonTable/LemonTableLoader'
-import { PropertyIcon } from 'lib/components/PropertyIcon'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { SessionRecordingPlaylistItem } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistItem'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
     isPersonPage?: boolean
 }
 
-const SessionRecordingPlaylistItem = ({
-    recording,
-    isActive,
-    onClick,
-}: {
-    recording: SessionRecordingType
-    isActive: boolean
-    onClick: () => void
-}): JSX.Element => {
-    const iconClassnames = isActive ? 'text-lg text-muted-alt' : 'text-lg text-muted-alt opacity-75'
-    const formattedDuration = colonDelimitedDuration(recording.recording_duration)
-    const durationParts = formattedDuration.split(':')
-
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const listIcons = featureFlags[FEATURE_FLAGS.RECORDING_LIST_ICONS] || 'none'
-
-    const propertyIcons = (
-        <div className="flex flex-row flex-nowrap shrink-0 gap-1">
-            <PropertyIcon className={iconClassnames} property="$browser" value={recording.properties?.['$browser']} />
-            <PropertyIcon
-                className={iconClassnames}
-                property="$device_type"
-                value={recording.properties?.['$device_type']}
-            />
-            <PropertyIcon className={iconClassnames} property="$os" value={recording.properties?.['$os']} />
-            <PropertyIcon
-                className={iconClassnames}
-                property="$geoip_country_code"
-                value={recording.properties?.['$geoip_country_code']}
-            />
-        </div>
-    )
-
-    return (
-        <li
-            key={recording.id}
-            className={clsx(
-                'SessionRecordingsPlaylist__list-item',
-                'p-2 px-4 cursor-pointer relative overflow-hidden',
-                isActive && 'bg-primary-highlight font-semibold',
-                !recording.viewed && listIcons !== 'none' && 'SessionRecordingsPlaylist__list-item--unwatched'
-            )}
-            onClick={() => onClick()}
-        >
-            <div className="flex justify-between items-center">
-                <div className="truncate font-medium text-primary ph-no-capture">{asDisplay(recording.person, 25)}</div>
-
-                {listIcons === 'top' && propertyIcons}
-                {!recording.viewed && (
-                    <>
-                        {listIcons === 'none' ? (
-                            <Tooltip title={'Indicates the recording has not been watched yet'}>
-                                <div
-                                    className="w-2 h-2 rounded bg-primary-light"
-                                    aria-label="unwatched-recording-label"
-                                />
-                            </Tooltip>
-                        ) : (
-                            <Tooltip title={'Indicates the recording has not been watched yet'}>
-                                <div
-                                    className="absolute top-0 right-0 w-3 h-3 bg-transparent z-10"
-                                    aria-label="unwatched-recording-label"
-                                />
-                            </Tooltip>
-                        )}
-                    </>
-                )}
-            </div>
-
-            <div className="flex justify-between items-center gap-2">
-                <TZLabel
-                    className="overflow-hidden text-ellipsis"
-                    time={recording.start_time}
-                    formatDate="MMMM DD, YYYY"
-                    formatTime="h:mm A"
-                />
-                <div className="flex items-center gap-2">
-                    {listIcons === 'bottom' && propertyIcons}
-                    <span className="flex items-center font-normal">
-                        <IconSchedule className={iconClassnames} />
-                        <span>
-                            <span className={clsx(durationParts[0] === '00' && 'opacity-50')}>{durationParts[0]}:</span>
-                            <span
-                                className={clsx({
-                                    'opacity-50': durationParts[0] === '00' && durationParts[1] === '00',
-                                })}
-                            >
-                                {durationParts[1]}:
-                            </span>
-                            {durationParts[2]}
-                        </span>
-                    </span>
-                </div>
-            </div>
-        </li>
-    )
-}
-
 export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTableProps): JSX.Element {
-    const logic = sessionRecordingsListLogic({ personUUID })
-    const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev, activeSessionRecording, offset } =
-        useValues(logic)
-    const { setSelectedRecordingId, loadNext, loadPrev } = useActions(logic)
+    const logicProps = { personUUID }
+    const logic = sessionRecordingsListLogic(logicProps)
+    const {
+        sessionRecordings,
+        sessionRecordingIdToProperties,
+        sessionRecordingsResponseLoading,
+        sessionRecordingsPropertiesResponseLoading,
+        hasNext,
+        hasPrev,
+        activeSessionRecording,
+        offset,
+        entityFilters,
+    } = useValues(logic)
+    const { setSelectedRecordingId, loadNext, loadPrev, setEntityFilters } = useActions(logic)
     const playlistRef = useRef<HTMLDivElement>(null)
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
@@ -142,6 +52,10 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                 behavior: 'smooth',
             })
         }
+    }
+
+    const onPropertyClick = (property: string, value?: string): void => {
+        setEntityFilters(defaultPageviewPropertyEntityFilter(entityFilters, property, value))
     }
 
     const nextLength = offset + (sessionRecordingsResponseLoading ? PLAYLIST_LIMIT : sessionRecordings.length)
@@ -205,7 +119,10 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                                     <SessionRecordingPlaylistItem
                                         key={rec.id}
                                         recording={rec}
+                                        recordingProperties={sessionRecordingIdToProperties[rec.id]}
+                                        recordingPropertiesLoading={sessionRecordingsPropertiesResponseLoading}
                                         onClick={() => onRecordingClick(rec)}
+                                        onPropertyClick={onPropertyClick}
                                         isActive={activeSessionRecording?.id === rec.id}
                                     />
                                 </>

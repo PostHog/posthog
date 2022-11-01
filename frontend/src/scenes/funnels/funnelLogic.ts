@@ -59,7 +59,7 @@ import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { userLogic } from 'scenes/userLogic'
 import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
-import { groupsModel } from '~/models/groupsModel'
+import { Noun, groupsModel } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { LemonSelectOptions } from 'lib/components/LemonSelect'
@@ -494,16 +494,16 @@ export const funnelLogic = kea<funnelLogicType>({
         isStepsEmpty: [() => [selectors.filters], (filters: FilterType) => isStepsEmpty(filters)],
         propertiesForUrl: [() => [selectors.filters], (filters: FilterType) => cleanFilters(filters)],
         isValidFunnel: [
-            () => [selectors.filters, selectors.stepsWithCount, selectors.histogramGraphData],
-            (filters, stepsWithCount, histogramGraphData) => {
+            () => [selectors.filters, selectors.steps, selectors.histogramGraphData],
+            (filters, steps, histogramGraphData) => {
                 if (filters.funnel_viz_type === FunnelVizType.Steps || !filters.funnel_viz_type) {
-                    return !!(stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1)
+                    return !!(steps && steps[0] && steps[0].count > -1)
                 }
                 if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
                     return (histogramGraphData?.length ?? 0) > 0
                 }
                 if (filters.funnel_viz_type === FunnelVizType.Trends) {
-                    return (stepsWithCount?.length ?? 0) > 0 && stepsWithCount?.[0]?.labels
+                    return (steps?.length ?? 0) > 0 && steps?.[0]?.labels
                 }
                 return false
             },
@@ -545,9 +545,9 @@ export const funnelLogic = kea<funnelLogicType>({
             (filters): number => (filters.events?.length || 0) + (filters.actions?.length || 0),
         ],
         conversionMetrics: [
-            () => [selectors.stepsWithCount, selectors.loadedFilters, selectors.timeConversionResults],
-            (stepsWithCount, loadedFilters, timeConversionResults): FunnelTimeConversionMetrics => {
-                // stepsWithCount should be empty in time conversion view. Return metrics precalculated on backend
+            () => [selectors.steps, selectors.loadedFilters, selectors.timeConversionResults],
+            (steps, loadedFilters, timeConversionResults): FunnelTimeConversionMetrics => {
+                // steps should be empty in time conversion view. Return metrics precalculated on backend
                 if (loadedFilters.funnel_viz_type === FunnelVizType.TimeToConvert) {
                     return {
                         averageTime: timeConversionResults?.average_conversion_time ?? 0,
@@ -561,13 +561,13 @@ export const funnelLogic = kea<funnelLogicType>({
                     return {
                         averageTime: 0,
                         stepRate: 0,
-                        totalRate: average((stepsWithCount?.[0] as unknown as TrendResult)?.data ?? []) / 100,
+                        totalRate: average((steps?.[0] as unknown as TrendResult)?.data ?? []) / 100,
                     }
                 }
 
                 // Handle metrics for steps
                 // no concept of funnel_from_step and funnel_to_step here
-                if (stepsWithCount.length <= 1) {
+                if (steps.length <= 1) {
                     return {
                         averageTime: 0,
                         stepRate: 0,
@@ -575,16 +575,16 @@ export const funnelLogic = kea<funnelLogicType>({
                     }
                 }
 
-                const toStep = getLastFilledStep(stepsWithCount)
-                const fromStep = getReferenceStep(stepsWithCount, FunnelStepReference.total)
+                const toStep = getLastFilledStep(steps)
+                const fromStep = getReferenceStep(steps, FunnelStepReference.total)
 
                 return {
-                    averageTime: stepsWithCount.reduce(
+                    averageTime: steps.reduce(
                         (conversion_time, step) => conversion_time + (step.average_conversion_time || 0),
                         0
                     ),
                     stepRate: toStep.count / fromStep.count,
-                    totalRate: stepsWithCount[stepsWithCount.length - 1].count / stepsWithCount[0].count,
+                    totalRate: steps[steps.length - 1].count / steps[0].count,
                 }
             },
         ],
@@ -648,10 +648,6 @@ export const funnelLogic = kea<funnelLogicType>({
                     ? stepsWithNestedBreakdown
                     : ([...stepResults] as FunnelStep[]).sort((a, b) => a.order - b.order)
             },
-        ],
-        stepsWithCount: [
-            () => [selectors.steps],
-            (steps) => steps.filter((step) => typeof step.count === 'number' && step.count > 0),
         ],
         stepsWithConversionMetrics: [
             () => [selectors.steps, selectors.stepReference],
@@ -1091,13 +1087,7 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         aggregationTargetLabel: [
             (s) => [s.filters, s.aggregationLabel],
-            (
-                filters,
-                aggregationLabel
-            ): {
-                singular: string
-                plural: string
-            } => aggregationLabel(filters.aggregation_group_type_index),
+            (filters, aggregationLabel): Noun => aggregationLabel(filters.aggregation_group_type_index),
         ],
         correlationMatrixAndScore: [
             (s) => [s.funnelCorrelationDetails, s.steps],
@@ -1286,7 +1276,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     url: success ? correlation.success_people_url : correlation.failure_people_url,
                     title: funnelTitle({
                         converted: success,
-                        step: values.stepsWithCount.length,
+                        step: values.steps.length,
                         breakdown_value,
                         label: breakdown,
                     }),
@@ -1304,7 +1294,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     url: success ? correlation.success_people_url : correlation.failure_people_url,
                     title: funnelTitle({
                         converted: success,
-                        step: values.stepsWithCount.length,
+                        step: values.steps.length,
                         label: name,
                     }),
                 })

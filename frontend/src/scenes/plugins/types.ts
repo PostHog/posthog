@@ -3,6 +3,7 @@ import { PluginConfigType, PluginType } from '~/types'
 export interface PluginRepositoryEntry {
     name: string
     url: string
+    icon: string
     description: string
     tag: string
     config?: Record<string, PluginConfigType>
