@@ -230,7 +230,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         <Divider />
                         <FeatureFlagReleaseConditions />
                         <Divider />
-                        <FeatureFlagAutoRollback />
+                        {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && <FeatureFlagAutoRollback />}
                         <LemonDivider className="mt-8" />
                         <div className="flex items-center gap-2 justify-end">
                             <LemonButton
