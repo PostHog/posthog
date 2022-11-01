@@ -7,12 +7,6 @@ import { pauseQueueIfWorkerFull } from '../ingestion-queues/queue'
 import { GraphileWorker } from './graphile-worker'
 import { loadPluginSchedule, runScheduledTasks } from './schedule'
 
-export const createGraphileWorker = async (hub: Hub) => {
-    const graphileWorker = new GraphileWorker(hub)
-    await graphileWorker.connectProducer()
-    return graphileWorker
-}
-
 export async function startGraphileWorker(hub: Hub, graphileWorker: GraphileWorker, piscina: Piscina) {
     status.info('🔄', 'Starting Graphile Worker...')
 
