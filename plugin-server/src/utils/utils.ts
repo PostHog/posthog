@@ -8,6 +8,7 @@ import { Readable } from 'stream'
 
 import {
     ClickHouseTimestamp,
+    ClickHouseTimestampSecondPrecision,
     ISOTimestamp,
     LogLevel,
     Plugin,
@@ -233,8 +234,20 @@ export class UUIDT extends UUID {
 /** Format timestamp for ClickHouse. */
 export function castTimestampOrNow(
     timestamp?: DateTime | string | null,
+    timestampFormat?: TimestampFormat.ISO
+): ISOTimestamp
+export function castTimestampOrNow(
+    timestamp: DateTime | string | null,
+    timestampFormat: TimestampFormat.ClickHouse
+): ClickHouseTimestamp
+export function castTimestampOrNow(
+    timestamp: DateTime | string | null,
+    timestampFormat: TimestampFormat.ClickHouseSecondPrecision
+): ClickHouseTimestampSecondPrecision
+export function castTimestampOrNow(
+    timestamp?: DateTime | string | null,
     timestampFormat: TimestampFormat = TimestampFormat.ISO
-): string {
+): ISOTimestamp | ClickHouseTimestamp | ClickHouseTimestampSecondPrecision {
     if (!timestamp) {
         timestamp = DateTime.utc()
     } else if (typeof timestamp === 'string') {
@@ -247,18 +260,31 @@ export function castTimestampOrNow(
 const DATETIME_FORMAT_CLICKHOUSE_SECOND_PRECISION = 'yyyy-MM-dd HH:mm:ss'
 const DATETIME_FORMAT_CLICKHOUSE = 'yyyy-MM-dd HH:mm:ss.u'
 
+export function castTimestampToClickhouseFormat(timestamp: DateTime, timestampFormat: TimestampFormat.ISO): ISOTimestamp
+export function castTimestampToClickhouseFormat(
+    timestamp: DateTime,
+    timestampFormat: TimestampFormat.ClickHouse
+): ClickHouseTimestamp
+export function castTimestampToClickhouseFormat(
+    timestamp: DateTime,
+    timestampFormat: TimestampFormat.ClickHouseSecondPrecision
+): ClickHouseTimestampSecondPrecision
+export function castTimestampToClickhouseFormat(
+    timestamp: DateTime,
+    timestampFormat: TimestampFormat
+): ISOTimestamp | ClickHouseTimestamp | ClickHouseTimestampSecondPrecision
 export function castTimestampToClickhouseFormat(
     timestamp: DateTime,
     timestampFormat: TimestampFormat = TimestampFormat.ISO
-): string {
+): ISOTimestamp | ClickHouseTimestamp | ClickHouseTimestampSecondPrecision {
     timestamp = timestamp.toUTC()
     switch (timestampFormat) {
         case TimestampFormat.ClickHouseSecondPrecision:
-            return timestamp.toFormat(DATETIME_FORMAT_CLICKHOUSE_SECOND_PRECISION)
+            return timestamp.toFormat(DATETIME_FORMAT_CLICKHOUSE_SECOND_PRECISION) as ClickHouseTimestampSecondPrecision
         case TimestampFormat.ClickHouse:
-            return timestamp.toFormat(DATETIME_FORMAT_CLICKHOUSE)
+            return timestamp.toFormat(DATETIME_FORMAT_CLICKHOUSE) as ClickHouseTimestamp
         case TimestampFormat.ISO:
-            return timestamp.toUTC().toISO()
+            return timestamp.toUTC().toISO() as ISOTimestamp
         default:
             throw new Error(`Unrecognized timestamp format ${timestampFormat}!`)
     }
