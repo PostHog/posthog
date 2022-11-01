@@ -18,7 +18,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { userLogic } from 'scenes/userLogic'
-import { AnyPropertyFilter, AvailableFeature } from '~/types'
+import { AnyPropertyFilter, AvailableFeature, PropertyOperator } from '~/types'
 import { Link } from 'lib/components/Link'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Field } from 'lib/forms/Field'
@@ -43,6 +43,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { cohortsModel } from '~/models/cohortsModel'
 import { FeatureFlagRecordings } from './FeatureFlagRecordingsCard'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { EventsTable } from 'scenes/events'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -342,6 +343,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             </Col>
                                         </Row>
                                     </Tabs.TabPane>
+                                    {featureFlags[FEATURE_FLAGS.EXPOSURES_ON_FEATURE_FLAGS] && featureFlag.key && (
+                                        <Tabs.TabPane tab="Exposures" key="exposure">
+                                            <ExposureTab featureFlagKey={featureFlag.key} />
+                                        </Tabs.TabPane>
+                                    )}
                                     {featureFlag.id && (
                                         <Tabs.TabPane tab="History" key="history">
                                             <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
@@ -354,6 +360,35 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                 )}
             </div>
         </>
+    )
+}
+
+function ExposureTab({ featureFlagKey }: { featureFlagKey: string }): JSX.Element {
+    return (
+        <EventsTable
+            fixedFilters={{
+                event_filter: '$feature_flag_called',
+                properties: [
+                    {
+                        key: '$feature/' + featureFlagKey,
+                        type: 'event',
+                        value: ['true'],
+                        operator: PropertyOperator.Exact,
+                    },
+                    {
+                        key: '$feature_flag',
+                        type: 'event',
+                        value: featureFlagKey,
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            }}
+            sceneUrl={urls.featureFlags()}
+            fetchMonths={3}
+            pageKey={`feature-flag-${featureFlagKey}}`}
+            showEventFilter={false}
+            showPropertyFilter={false}
+        />
     )
 }
 
