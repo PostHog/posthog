@@ -17,7 +17,6 @@ import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
 
-import { GraphileWorker } from './main/graphile-worker/graphile-worker'
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
@@ -160,6 +159,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
     HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: number
     HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: number
+    APP_METRICS_GATHERED_FOR_ALL: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -199,13 +199,11 @@ export interface Hub extends PluginsServerConfig {
     personManager: PersonManager
     siteUrlManager: SiteUrlManager
     appMetrics: AppMetrics
-    graphileWorker: GraphileWorker
     // diagnostics
     lastActivity: number
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
-    conversionBufferTopicEnabledTeams: Set<number>
 }
 
 export interface PluginServerCapabilities {
@@ -216,19 +214,13 @@ export interface PluginServerCapabilities {
     http?: boolean
 }
 
-export type EnqueuedJob = EnqueuedPluginJob | EnqueuedBufferJob | GraphileWorkerCronScheduleJob
+export type EnqueuedJob = EnqueuedPluginJob | GraphileWorkerCronScheduleJob
 export interface EnqueuedPluginJob {
     type: string
     payload: Record<string, any>
     timestamp: number
     pluginConfigId: number
     pluginConfigTeam: number
-    jobKey?: string
-}
-
-export interface EnqueuedBufferJob {
-    eventPayload: PluginEvent
-    timestamp: number
     jobKey?: string
 }
 
@@ -687,14 +679,6 @@ export interface PersonDistinctId {
     person_id: number
     distinct_id: string
     version: string | null
-}
-
-/** ClickHouse PersonDistinctId model. (person_distinct_id table) */
-export interface ClickHousePersonDistinctId {
-    team_id: number
-    person_id: string
-    distinct_id: string
-    is_deleted: 0 | 1
 }
 
 /** ClickHouse PersonDistinctId model. (person_distinct_id2 table) */

@@ -40,6 +40,7 @@ Dialogs are opened imperatively (i.e. calling \`LemonDialog.open()\`) whereas Mo
             `,
             },
         },
+        chromatic: { disableSnapshot: false },
     },
 } as ComponentMeta<typeof LemonDialog>
 

@@ -207,6 +207,7 @@ export function Dashboards(): JSX.Element {
                 onChange={(tab) => setCurrentTab(tab as DashboardsTab)}
             >
                 <Tabs.TabPane tab="All Dashboards" key={DashboardsTab.All} />
+                <Tabs.TabPane tab="Your Dashboards" key={DashboardsTab.Yours} />
                 <Tabs.TabPane tab="Pinned" key={DashboardsTab.Pinned} />
                 <Tabs.TabPane tab="Shared" key={DashboardsTab.Shared} />
             </Tabs>

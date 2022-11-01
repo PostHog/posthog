@@ -10,6 +10,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 export default {
     title: 'Filters/PropertyGroupFilters',
     component: PropertyGroupFilters,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof PropertyGroupFilters>
 
 const propertyFilters = [

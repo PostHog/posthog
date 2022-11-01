@@ -716,7 +716,7 @@ class TestFiltering(ClickhouseTestMixin, property_to_Q_test_factory(_filter_pers
             property_group=filter.property_groups, has_person_id_joined=False, team_id=self.team.pk
         )
         query = """
-        SELECT distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s {prop_clause}
+        SELECT distinct_id FROM person_distinct_id2 WHERE team_id = %(team_id)s {prop_clause}
         """.format(
             prop_clause=prop_clause
         )
@@ -730,7 +730,7 @@ class TestFiltering(ClickhouseTestMixin, property_to_Q_test_factory(_filter_pers
             property_group=filter.property_groups, has_person_id_joined=False, team_id=self.team.pk
         )
         query = """
-        SELECT distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s {prop_clause}
+        SELECT distinct_id FROM person_distinct_id2 WHERE team_id = %(team_id)s {prop_clause}
         """.format(
             prop_clause=prop_clause
         )

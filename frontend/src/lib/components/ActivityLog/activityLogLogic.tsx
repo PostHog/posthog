@@ -109,11 +109,13 @@ export const activityLogLogic = kea<activityLogLogicType>({
         const onPageChange = (
             searchParams: Record<string, any>,
             hashParams: Record<string, any>,
-            pageScope: ActivityScope
+            pageScope: ActivityScope,
+            forceUsePageParam?: boolean
         ): void => {
             const pageInURL = searchParams['page']
 
             const shouldPage =
+                forceUsePageParam ||
                 (pageScope === ActivityScope.PERSON && hashParams['activeTab'] === 'history') ||
                 ([ActivityScope.FEATURE_FLAG, ActivityScope.INSIGHT, ActivityScope.PLUGIN].includes(pageScope) &&
                     searchParams['tab'] === 'history')
@@ -127,7 +129,7 @@ export const activityLogLogic = kea<activityLogLogicType>({
                 ([ActivityScope.FEATURE_FLAG, ActivityScope.INSIGHT, ActivityScope.PLUGIN].includes(pageScope) &&
                     searchParams['tab'] !== 'history')
 
-            if (shouldRemovePageParam && 'page' in router.values.searchParams) {
+            if (!forceUsePageParam && shouldRemovePageParam && 'page' in router.values.searchParams) {
                 const { page: _, ...newSearchParams } = router.values.searchParams
                 router.actions.replace(
                     router.values.currentLocation.pathname,
@@ -144,6 +146,10 @@ export const activityLogLogic = kea<activityLogLogicType>({
                 onPageChange(searchParams, hashParams, ActivityScope.INSIGHT),
             [urls.projectApps()]: ({}, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.PLUGIN),
+            [urls.featureFlag(':id')]: ({}, searchParams, hashParams) =>
+                onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG, true),
+            [urls.appHistory(':pluginConfigId')]: ({}, searchParams, hashParams) =>
+                onPageChange(searchParams, hashParams, ActivityScope.PLUGIN, true),
         }
     },
     events: ({ actions }) => ({

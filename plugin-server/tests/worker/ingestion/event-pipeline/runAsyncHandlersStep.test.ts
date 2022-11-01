@@ -78,16 +78,6 @@ describe('runAsyncHandlersStep()', () => {
         expect(runOnEvent).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(ingestionEvent))
     })
 
-    it('stops processing if not capabilities.processAsyncHandlers', async () => {
-        runner.hub.capabilities.processAsyncHandlers = false
-
-        const result = await runAsyncHandlersStep(runner, ingestionEvent, personContainer)
-
-        expect(result).toEqual(null)
-        expect(runOnSnapshot).not.toHaveBeenCalled()
-        expect(runOnEvent).not.toHaveBeenCalled()
-    })
-
     describe('$snapshot events', () => {
         it('does not do action matching or webhook firing', async () => {
             await runAsyncHandlersStep(runner, snapshotEvent, personContainer)

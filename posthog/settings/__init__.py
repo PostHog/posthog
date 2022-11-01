@@ -59,7 +59,7 @@ DISABLE_MMDB = get_from_env(
     "DISABLE_MMDB", TEST, type_cast=str_to_bool
 )  # plugin server setting disabling GeoIP feature
 PLUGINS_PREINSTALLED_URLS: List[str] = (
-    os.getenv("PLUGINS_PREINSTALLED_URLS", "https://github.com/PostHog/posthog-plugin-geoip").split(",")
+    os.getenv("PLUGINS_PREINSTALLED_URLS", "https://www.npmjs.com/package/@posthog/geoip-plugin").split(",")
     if not DISABLE_MMDB
     else []
 )

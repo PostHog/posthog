@@ -5,6 +5,7 @@ import { ProfilePicture } from '../ProfilePicture'
 export default {
     title: 'Lemon UI/Lemon Snack',
     component: LemonSnack,
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         children: {
             defaultValue: 'Tasty snacks',

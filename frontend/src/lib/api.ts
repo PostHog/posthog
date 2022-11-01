@@ -26,6 +26,8 @@ import {
     TeamType,
     UserType,
     MediaUploadResponse,
+    SessionRecordingsResponse,
+    SessionRecordingPropertiesType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -227,6 +229,11 @@ class ApiRequest {
 
     public cohortsDetail(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId)
+    }
+
+    // Recordings
+    public recordings(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('session_recordings')
     }
 
     // # Dashboards
@@ -667,6 +674,27 @@ const api = {
         async update(id: number, person: Partial<PersonType>): Promise<PersonType> {
             return new ApiRequest().person(id).update({ data: person })
         },
+        async updateProperty(id: number, property: string, value: any): Promise<void> {
+            return new ApiRequest()
+                .person(id)
+                .withAction('update_property')
+                .create({
+                    data: {
+                        key: property,
+                        value: value,
+                    },
+                })
+        },
+        async deleteProperty(id: number, property: string): Promise<void> {
+            return new ApiRequest()
+                .person(id)
+                .withAction('delete_property')
+                .create({
+                    data: {
+                        $unset: property,
+                    },
+                })
+        },
         async list(params: PersonListParams = {}): Promise<PaginatedResponse<PersonType>> {
             return await new ApiRequest().persons().withQueryString(toParams(params)).get()
         },
@@ -773,6 +801,15 @@ const api = {
         },
         async delete(licenseId: LicenseType['id']): Promise<LicenseType> {
             return await new ApiRequest().license(licenseId).delete()
+        },
+    },
+
+    recordings: {
+        async list(params: string): Promise<SessionRecordingsResponse> {
+            return await new ApiRequest().recordings().withQueryString(params).get()
+        },
+        async listProperties(params: string): Promise<PaginatedResponse<SessionRecordingPropertiesType>> {
+            return await new ApiRequest().recordings().withAction('properties').withQueryString(params).get()
         },
     },
 

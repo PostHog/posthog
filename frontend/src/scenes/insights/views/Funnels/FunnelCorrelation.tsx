@@ -18,7 +18,7 @@ export const FunnelCorrelation = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
     const {
         isSkewed,
-        stepsWithCount,
+        steps,
         correlationFeedbackHidden,
         correlationDetailedFeedbackVisible,
         correlationFeedbackRating,
@@ -36,7 +36,7 @@ export const FunnelCorrelation = (): JSX.Element | null => {
 
     const detailedFeedbackRef = useRef<HTMLTextAreaElement>(null)
 
-    if (stepsWithCount.length <= 1) {
+    if (steps.length <= 1) {
         return null
     }
 
