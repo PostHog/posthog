@@ -3,6 +3,7 @@ from django.conf import settings
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_INGESTION_WARNINGS
+from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL
 
 INGESTION_WARNINGS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
@@ -32,12 +33,20 @@ ORDER BY (team_id, toHour(timestamp), type, source, timestamp)
     engine=INGESTION_WARNINGS_DATA_TABLE_ENGINE(),
 )
 
-KAFKA_INGESTION_WARNINGS_TABLE_SQL = lambda: INGESTION_WARNINGS_TABLE_BASE_SQL.format(
-    table_name="kafka_ingestion_warnings",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(topic=KAFKA_INGESTION_WARNINGS),
-    materialized_columns="",
-    extra_fields="",
+KAFKA_INGESTION_WARNINGS_TABLE_SQL = lambda: (
+    INGESTION_WARNINGS_TABLE_BASE_SQL.format(
+        table_name="kafka_ingestion_warnings",
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        engine=kafka_engine(topic=KAFKA_INGESTION_WARNINGS),
+        materialized_columns="",
+        extra_fields="",
+    )
+    + " SETTINGS kafka_handle_error_mode='stream'"
+)
+
+KAFKA_INGESTION_WARNINGS_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
+    database=settings.CLICKHOUSE_DATABASE,
+    kafka_table_name="kafka_ingestion_warnings",
 )
 
 INGESTION_WARNINGS_MV_TABLE_SQL = lambda: """

@@ -2,6 +2,7 @@ from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import CollapsingMergeTree, ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
+from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 TRUNCATE_PERSON_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
@@ -43,8 +44,20 @@ PERSONS_TABLE_SQL = lambda: (
     storage_policy=STORAGE_POLICY(),
 )
 
-KAFKA_PERSONS_TABLE_SQL = lambda: PERSONS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + PERSONS_TABLE, cluster=CLICKHOUSE_CLUSTER, engine=kafka_engine(KAFKA_PERSON), extra_fields=""
+KAFKA_PERSONS_TABLE_SQL = lambda: (
+    PERSONS_TABLE_BASE_SQL.format(
+        table_name="kafka_" + PERSONS_TABLE,
+        cluster=CLICKHOUSE_CLUSTER,
+        engine=kafka_engine(KAFKA_PERSON),
+        extra_fields="",
+    )
+    + " SETTINGS kafka_handle_error_mode='stream'"
+)
+
+
+KAFKA_PERSONS_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
+    database=CLICKHOUSE_DATABASE,
+    kafka_table_name="kafka_" + PERSONS_TABLE,
 )
 
 # You must include the database here because of a bug in clickhouse
@@ -136,6 +149,7 @@ CREATE TABLE {table_name} ON CLUSTER '{cluster}'
     engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID),
 )
 
+
 # You must include the database here because of a bug in clickhouse
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
 PERSONS_DISTINCT_ID_TABLE_MV_SQL = """
@@ -185,11 +199,20 @@ PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
     extra_fields=KAFKA_COLUMNS + "\n, _partition UInt64",
 )
 
-KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL = lambda: PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
-    table_name="kafka_" + PERSON_DISTINCT_ID2_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID),
-    extra_fields="",
+KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
+    PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
+        table_name="kafka_" + PERSON_DISTINCT_ID2_TABLE,
+        cluster=CLICKHOUSE_CLUSTER,
+        engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID),
+        extra_fields="",
+    )
+    + " SETTINGS kafka_handle_error_mode='stream'"
+)
+
+
+KAFKA_PERSON_DISTINCT_ID2_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
+    database=CLICKHOUSE_DATABASE,
+    kafka_table_name="kafka_" + PERSON_DISTINCT_ID2_TABLE,
 )
 
 # You must include the database here because of a bug in clickhouse

@@ -3,6 +3,7 @@ from django.conf import settings
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
+from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL
 
 SESSION_RECORDING_EVENTS_DATA_TABLE = (
     lambda: "sharded_session_recording_events" if settings.CLICKHOUSE_REPLICATION else "session_recording_events"
@@ -99,12 +100,20 @@ SETTINGS index_granularity=512
     ttl_period=ttl_period(),
 )
 
-KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_TABLE_BASE_SQL.format(
-    table_name="kafka_session_recording_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(topic=KAFKA_SESSION_RECORDING_EVENTS),
-    materialized_columns="",
-    extra_fields="",
+KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: (
+    SESSION_RECORDING_EVENTS_TABLE_BASE_SQL.format(
+        table_name="kafka_session_recording_events",
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        engine=kafka_engine(topic=KAFKA_SESSION_RECORDING_EVENTS),
+        materialized_columns="",
+        extra_fields="",
+    )
+    + " SETTINGS kafka_handle_error_mode='stream'"
+)
+
+KAFKA_SESSION_RECORDING_EVENTS_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
+    database=settings.CLICKHOUSE_DATABASE,
+    kafka_table_name="kafka_session_recording_events",
 )
 
 SESSION_RECORDING_EVENTS_TABLE_MV_SQL = lambda: """

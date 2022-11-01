@@ -1,6 +1,7 @@
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_PLUGIN_LOG_ENTRIES
+from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 PLUGIN_LOG_ENTRIES_TABLE = "plugin_log_entries"
@@ -37,11 +38,19 @@ SETTINGS index_granularity=512
     ttl_period=ttl_period("timestamp", PLUGIN_LOG_ENTRIES_TTL_WEEKS),
 )
 
-KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL = lambda: PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL.format(
-    table_name="kafka_" + PLUGIN_LOG_ENTRIES_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(topic=KAFKA_PLUGIN_LOG_ENTRIES),
-    extra_fields="",
+KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL = lambda: (
+    PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL.format(
+        table_name="kafka_" + PLUGIN_LOG_ENTRIES_TABLE,
+        cluster=CLICKHOUSE_CLUSTER,
+        engine=kafka_engine(topic=KAFKA_PLUGIN_LOG_ENTRIES),
+        extra_fields="",
+    )
+    + " SETTINGS kafka_handle_error_mode='stream'"
+)
+
+KAFKA_PLUGIN_LOG_ENTRIES_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
+    database=CLICKHOUSE_DATABASE,
+    kafka_table_name="kafka_" + PLUGIN_LOG_ENTRIES_TABLE,
 )
 
 PLUGIN_LOG_ENTRIES_TABLE_MV_SQL = """

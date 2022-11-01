@@ -2,6 +2,7 @@ from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_GROUPS
+from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL
 from posthog.models.person.sql import GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
@@ -36,8 +37,19 @@ GROUPS_TABLE_SQL = lambda: (
     storage_policy=STORAGE_POLICY(),
 )
 
-KAFKA_GROUPS_TABLE_SQL = lambda: GROUPS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + GROUPS_TABLE, cluster=CLICKHOUSE_CLUSTER, engine=kafka_engine(KAFKA_GROUPS), extra_fields=""
+KAFKA_GROUPS_TABLE_SQL = lambda: (
+    GROUPS_TABLE_BASE_SQL.format(
+        table_name="kafka_" + GROUPS_TABLE,
+        cluster=CLICKHOUSE_CLUSTER,
+        engine=kafka_engine(KAFKA_GROUPS),
+        extra_fields="",
+    )
+    + " SETTINGS kafka_handle_error_mode='stream'"
+)
+
+KAFKA_GROUPS_TABLE_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
+    database=CLICKHOUSE_DATABASE,
+    kafka_table_name="kafka_" + GROUPS_TABLE,
 )
 
 # You must include the database here because of a bug in clickhouse
