@@ -120,7 +120,7 @@ export const FEATURE_FLAGS = {
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     ACTOR_ON_EVENTS_QUERYING: 'person-on-events-enabled', //owner: @EDsCODE
     REGION_SELECT: 'region-select', //owner: @kappa90
-    INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @macobo
+    INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @tiina303
     HOG_BOOK: 'hog-book', // owner: @pauldambra
     EVENT_COUNT_PER_ACTOR: 'event-count-per-actor', // owner: @Twixes
     TEXT_CARDS: 'text-cards', // owner: @pauldambra
