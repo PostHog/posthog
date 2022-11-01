@@ -14,7 +14,6 @@ import { getPluginServerCapabilities } from '../../capabilities'
 import { defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KAFKA_JOBS } from '../../config/kafka-topics'
-import { GraphileWorker } from '../../main/graphile-worker/graphile-worker'
 import { connectObjectStorage } from '../../main/services/object_storage'
 import {
     EnqueuedPluginJob,
@@ -33,9 +32,8 @@ import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { SiteUrlManager } from '../../worker/ingestion/site-url-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { InternalMetrics } from '../internal-metrics'
-import { killProcess } from '../kill'
 import { status } from '../status'
-import { createPostgresPool, createRedis, logOrThrowJobQueueError, UUIDT } from '../utils'
+import { createPostgresPool, createRedis, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { PromiseManager } from './../../worker/vm/promise-manager'
@@ -297,7 +295,6 @@ export async function createHub(
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
     hub.personManager = new PersonManager(hub as Hub)
 
-    hub.graphileWorker = new GraphileWorker(hub as Hub)
     hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
     hub.appMetrics = new AppMetrics(hub as Hub)
 
@@ -305,19 +302,8 @@ export async function createHub(
         hub.internalMetrics = new InternalMetrics(hub as Hub)
     }
 
-    try {
-        await hub.graphileWorker!.connectProducer()
-    } catch (error) {
-        try {
-            logOrThrowJobQueueError(hub as Hub, error, `Cannot start job queue producer!`)
-        } catch {
-            killProcess()
-        }
-    }
-
     const closeHub = async () => {
         hub.mmdbUpdateJob?.cancel()
-        await hub.graphileWorker?.disconnectProducer()
         await Promise.allSettled([kafkaProducer.disconnect(), redisPool.drain(), hub.postgres?.end()])
         await redisPool.clear()
     }
