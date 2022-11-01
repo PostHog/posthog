@@ -6,7 +6,14 @@ from django.db.models import Q, UniqueConstraint
 
 from posthog.models.utils import UUIDModel
 
-RELATED_OBJECTS = ("dashboard", "insight", "event_definition", "property_definition", "action")
+RELATED_OBJECTS = (
+    "dashboard",
+    "insight",
+    "event_definition",
+    "property_definition",
+    "action",
+    "session_recording_event",
+)
 
 
 # Checks that exactly one object field is populated
@@ -60,6 +67,9 @@ class TaggedItem(UUIDModel):
     )
     action: models.ForeignKey = models.ForeignKey(
         "Action", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
+    )
+    session_recording_event: models.ForeignKey = models.ForeignKey(
+        "SessionRecordingEvent", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
     )
 
     class Meta:
