@@ -1,5 +1,6 @@
 import Piscina from '@posthog/piscina'
 
+import { GraphileWorker } from '../../src/main/graphile-worker/graphile-worker'
 import { startGraphileWorker } from '../../src/main/graphile-worker/worker-setup'
 import { KafkaQueue } from '../../src/main/ingestion-queues/kafka-queue'
 import { startQueues } from '../../src/main/ingestion-queues/queue'
@@ -48,14 +49,15 @@ describe('capabilities', () => {
 
     describe('startGraphileWorker()', () => {
         it('sets up pluginJob handler if processPluginJobs is on', async () => {
-            jest.spyOn(hub.graphileWorker, 'start').mockImplementation(jest.fn())
+            const graphileWorker = new GraphileWorker(hub)
+            jest.spyOn(graphileWorker, 'start').mockImplementation(jest.fn())
             hub.capabilities.ingestion = false
             hub.capabilities.processPluginJobs = true
             hub.capabilities.pluginScheduledTasks = false
 
-            await startGraphileWorker(hub, piscina)
+            await startGraphileWorker(hub, graphileWorker, piscina)
 
-            expect(hub.graphileWorker.start).toHaveBeenCalledWith(
+            expect(graphileWorker.start).toHaveBeenCalledWith(
                 {
                     pluginJob: expect.anything(),
                 },
@@ -64,13 +66,14 @@ describe('capabilities', () => {
         })
 
         it('sets up scheduled task handlers if pluginScheduledTasks is on', async () => {
-            jest.spyOn(hub.graphileWorker, 'start').mockImplementation(jest.fn())
+            const graphileWorker = new GraphileWorker(hub)
+            jest.spyOn(graphileWorker, 'start').mockImplementation(jest.fn())
 
             hub.capabilities.ingestion = false
             hub.capabilities.processPluginJobs = false
             hub.capabilities.pluginScheduledTasks = true
 
-            await startGraphileWorker(hub, piscina)
+            await startGraphileWorker(hub, graphileWorker, piscina)
 
             expect(hub.graphileWorker.start).toHaveBeenCalledWith(
                 {
