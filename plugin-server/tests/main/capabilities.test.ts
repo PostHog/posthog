@@ -19,7 +19,7 @@ describe('capabilities', () => {
         ;[hub, closeHub] = await createHub({
             LOG_LEVEL: LogLevel.Warn,
         })
-        piscina = { run: jest.fn() } as any
+        piscina = { run: jest.fn(), on: jest.fn() } as any
     })
 
     afterEach(async () => {
@@ -75,7 +75,7 @@ describe('capabilities', () => {
 
             await startGraphileWorker(hub, graphileWorker, piscina)
 
-            expect(hub.graphileWorker.start).toHaveBeenCalledWith(
+            expect(graphileWorker.start).toHaveBeenCalledWith(
                 {
                     runEveryMinute: expect.anything(),
                     runEveryHour: expect.anything(),
