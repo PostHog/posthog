@@ -637,7 +637,6 @@ export interface CohortGroupType {
     name?: string
 }
 
-// Note this will eventually replace CohortGroupType once `cohort-filters` FF is released
 // Synced with `posthog/models/property.py`
 export interface CohortCriteriaType {
     id: string // Criteria filter id
@@ -1397,6 +1396,14 @@ export interface FunnelResult<ResultType = FunnelStep[] | FunnelsTimeConversionB
 export interface FunnelsTimeConversionBins {
     bins: [number, number][]
     average_conversion_time: number
+}
+
+export interface HistogramGraphDatum {
+    id: number
+    bin0: number
+    bin1: number
+    count: number
+    label: string
 }
 
 export interface FunnelTimeConversionMetrics {

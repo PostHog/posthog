@@ -190,7 +190,44 @@ FROM events e
 GROUP BY day_start, breakdown_value
 """
 
-SESSION_MATH_BREAKDOWN_INNER_SQL = """
+VOLUME_PER_ACTOR_BREAKDOWN_INNER_SQL = """
+SELECT
+    {aggregate_operation} AS total, day_start, breakdown_value
+FROM (
+    SELECT
+        COUNT(*) AS intermediate_count,
+        {aggregator},
+        {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) AS day_start,
+        {breakdown_value} as breakdown_value
+    FROM events AS e
+    {person_join}
+    {groups_join}
+    {sessions_join}
+    {breakdown_filter}
+    {null_person_filter}
+    GROUP BY {aggregator}, day_start, breakdown_value
+)
+GROUP BY day_start, breakdown_value
+"""
+
+VOLUME_PER_ACTOR_BREAKDOWN_AGGREGATE_SQL = """
+SELECT {aggregate_operation} AS total, breakdown_value
+FROM (
+    SELECT
+        COUNT(*) AS intermediate_count,
+        {aggregator}, {breakdown_value} AS breakdown_value
+    FROM events AS e
+    {person_join}
+    {groups_join}
+    {sessions_join_condition}
+    {breakdown_filter}
+    GROUP BY {aggregator}, breakdown_value
+)
+GROUP BY breakdown_value
+ORDER BY breakdown_value
+"""
+
+SESSION_DURATION_BREAKDOWN_INNER_SQL = """
 SELECT
     {aggregate_operation} as total, day_start, breakdown_value
 FROM (
@@ -272,7 +309,7 @@ ORDER BY breakdown_value
 """
 
 
-SESSION_MATH_BREAKDOWN_AGGREGATE_QUERY_SQL = """
+SESSION_DURATION_BREAKDOWN_AGGREGATE_QUERY_SQL = """
 SELECT {aggregate_operation} AS total, breakdown_value
 FROM (
     SELECT any(session_duration) as session_duration, breakdown_value FROM (
