@@ -1,4 +1,4 @@
-import { kea, path, actions, connect, reducers, afterMount, selectors, listeners } from 'kea'
+import { kea, path, actions, connect, reducers, afterMount, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import type { billingLogicType } from './billingLogicType'
@@ -11,7 +11,6 @@ import { forms } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from '@posthog/lemon-ui'
 import { projectUsage } from './billing-utils'
-import posthog from 'posthog-js'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 
@@ -59,13 +58,6 @@ export const billingLogic = kea<billingLogicType>([
                 setShowLicenseDirectInput: (_, { show }) => show,
             },
         ],
-    }),
-    listeners({
-        loadBillingSuccess: ({ billing }) => {
-            if (billing.stripe_customer_id) {
-                posthog.group('customer', billing.stripe_customer_id)
-            }
-        },
     }),
     loaders(({}) => ({
         billing: [

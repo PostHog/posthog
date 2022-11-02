@@ -832,7 +832,6 @@ export interface BillingProductV2Type {
 }
 
 export interface BillingV2Type {
-    stripe_customer_id?: string
     has_active_subscription: boolean
     stripe_portal_url?: string
     deactivated?: boolean
