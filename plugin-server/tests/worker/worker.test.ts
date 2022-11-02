@@ -1,8 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import { DateTime } from 'luxon'
 
 import { loadPluginSchedule } from '../../src/main/graphile-worker/schedule'
-import { Hub, PreIngestionEvent } from '../../src/types'
+import { Hub } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { KafkaProducerWrapper } from '../../src/utils/db/kafka-producer-wrapper'
 import { delay, UUIDT } from '../../src/utils/utils'
@@ -63,11 +62,11 @@ describe('worker', () => {
     `
         await resetTestDatabase(testCode)
         const piscina = setupPiscina(workerThreads, 10)
-        const [hub, closeHub] = await createHub()
+        const [hub] = await createHub()
 
         const runEveryDay = (pluginConfigId: number) => piscina.run({ task: 'runEveryDay', args: { pluginConfigId } })
         const ingestEvent = async (event: PluginEvent) => {
-            const result = await (new EventPipelineRunner(hub, piscina, event)).runEventPipeline(event)
+            const result = await new EventPipelineRunner(hub, piscina, event).runEventPipeline(event)
             return { ...result, event: result.args[0] }
         }
 
@@ -127,7 +126,7 @@ describe('worker', () => {
 
         try {
             await piscina.destroy()
-        } catch { }
+        } catch {}
     })
 
     describe('createTaskRunner()', () => {
