@@ -175,7 +175,9 @@ class CohortSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         representation["filters"] = (
-            instance.filters if instance.filters else {"properties": instance.properties.to_dict()}
+            instance.filters
+            if instance.filters and not isinstance(instance.filters, str)
+            else {"properties": instance.properties.to_dict()}
         )
         return representation
 
