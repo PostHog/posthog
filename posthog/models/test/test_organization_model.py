@@ -68,8 +68,10 @@ class TestOrganization(BaseTest):
             new_org.available_features = ["test1", "test2"]
             new_org.update_available_features()
             assert new_org.available_features == []
+            assert not new_org.has_billing_v2_setup
 
             new_org.available_features = ["test1", "test2"]
             new_org.usage = {"events": {"usage": 1000, "limit": None}}
             new_org.update_available_features()
             assert new_org.available_features == ["test1", "test2"]
+            assert new_org.has_billing_v2_setup
