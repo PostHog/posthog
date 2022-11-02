@@ -78,10 +78,10 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
             displayValue = aggregationDisplayMap[localAxisFormat]
         }
         if (filters.aggregation_axis_prefix?.length) {
-            displayValue = `prefix: ${filters.aggregation_axis_prefix}`
+            displayValue = `Prefix: ${filters.aggregation_axis_prefix}`
         }
         if (filters.aggregation_axis_postfix?.length) {
-            displayValue = `postfix: ${filters.aggregation_axis_postfix}`
+            displayValue = `Postfix: ${filters.aggregation_axis_postfix}`
         }
         return displayValue
     }, [localAxisFormat, filters])
@@ -130,7 +130,7 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
                                     active={!!filters.aggregation_axis_prefix}
                                     fullWidth
                                 >
-                                    Prefix
+                                    Custom prefix...
                                     {!!filters.aggregation_axis_prefix ? `: ${filters.aggregation_axis_prefix}` : ''}
                                 </LemonButton>
                                 <LemonButton
@@ -139,7 +139,7 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
                                     active={!!filters.aggregation_axis_postfix}
                                     fullWidth
                                 >
-                                    Postfix
+                                    Custom postfix...
                                     {!!filters.aggregation_axis_postfix ? `: ${filters.aggregation_axis_postfix}` : ''}
                                 </LemonButton>
                             </>

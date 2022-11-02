@@ -57,11 +57,16 @@ export function CustomUnitModal({
             title={`Custom ${formativeElement}`}
             footer={
                 <>
+                    <div className="flex-1">
+                        <LemonButton type="secondary" data-attr="custom-prefix-cancel" onClick={onClose}>
+                            Cancel
+                        </LemonButton>
+                    </div>
                     <LemonButton
                         type="primary"
                         onClick={() => onSave({ [formativeElement]: localFormativeElementValue })}
                     >
-                        Save
+                        Apply
                     </LemonButton>
                 </>
             }

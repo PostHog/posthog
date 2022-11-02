@@ -28,7 +28,10 @@ export interface LemonModalProps {
     closable?: boolean
     /** Expands the modal to fill the entire screen */
     fullScreen?: boolean
-    /** set the z-index of the modal high enough that it is above (almost) all other content */
+    /**
+     * This can be used when the modal should be high enough in the z-index stack to be shown above everything
+     * except a few parts of the page chrome. See vars.scss for the z-index values
+     * */
     bringToFront?: boolean
     contentRef?: React.RefCallback<HTMLDivElement>
     overlayRef?: React.RefCallback<HTMLDivElement>
