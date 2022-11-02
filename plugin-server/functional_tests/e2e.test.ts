@@ -971,7 +971,7 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
             $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }],
         })
 
-        for (const attempt in Array.from(Array(10).keys())) {
+        for (const attempt in Array.from(Array(20).keys())) {
             console.debug(`Attempt ${attempt} to check webhook was called`)
             if (webHookCalledWith) {
                 break
