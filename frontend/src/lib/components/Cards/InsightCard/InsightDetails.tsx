@@ -291,7 +291,7 @@ function InsightDetailsInternal(
         <div className="InsightDetails" ref={ref}>
             {onDashboard && minimalistMode && (
                 <>
-                    <div className="InsightMeta__description">{description || <i>No description</i>}</div>
+                    <div className="InsightDetails__description">{description || <i>No description</i>}</div>
                     <UserActivityIndicator at={insight.last_modified_at} by={insight.last_modified_by} />
                     {tags && tags.length > 0 && <ObjectTags tags={tags} staticOnly className={'my-1'} />}
                     <LemonDivider />
