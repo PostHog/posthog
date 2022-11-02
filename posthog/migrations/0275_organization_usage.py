@@ -6,13 +6,13 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0274_add_plugin_icon_and_rewrite_urls'),
+        ("posthog", "0274_add_plugin_icon_and_rewrite_urls"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='organization',
-            name='usage',
+            model_name="organization",
+            name="usage",
             field=models.JSONField(blank=True, null=True),
         ),
     ]
