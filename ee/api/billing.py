@@ -212,7 +212,11 @@ class BillingViewset(viewsets.GenericViewSet):
         license = License.objects.first_valid()
         organization = self._get_org_required()
 
-        redirect_uri = f"{settings.SITE_URL or request.headers.get('Host')}/organization/billing"
+        redirect_path = request.GET.get("redirect_path") or "organization/billing"
+        if redirect_path.startswith("/"):
+            redirect_path = redirect_path[1:]
+
+        redirect_uri = f"{settings.SITE_URL or request.headers.get('Host')}/{redirect_path}"
         url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}&plan={request.GET.get('plan', 'standard')}"
 
         if license:

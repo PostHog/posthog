@@ -12,8 +12,8 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { billingLogic as billingLogicV2 } from 'scenes/billing/v2/billingLogic'
 import { Plan } from 'scenes/billing/Plan'
 import { BillingV2 } from 'scenes/billing/v2/Billing'
-import { Spinner } from 'lib/components/Spinner/Spinner'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { urls } from 'scenes/urls'
 
 export function BillingPanel(): JSX.Element {
     const { completeOnboarding } = useActions(ingestionLogic)
@@ -43,6 +43,11 @@ export function BillingPanel(): JSX.Element {
                 {billingV2?.has_active_subscription ? (
                     <div className="flex flex-col space-y-4">
                         <h1 className="ingestion-title">You're good to go!</h1>
+
+                        <p>
+                            Your organisation is setup for billing with premium features and the increased free tiers
+                            enabled.
+                        </p>
                         <LemonButton
                             size="large"
                             fullWidth
@@ -57,7 +62,7 @@ export function BillingPanel(): JSX.Element {
                     </div>
                 ) : (
                     <div className="text-left">
-                        <BillingV2 />
+                        <BillingV2 redirectPath={urls.ingestion() + '/billing'} />
 
                         <LemonButton
                             size="large"

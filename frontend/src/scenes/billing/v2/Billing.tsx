@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { PageHeader } from 'lib/components/PageHeader'
 import { billingLogic } from './billingLogic'
 import {
     LemonButton,
@@ -26,7 +25,11 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 
-export function BillingV2(): JSX.Element {
+export type BillingV2Props = {
+    redirectPath?: string
+}
+
+export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
     const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingLogic)
     const { setShowLicenseDirectInput } = useActions(billingLogic)
     const { preflight } = useValues(preflightLogic)
@@ -93,13 +96,12 @@ export function BillingV2(): JSX.Element {
                             </>
                         ) : (
                             <>
-                                <h2 className="font-bold">
-                                    Unlock a massive free tier simply by setting up your billing
-                                </h2>
+                                <h2 className="font-bold">Add payment method</h2>
                                 <p>
-                                    Simply set up your payment details to unlock a massive free allocation of events and
-                                    recordings <b>every month!</b> Once setup, you can configure your billing limits to
-                                    ensure you are never billed for more than you need.
+                                    Unlock premium features such as Experimentation, advanced product analytics, user
+                                    permissions and more. Subscribed users also have an increased free tier allocation{' '}
+                                    <b>every month!</b> Once setup, you can configure your billing limits to ensure you
+                                    are never billed for more than you need.
                                 </p>
                             </>
                         )}
@@ -147,7 +149,7 @@ export function BillingV2(): JSX.Element {
                                 <LemonButton
                                     to={`/api/billing-v2/activation?plan=${
                                         enterprisePackage ? 'enterprise' : 'standard'
-                                    }`}
+                                    }&redirect_path=${redirectPath}`}
                                     type="primary"
                                     size="large"
                                     fullWidth
@@ -223,6 +225,8 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
     const billingLimitInputChanged = parseInt(customLimitUsd || '-1') !== billingLimit
     const billingLimitAsUsage = showBillingLimit ? convertAmountToUsage(`${billingLimit}`, product.tiers) : 0
 
+    const productType = { plural: product.type, singular: product.type.slice(0, -1) }
+
     const updateBillingLimit = (value: number | undefined): any => {
         const actuallyUpdateLimit = (): void => {
             updateBillingLimits({
@@ -282,7 +286,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
-        1000: 'medium',
+        [750]: 'medium',
     })
 
     const onBillingLimitToggle = (): void => {
@@ -302,7 +306,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                     tooltip: (
                         <>
                             <b>Free tier limit</b>
-                            {!billing?.has_active_subscription ? <div>(With subscription)</div> : null}
+                            {!billing?.has_active_subscription ? <div>(Subscribed)</div> : null}
                         </>
                     ),
                     color: billing?.has_active_subscription ? 'success-light' : 'success-highlight',
@@ -314,7 +318,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                           tooltip: (
                               <>
                                   <b>Free tier limit</b>
-                                  <div>(Without subscription)</div>
+                                  <div>(Unsubscribed)</div>
                               </>
                           ),
                           color: 'success-light',
@@ -361,7 +365,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
     )
 
     const tierDisplayOptions: LemonSelectOptions<string> = [
-        { label: `Per ${product.type.toLowerCase()}`, value: 'individual' },
+        { label: `Per ${productType.singular}`, value: 'individual' },
     ]
 
     if (billing?.has_active_subscription) {
@@ -497,13 +501,17 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                         <div className="flex justify-between items-center">
                             <b>Pricing breakdown</b>
 
-                            <LemonSelect
-                                size="small"
-                                value={tierAmountType}
-                                options={tierDisplayOptions}
-                                dropdownMatchSelectWidth={false}
-                                onChange={(val: any) => setTierAmountType(val)}
-                            />
+                            {billing?.has_active_subscription ? (
+                                <LemonSelect
+                                    size="small"
+                                    value={tierAmountType}
+                                    options={tierDisplayOptions}
+                                    dropdownMatchSelectWidth={false}
+                                    onChange={(val: any) => setTierAmountType(val)}
+                                />
+                            ) : (
+                                <span className="font-semibold">Per {productType.singular}</span>
+                            )}
                         </div>
 
                         <ul>
@@ -517,7 +525,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                 >
                                     <span>
                                         {i === 0
-                                            ? `First ${summarizeUsage(tier.up_to)} ${product.type.toLowerCase()} / mo`
+                                            ? `First ${summarizeUsage(tier.up_to)} ${productType.plural} / mo`
                                             : tier.up_to
                                             ? `${summarizeUsage(product.tiers[i - 1].up_to)} - ${summarizeUsage(
                                                   tier.up_to
