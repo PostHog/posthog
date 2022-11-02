@@ -51,8 +51,6 @@ export function BillingV2(): JSX.Element {
 
     return (
         <div>
-            <PageHeader title="Billing &amp; usage" />
-
             {!billing && !billingLoading ? (
                 <div className="space-y-4">
                     <AlertMessage type="error">

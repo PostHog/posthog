@@ -9,12 +9,73 @@ import { BillingEnrollment } from 'scenes/billing/BillingEnrollment'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/components/icons'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic as billingLogicV2 } from 'scenes/billing/v2/billingLogic'
 import { Plan } from 'scenes/billing/Plan'
+import { BillingV2 } from 'scenes/billing/v2/Billing'
+import { Spinner } from 'lib/components/Spinner/Spinner'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 export function BillingPanel(): JSX.Element {
     const { completeOnboarding } = useActions(ingestionLogic)
     const { reportIngestionContinueWithoutBilling } = useActions(eventUsageLogic)
-    const { billing } = useValues(billingLogic)
+    const { billing, billingVersion } = useValues(billingLogic)
+    const { billing: billingV2 } = useValues(billingLogicV2)
+
+    if (!billingVersion) {
+        return (
+            <CardContainer>
+                <div className="space-y-4" style={{ width: 800 }}>
+                    <LemonSkeleton className="w-full h-10" />
+                    <LemonSkeleton className="w-full" />
+                    <LemonSkeleton className="w-full" />
+                    <div className="h-20" />
+                    <div className="h-20" />
+                    <LemonSkeleton className="w-full h-10" />
+                    <LemonSkeleton className="w-full h-10" />
+                </div>
+            </CardContainer>
+        )
+    }
+
+    if (billingVersion == 'v2') {
+        return (
+            <CardContainer>
+                {billingV2?.has_active_subscription ? (
+                    <div className="flex flex-col space-y-4">
+                        <h1 className="ingestion-title">You're good to go!</h1>
+                        <LemonButton
+                            size="large"
+                            fullWidth
+                            center
+                            type="primary"
+                            onClick={() => {
+                                completeOnboarding()
+                            }}
+                        >
+                            Complete
+                        </LemonButton>
+                    </div>
+                ) : (
+                    <div className="text-left">
+                        <BillingV2 />
+
+                        <LemonButton
+                            size="large"
+                            fullWidth
+                            center
+                            type="tertiary"
+                            onClick={() => {
+                                completeOnboarding()
+                                reportIngestionContinueWithoutBilling()
+                            }}
+                        >
+                            Skip for now
+                        </LemonButton>
+                    </div>
+                )}
+            </CardContainer>
+        )
+    }
 
     return (
         <CardContainer>
