@@ -28,6 +28,7 @@ import {
     FunnelVizType,
     InsightLogicProps,
     InsightType,
+    HistogramGraphDatum,
     PropertyFilter,
     PropertyOperator,
     StepOrderValue,
@@ -515,12 +516,15 @@ export const funnelLogic = kea<funnelLogicType>({
         barGraphLayout: [() => [selectors.filters], ({ layout }): FunnelLayout => layout || FunnelLayout.vertical],
         histogramGraphData: [
             () => [selectors.timeConversionResults],
-            (timeConversionResults: FunnelsTimeConversionBins) => {
+            (timeConversionResults: FunnelsTimeConversionBins): HistogramGraphDatum[] | null => {
                 if ((timeConversionResults?.bins?.length ?? 0) < 2) {
-                    return []
+                    return null // There are no results
                 }
                 const binSize = timeConversionResults.bins[1][0] - timeConversionResults.bins[0][0]
                 const totalCount = sum(timeConversionResults.bins.map(([, count]) => count))
+                if (totalCount === 0) {
+                    return [] // Nobody has converted in the time period
+                }
                 return timeConversionResults.bins.map(([id, count]: [id: number, count: number]) => {
                     const value = Math.max(0, id)
                     const percent = count / totalCount

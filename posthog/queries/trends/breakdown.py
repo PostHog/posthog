@@ -523,9 +523,8 @@ class TrendsBreakdown:
                 params,
             )
         elif (
-            self.entity.math in ["dau", WEEKLY_ACTIVE, MONTHLY_ACTIVE]
-            or self.column_optimizer.is_using_cohort_propertes
-        ):
+            self.entity.math in ["dau", WEEKLY_ACTIVE, MONTHLY_ACTIVE] and not self.team.aggregate_users_by_distinct_id
+        ) or self.column_optimizer.is_using_cohort_propertes:
             # Only join distinct_ids
             return event_join, {}
         else:

@@ -454,6 +454,7 @@ export interface RecordingConsoleLog extends RecordingTimeMixinType {
     previewContent?: React.ReactNode // Content to show in first line
     fullContent?: React.ReactNode // Full content to show when item is expanded
     traceContent?: React.ReactNode // Url content to show on right side
+    rawString: string // Raw text used for fuzzy search
     level: LogLevel
 }
 
@@ -1251,6 +1252,10 @@ export interface RecordingEventsFilters {
     query: string
 }
 
+export interface RecordingConsoleLogsFilters {
+    query: string
+}
+
 export enum RecordingWindowFilter {
     All = 'all',
 }
@@ -1392,6 +1397,14 @@ export interface FunnelResult<ResultType = FunnelStep[] | FunnelsTimeConversionB
 export interface FunnelsTimeConversionBins {
     bins: [number, number][]
     average_conversion_time: number
+}
+
+export interface HistogramGraphDatum {
+    id: number
+    bin0: number
+    bin1: number
+    count: number
+    label: string
 }
 
 export interface FunnelTimeConversionMetrics {
