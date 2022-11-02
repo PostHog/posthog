@@ -278,6 +278,12 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
     }
 
     useEffect(() => {
+        if (!billingLoading) {
+            setIsEditingBillingLimit(false)
+        }
+    }, [billingLoading])
+
+    useEffect(() => {
         setBillingLimitInput(
             parseInt(customLimitUsd || '0') ||
                 parseInt(convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers)) ||
