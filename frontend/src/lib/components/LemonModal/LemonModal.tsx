@@ -29,10 +29,9 @@ export interface LemonModalProps {
     /** Expands the modal to fill the entire screen */
     fullScreen?: boolean
     /**
-     * This can be used when the modal should be high enough in the z-index stack to be shown above everything
-     * except a few parts of the page chrome. See vars.scss for the z-index values
+     * A modal launched from a popup can appear behind the popup. This allows you to force the modal to appear above the popup.
      * */
-    bringToFront?: boolean
+    forceAbovePopups?: boolean
     contentRef?: React.RefCallback<HTMLDivElement>
     overlayRef?: React.RefCallback<HTMLDivElement>
 }
@@ -66,7 +65,7 @@ export function LemonModal({
     simple,
     closable = true,
     fullScreen = false,
-    bringToFront = false,
+    forceAbovePopups = false,
     contentRef,
     overlayRef,
 }: LemonModalProps): JSX.Element {
@@ -126,7 +125,10 @@ export function LemonModal({
             onAfterClose={onAfterClose}
             closeTimeoutMS={250}
             className={clsx('LemonModal', fullScreen && 'LemonModal--fullscreen')}
-            overlayClassName={clsx('LemonModal__overlay', bringToFront && 'LemonModal__overlay--bring-to-front')}
+            overlayClassName={clsx(
+                'LemonModal__overlay',
+                forceAbovePopups && 'LemonModal__overlay--force-modal-above-popups'
+            )}
             style={{
                 content: {
                     width: width,
