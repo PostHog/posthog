@@ -14,9 +14,7 @@ import { Plan } from 'scenes/billing/Plan'
 export function BillingPanel(): JSX.Element {
     const { completeOnboarding } = useActions(ingestionLogic)
     const { reportIngestionContinueWithoutBilling } = useActions(eventUsageLogic)
-    const { billing, billingVersion } = useValues(billingLogic)
-
-    const billingV2 = billingVersion === 'v2'
+    const { billing } = useValues(billingLogic)
 
     return (
         <CardContainer>
