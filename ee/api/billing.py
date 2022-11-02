@@ -139,7 +139,7 @@ class BillingViewset(viewsets.GenericViewSet):
                 raise NotFound("Billing V1 is active for this organization")
 
         billing_service_response: Dict[str, Any] = {}
-        response: Dict[str, Any] = {}
+        response: Dict[str, Any] = {"available_features": []}
 
         # Load Billing info if we have a V2 license
         if org and license and license.is_v2_license:
@@ -160,7 +160,6 @@ class BillingViewset(viewsets.GenericViewSet):
             self._update_license_details(license, billing_service_response["license"])
 
         if org and billing_service_response.get("customer"):
-            self._update_org_details(org, billing_service_response["customer"])
             response.update(billing_service_response["customer"])
 
         # If we don't have products then get the default ones with our local usage calculation
@@ -182,6 +181,10 @@ class BillingViewset(viewsets.GenericViewSet):
         for product in response["products"]:
             usage_limit = product.get("usage_limit", product.get("free_allocation"))
             product["percentage_usage"] = product["current_usage"] / usage_limit if usage_limit else 0
+
+        # Before responding ensure the org is updated with the latest info
+        if org:
+            self._update_org_details(org, response)
 
         return Response(response)
 
@@ -323,7 +326,13 @@ class BillingViewset(viewsets.GenericViewSet):
             "recordings": {"usage": None, "limit": None},
         }
 
-        if data.get("has_active_subscription", False):
+        if data.get("has_active_subscription"):
+            # If we have a subscription use the correct values from there
+            for product in data["products"]:
+                if product["type"] in usage:
+                    usage[product["type"]]["usage"] = product["current_usage"]
+                    usage[product["type"]]["limit"] = product.get("usage_limit", product.get("free_allocation"))
+        else:
             # We don't have a subscription so use the calculated usage
             calculated_usage = get_cached_current_usage(organization)
 
@@ -333,14 +342,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
             for product in data["products"]:
                 if product["type"] in usage:
-                    usage[product["type"]]["limit"] = product["usage_limit"]
-
-        else:
-            # If we have a subscription use the correct values from there
-            for product in data["products"]:
-                if product["type"] in usage:
-                    usage[product["type"]]["usage"] = product["current_usage"]
-                    usage[product["type"]]["limit"] = product["usage_limit"]
+                    usage[product["type"]]["limit"] = product.get("usage_limit", product.get("free_allocation"))
 
         if usage != organization.usage:
             organization.usage = usage

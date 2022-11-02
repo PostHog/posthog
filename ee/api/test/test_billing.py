@@ -36,7 +36,7 @@ def create_billing_customer(**kwargs) -> Dict[str, Any]:
                 "name": "Product OS",
                 "description": "Product Analytics, event pipelines, data warehousing",
                 "price_description": None,
-                "type": "EVENTS",
+                "type": "events",
                 "free_allocation": 10000,
                 "tiers": [
                     {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
@@ -60,7 +60,7 @@ def create_billing_products_response(**kwargs) -> Dict[str, Any]:
                 "name": "Product OS",
                 "description": "Product Analytics, event pipelines, data warehousing",
                 "price_description": None,
-                "type": "EVENTS",
+                "type": "events",
                 "free_allocation": 10000,
                 "tiers": [
                     {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
@@ -73,7 +73,7 @@ def create_billing_products_response(**kwargs) -> Dict[str, Any]:
                 "name": "Product OS Enterprise",
                 "description": "Product Analytics, event pipelines, data warehousing",
                 "price_description": None,
-                "type": "EVENTS",
+                "type": "events",
                 "free_allocation": 10000,
                 "tiers": [
                     {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
@@ -93,7 +93,7 @@ def create_billing_license_response(**kwargs) -> Dict[str, Any]:
                 "name": "Product OS",
                 "description": "Product Analytics, event pipelines, data warehousing",
                 "price_description": None,
-                "type": "EVENTS",
+                "type": "events",
                 "free_allocation": 10000,
                 "tiers": [
                     {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
@@ -159,7 +159,7 @@ class TestBillingAPI(APILicensedTest):
                     "name": "Product OS",
                     "description": "Product Analytics, event pipelines, data warehousing",
                     "price_description": None,
-                    "type": "EVENTS",
+                    "type": "events",
                     "free_allocation": 10000,
                     "tiers": [
                         {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
@@ -207,7 +207,7 @@ class TestBillingAPI(APILicensedTest):
                         "name": "Product OS",
                         "description": "Product Analytics, event pipelines, data warehousing",
                         "price_description": None,
-                        "type": "EVENTS",
+                        "type": "events",
                         "free_allocation": 10000,
                         "tiers": [
                             {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
@@ -236,7 +236,7 @@ class TestBillingAPI(APILicensedTest):
                                 "up_to": 2000000,
                             },
                         ],
-                        "type": "EVENTS",
+                        "type": "events",
                     },
                 ],
             }
@@ -347,3 +347,28 @@ class TestBillingAPI(APILicensedTest):
         self.client.get("/api/billing-v2")
         self.organization.refresh_from_db()
         assert self.organization.available_features == []
+
+    @patch("ee.api.billing.requests.get")
+    def test_organization_usage_update(self, mock_request):
+        self.organization.usage = None
+        self.organization.save()
+
+        mock_request.return_value.status_code = 200
+        mock_request.return_value.json.return_value = create_billing_response(
+            customer=create_billing_customer(has_active_subscription=True)
+        )
+
+        assert not self.organization.usage
+        res = self.client.get("/api/billing-v2")
+        assert res.status_code == 200
+        self.organization.refresh_from_db()
+        assert self.organization.usage == {
+            "events": {
+                "limit": None,
+                "usage": 0,
+            },
+            "recordings": {
+                "limit": None,
+                "usage": None,  # Our mock data has no recording product
+            },
+        }

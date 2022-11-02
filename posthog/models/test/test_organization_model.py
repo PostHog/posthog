@@ -60,3 +60,16 @@ class TestOrganization(BaseTest):
         with self.is_cloud(False):
             new_org, _, _ = Organization.objects.bootstrap(self.user)
             assert new_org.plugins_access_level == Organization.PluginsAccessLevel.ROOT
+
+    def test_update_available_features_ignored_if_usage_info_exists(self):
+        with self.is_cloud(False):
+            new_org, _, _ = Organization.objects.bootstrap(self.user)
+
+            new_org.available_features = ["test1", "test2"]
+            new_org.update_available_features()
+            assert new_org.available_features == []
+
+            new_org.available_features = ["test1", "test2"]
+            new_org.usage = {"events": {"usage": 1000, "limit": None}}
+            new_org.update_available_features()
+            assert new_org.available_features == ["test1", "test2"]
