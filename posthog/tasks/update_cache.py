@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import structlog
 from celery import group
 from celery.canvas import Signature
+from dateutil.parser import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.core.cache import cache
@@ -56,6 +57,14 @@ CACHE_TYPE_TO_INSIGHT_CLASS = {
 }
 
 IN_A_DAY = 86_400
+
+
+def ensure_is_date(candidate: Optional[Union[str, datetime.datetime]]) -> Optional[datetime.datetime]:
+    if candidate is None:
+        return None
+    if isinstance(candidate, datetime.datetime):
+        return candidate
+    return parser().parse(candidate)
 
 
 @dataclasses.dataclass
@@ -326,9 +335,7 @@ def _cache_includes_latest_events(
     then there's no point re-calculating
     """
 
-    # dashboards mostly use trends and funnels so concentrate on items that have filter.events to interrogate
-
-    last_refresh = payload.get("last_refresh", None)
+    last_refresh = ensure_is_date(payload.get("last_refresh", None))
     if last_refresh:
         event_names = _events_from_filter(filter)
 
