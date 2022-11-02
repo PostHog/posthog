@@ -1,3 +1,4 @@
+import dataclasses
 import datetime
 import json
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -28,7 +29,8 @@ from posthog.constants import (
 )
 from posthog.decorators import CacheType
 from posthog.logging.timing import timed
-from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team
+from posthog.models import Dashboard, DashboardTile, EventDefinition, Filter, Insight, RetentionFilter, Team
+from posthog.models.filters import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.models.instance_setting import get_instance_setting
@@ -54,6 +56,67 @@ CACHE_TYPE_TO_INSIGHT_CLASS = {
 }
 
 IN_A_DAY = 86_400
+
+
+@dataclasses.dataclass
+class CacheUpdateReporting:
+    dashboard_id: Optional[int]
+    dashboard_tiles_queryset: QuerySet
+    insight_id: Union[int, str]
+    insights_queryset: QuerySet
+    key: str
+    team: Team
+
+    def on_results(self, stat: str) -> None:
+        self.insights_queryset.update(last_refresh=timezone.now(), refreshing=False, refresh_attempt=0)
+        self.dashboard_tiles_queryset.update(last_refresh=timezone.now(), refreshing=False, refresh_attempt=0)
+        statsd.incr(stat, tags={"team": self.team.id})
+
+    def on_query_error(
+        self,
+        e: Exception,
+    ) -> None:
+        statsd.incr("update_cache_item_error", tags={"team": self.team.id})
+        self.mark_refresh_attempt_for(self.insights_queryset)
+        self.mark_refresh_attempt_for(self.dashboard_tiles_queryset)
+        with push_scope() as scope:
+            scope.set_tag("cache_key", self.key)
+            scope.set_tag("team_id", self.team.id)
+            scope.set_tag("insight_id", self.insight_id)
+            scope.set_tag("dashboard_id", self.dashboard_id)
+            capture_exception(e)
+        logger.error("update_cache_item_error", exc=e, exc_info=True, team_id=self.team.id, cache_key=self.key)
+
+    def on_no_results(self) -> None:
+        self.insights_queryset.update(last_refresh=timezone.now(), refreshing=False)
+        self.dashboard_tiles_queryset.update(last_refresh=timezone.now(), refreshing=False)
+        statsd.incr(
+            "update_cache_item_no_results",
+            tags={
+                "team": self.team.id,
+                "cache_key": self.key,
+                "insight_id": self.insight_id,
+                "dashboard_id": self.dashboard_id,
+            },
+        )
+        self.mark_refresh_attempt_when_no_results()
+
+    def mark_refresh_attempt_when_no_results(self) -> None:
+        if self.insights_queryset.exists() or self.dashboard_tiles_queryset.exists():
+            self.mark_refresh_attempt_for(self.insights_queryset)
+            self.mark_refresh_attempt_for(self.dashboard_tiles_queryset)
+        else:
+            if self.insight_id != "unknown":
+                self.mark_refresh_attempt_for(
+                    Insight.objects.filter(id=self.insight_id)
+                    if not self.dashboard_id
+                    else DashboardTile.objects.filter(insight_id=self.insight_id, dashboard_id=self.dashboard_id)
+                )
+
+    @staticmethod
+    def mark_refresh_attempt_for(queryset: QuerySet) -> None:
+        queryset.filter(refresh_attempt=None).update(refresh_attempt=0)
+        queryset.update(refreshing=False, refresh_attempt=F("refresh_attempt") + 1)
 
 
 def active_teams() -> List[int]:
@@ -144,8 +207,15 @@ def task_for_cache_update_candidate(candidate: Union[DashboardTile, Insight]) ->
 
     candidate_dashboard: Optional[Dashboard] = None if isinstance(candidate, Insight) else candidate.dashboard
 
+    if candidate_tile:
+        last_refresh = candidate_tile.last_refresh
+    else:
+        last_refresh = candidate_insight.last_refresh
+
     try:
-        cache_key, cache_type, payload = insight_update_task_params(candidate_insight, candidate_dashboard)
+        cache_key, cache_type, payload = insight_update_task_params(
+            candidate_insight, candidate_dashboard, last_refresh
+        )
         update_filters_hash(cache_key, candidate_dashboard, candidate_insight)
         return update_cache_item_task.s(cache_key, cache_type, payload)
     except Exception as e:
@@ -189,12 +259,13 @@ def gauge_cache_update_candidates(dashboard_tiles: QuerySet, shared_insights: Qu
 
 
 @timed("update_cache_item_timer")
-def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Dict[str, Any]]:
+def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> Optional[List[Dict[str, Any]]]:
+
     dashboard_id = payload.get("dashboard_id", None)
     insight_id = payload.get("insight_id", "unknown")
-
     filter_dict = json.loads(payload["filter"])
     team_id = int(payload["team_id"])
+
     team = Team.objects.get(pk=team_id)
     filter = get_filter(data=filter_dict, team=team)
 
@@ -203,64 +274,91 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
     dashboard_tiles_queryset = DashboardTile.objects.filter(insight__team_id=team_id, filters_hash=key)
     dashboard_tiles_queryset.update(refreshing=True)
 
-    result = None
-    try:
-        if (dashboard_id and dashboard_tiles_queryset.exists()) or insights_queryset.exists():
-            result = _update_cache_for_queryset(cache_type, filter, key, team)
-    except Exception as e:
-        statsd.incr("update_cache_item_error", tags={"team": team.id})
-        _mark_refresh_attempt_for(insights_queryset)
-        _mark_refresh_attempt_for(dashboard_tiles_queryset)
-        with push_scope() as scope:
-            scope.set_tag("cache_key", key)
-            scope.set_tag("team_id", team.id)
-            scope.set_tag("insight_id", insight_id)
-            scope.set_tag("dashboard_id", dashboard_id)
-            capture_exception(e)
-        logger.error("update_cache_item_error", exc=e, exc_info=True, team_id=team.id, cache_key=key)
-        raise e
+    cache_update_reporting = CacheUpdateReporting(
+        dashboard_id=dashboard_id,
+        dashboard_tiles_queryset=dashboard_tiles_queryset,
+        insight_id=insight_id,
+        insights_queryset=insights_queryset,
+        key=key,
+        team=team,
+    )
 
-    if result:
-        statsd.incr("update_cache_item_success", tags={"team": team.id})
-        insights_queryset.update(last_refresh=timezone.now(), refreshing=False, refresh_attempt=0)
-        dashboard_tiles_queryset.update(last_refresh=timezone.now(), refreshing=False, refresh_attempt=0)
+    result = None
+
+    if _cache_includes_latest_events(payload, filter):
+        cache.touch(key, timeout=settings.CACHED_RESULTS_TTL)
+        cache_update_reporting.on_results("update_cache_item_can_skip_because_events_do_not_invalidate_cache")
     else:
-        insights_queryset.update(last_refresh=timezone.now(), refreshing=False)
-        dashboard_tiles_queryset.update(last_refresh=timezone.now(), refreshing=False)
-        statsd.incr(
-            "update_cache_item_no_results",
-            tags={"team": team_id, "cache_key": key, "insight_id": insight_id, "dashboard_id": dashboard_id},
-        )
-        _mark_refresh_attempt_when_no_results(dashboard_id, dashboard_tiles_queryset, insight_id, insights_queryset)
-        result = []
+        try:
+            if (dashboard_id and dashboard_tiles_queryset.exists()) or insights_queryset.exists():
+                result = _update_cache_for_queryset(cache_type, filter, key, team)
+        except Exception as e:
+            cache_update_reporting.on_query_error(e)
+            raise e
+
+        if result:
+            cache_update_reporting.on_results("update_cache_item_success")
+        else:
+            cache_update_reporting.on_no_results()
+            result = []
 
     logger.info(
         "update_insight_cache.processed_item",
         insight_id=payload.get("insight_id", None),
         dashboard_id=payload.get("dashboard_id", None),
         cache_key=key,
-        has_results=len(result) > 0,
+        has_results=result and len(result) > 0,
     )
 
     return result
 
 
-def _mark_refresh_attempt_when_no_results(
-    dashboard_id: Optional[int],
-    dashboard_tiles_queryset: QuerySet,
-    insight_id: Union[int, str],
-    insights_queryset: QuerySet,
-) -> None:
-    if insights_queryset.exists() or dashboard_tiles_queryset.exists():
-        _mark_refresh_attempt_for(insights_queryset)
-        _mark_refresh_attempt_for(dashboard_tiles_queryset)
-    else:
-        if insight_id != "unknown":
-            _mark_refresh_attempt_for(
-                Insight.objects.filter(id=insight_id)
-                if not dashboard_id
-                else DashboardTile.objects.filter(insight_id=insight_id, dashboard_id=dashboard_id)
-            )
+def _cache_includes_latest_events(
+    payload: Dict, filter: Union[RetentionFilter, StickinessFilter, PathFilter, Filter]
+) -> bool:
+    """
+    event_definition has last_seen_at timestamp
+    a cacheable has last_refresh
+
+    if redis has cached result (is this always true with last_refresh?)
+    and last_refresh is after last_seen_at for each event in the filter
+
+    then there's no point re-calculating
+    """
+
+    # dashboards mostly use trends and funnels so concentrate on items that have filter.events to interrogate
+
+    last_refresh = payload.get("last_refresh", None)
+    if last_refresh:
+        event_names = _events_from_filter(filter)
+
+        event_last_seen_at = list(
+            EventDefinition.objects.filter(name__in=event_names).values_list("last_seen_at", flat=True)
+        )
+        if len(event_names) > 0 and len(event_names) == len(event_last_seen_at):
+            return all(last_refresh >= last_seen_at for last_seen_at in event_last_seen_at)
+
+    return False
+
+
+def _events_from_filter(filter: Union[RetentionFilter, StickinessFilter, PathFilter, Filter]) -> List[str]:
+    """
+    If a filter only represents a set of events
+    then we can use their last_seen_at to determine if the cache is up-to-date
+
+    It would be tricky to extend that concept to other filters or to filters with actions,
+    so for now we'll just return an empty list and can (dis?)prove that this mechanism is useful
+    """
+    try:
+        if isinstance(filter, StickinessFilter) or isinstance(filter, Filter):
+            if not filter.actions:
+                return [str(e.id) for e in filter.events]
+
+        return []
+    except Exception as exc:
+        logger.error("update_cache_item.could_not_list_events_from_filter", exc=exc, exc_info=True)
+        capture_exception(exc)
+        return []
 
 
 def _update_cache_for_queryset(
@@ -275,11 +373,6 @@ def _update_cache_for_queryset(
     cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, settings.CACHED_RESULTS_TTL)
 
     return result
-
-
-def _mark_refresh_attempt_for(queryset: QuerySet) -> None:
-    queryset.filter(refresh_attempt=None).update(refresh_attempt=0)
-    queryset.update(refreshing=False, refresh_attempt=F("refresh_attempt") + 1)
 
 
 def synchronously_update_insight_cache(insight: Insight, dashboard: Optional[Dashboard]) -> List[Dict[str, Any]]:
@@ -362,7 +455,13 @@ def get_cache_type(filter: FilterType) -> CacheType:
         return CacheType.TRENDS
 
 
-def insight_update_task_params(insight: Insight, dashboard: Optional[Dashboard] = None) -> Tuple[str, CacheType, Dict]:
+def insight_update_task_params(
+    insight: Insight, dashboard: Optional[Dashboard] = None, last_refresh: Optional[datetime.datetime] = None
+) -> Tuple[str, CacheType, Dict]:
+    """
+    last_refresh can be provided if the cache should attempt to skip insights
+    whose events haven't been ingested since the last_refresh datetime
+    """
     filter = get_filter(data=insight.dashboard_filters(dashboard), team=insight.team)
     cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), insight.team_id))
 
@@ -372,6 +471,7 @@ def insight_update_task_params(insight: Insight, dashboard: Optional[Dashboard] 
         "team_id": insight.team_id,
         "insight_id": insight.id,
         "dashboard_id": None if not dashboard else dashboard.id,
+        "last_refresh": last_refresh,
     }
 
     return cache_key, cache_type, payload
