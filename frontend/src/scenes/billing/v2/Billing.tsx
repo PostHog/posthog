@@ -74,26 +74,25 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
                 <div className="flex">
                     <div className="flex-1">
                         {billing?.billing_period ? (
-                            <>
+                            <div className="space-y-2">
                                 <p>
                                     Your current billing period is from{' '}
                                     <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
                                     <b>{billing.billing_period.current_period_end.format('LL')}</b>
                                 </p>
 
-                                <div className="space-y-2">
-                                    <LemonLabel
-                                        info={'This is the current amount you have been billed for this month so far.'}
-                                    >
-                                        Current bill total
-                                    </LemonLabel>
-                                    <div className="font-bold text-4xl">${billing.current_total_amount_usd}</div>
-                                </div>
+                                <LemonLabel
+                                    info={'This is the current amount you have been billed for this month so far.'}
+                                >
+                                    Current bill total
+                                </LemonLabel>
+                                <div className="font-bold text-4xl">${billing.current_total_amount_usd}</div>
+
                                 <p>
                                     <b>{billing.billing_period.current_period_end.diff(dayjs(), 'days')} days</b>{' '}
                                     remaining in your billing period.
                                 </p>
-                            </>
+                            </div>
                         ) : (
                             <>
                                 <h2 className="font-bold">Add payment method</h2>
