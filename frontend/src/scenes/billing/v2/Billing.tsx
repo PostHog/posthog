@@ -385,10 +385,13 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
             ref={ref}
         >
             <div className="flex-1 py-4 pr-2 space-y-4">
-                <div className="flex justify-between items-start">
+                <div className="flex gap-4 items-center">
+                    {product.image_url ? (
+                        <img className="w-10 h-10" alt="Logo for product" src={product.image_url} />
+                    ) : null}
                     <div>
-                        <h3 className="font-bold">{product.name}</h3>
-                        <p>{product.description}</p>
+                        <h3 className="font-bold mb-0">{product.name}</h3>
+                        <div>{product.description}</div>
                     </div>
                 </div>
 
