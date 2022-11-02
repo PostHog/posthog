@@ -88,7 +88,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
 
     return resultSeries ? (
         <div className="BoldNumber">
-            <Textfit mode="single" min={32} max={120}>
+            <Textfit mode="single" min={32} max={160}>
                 <div
                     className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
                     onClick={
