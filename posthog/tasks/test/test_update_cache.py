@@ -19,7 +19,12 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team
 from posthog.queries.util import get_earliest_timestamp
-from posthog.tasks.update_cache import synchronously_update_insight_cache, update_cache_item, update_cached_items
+from posthog.tasks.update_cache import (
+    ensure_is_date,
+    synchronously_update_insight_cache,
+    update_cache_item,
+    update_cached_items,
+)
 from posthog.test.base import APIBaseTest
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key, get_safe_cache
@@ -91,6 +96,19 @@ def _create_dashboard_tile_with_known_cache_key(
         assert insight.filters_hash == cache_key
 
     return dashboard, tile
+
+
+def test_can_ensure_iso_strings_are_dates() -> None:
+    """
+    https://sentry.io/organizations/posthog/issues/3713095655/?project=1899813&referrer=slack
+
+    In the tests we aren't really using celery so can pass date instances around
+    Celery is serializing the dates to strings. This test ensures that we can treat a string of the  date as a date
+    """
+    a_date = datetime.now()
+    assert ensure_is_date(a_date.isoformat()) == a_date
+    assert ensure_is_date(a_date) == a_date
+    assert ensure_is_date(None) is None
 
 
 class TestSynchronousCacheUpdate(APIBaseTest):
