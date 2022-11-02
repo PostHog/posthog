@@ -209,7 +209,7 @@ jobs:
 
             - name: Set up databases
               env:
-                  TEST: 'true'
+                  DEBUG: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
               run: |
                   ./manage.py migrate
