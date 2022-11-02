@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { KAFKA_BUFFER } from '../../../config/kafka-topics'
-import { Hub, IngestionPersonData, JobName, TeamId } from '../../../types'
+import { Hub, IngestionPersonData, TeamId } from '../../../types'
 import { status } from '../../../utils/status'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { EventPipelineRunner, StepResult } from './runner'
@@ -27,48 +27,25 @@ export async function emitToBufferStep(
     if (shouldBuffer(runner.hub, event, person, event.team_id)) {
         const processEventAt = Date.now() + runner.hub.BUFFER_CONVERSION_SECONDS * 1000
         status.debug('🔁', 'Emitting event to buffer', {
-            event,
+            event: event.event,
+            eventId: event.uuid,
             processEventAt,
-            conversionBufferTopicEnabledTeams: runner.hub.conversionBufferTopicEnabledTeams,
         })
 
-        // Only enable for teams that have conversionBuffer enabled, otherwise
-        // use the old logic.
-        // TODO: If we want to enable this for all teams, we can remove this
-        // check.
-        if (
-            runner.hub.CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS === '*' ||
-            runner.hub.conversionBufferTopicEnabledTeams.has(event.team_id)
-        ) {
-            // TODO: handle delaying offset commit for this message, according to
-            // producer acknowledgement. It's a little tricky as it stands as we do
-            // not have the a reference to resolveOffset here. Rather than do a
-            // refactor I'm just going to let this hang and resolve as a followup.
-            await runner.hub.kafkaProducer.queueMessage({
-                topic: KAFKA_BUFFER,
-                messages: [
-                    {
-                        key: event.team_id.toString(),
-                        value: JSON.stringify(event),
-                        headers: { processEventAt: processEventAt.toString(), eventId: event.uuid },
-                    },
-                ],
-            })
-        } else {
-            const job = {
-                eventPayload: event,
-                timestamp: processEventAt,
-            }
-            await runner.hub.graphileWorker.enqueue(
-                JobName.BUFFER_JOB,
-                job,
+        // TODO: handle delaying offset commit for this message, according to
+        // producer acknowledgement. It's a little tricky as it stands as we do
+        // not have the a reference to resolveOffset here. Rather than do a
+        // refactor I'm just going to let this hang and resolve as a followup.
+        await runner.hub.kafkaProducer.queueMessage({
+            topic: KAFKA_BUFFER,
+            messages: [
                 {
-                    key: 'team_id',
-                    tag: event.team_id.toString(),
+                    key: event.team_id.toString(),
+                    value: JSON.stringify(event),
+                    headers: { processEventAt: processEventAt.toString(), eventId: event.uuid },
                 },
-                true
-            )
-        }
+            ],
+        })
 
         runner.hub.statsd?.increment('events_sent_to_buffer')
         return null
@@ -108,6 +85,12 @@ export function shouldSendEventToBuffer(
     person: IngestionPersonData | undefined,
     teamId: TeamId
 ): boolean {
+    // Libraries by default create a unique id for this `type-name_value` for $groupidentify,
+    // we don't want to buffer these to make group properties available asap
+    // identify and alias are identical and could merge the person - the sooner we update the person_id the better
+    const isIdentifyingEvent =
+        event.event == '$groupidentify' || event.event == '$identify' || event.event == `$create_alias`
+
     const isAnonymousEvent =
         event.properties && event.properties['$device_id'] && event.distinct_id === event.properties['$device_id']
 
@@ -118,7 +101,8 @@ export function shouldSendEventToBuffer(
     const isMobileLibrary =
         !!event.properties &&
         ['posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'].includes(event.properties['$lib'])
-    const sendToBuffer = !isMobileLibrary && !person && !isAnonymousEvent && event.event !== '$identify'
+
+    const sendToBuffer = !isMobileLibrary && !person && !isAnonymousEvent && !isIdentifyingEvent
 
     if (sendToBuffer) {
         hub.statsd?.increment('conversion_events_buffer_size', { teamId: event.team_id.toString() })

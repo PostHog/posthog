@@ -12,7 +12,12 @@ import { createMockSubscription, mockIntegration, mockSlackChannels } from '~/te
 export default {
     title: 'Components/Subscriptions',
     component: SubscriptionsModal,
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof SubscriptionsModal>
 
 const Template = (

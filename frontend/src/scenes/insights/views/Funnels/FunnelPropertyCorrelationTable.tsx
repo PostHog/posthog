@@ -23,7 +23,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
     const {
-        stepsWithCount,
+        steps,
         propertyCorrelationValues,
         propertyCorrelationTypes,
         excludedPropertyNames,
@@ -129,7 +129,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         )
     }
 
-    return stepsWithCount.length > 1 ? (
+    return steps.length > 1 ? (
         <VisibilitySensor offset={150} id={`${correlationPropKey}-properties`}>
             <div className="funnel-correlation-table">
                 <Row className="funnel-correlation-header">

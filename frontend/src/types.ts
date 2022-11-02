@@ -454,6 +454,7 @@ export interface RecordingConsoleLog extends RecordingTimeMixinType {
     previewContent?: React.ReactNode // Content to show in first line
     fullContent?: React.ReactNode // Full content to show when item is expanded
     traceContent?: React.ReactNode // Url content to show on right side
+    rawString: string // Raw text used for fuzzy search
     level: LogLevel
 }
 
@@ -636,7 +637,6 @@ export interface CohortGroupType {
     name?: string
 }
 
-// Note this will eventually replace CohortGroupType once `cohort-filters` FF is released
 // Synced with `posthog/models/property.py`
 export interface CohortCriteriaType {
     id: string // Criteria filter id
@@ -775,6 +775,10 @@ export interface SessionRecordingType {
     distinct_id?: string
     email?: string
     person?: PersonType
+}
+
+export interface SessionRecordingPropertiesType {
+    id: string
     properties?: Record<string, any>
 }
 
@@ -818,17 +822,22 @@ export interface BillingProductV2Type {
         current_amount_usd?: string | null
         up_to: number | null
     }[]
+    tiered: boolean
     current_usage?: number
     projected_usage?: number
     percentage_usage: number
     current_amount_usd?: string
     usage_limit?: number
+    unit_amount_usd: string | null
 }
 
 export interface BillingV2Type {
+    has_active_subscription: boolean
     stripe_portal_url?: string
+    deactivated?: boolean
     current_total_amount_usd?: string
     products: BillingProductV2Type[]
+    products_enterprise?: BillingProductV2Type[]
 
     custom_limits_usd?: {
         [key: string]: string | null | undefined
@@ -984,6 +993,7 @@ export interface PluginType {
     description?: string
     url?: string
     tag?: string
+    icon?: string
     latest_tag?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
@@ -1241,6 +1251,10 @@ export interface RecordingEventsFilters {
     query: string
 }
 
+export interface RecordingConsoleLogsFilters {
+    query: string
+}
+
 export enum RecordingWindowFilter {
     All = 'all',
 }
@@ -1382,6 +1396,14 @@ export interface FunnelResult<ResultType = FunnelStep[] | FunnelsTimeConversionB
 export interface FunnelsTimeConversionBins {
     bins: [number, number][]
     average_conversion_time: number
+}
+
+export interface HistogramGraphDatum {
+    id: number
+    bin0: number
+    bin1: number
+    count: number
+    label: string
 }
 
 export interface FunnelTimeConversionMetrics {

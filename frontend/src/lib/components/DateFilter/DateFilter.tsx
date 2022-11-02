@@ -115,9 +115,6 @@ export function DateFilter({
                         </Tooltip>
                     )
                 })}
-                <LemonButton onClick={openDateToNow} active={isDateToNow} status="stealth" fullWidth>
-                    {'Date to Now'}
-                </LemonButton>
                 {showRollingRangePicker && (
                     <RollingDateRangeFilter
                         dateFrom={dateFrom}
@@ -132,8 +129,11 @@ export function DateFilter({
                     />
                 )}
                 <LemonDivider />
+                <LemonButton onClick={openDateToNow} active={isDateToNow} status="stealth" fullWidth>
+                    From custom date until now…
+                </LemonButton>
                 <LemonButton onClick={openFixedRange} active={isFixedRange} status="stealth" fullWidth>
-                    {'Custom fixed time period'}
+                    Custom fixed date range…
                 </LemonButton>
             </div>
         )

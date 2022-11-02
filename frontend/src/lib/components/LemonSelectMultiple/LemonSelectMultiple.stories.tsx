@@ -7,6 +7,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 export default {
     title: 'Lemon UI/Lemon SelectMultiple',
     component: LemonSelectMultiple,
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         options: {
             defaultValue: ['ben', 'marius', 'paul', 'tiina', 'li'].reduce(

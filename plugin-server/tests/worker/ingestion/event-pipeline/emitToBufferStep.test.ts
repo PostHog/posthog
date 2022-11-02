@@ -153,6 +153,16 @@ describe('shouldSendEventToBuffer()', () => {
         expect(result).toEqual(true)
     })
 
+    it('returns false for $groupidentify events', () => {
+        const event = {
+            ...pluginEvent,
+            event: '$groupidentify',
+        }
+
+        const result = shouldSendEventToBuffer(runner.hub, event, undefined, 2)
+        expect(result).toEqual(false)
+    })
+
     it('returns false for $identify events for non-existing users', () => {
         const event = {
             ...pluginEvent,
@@ -174,6 +184,16 @@ describe('shouldSendEventToBuffer()', () => {
         }
 
         const result = shouldSendEventToBuffer(runner.hub, event, person, 2)
+        expect(result).toEqual(false)
+    })
+
+    it('returns false for $create_alias events', () => {
+        const event = {
+            ...pluginEvent,
+            event: '$create_alias',
+        }
+
+        const result = shouldSendEventToBuffer(runner.hub, event, undefined, 2)
         expect(result).toEqual(false)
     })
 

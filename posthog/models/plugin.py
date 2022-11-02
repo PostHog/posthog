@@ -62,8 +62,10 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
         validated_data["plugin_type"] = "local"
         validated_data["url"] = url
         validated_data["tag"] = None
+        validated_data["latest_tag"] = None
         validated_data["archive"] = None
         validated_data["name"] = plugin_json.get("name", plugin_json_path.split("/")[-2])
+        validated_data["icon"] = plugin_json.get("icon", None)
         validated_data["description"] = plugin_json.get("description", "")
         validated_data["config_schema"] = plugin_json.get("config", [])
         validated_data["public_jobs"] = plugin_json.get("publicJobs", {})
@@ -72,16 +74,19 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
     else:
         parsed_url = parse_url(url, get_latest_if_none=True)
         if parsed_url:
-            validated_data["url"] = parsed_url["root_url"]
+            validated_data["url"] = url
             validated_data["tag"] = parsed_url.get("tag", None)
+            validated_data["latest_tag"] = parsed_url.get("tag", None)
             validated_data["archive"] = download_plugin_archive(validated_data["url"], validated_data["tag"])
             plugin_json = cast(
-                Optional[Dict[str, Any]], get_file_from_archive(validated_data["archive"], "plugin.json")
+                Optional[Dict[str, Any]],
+                get_file_from_archive(validated_data["archive"], "plugin.json"),
             )
             if not plugin_json:
                 raise ValidationError("Could not find plugin.json in the plugin")
             validated_data["name"] = plugin_json["name"]
             validated_data["description"] = plugin_json.get("description", "")
+            validated_data["icon"] = plugin_json.get("icon", None)
             validated_data["config_schema"] = plugin_json.get("config", [])
             validated_data["public_jobs"] = plugin_json.get("publicJobs", {})
             posthog_version = plugin_json.get("posthogVersion", None)
@@ -123,7 +128,6 @@ class PluginManager(models.Manager):
         plugin = Plugin.objects.create(**kwargs)
         if plugin_json:
             PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
-        reload_plugins_on_workers()
         return plugin
 
 
@@ -149,6 +153,7 @@ class Plugin(models.Model):
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     description: models.TextField = models.TextField(null=True, blank=True)
     url: models.CharField = models.CharField(max_length=800, null=True, blank=True)
+    icon: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     # Describe the fields to ask in the interface; store answers in PluginConfig->config
     # - config_schema = { [fieldKey]: { name: 'api key', type: 'string', default: '', required: true }  }
     config_schema: models.JSONField = models.JSONField(default=dict)
@@ -311,6 +316,8 @@ class PluginSourceFileManager(models.Manager):
             filenames_to_delete.append("index.ts")
         # Make sure files are gone
         PluginSourceFile.objects.filter(plugin=plugin, filename__in=filenames_to_delete).delete()
+        # Trigger plugin server reload and code transpilation
+        plugin.save()
         return plugin_json_instance, index_ts_instance, frontend_tsx_instance, site_ts_instance
 
 

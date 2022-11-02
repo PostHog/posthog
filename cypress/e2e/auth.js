@@ -13,23 +13,30 @@ describe('Auth', () => {
     it('Logout and login', () => {
         cy.get('[data-attr=top-menu-item-logout]').click()
 
-        cy.get('[data-attr=login-email]').type('fake@posthog.com').should('have.value', 'fake@posthog.com').blur()
+        cy.get('[data-attr=login-email]').type('test@posthog.com').should('have.value', 'test@posthog.com').blur()
         cy.get('[data-attr=password]', { timeout: 5000 }).should('be.visible') // Wait for login precheck (note blur above)
 
         cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
 
         cy.get('[type=submit]').click()
+        // Login should have succeeded
+        cy.location('pathname').should('eq', '/home')
     })
 
-    it('Try logging in improperly', () => {
+    it('Try logging in improperly and then properly', () => {
         cy.get('[data-attr=top-menu-item-logout]').click()
 
-        cy.get('[data-attr=login-email]').type('fake@posthog.com').should('have.value', 'fake@posthog.com').blur()
+        cy.get('[data-attr=login-email]').type('test@posthog.com').should('have.value', 'test@posthog.com').blur()
         cy.get('[data-attr=password]', { timeout: 5000 }).should('be.visible') // Wait for login precheck (note blur above)
         cy.get('[data-attr=password]').type('wrong password').should('have.value', 'wrong password')
         cy.get('[type=submit]').click()
-
+        // There should be an error message now
         cy.get('.AlertMessage').should('contain', 'Invalid email or password.')
+        // Now try with the right password
+        cy.get('[data-attr=password]').clear().type('12345678')
+        cy.get('[type=submit]').click()
+        // Login should have succeeded
+        cy.location('pathname').should('eq', '/home')
     })
 
     it('Redirect to appropriate place after login', () => {

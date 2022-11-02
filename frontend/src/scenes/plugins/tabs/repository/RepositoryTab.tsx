@@ -71,6 +71,7 @@ export function RepositoryTab(): JSX.Element {
                                                 plugin={{
                                                     name: plugin.name,
                                                     url: plugin.url,
+                                                    icon: plugin.icon,
                                                     description: plugin.description,
                                                 }}
                                                 maintainer={plugin.maintainer}
@@ -124,6 +125,7 @@ export function RepositoryTab(): JSX.Element {
                                                 plugin={{
                                                     name: plugin.name,
                                                     url: plugin.url,
+                                                    icon: plugin.icon,
                                                     description: plugin.description,
                                                 }}
                                                 maintainer={plugin.maintainer}

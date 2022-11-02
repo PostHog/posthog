@@ -51,9 +51,13 @@ export class KafkaQueue {
 
         if (this.pluginsServer.capabilities.ingestion) {
             topics.push(this.ingestionTopic)
-        } else if (this.pluginsServer.capabilities.processAsyncHandlers) {
+        }
+
+        if (this.pluginsServer.capabilities.processAsyncHandlers) {
             topics.push(this.eventsTopic)
-        } else {
+        }
+
+        if (topics.length === 0) {
             throw Error('No topics to consume, KafkaQueue should not be started')
         }
 
@@ -102,19 +106,16 @@ export class KafkaQueue {
                 autoCommitInterval: 1000, // autocommit every 1000 ms…
                 autoCommitThreshold: 1000, // …or every 1000 messages, whichever is sooner
                 partitionsConsumedConcurrently: this.pluginsServer.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
-                eachBatch: async (payload) => {
-                    const topic = payload.batch.topic
-                    const eachBatch = this.eachBatch[topic]
-                    await instrumentEachBatch(
-                        topic,
-                        (payload) => eachBatch(payload, this),
-                        payload,
-                        this.pluginsServer.statsd
-                    )
-                },
+                eachBatch: (payload) => this.eachBatchConsumer(payload),
             })
         })
         return await startPromise
+    }
+
+    async eachBatchConsumer(payload: EachBatchPayload): Promise<void> {
+        const topic = payload.batch.topic
+        const eachBatch = this.eachBatch[topic]
+        await instrumentEachBatch(topic, (payload) => eachBatch(payload, this), payload, this.pluginsServer.statsd)
     }
 
     async pause(targetTopic: string, partition?: number): Promise<void> {
@@ -185,20 +186,43 @@ export class KafkaQueue {
 }
 
 export const setupEventHandlers = (consumer: Consumer): void => {
-    const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT } = consumer.events
-    consumer.on(GROUP_JOIN, ({ payload: { groupId } }) => {
+    const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT, COMMIT_OFFSETS } = consumer.events
+    let offsets: { [key: string]: string } = {} // Keep a record of offsets so we can report on process periodically
+    let statusInterval: NodeJS.Timeout
+    let groupId: string
+
+    consumer.on(GROUP_JOIN, ({ payload }) => {
+        offsets = {}
+        groupId = payload.groupId
         status.info('✅', `Kafka consumer joined group ${groupId}!`)
+        clearInterval(statusInterval)
+        statusInterval = setInterval(() => {
+            status.info('ℹ️', 'consumer_status', { groupId, offsets })
+        }, 10000)
     })
     consumer.on(CRASH, ({ payload: { error, groupId } }) => {
+        offsets = {}
         status.error('⚠️', `Kafka consumer group ${groupId} crashed:\n`, error)
+        clearInterval(statusInterval)
         Sentry.captureException(error)
         killGracefully()
     })
     consumer.on(CONNECT, () => {
+        offsets = {}
         status.info('✅', 'Kafka consumer connected!')
     })
     consumer.on(DISCONNECT, () => {
+        status.info('ℹ️', 'consumer_status', { groupId, offsets })
+        offsets = {}
+        clearInterval(statusInterval)
         status.info('🛑', 'Kafka consumer disconnected!')
+    })
+    consumer.on(COMMIT_OFFSETS, ({ payload: { topics } }) => {
+        topics.forEach(({ topic, partitions }) => {
+            partitions.forEach(({ partition, offset }) => {
+                offsets[`${topic}:${partition}`] = offset
+            })
+        })
     })
 }
 
@@ -215,7 +239,7 @@ export const instrumentEachBatch = async (
         statsd?.increment('kafka_queue_each_batch_failed_events', eventCount, {
             topic: topic,
         })
-        status.info('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`)
+        status.warn('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`)
         if (error.type === 'UNKNOWN_MEMBER_ID') {
             status.info('💀', "Probably the batch took longer than the session and we couldn't commit the offset")
         }

@@ -6,6 +6,7 @@ import { KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import {
     ClickHouseTimestamp,
     Element,
+    GroupTypeIndex,
     Hub,
     IngestionPersonData,
     ISOTimestamp,
@@ -16,7 +17,7 @@ import {
     Team,
     TimestampFormat,
 } from '../../types'
-import { DB, GroupIdentifier } from '../../utils/db/db'
+import { DB, GroupId } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
@@ -158,12 +159,12 @@ export class EventsProcessor {
         }
     }
 
-    getGroupIdentifiers(properties: Properties): GroupIdentifier[] {
-        const res: GroupIdentifier[] = []
-        for (let index = 0; index < this.db.MAX_GROUP_TYPES_PER_TEAM; index++) {
-            const key = `$group_${index}`
-            if (properties.hasOwnProperty(key)) {
-                res.push({ index: index, key: properties[key] })
+    getGroupIdentifiers(properties: Properties): GroupId[] {
+        const res: GroupId[] = []
+        for (let groupTypeIndex = 0; groupTypeIndex < this.db.MAX_GROUP_TYPES_PER_TEAM; ++groupTypeIndex) {
+            const key = `$group_${groupTypeIndex}`
+            if (key in properties) {
+                res.push([groupTypeIndex as GroupTypeIndex, properties[key]])
             }
         }
         return res
@@ -186,7 +187,7 @@ export class EventsProcessor {
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
         const groupIdentifiers = this.getGroupIdentifiers(properties)
-        const groupsColumns = await this.db.fetchGroupColumnsValues(teamId, groupIdentifiers)
+        const groupsColumns = await this.db.getGroupsColumns(teamId, groupIdentifiers)
 
         let eventPersonProperties: string | null = null
         let personInfo: IngestionPersonData | undefined = await personContainer.get()

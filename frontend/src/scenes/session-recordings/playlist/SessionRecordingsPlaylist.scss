@@ -1,5 +1,5 @@
-@import '../../styles/mixins';
-@import '../../styles/vars';
+@import '../../../styles/mixins';
+@import '../../../styles/vars';
 
 .SessionRecordingsPlaylist {
     display: flex;
@@ -21,17 +21,10 @@
             max-width: 500px;
         }
 
-        .SessionRecordingsPlaylist__list-item.SessionRecordingsPlaylist__list-item--unwatched {
-            &:after {
-                content: '';
-                width: 0;
-                height: 0;
-                border-style: solid;
-                border-width: 0 0.75rem 0.75rem 0;
-                border-color: transparent var(--primary-light) transparent transparent;
-                right: 0;
-                top: 0;
-                position: absolute;
+        .SessionRecordingsPlaylist__list-item {
+            .SessionRecordingsPlaylist__list-item__property-icon:hover {
+                transition: opacity 200ms;
+                opacity: 1;
             }
         }
 
