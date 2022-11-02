@@ -201,7 +201,7 @@ jobs:
               if: steps.yarn-cache.cache-hit != 'true'
               run: |
                   cd plugin-server
-                  yarn
+                  yarn install --frozen-lockfile
                   yarn build
 
             - name: Wait for Clickhouse & Kafka
