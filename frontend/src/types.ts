@@ -1399,6 +1399,14 @@ export interface FunnelsTimeConversionBins {
     average_conversion_time: number
 }
 
+export interface HistogramGraphDatum {
+    id: number
+    bin0: number
+    bin1: number
+    count: number
+    label: string
+}
+
 export interface FunnelTimeConversionMetrics {
     averageTime: number
     stepRate: number
