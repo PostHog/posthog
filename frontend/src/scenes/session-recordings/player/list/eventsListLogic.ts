@@ -24,8 +24,6 @@ import Fuse from 'fuse.js'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
 
-export const DEFAULT_ROW_HEIGHT = 65 // Two lines
-export const OVERSCANNED_ROW_COUNT = 50
 export const DEFAULT_SCROLLING_RESET_TIME_INTERVAL = 150 * 5 // https://github.com/bvaughn/react-virtualized/blob/abe0530a512639c042e74009fbf647abdb52d661/source/Grid/Grid.js#L42
 
 const makeEventsQueryable = (events: RecordingEventType[]): RecordingEventType[] => {
@@ -60,7 +58,7 @@ export const eventsListLogic = kea<eventsListLogicType>([
         ],
     })),
     actions({
-        setLocalFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
+        setEventListLocalFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         setRenderedRows: (renderMeta: RenderedRows) => ({ renderMeta }),
         setList: (list: List) => ({ list }),
         enablePositionFinder: true,
@@ -69,10 +67,10 @@ export const eventsListLogic = kea<eventsListLogicType>([
         handleEventClick: (playerPosition: PlayerPosition) => ({ playerPosition }),
     }),
     reducers({
-        localFilters: [
+        eventListLocalFilters: [
             {} as Partial<RecordingEventsFilters>,
             {
-                setLocalFilters: (state, { filters }) => ({ ...state, ...filters }),
+                setEventListLocalFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
         ],
         renderedRows: [
@@ -102,9 +100,9 @@ export const eventsListLogic = kea<eventsListLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        setLocalFilters: async (_, breakpoint) => {
+        setEventListLocalFilters: async (_, breakpoint) => {
             await breakpoint(250)
-            actions.setFilters(values.localFilters)
+            actions.setFilters(values.eventListLocalFilters)
         },
         scrollTo: async ({ rowIndex: _rowIndex }, breakpoint) => {
             const rowIndex = _rowIndex ?? values.currentIndices.startIndex

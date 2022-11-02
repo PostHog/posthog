@@ -1,5 +1,9 @@
 import { Link } from 'lib/components/Link'
 import React from 'react'
+import { RecordingConsoleLog, RecordingTimeMixinType, RRWebRecordingConsoleLogPayload } from '~/types'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { ConsoleDetails, ConsoleDetailsProps } from 'scenes/session-recordings/player/list/ConsoleDetails'
+import md5 from 'md5'
 
 const STRING_INCLUDES_URL = new RegExp(
     '([a-zA-Z0-9]+://)?([a-zA-Z0-9_]+:[a-zA-Z0-9_]+@)?([a-zA-Z0-9.-]+\\.[A-Za-z]{2,4})(:[0-9]+)?(/.*)?'
@@ -8,6 +12,7 @@ const STRING_INCLUDES_URL = new RegExp(
 export interface ParsedEntry {
     type: 'array' | 'object' | 'string'
     parsed: Array<any> | Record<string, any> | React.ReactNode
+    rawString: string
     size: number
     traceUrl?: React.ReactNode // first url in stack
 }
@@ -22,6 +27,7 @@ export function parseEntry(entry?: string): ParsedEntry {
             type: 'string',
             parsed: null,
             size: 0,
+            rawString: '',
         }
     }
     // If entry is flanked by `"`'s, remove them.
@@ -35,6 +41,7 @@ export function parseEntry(entry?: string): ParsedEntry {
         return {
             type: isArray ? 'array' : 'object',
             parsed: parsedObject,
+            rawString: rawEntry,
             size: isArray ? parsedObject.length : Object.keys(parsedObject).length,
         }
     } catch {
@@ -97,8 +104,57 @@ export function parseEntry(entry?: string): ParsedEntry {
                 ))}
             </>
         ),
+        rawString: rawEntry,
         type: 'string',
         size: -1,
         traceUrl,
+    }
+}
+
+// Parses a rrweb console log payload into something the frontend likes
+export function parseConsoleLogPayload(
+    payload: RRWebRecordingConsoleLogPayload
+): Omit<RecordingConsoleLog, keyof RecordingTimeMixinType> {
+    const { level, payload: content, trace } = payload
+
+    // Parse each string entry in content and trace
+    const contentFiltered = Array.isArray(content) ? content?.filter((entry): entry is string => !!entry) ?? [] : []
+    const traceFiltered = trace?.filter((entry): entry is string => !!entry) ?? []
+    const parsedEntries = contentFiltered.map((entry) => parseEntry(entry))
+    const parsedTrace = traceFiltered.map((entry) => parseEntry(entry))
+
+    // Create a preview and full version of logs
+    const previewContent = parsedEntries
+        .map(({ type, size, parsed }) => {
+            if (['array', 'object'].includes(type)) {
+                return `${capitalizeFirstLetter(type)} (${size})`
+            }
+            return parsed
+        })
+        .flat()
+    const fullContent = [
+        ...parsedEntries.map(({ parsed, type }) => {
+            if (['array', 'object'].includes(type)) {
+                return <ConsoleDetails json={parsed as ConsoleDetailsProps['json']} />
+            }
+            return parsed
+        }),
+        ...parsedTrace.map(({ parsed }) => parsed),
+    ].flat()
+    const traceContent = parsedTrace.map(({ traceUrl }) => traceUrl).filter((traceUrl) => !!traceUrl)
+
+    const parsedPayload = contentFiltered
+        .map((item) => (item && item.startsWith('"') && item.endsWith('"') ? item.slice(1, -1) : item))
+        .join(' ')
+
+    return {
+        parsedPayload,
+        previewContent,
+        fullContent,
+        traceContent,
+        rawString: parsedEntries.map(({ rawString }) => rawString).join(' '),
+        count: 1,
+        hash: md5(parsedPayload),
+        level,
     }
 }

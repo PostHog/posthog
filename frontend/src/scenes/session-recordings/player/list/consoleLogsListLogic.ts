@@ -5,70 +5,23 @@ import {
     YesOrNoResponse,
     RecordingConsoleLog,
     RecordingSegment,
-    RecordingTimeMixinType,
     RRWebRecordingConsoleLogPayload,
     RecordingWindowFilter,
     SessionRecordingPlayerProps,
+    RecordingConsoleLogsFilters,
 } from '~/types'
 import { eventWithTime } from 'rrweb/typings/types'
 import {
     getPlayerPositionFromEpochTime,
     getPlayerTimeFromPlayerPosition,
 } from 'scenes/session-recordings/player/playerUtils'
-import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
+import { colonDelimitedDuration } from 'lib/utils'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
-import md5 from 'md5'
-import { parseEntry } from 'scenes/session-recordings/player/list/consoleLogsUtils'
-import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { ConsoleDetails, ConsoleDetailsProps } from 'scenes/session-recordings/player/list/ConsoleDetails'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { parseConsoleLogPayload } from 'scenes/session-recordings/player/list/consoleLogsUtils'
+import Fuse from 'fuse.js'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
-
-function parseConsoleLogPayload(
-    payload: RRWebRecordingConsoleLogPayload
-): Omit<RecordingConsoleLog, keyof RecordingTimeMixinType> {
-    const { level, payload: content, trace } = payload
-
-    // Parse each string entry in content and trace
-    const contentFiltered = Array.isArray(content) ? content?.filter((entry): entry is string => !!entry) ?? [] : []
-    const traceFiltered = trace?.filter((entry): entry is string => !!entry) ?? []
-    const parsedEntries = contentFiltered.map((entry) => parseEntry(entry))
-    const parsedTrace = traceFiltered.map((entry) => parseEntry(entry))
-
-    // Create a preview and full version of logs
-    const previewContent = parsedEntries
-        .map(({ type, size, parsed }) => {
-            if (['array', 'object'].includes(type)) {
-                return `${capitalizeFirstLetter(type)} (${size})`
-            }
-            return parsed
-        })
-        .flat()
-    const fullContent = [
-        ...parsedEntries.map(({ parsed, type }) => {
-            if (['array', 'object'].includes(type)) {
-                return <ConsoleDetails json={parsed as ConsoleDetailsProps['json']} />
-            }
-            return parsed
-        }),
-        ...parsedTrace.map(({ parsed }) => parsed),
-    ].flat()
-    const traceContent = parsedTrace.map(({ traceUrl }) => traceUrl).filter((traceUrl) => !!traceUrl)
-
-    const parsedPayload = contentFiltered
-        .map((item) => (item && item.startsWith('"') && item.endsWith('"') ? item.slice(1, -1) : item))
-        .join(' ')
-
-    return {
-        parsedPayload,
-        previewContent,
-        fullContent,
-        traceContent,
-        count: 1,
-        hash: md5(parsedPayload),
-        level,
-    }
-}
 
 export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'consoleLogsListLogic', key]),
@@ -77,16 +30,24 @@ export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
     connect(({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({
         logic: [eventUsageLogic],
         values: [
-            sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
-            ['sessionPlayerData'],
+            sessionRecordingDataLogic({ sessionRecordingId }),
+            ['sessionPlayerData', 'filters'],
             sharedListLogic({ sessionRecordingId, playerKey }),
             ['windowIdFilter'],
         ],
+        actions: [sessionRecordingDataLogic({ sessionRecordingId }), ['setFilters']],
     })),
     actions({
         submitFeedback: (feedback: YesOrNoResponse) => ({ feedback }),
+        setConsoleListLocalFilters: (filters: Partial<RecordingConsoleLogsFilters>) => ({ filters }),
     }),
     reducers({
+        consoleListLocalFilters: [
+            {} as Partial<RecordingConsoleLogsFilters>,
+            {
+                setConsoleListLocalFilters: (state, { filters }) => ({ ...state, ...filters }),
+            },
+        ],
         feedbackSubmitted: [
             false,
             {
@@ -94,7 +55,11 @@ export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
             },
         ],
     }),
-    listeners(({ values }) => ({
+    listeners(({ values, actions }) => ({
+        setConsoleListLocalFilters: async (_, breakpoint) => {
+            await breakpoint(250)
+            actions.setFilters(values.consoleListLocalFilters)
+        },
         submitFeedback: ({ feedback }) => {
             eventUsageLogic.actions.reportRecordingConsoleFeedback(
                 values.consoleListData.length,
@@ -105,8 +70,8 @@ export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
     })),
     selectors({
         consoleListData: [
-            (s) => [s.sessionPlayerData, s.windowIdFilter],
-            (sessionPlayerData, windowIdFilter): RecordingConsoleLog[] => {
+            (s) => [s.sessionPlayerData, s.filters, s.windowIdFilter],
+            (sessionPlayerData, filters, windowIdFilter): RecordingConsoleLog[] => {
                 const logs: RecordingConsoleLog[] = []
 
                 // Filter only snapshots from specified window
@@ -145,7 +110,22 @@ export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
                         }
                     })
                 })
-                return logs
+                return filters?.query
+                    ? new Fuse<RecordingConsoleLog>(logs, {
+                          threshold: 0.3,
+                          keys: ['rawString'],
+                          findAllMatches: true,
+                          ignoreLocation: true,
+                          sortFn: (a, b) => {
+                              const byScore = a.score - b.score
+                              return logs[a.idx].playerTime && logs[b.idx].playerTime
+                                  ? (logs[a.idx].playerTime as number) - (logs[b.idx].playerTime as number) || byScore
+                                  : byScore
+                          },
+                      })
+                          .search(filters.query)
+                          .map((result) => result.item)
+                    : logs
             },
         ],
     }),
