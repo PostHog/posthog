@@ -36,10 +36,10 @@ jobs:
         steps:
             - uses: actions/checkout@v3
 
-            - name: Set up Node 16
+            - name: Set up Node 18
               uses: actions/setup-node@v3
               with:
-                  node-version: 16
+                  node-version: 18
 
             - name: Install package.json dependencies with Yarn
               run: yarn
@@ -96,10 +96,10 @@ jobs:
                   python -m pip install -r requirements-dev.txt
                   python -m pip install -r requirements.txt
 
-            - name: Set up Node 16
+            - name: Set up Node 18
               uses: actions/setup-node@v3
               with:
-                  node-version: 16
+                  node-version: 18
 
             - name: Get yarn cache directory path
               id: yarn-cache-dir-path
@@ -178,10 +178,10 @@ jobs:
                   python -m pip install -r requirements-dev.txt
                   python -m pip install -r requirements.txt
 
-            - name: Set up Node 16
+            - name: Set up Node 18
               uses: actions/setup-node@v3
               with:
-                  node-version: 16
+                  node-version: 18
 
             - name: Get yarn cache directory path
               id: yarn-cache-dir-path
@@ -229,4 +229,4 @@ jobs:
             - name: Test with Jest
               run: |
                   cd plugin-server
-                  yarn functional_tests --maxConcurrency=20
+                  yarn functional_tests --maxConcurrency=10
