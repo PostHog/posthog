@@ -130,8 +130,10 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
                                     active={!!filters.aggregation_axis_prefix}
                                     fullWidth
                                 >
-                                    Custom prefix...
-                                    {!!filters.aggregation_axis_prefix ? `: ${filters.aggregation_axis_prefix}` : ''}
+                                    Custom prefix
+                                    {!!filters.aggregation_axis_prefix
+                                        ? `: ${filters.aggregation_axis_prefix}...`
+                                        : '...'}
                                 </LemonButton>
                                 <LemonButton
                                     onClick={() => setCustomUnitModal('postfix')}
@@ -139,8 +141,10 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
                                     active={!!filters.aggregation_axis_postfix}
                                     fullWidth
                                 >
-                                    Custom postfix...
-                                    {!!filters.aggregation_axis_postfix ? `: ${filters.aggregation_axis_postfix}` : ''}
+                                    Custom postfix
+                                    {!!filters.aggregation_axis_postfix
+                                        ? `: ${filters.aggregation_axis_postfix}...`
+                                        : '...'}
                                 </LemonButton>
                             </>
                         </>

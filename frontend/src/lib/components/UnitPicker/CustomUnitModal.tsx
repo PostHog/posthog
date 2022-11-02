@@ -57,11 +57,9 @@ export function CustomUnitModal({
             title={`Custom ${formativeElement}`}
             footer={
                 <>
-                    <div className="flex-1">
-                        <LemonButton type="secondary" data-attr="custom-prefix-cancel" onClick={onClose}>
-                            Cancel
-                        </LemonButton>
-                    </div>
+                    <LemonButton type="secondary" data-attr="custom-prefix-cancel" onClick={onClose}>
+                        Cancel
+                    </LemonButton>
                     <LemonButton
                         type="primary"
                         onClick={() => onSave({ [formativeElement]: localFormativeElementValue })}
@@ -75,16 +73,17 @@ export function CustomUnitModal({
                 label={`${capitalizeFirstLetter(formativeElement)}:`}
                 help={
                     <>
-                        A {formativeElement} of <strong>{localFormativeElementValue || '$'}</strong> would mean `123.45`
-                        would be displayed{' '}
+                        With a {formativeElement} of "<strong>{localFormativeElementValue || '$'}</strong>", 123.45 will
+                        be displayed as "
                         <strong>
                             {formativeElement === 'prefix' ? localFormativeElementValue || '$' : ''}123.45
                             {formativeElement === 'postfix' ? localFormativeElementValue || '$' : ''}
                         </strong>
+                        "
                     </>
                 }
             >
-                <LemonInput value={localFormativeElementValue} onChange={setLocalFormativeElementValue} />
+                <LemonInput value={localFormativeElementValue} onChange={setLocalFormativeElementValue} autoFocus />
             </PureField>
         </LemonModal>
     )
