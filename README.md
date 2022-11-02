@@ -3,7 +3,7 @@
 </p>
 <p align="center">
   <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
-<a href='https://posthog.com/contributors'><img src='https://img.shields.io/badge/all_contributors-242-orange.svg?style=flat-square' /></a>
+<a href='https://posthog.com/contributors'><img src='https://img.shields.io/badge/all_contributors-242-orange.svg?style=flat' /></a>
 <!-- ALL-CONTRIBUTORS-BADGE:END -->
   <a href='http://makeapullrequest.com'><img alt='PRs Welcome' src='https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=shields'/></a>
   <a href='https://posthog.com/slack'><img alt="Join Slack Community" src="https://img.shields.io/badge/slack%20community-join-blue"/></a>
