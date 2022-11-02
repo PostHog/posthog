@@ -357,6 +357,7 @@ def _events_from_filter(filter: Union[RetentionFilter, StickinessFilter, PathFil
         return []
     except Exception as exc:
         logger.error("update_cache_item.could_not_list_events_from_filter", exc=exc, exc_info=True)
+        capture_exception(exc)
         return []
 
 
