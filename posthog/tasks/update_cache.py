@@ -343,7 +343,7 @@ def _cache_includes_latest_events(
             EventDefinition.objects.filter(name__in=event_names).values_list("last_seen_at", flat=True)
         )
         if len(event_names) > 0 and len(event_names) == len(event_last_seen_at):
-            return all(last_refresh >= last_seen_at for last_seen_at in event_last_seen_at)
+            return all(last_seen_at is not None and last_refresh >= last_seen_at for last_seen_at in event_last_seen_at)
 
     return False
 
