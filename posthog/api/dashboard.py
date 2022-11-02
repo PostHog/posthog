@@ -262,7 +262,9 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         serialized_tiles = []
 
-        for tile in dashboard.tiles.exclude(deleted=True).all():
+        for tile in (
+            dashboard.tiles.exclude(deleted=True).filter(Q(insight__deleted=False) | Q(insight__isnull=True)).all()
+        ):
             if isinstance(tile.layouts, str):
                 tile.layouts = json.loads(tile.layouts)
             self.context.update({"filters_hash": tile.filters_hash})
