@@ -2,6 +2,7 @@ import datetime
 import json
 from typing import Any, Dict, List, Optional, cast
 
+import structlog
 from django.db.models import Prefetch, Q, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
@@ -25,6 +26,8 @@ from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import should_refresh
+
+logger = structlog.get_logger(__name__)
 
 
 class CanEditDashboard(BasePermission):
@@ -127,7 +130,14 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         if use_template:
             try:
                 create_dashboard_from_template(use_template, dashboard)
-            except AttributeError:
+            except AttributeError as error:
+                logger.error(
+                    "dashboard_create.create_from_template_failed",
+                    team_id=team.id,
+                    template=use_template,
+                    error=error,
+                    exc_info=True,
+                )
                 raise serializers.ValidationError({"use_template": "Invalid value provided."})
 
         elif use_dashboard:
