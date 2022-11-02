@@ -4,7 +4,6 @@ import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { BlushingHog } from 'lib/components/hedgehogs'
 import { BillingEnrollment } from 'scenes/billing/BillingEnrollment'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/components/icons'
@@ -66,12 +65,8 @@ export function BillingPanel(): JSX.Element {
                         <h1 className="ingestion-title">Add payment method</h1>
                         <BillingV2 redirectPath={urls.ingestion() + '/billing'} />
 
-                        <LemonDivider thick dashed />
-                        <a href="https://posthog.com/pricing" target="_blank">
-                            <LemonButton fullWidth center type="secondary" size="large" icon={<IconOpenInNew />}>
-                                View pricing
-                            </LemonButton>
-                        </a>
+                        <LemonDivider dashed />
+
                         <LemonButton
                             size="large"
                             fullWidth
