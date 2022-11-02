@@ -330,12 +330,12 @@ def _cache_includes_latest_events(
 
     last_refresh = payload.get("last_refresh", None)
     if last_refresh:
-        event_ids = _events_from_filter(filter)
+        event_names = _events_from_filter(filter)
 
         event_last_seen_at = list(
-            EventDefinition.objects.filter(name__in=event_ids).values_list("last_seen_at", flat=True)
+            EventDefinition.objects.filter(name__in=event_names).values_list("last_seen_at", flat=True)
         )
-        if len(event_ids) > 0 and len(event_ids) == len(event_last_seen_at):
+        if len(event_names) > 0 and len(event_names) == len(event_last_seen_at):
             return all(last_refresh >= last_seen_at for last_seen_at in event_last_seen_at)
 
     return False
