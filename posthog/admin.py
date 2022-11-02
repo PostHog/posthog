@@ -132,7 +132,8 @@ class OrganizationAdmin(admin.ModelAdmin):
         "plugins_access_level",
         "billing_plan",
         "organization_billing_link",
-        "usage",
+        "billing_link_v2",
+        "usage_posthog",
     ]
     inlines = [OrganizationTeamInline, OrganizationMemberInline]
     readonly_fields = [
@@ -141,7 +142,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "billing_plan",
         "organization_billing_link",
         "billing_link_v2",
-        "usage",
+        "usage_posthog",
     ]
     search_fields = ("name", "members__email")
     list_display = (
@@ -167,10 +168,11 @@ class OrganizationAdmin(admin.ModelAdmin):
         )
 
     def billing_link_v2(self, organization: Organization) -> str:
-        url = f"{settings.BILLING_SERVICE_URL}/admin/billing/customer/?q={organization.pk}"
+        if organization.has_billing_v2_setup:
+            url = f"{settings.BILLING_SERVICE_URL}/admin/billing/customer/?q={organization.pk}"
         return format_html(f'<a href="{url}">Billing V2 →</a>')
 
-    def usage(self, organization: Organization):
+    def usage_posthog(self, organization: Organization):
         return format_html(
             '<a target="_blank" href="/insights/new?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%2C%22math%22%3A%22dau%22%7D%5D&properties=%5B%7B%22key%22%3A%22organization_id%22%2C%22value%22%3A%22{}%22%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22person%22%7D%5D&actions=%5B%5D&new_entity=%5B%5D">See usage on PostHog →</a>',
             organization.id,

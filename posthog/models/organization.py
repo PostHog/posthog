@@ -164,7 +164,7 @@ class Organization(UUIDModel):
         """Updates field `available_features`. Does not `save()`."""
         # TODO BW: Get available features from billing service
 
-        if self.usage:
+        if self.has_billing_v2_setup:
             # Usage indicates billing V2 - we don't update billing as that is done
             # whenever the billing service is called
             return self.available_features
@@ -190,6 +190,13 @@ class Organization(UUIDModel):
         if not self.usage:
             return None
         return self.usage.get(feature, {}).get("limit", None)
+
+    @property
+    def has_billing_v2_setup(self):
+        if hasattr(self, "billing") and self.billing.stripe_subscription_id:  # type: ignore
+            return False
+
+        return self.usage is not None
 
     @property
     def active_invites(self) -> QuerySet:

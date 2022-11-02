@@ -358,6 +358,8 @@ class TestBillingAPI(APILicensedTest):
             customer=create_billing_customer(has_active_subscription=True)
         )
 
+        mock_request.return_value.json.return_value["customer"]["products"][0]["current_usage"] = 1000
+
         assert not self.organization.usage
         res = self.client.get("/api/billing-v2")
         assert res.status_code == 200
@@ -365,10 +367,40 @@ class TestBillingAPI(APILicensedTest):
         assert self.organization.usage == {
             "events": {
                 "limit": None,
-                "usage": 0,
+                "usage": 1000,
             },
             "recordings": {
                 "limit": None,
                 "usage": None,  # Our mock data has no recording product
             },
         }
+
+        def mock_implementation(url: str, headers: Any = None) -> MagicMock:
+            mock = MagicMock()
+            mock.status_code = 404
+
+            if "api/billing" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_response(customer=create_missing_billing_customer())
+            if "api/products" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_products_response()
+
+            return mock
+
+        mock_request.side_effect = mock_implementation
+
+        # Test unsubscribed config
+        with self.settings(BILLING_V2_ENABLED=True):
+            res = self.client.get("/api/billing-v2")
+            self.organization.refresh_from_db()
+            assert self.organization.usage == {
+                "events": {
+                    "limit": 10000,
+                    "usage": 0,
+                },
+                "recordings": {
+                    "limit": None,
+                    "usage": 0,
+                },
+            }
