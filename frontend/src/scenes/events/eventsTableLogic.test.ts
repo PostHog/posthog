@@ -135,6 +135,7 @@ describe('eventsTableLogic', () => {
             logic = eventsTableLogic({
                 key: 'test-key',
                 sceneUrl: urls.events(),
+                fetchMonths: 4,
             })
             logic.mount()
         })
@@ -816,6 +817,22 @@ describe('eventsTableLogic', () => {
                 }).toMatchValues({
                     pollingIsActive: true,
                 })
+            })
+
+            it('fall back load after receiving no events respects fetchMonths', async () => {
+                ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
+
+                await expectLogic(logic, () => {
+                    logic.actions.fetchEvents()
+                }).toFinishAllListeners()
+
+                const urlPrefix = `/api/projects/${MOCK_TEAM_ID}/events?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D`
+                const fiveDaysAgo = '2021-04-30'
+                const fourMonthsAgo = '2021-01-05'
+                expect((api.get as jest.Mock).mock.calls.map((c) => c[0])).toEqual([
+                    `${urlPrefix}&after=${fiveDaysAgo}T00%3A00%3A00.000Z`,
+                    `${urlPrefix}&after=${fourMonthsAgo}T00%3A00%3A00.000Z`,
+                ])
             })
         })
 
