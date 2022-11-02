@@ -390,6 +390,7 @@ class TestBillingAPI(APILicensedTest):
 
         mock_request.side_effect = mock_implementation
 
+        # Test unsubscribed config
         with self.settings(BILLING_V2_ENABLED=True):
             res = self.client.get("/api/billing-v2")
             self.organization.refresh_from_db()
