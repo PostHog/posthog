@@ -215,7 +215,7 @@ jobs:
                   ./manage.py migrate
                   ./manage.py migrate_clickhouse
 
-            - name: Test with Jest
+            - name: Start plugin-server
               env:
                   WORKER_CONCURRENCY: '1'
                   CONVERSION_BUFFER_ENABLED: 'true'
@@ -224,4 +224,9 @@ jobs:
               run: |
                   cd plugin-server
                   yarn start:dist &
+                  sleep 20
+
+            - name: Test with Jest
+              run: |
+                  cd plugin-server
                   yarn functional_tests --maxConcurrency=20
