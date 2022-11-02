@@ -1157,7 +1157,49 @@ class TestCacheEventsLastSeenUsedToSkipQueries(APIBaseTest):
     @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
     @patch("posthog.tasks.update_cache.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
-    def test_events_not_recently_ingested_are_not_queried_for_retention_insight(
+    def test_trends_with_actions_are_always_queried(
+        self,
+        patch_update_cache_item: MagicMock,
+        _patch_apply_async: MagicMock,
+        patch_calculate_by_filter: MagicMock,
+        _patched_cache_set: MagicMock,
+    ) -> None:
+        # the event has not been received since the last refresh of the item
+        # but the actions in the filter mean we don't know if the cache is valid
+
+        shared_insight = create_shared_insight(
+            self.team,
+            is_enabled=True,
+            filters={
+                "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 2}],
+                "actions": [
+                    {"id": "5", "name": "ac action", "type": "actions", "order": 0},
+                    {"id": "3", "name": "and another action", "type": "actions", "order": 1},
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "day",
+            },
+            last_refresh=datetime.now(pytz.utc) - timedelta(days=6),
+        )
+        SharingConfiguration.objects.create(team=self.team, insight=shared_insight, enabled=True)
+
+        EventDefinition.objects.create(
+            team=self.team,
+            name="$pageview",
+            last_seen_at=datetime.now(pytz.utc) - timedelta(days=7),
+        )
+
+        run_cache_update(patch_update_cache_item)
+        shared_insight.refresh_from_db()
+
+        patch_calculate_by_filter.assert_any_call(ANY, shared_insight.filters_hash, self.team, "Trends")
+
+    @patch("posthog.tasks.update_cache.cache.set")
+    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
+    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.celery.update_cache_item_task.s")
+    def test_events_not_recently_ingested_are_always_queried_for_retention_insight(
         self,
         patch_update_cache_item: MagicMock,
         _patch_apply_async: MagicMock,
@@ -1192,13 +1234,13 @@ class TestCacheEventsLastSeenUsedToSkipQueries(APIBaseTest):
         run_cache_update(patch_update_cache_item)
         shared_insight.refresh_from_db()
 
-        patch_calculate_by_filter.assert_not_called()
+        patch_calculate_by_filter.assert_any_call(ANY, shared_insight.filters_hash, self.team, "Retention")
 
     @patch("posthog.tasks.update_cache.cache.set")
     @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
     @patch("posthog.tasks.update_cache.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
-    def test_events_not_recently_ingested_are_not_queried_for_paths_insight(
+    def test_events_not_recently_ingested_are_always_queried_for_paths_insight(
         self,
         patch_update_cache_item: MagicMock,
         _patch_apply_async: MagicMock,
@@ -1232,7 +1274,7 @@ class TestCacheEventsLastSeenUsedToSkipQueries(APIBaseTest):
         run_cache_update(patch_update_cache_item)
         shared_insight.refresh_from_db()
 
-        patch_calculate_by_filter.assert_not_called()
+        patch_calculate_by_filter.assert_any_call(ANY, shared_insight.filters_hash, self.team, "Path")
 
     @patch("posthog.tasks.update_cache.cache.set")
     @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})

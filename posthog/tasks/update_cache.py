@@ -342,20 +342,19 @@ def _cache_includes_latest_events(
 
 
 def _events_from_filter(filter: Union[RetentionFilter, StickinessFilter, PathFilter, Filter]) -> List[str]:
+    """
+    If a filter only represents a set of events
+    then we can use their last_seen_at to determine if the cache is up-to-date
+
+    It would be tricky to extend that concept to other filters or to filters with actions,
+    so for now we'll just return an empty list and can (dis?)prove that this mechanism is useful
+    """
     try:
-        if isinstance(filter, RetentionFilter):
-            event_ids = [
-                str(filter.target_entity.id),
-                str(filter.returning_entity.id),
-            ]
+        if isinstance(filter, StickinessFilter) or isinstance(filter, Filter):
+            if not filter.actions:
+                return [str(e.id) for e in filter.events]
 
-        elif isinstance(filter, PathFilter):
-            event_ids = filter.target_events
-
-        else:
-            event_ids = [str(e.id) for e in filter.events]
-
-        return event_ids
+        return []
     except Exception as exc:
         logger.error("update_cache_item.could_not_list_events_from_filter", exc=exc, exc_info=True)
         return []
