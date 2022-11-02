@@ -224,7 +224,7 @@ jobs:
               run: |
                   cd plugin-server
                   yarn start:dist &
-                  sleep 20
+                  sleep 10
 
             - name: Test with Jest
               run: |
