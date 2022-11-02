@@ -162,8 +162,26 @@ def get_persons_by_uuids(team: Team, uuids: List[str]) -> QuerySet:
 
 
 def delete_person(person: Person) -> None:
+    def _get_distinct_ids_with_version() -> Dict[str, int]:
+        return {
+            distinct_id: int(version or 0)
+            for distinct_id, version in PersonDistinctId.objects.filter(person=person, team_id=person.team_id)
+            .order_by("id")
+            .values_list("distinct_id", "version")
+        }
+
+    def _delete_ch_distinct_ids(distinct_ids_to_version: Dict[str, int]):
+        for distinct_id, version in distinct_ids_to_version.items():
+            create_person_distinct_id(
+                team_id=person.team_id,
+                distinct_id=distinct_id,
+                person_id=str(person.uuid),
+                version=version + 100,
+                is_deleted=True,
+            )
+
     # This is racy https://github.com/PostHog/posthog/issues/11590
-    distinct_ids_to_version = person.get_distinct_ids_with_version()
+    distinct_ids_to_version = _get_distinct_ids_with_version()
     create_person(
         uuid=str(person.uuid),
         team_id=person.team.id,
@@ -173,18 +191,7 @@ def delete_person(person: Person) -> None:
         version=int(person.version or 0) + 100,  # keep in sync with deletePerson in plugin-server/src/utils/db/db.ts
         is_deleted=True,
     )
-    _delete_ch_distinct_ids(person=person, distinct_ids_to_version=distinct_ids_to_version)
-
-
-def _delete_ch_distinct_ids(person: Person, distinct_ids_to_version: Dict[str, int]):
-    for distinct_id, version in distinct_ids_to_version.items():
-        create_person_distinct_id(
-            team_id=person.team_id,
-            distinct_id=distinct_id,
-            person_id=str(person.uuid),
-            version=version + 100,
-            is_deleted=True,
-        )
+    _delete_ch_distinct_ids(distinct_ids_to_version=distinct_ids_to_version)
 
 
 class ClickhousePersonSerializer(serializers.Serializer):
