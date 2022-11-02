@@ -43,7 +43,9 @@ DASHBOARD_COLORS: List[str] = ["white", "blue", "green", "purple", "black"]
 def _create_website_dashboard(dashboard: Dashboard) -> None:
     dashboard.filters = {DATE_FROM: "-30d"}
     if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
-        tag, _ = Tag.objects.get_or_create(name="marketing", defaults={"team_id": dashboard.team_id})
+        tag, _ = Tag.objects.get_or_create(
+            name="marketing", team_id=dashboard.team_id, defaults={"team_id": dashboard.team_id}
+        )
         dashboard.tagged_items.create(tag_id=tag.id)
     dashboard.save(update_fields=["filters"])
 
