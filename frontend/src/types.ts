@@ -817,6 +817,7 @@ export interface BillingProductV2Type {
     name: string
     description: string
     price_description: string
+    image_url?: string
     free_allocation: number
     tiers: {
         unit_amount_usd: string
