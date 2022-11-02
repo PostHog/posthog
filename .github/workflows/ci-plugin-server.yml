@@ -225,7 +225,7 @@ jobs:
                   cd plugin-server
                   yarn start:dist &
 
-                  until curl http://localhost:6738; do
+                  until curl http://localhost:6738/_ready; do
                       echo ''
                       echo 'Waiting for plugin-server to be ready...'
                       sleep 1
