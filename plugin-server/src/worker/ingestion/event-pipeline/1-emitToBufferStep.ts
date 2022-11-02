@@ -1,9 +1,12 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { GroupId, GroupsData } from 'utils/db/db'
 
 import { KAFKA_BUFFER } from '../../../config/kafka-topics'
 import { Hub, IngestionPersonData, TeamId } from '../../../types'
 import { status } from '../../../utils/status'
+import { LazyGroupsContainer } from '../lazy-groups-container'
 import { LazyPersonContainer } from '../lazy-person-container'
+import { getGroupIdentifiers } from '../utils'
 import { EventPipelineRunner, StepResult } from './runner'
 
 export async function emitToBufferStep(
@@ -13,18 +16,23 @@ export async function emitToBufferStep(
         hub: Hub,
         event: PluginEvent,
         person: IngestionPersonData | undefined,
-        teamId: TeamId
+        teamId: TeamId,
+        groupIds: GroupId[],
+        groupsData: GroupsData
     ) => boolean = shouldSendEventToBuffer
 ): Promise<StepResult> {
     status.debug('🔁', 'Running emitToBufferStep', { event: event.event, distinct_id: event.distinct_id })
     const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, runner.hub)
+    const groupIds = getGroupIdentifiers(event.properties || {}, runner.hub.db.MAX_GROUP_TYPES_PER_TEAM)
+    const groupsContainer = new LazyGroupsContainer(event.team_id, groupIds, runner.hub.db)
+    const groupsData = await groupsContainer.get()
 
     if (event.event === '$snapshot') {
-        return runner.nextStep('processPersonsStep', event, personContainer)
+        return runner.nextStep('processPersonsStep', event, personContainer, groupsContainer)
     }
 
     const person = await personContainer.get()
-    if (shouldBuffer(runner.hub, event, person, event.team_id)) {
+    if (shouldBuffer(runner.hub, event, person, event.team_id, groupIds, groupsData)) {
         const processEventAt = Date.now() + runner.hub.BUFFER_CONVERSION_SECONDS * 1000
         status.debug('🔁', 'Emitting event to buffer', {
             event: event.event,
@@ -50,7 +58,7 @@ export async function emitToBufferStep(
         runner.hub.statsd?.increment('events_sent_to_buffer')
         return null
     } else {
-        return runner.nextStep('pluginsProcessEventStep', event, personContainer)
+        return runner.nextStep('pluginsProcessEventStep', event, personContainer, groupsContainer)
     }
 }
 
@@ -83,7 +91,9 @@ export function shouldSendEventToBuffer(
     hub: Hub,
     event: PluginEvent,
     person: IngestionPersonData | undefined,
-    teamId: TeamId
+    teamId: TeamId,
+    groupIds: GroupId[],
+    groupsData: GroupsData
 ): boolean {
     // Libraries by default create a unique id for this `type-name_value` for $groupidentify,
     // we don't want to buffer these to make group properties available asap
@@ -102,7 +112,14 @@ export function shouldSendEventToBuffer(
         !!event.properties &&
         ['posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'].includes(event.properties['$lib'])
 
-    const sendToBuffer = !isMobileLibrary && !person && !isAnonymousEvent && !isIdentifyingEvent
+    // Under the same conditions we send events to the buffer when the person doesn't exist,
+    // we also send events for which at least one group doesn't exist. This prevents race
+    // conditions with group creation.
+    const allGroupsExist = !groupIds.some(([index]) => groupsData[index] === null)
+
+    const entityMissing = !person || !allGroupsExist
+
+    const sendToBuffer = !isMobileLibrary && !isAnonymousEvent && !isIdentifyingEvent && entityMissing
 
     if (sendToBuffer) {
         hub.statsd?.increment('conversion_events_buffer_size', { teamId: event.team_id.toString() })

@@ -130,6 +130,14 @@ export interface CachedGroupData {
     created_at: ClickHouseTimestamp
 }
 
+export type GroupsColumns = Record<string, string | ClickHouseTimestamp>
+
+export interface GroupData {
+    properties: string
+    createdAt: ClickHouseTimestamp
+}
+export type GroupsData = Record<GroupTypeIndex, GroupData | null>
+
 const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'connection to server at',
     'could not translate host',
@@ -680,17 +688,11 @@ export class DB {
         await this.redisSet(groupCacheKey, groupData)
     }
 
-    public async getGroupsColumns(
-        teamId: number,
-        groupIds: GroupId[]
-    ): Promise<Record<string, string | ClickHouseTimestamp>> {
-        const groupPropertiesColumns: Record<string, string> = {}
-        const groupCreatedAtColumns: Record<string, ClickHouseTimestamp> = {}
+    public async getGroupsData(teamId: number, groupIds: GroupId[]): Promise<GroupsData> {
+        const groupsData: GroupsData = { 0: null, 1: null, 2: null, 3: null, 4: null }
 
         for (const [groupTypeIndex, groupKey] of groupIds) {
             const groupCacheKey = this.getGroupDataCacheKey(teamId, groupTypeIndex, groupKey)
-            const propertiesColumnName = `group${groupTypeIndex}_properties`
-            const createdAtColumnName = `group${groupTypeIndex}_created_at`
 
             // Lookup data from the cache, but don't throw errors - we'll fallback to Postgres if Redis is unavailable
             try {
@@ -698,8 +700,11 @@ export class DB {
 
                 if (cachedGroupData) {
                     this.statsd?.increment('group_info_cache.hit')
-                    groupPropertiesColumns[propertiesColumnName] = JSON.stringify(cachedGroupData.properties)
-                    groupCreatedAtColumns[createdAtColumnName] = cachedGroupData.created_at
+
+                    groupsData[groupTypeIndex] = {
+                        properties: JSON.stringify(cachedGroupData.properties),
+                        createdAt: cachedGroupData.created_at,
+                    }
 
                     continue
                 }
@@ -713,14 +718,15 @@ export class DB {
             const storedGroupData = await this.fetchGroup(teamId, groupTypeIndex as GroupTypeIndex, groupKey)
 
             if (storedGroupData) {
-                groupPropertiesColumns[propertiesColumnName] = JSON.stringify(storedGroupData.group_properties)
-
                 const createdAt = castTimestampOrNow(
                     storedGroupData.created_at.toUTC(),
                     TimestampFormat.ClickHouse
                 ) as ClickHouseTimestamp
 
-                groupCreatedAtColumns[createdAtColumnName] = createdAt
+                groupsData[groupTypeIndex] = {
+                    properties: JSON.stringify(storedGroupData.group_properties),
+                    createdAt: createdAt,
+                }
 
                 // We found data in Postgres, so update the cache
                 // We also don't want to throw here, worst case is we'll have to fetch from Postgres again next time
@@ -732,16 +738,20 @@ export class DB {
                 } catch (error) {
                     captureException(error)
                 }
-            } else {
-                // We couldn't find the data from the cache nor Postgres, so record this in a metric and in Sentry
-                this.statsd?.increment('groups_data_missing_entirely')
-                status.debug('🔍', `Could not find group data for group ${groupCacheKey} in cache or storage`)
+            }
+        }
 
-                groupPropertiesColumns[propertiesColumnName] = '{}'
-                groupCreatedAtColumns[createdAtColumnName] = castTimestampOrNow(
-                    DateTime.fromJSDate(new Date(0)).toUTC(),
-                    TimestampFormat.ClickHouse
-                ) as ClickHouseTimestamp
+        return groupsData
+    }
+
+    public parseGroupColumnsFromData(groupsData: GroupsData): GroupsColumns {
+        const groupPropertiesColumns: Record<string, string> = {}
+        const groupCreatedAtColumns: Record<string, ClickHouseTimestamp> = {}
+
+        for (const [groupTypeIndex, groupData] of Object.entries(groupsData)) {
+            if (groupData) {
+                groupPropertiesColumns[`group_properties_${groupTypeIndex}`] = groupData.properties
+                groupCreatedAtColumns[`group_created_at_${groupTypeIndex}`] = groupData.createdAt
             }
         }
 

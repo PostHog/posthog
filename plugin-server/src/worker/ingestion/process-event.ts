@@ -24,6 +24,7 @@ import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../uti
 import { castTimestampOrNow, UUID } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
+import { LazyGroupsContainer } from './lazy-groups-container'
 import { LazyPersonContainer } from './lazy-person-container'
 import { upsertGroup } from './properties-updater'
 import { TeamManager } from './team-manager'
@@ -172,7 +173,8 @@ export class EventsProcessor {
 
     async createEvent(
         preIngestionEvent: PreIngestionEvent,
-        personContainer: LazyPersonContainer
+        personContainer: LazyPersonContainer,
+        groupsContainer: LazyGroupsContainer
     ): Promise<PostIngestionEvent> {
         const {
             eventUuid: uuid,
@@ -186,8 +188,8 @@ export class EventsProcessor {
 
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
-        const groupIdentifiers = this.getGroupIdentifiers(properties)
-        const groupsColumns = await this.db.getGroupsColumns(teamId, groupIdentifiers)
+        const groupsData = await groupsContainer.get()
+        const groupsColumns = this.db.parseGroupColumnsFromData(groupsData)
 
         let eventPersonProperties: string | null = null
         let personInfo: IngestionPersonData | undefined = await personContainer.get()

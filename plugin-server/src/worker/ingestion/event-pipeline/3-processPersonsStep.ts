@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { normalizeEvent } from '../../../utils/event'
+import { LazyGroupsContainer } from '../lazy-groups-container'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { updatePersonState } from '../person-state'
 import { parseEventTimestamp } from '../timestamps'
@@ -9,7 +10,8 @@ import { EventPipelineRunner, StepResult } from './runner'
 export async function processPersonsStep(
     runner: EventPipelineRunner,
     pluginEvent: PluginEvent,
-    personContainer: LazyPersonContainer
+    personContainer: LazyPersonContainer,
+    groupsContainer: LazyGroupsContainer
 ): Promise<StepResult> {
     const event = normalizeEvent(pluginEvent)
     const timestamp = parseEventTimestamp(event, runner.hub.statsd)
@@ -25,5 +27,5 @@ export async function processPersonsStep(
         personContainer
     )
 
-    return runner.nextStep('prepareEventStep', event, newPersonContainer)
+    return runner.nextStep('prepareEventStep', event, newPersonContainer, groupsContainer)
 }

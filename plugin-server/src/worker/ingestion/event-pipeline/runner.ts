@@ -6,8 +6,9 @@ import { Hub, PostIngestionEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
+import { LazyGroupsContainer } from '../lazy-groups-container'
 import { LazyPersonContainer } from '../lazy-person-container'
-import { generateEventDeadLetterQueueMessage } from '../utils'
+import { generateEventDeadLetterQueueMessage, getGroupIdentifiers } from '../utils'
 import { emitToBufferStep } from './1-emitToBufferStep'
 import { pluginsProcessEventStep } from './2-pluginsProcessEventStep'
 import { processPersonsStep } from './3-processPersonsStep'
@@ -78,10 +79,13 @@ export class EventPipelineRunner {
     async runBufferEventPipeline(event: PluginEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'buffer' })
         const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, this.hub)
+        const groupIds = getGroupIdentifiers(event.properties || {}, this.hub.db.MAX_GROUP_TYPES_PER_TEAM)
+        const groupsContainer = new LazyGroupsContainer(event.team_id, groupIds, this.hub.db)
+
         // We fetch person and check for existence for metrics for buffer efficiency
         const didPersonExistAtStart = !!(await personContainer.get())
 
-        const result = await this.runPipeline('pluginsProcessEventStep', event, personContainer)
+        const result = await this.runPipeline('pluginsProcessEventStep', event, personContainer, groupsContainer)
 
         this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested', {
             didPersonExistAtStart: String(!!didPersonExistAtStart),

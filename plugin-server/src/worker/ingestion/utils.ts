@@ -1,9 +1,9 @@
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, ProcessedPluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 
-import { TeamId, TimestampFormat } from '../../types'
-import { DB } from '../../utils/db/db'
+import { GroupTypeIndex, TeamId, TimestampFormat } from '../../types'
+import { DB, GroupId } from '../../utils/db/db'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { castTimestampOrNow, castTimestampToClickhouseFormat, UUIDT } from '../../utils/utils'
 import { KAFKA_EVENTS_DEAD_LETTER_QUEUE, KAFKA_INGESTION_WARNINGS } from './../../config/kafka-topics'
@@ -76,4 +76,15 @@ export function captureIngestionWarning(db: DB, teamId: TeamId, type: string, de
             ],
         })
     )
+}
+
+export function getGroupIdentifiers(properties: Properties, maxGroupTypes: number): GroupId[] {
+    const res: GroupId[] = []
+    for (let groupTypeIndex = 0; groupTypeIndex < maxGroupTypes; ++groupTypeIndex) {
+        const key = `$group_${groupTypeIndex}`
+        if (key in properties) {
+            res.push([groupTypeIndex as GroupTypeIndex, properties[key]])
+        }
+    }
+    return res
 }
