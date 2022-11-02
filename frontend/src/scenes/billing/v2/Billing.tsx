@@ -425,13 +425,13 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                     >
                                         Billing limit
                                     </LemonLabel>
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1">
                                         {!isEditingBillingLimit ? (
                                             <>
                                                 <div
                                                     className={clsx(
-                                                        'text-muted font-semibold',
-                                                        customLimitUsd && 'font-semibold text-muted text-2xl'
+                                                        'text-muted font-semibold mr-2',
+                                                        customLimitUsd && 'text-2xl'
                                                     )}
                                                 >
                                                     {customLimitUsd ? `$${customLimitUsd}` : 'No limit'}
