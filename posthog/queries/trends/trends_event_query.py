@@ -10,7 +10,7 @@ from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
-from posthog.queries.trends.util import COUNT_PER_ACTOR_MATH_FUNCTIONS, get_active_user_params
+from posthog.queries.trends.util import get_active_user_params
 
 
 class TrendsEventQuery(EventQuery):
@@ -142,7 +142,7 @@ class TrendsEventQuery(EventQuery):
             )
 
     def _determine_should_join_distinct_ids(self) -> None:
-        is_entity_per_user = self._entity.math == UNIQUE_USERS or self._entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS
+        is_entity_per_user = self._entity.math == UNIQUE_USERS
         if (
             is_entity_per_user and not self._aggregate_users_by_distinct_id
         ) or self._column_optimizer.is_using_cohort_propertes:
