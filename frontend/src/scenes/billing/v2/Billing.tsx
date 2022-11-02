@@ -24,9 +24,11 @@ import { convertAmountToUsage, convertUsageToAmount, summarizeUsage } from './bi
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { BillingHero } from './BillingHero'
 
 export type BillingV2Props = {
     redirectPath?: string
+    compact?: boolean
 }
 
 export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
@@ -52,8 +54,13 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
     const products =
         enterprisePackage && billing?.products_enterprise ? billing?.products_enterprise : billing?.products
 
+    const { ref, size } = useResizeBreakpoints({
+        0: 'small',
+        1000: 'medium',
+    })
+
     return (
-        <div>
+        <div ref={ref}>
             {!billing && !billingLoading ? (
                 <div className="space-y-4">
                     <AlertMessage type="error">
@@ -71,7 +78,12 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
                     ) : null}
                 </div>
             ) : (
-                <div className="flex">
+                <div
+                    className={clsx('flex flex-wrap gap-4', {
+                        'flex-col pb-4 items-stretch': size === 'small',
+                        'items-center': size !== 'small',
+                    })}
+                >
                     <div className="flex-1">
                         {billing?.billing_period ? (
                             <div className="space-y-2">
@@ -94,21 +106,17 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
                                 </p>
                             </div>
                         ) : (
-                            <>
-                                <h2 className="font-bold">Add payment method</h2>
-                                <p>
-                                    Unlock premium features such as Experimentation, advanced product analytics, user
-                                    permissions and more. Subscribed users also have an increased free tier allocation{' '}
-                                    <b>every month!</b> Once setup, you can configure your billing limits to ensure you
-                                    are never billed for more than you need.
-                                </p>
-                            </>
+                            <BillingHero />
                         )}
                     </div>
 
-                    <LemonDivider vertical dashed />
-
-                    <div className="p-4 space-y-2" style={{ width: '20rem' }}>
+                    <div
+                        className={clsx('space-y-2', {
+                            'p-4': size === 'medium',
+                        })}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: size === 'medium' ? '20rem' : undefined }}
+                    >
                         {billing?.has_active_subscription ? (
                             <LemonButton
                                 type="primary"
@@ -285,7 +293,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
-        750: 'medium',
+        700: 'medium',
     })
 
     const onBillingLimitToggle = (): void => {

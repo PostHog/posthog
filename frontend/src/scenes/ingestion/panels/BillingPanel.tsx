@@ -14,6 +14,7 @@ import { Plan } from 'scenes/billing/Plan'
 import { BillingV2 } from 'scenes/billing/v2/Billing'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { urls } from 'scenes/urls'
+import { BillingHero } from 'scenes/billing/v2/BillingHero'
 
 export function BillingPanel(): JSX.Element {
     const { completeOnboarding } = useActions(ingestionLogic)
@@ -61,9 +62,16 @@ export function BillingPanel(): JSX.Element {
                         </LemonButton>
                     </div>
                 ) : (
-                    <div className="text-left">
+                    <div className="text-left flex flex-col space-y-4">
+                        <h1 className="ingestion-title">Add payment method</h1>
                         <BillingV2 redirectPath={urls.ingestion() + '/billing'} />
 
+                        <LemonDivider thick dashed />
+                        <a href="https://posthog.com/pricing" target="_blank">
+                            <LemonButton fullWidth center type="secondary" size="large" icon={<IconOpenInNew />}>
+                                View pricing
+                            </LemonButton>
+                        </a>
                         <LemonButton
                             size="large"
                             fullWidth
@@ -91,19 +99,7 @@ export function BillingPanel(): JSX.Element {
                         Your first million events every month are free. We'll let you know if you exceed this, so you
                         never get an unexpected bill.
                     </p>
-                    <div className="billing-pricing-explanation-box">
-                        <div className="p-4">
-                            <p className="text-xs uppercase my-0">How pricing works</p>
-                            <h1 className="ingestion-title">Pay per event sent to PostHog.</h1>
-                            <h1 className="ingestion-title text-danger">Get access to all features.</h1>
-                            <p className="mt-2 mb-0">
-                                Product analytics, session recording, feature flags, a/b testing, and more.
-                            </p>
-                        </div>
-                        <div className="billing-hog">
-                            <BlushingHog className="billing-hog-img" />
-                        </div>
-                    </div>
+                    <BillingHero />
                     <BillingEnrollment />
                     <div>
                         <h3 className="font-bold">No surprise bills</h3>
