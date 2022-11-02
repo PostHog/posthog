@@ -4,12 +4,19 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Drawer } from 'lib/components/Drawer'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-export function EditFilters(): JSX.Element {
+export function EditFilters(): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { insightProps } = useValues(insightLogic)
     const { setFilters } = useActions(insightLogic)
     const { filters, editOpen, editText } = useValues(editFiltersLogic(insightProps))
     const { openEditFilters, closeEditFilters, setEditText } = useActions(editFiltersLogic(insightProps))
+
+    if (!featureFlags[FEATURE_FLAGS.JSON_FILTERS]) {
+        return null
+    }
 
     let invalidJSON = false
     try {
