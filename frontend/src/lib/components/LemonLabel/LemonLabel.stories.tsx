@@ -6,6 +6,7 @@ import { LemonModal } from '@posthog/lemon-ui'
 export default {
     title: 'Lemon UI/Lemon Label',
     component: LemonLabel,
+    parameters: { chromatic: { disableSnapshot: false } },
     docs: {
         description: {
             component: `

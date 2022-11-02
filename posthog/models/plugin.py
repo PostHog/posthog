@@ -65,6 +65,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
         validated_data["latest_tag"] = None
         validated_data["archive"] = None
         validated_data["name"] = plugin_json.get("name", plugin_json_path.split("/")[-2])
+        validated_data["icon"] = plugin_json.get("icon", None)
         validated_data["description"] = plugin_json.get("description", "")
         validated_data["config_schema"] = plugin_json.get("config", [])
         validated_data["public_jobs"] = plugin_json.get("publicJobs", {})
@@ -85,6 +86,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
                 raise ValidationError("Could not find plugin.json in the plugin")
             validated_data["name"] = plugin_json["name"]
             validated_data["description"] = plugin_json.get("description", "")
+            validated_data["icon"] = plugin_json.get("icon", None)
             validated_data["config_schema"] = plugin_json.get("config", [])
             validated_data["public_jobs"] = plugin_json.get("publicJobs", {})
             posthog_version = plugin_json.get("posthogVersion", None)
@@ -151,6 +153,7 @@ class Plugin(models.Model):
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     description: models.TextField = models.TextField(null=True, blank=True)
     url: models.CharField = models.CharField(max_length=800, null=True, blank=True)
+    icon: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     # Describe the fields to ask in the interface; store answers in PluginConfig->config
     # - config_schema = { [fieldKey]: { name: 'api key', type: 'string', default: '', required: true }  }
     config_schema: models.JSONField = models.JSONField(default=dict)

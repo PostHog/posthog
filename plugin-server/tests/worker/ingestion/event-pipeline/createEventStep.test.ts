@@ -29,10 +29,10 @@ describe('createEventStep()', () => {
         }
     })
 
-    it('calls `createEvent` and forwards to `runAsyncHandlersStep`', async () => {
+    it("calls `createEvent` and doesn't advance to the async handlers step", async () => {
         const personContainer = new LazyPersonContainer(2, 'my_id', runner.hub)
         const response = await createEventStep(runner, preIngestionEvent, personContainer)
 
-        expect(response).toEqual(['runAsyncHandlersStep', preIngestionEvent, personContainer])
+        expect(response).toEqual(null) // async handlers are handled separately by reading from the clickhouse events topic
     })
 })

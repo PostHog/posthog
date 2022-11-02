@@ -3264,6 +3264,7 @@ def trend_test_factory(trends):
                 ],
             )
 
+        @snapshot_clickhouse_queries
         def test_trends_aggregate_by_distinct_id(self):
             # Stopgap until https://github.com/PostHog/meta/pull/39 is implemented
 
@@ -3333,6 +3334,19 @@ def trend_test_factory(trends):
                         self.team,
                     )
                 self.assertEqual(weekly_response[0]["data"][0], 3)  # this would be 2 without the aggregate hack
+
+                # Make sure breakdown doesn't cause us to join on pdi
+                with freeze_time("2019-12-31T13:00:01Z"):
+                    daily_response = trends().run(
+                        Filter(
+                            data={
+                                "interval": "day",
+                                "events": [{"id": "sign up", "math": "dau"}],
+                                "breakdown": "$some_prop",
+                            }
+                        ),
+                        self.team,
+                    )
 
         @test_with_materialized_columns(["$some_property"])
         def test_breakdown_filtering_limit(self):

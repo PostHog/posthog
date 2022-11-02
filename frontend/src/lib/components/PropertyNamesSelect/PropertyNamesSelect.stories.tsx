@@ -5,6 +5,7 @@ import { personPropertiesModel } from '~/models/personPropertiesModel'
 
 export default {
     title: 'Filters',
+    parameters: { chromatic: { disableSnapshot: false } },
     decorators: [
         mswDecorator({
             get: {

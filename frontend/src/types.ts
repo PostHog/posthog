@@ -454,6 +454,7 @@ export interface RecordingConsoleLog extends RecordingTimeMixinType {
     previewContent?: React.ReactNode // Content to show in first line
     fullContent?: React.ReactNode // Full content to show when item is expanded
     traceContent?: React.ReactNode // Url content to show on right side
+    rawString: string // Raw text used for fuzzy search
     level: LogLevel
 }
 
@@ -775,6 +776,10 @@ export interface SessionRecordingType {
     distinct_id?: string
     email?: string
     person?: PersonType
+}
+
+export interface SessionRecordingPropertiesType {
+    id: string
     properties?: Record<string, any>
 }
 
@@ -989,6 +994,7 @@ export interface PluginType {
     description?: string
     url?: string
     tag?: string
+    icon?: string
     latest_tag?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
@@ -1243,6 +1249,10 @@ export interface FilterType {
 }
 
 export interface RecordingEventsFilters {
+    query: string
+}
+
+export interface RecordingConsoleLogsFilters {
     query: string
 }
 

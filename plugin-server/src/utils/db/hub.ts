@@ -14,7 +14,6 @@ import { getPluginServerCapabilities } from '../../capabilities'
 import { defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KAFKA_JOBS } from '../../config/kafka-topics'
-import { GraphileWorker } from '../../main/graphile-worker/graphile-worker'
 import { connectObjectStorage } from '../../main/services/object_storage'
 import {
     EnqueuedPluginJob,
@@ -33,14 +32,13 @@ import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { SiteUrlManager } from '../../worker/ingestion/site-url-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { InternalMetrics } from '../internal-metrics'
-import { killProcess } from '../kill'
 import { status } from '../status'
-import { createPostgresPool, createRedis, logOrThrowJobQueueError, UUIDT } from '../utils'
+import { createPostgresPool, createRedis, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { PromiseManager } from './../../worker/vm/promise-manager'
 import { DB } from './db'
-import { DependencyUnavailable } from './error'
+import { DependencyUnavailableError } from './error'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 
 const { version } = require('../../../package.json')
@@ -79,10 +77,6 @@ export async function createHub(
 
     const conversionBufferEnabledTeams = new Set(
         serverConfig.CONVERSION_BUFFER_ENABLED_TEAMS.split(',').filter(String).map(Number)
-    )
-
-    const conversionBufferTopicEnabledTeams = new Set(
-        serverConfig.CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS.split(',').filter(String).map(Number)
     )
 
     if (serverConfig.STATSD_HOST) {
@@ -251,11 +245,11 @@ export async function createHub(
         } catch (error) {
             if (error instanceof KafkaJSError) {
                 // If we get a retriable Kafka error (maybe it's down for
-                // example), rethrow the error as a generic `DependencyUnavailable`
+                // example), rethrow the error as a generic `DependencyUnavailableError`
                 // passing through retriable such that we can decide if this is
                 // something we should retry at the consumer level.
                 if (error.retriable) {
-                    throw new DependencyUnavailable(error.message, 'Kafka', error)
+                    throw new DependencyUnavailableError(error.message, 'Kafka', error)
                 }
             }
 
@@ -295,14 +289,12 @@ export async function createHub(
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
         conversionBufferEnabledTeams,
-        conversionBufferTopicEnabledTeams,
     }
 
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
     hub.personManager = new PersonManager(hub as Hub)
 
-    hub.graphileWorker = new GraphileWorker(hub as Hub)
     hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
     hub.appMetrics = new AppMetrics(hub as Hub)
 
@@ -310,19 +302,8 @@ export async function createHub(
         hub.internalMetrics = new InternalMetrics(hub as Hub)
     }
 
-    try {
-        await hub.graphileWorker!.connectProducer()
-    } catch (error) {
-        try {
-            logOrThrowJobQueueError(hub as Hub, error, `Cannot start job queue producer!`)
-        } catch {
-            killProcess()
-        }
-    }
-
     const closeHub = async () => {
         hub.mmdbUpdateJob?.cancel()
-        await hub.graphileWorker?.disconnectProducer()
         await Promise.allSettled([kafkaProducer.disconnect(), redisPool.drain(), hub.postgres?.end()])
         await redisPool.clear()
     }

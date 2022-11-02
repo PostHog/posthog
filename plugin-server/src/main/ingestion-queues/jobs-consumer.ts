@@ -29,7 +29,7 @@ export const startJobsConsumer = async ({
     status.info('🔁', 'Starting jobs consumer')
 
     const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat }) => {
-        status.info('🔁', 'Processing batch', { size: batch.messages.length })
+        status.debug('🔁', 'Processing batch', { size: batch.messages.length })
         for (const message of batch.messages) {
             if (!message.value) {
                 status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
@@ -55,7 +55,12 @@ export const startJobsConsumer = async ({
                 continue
             }
 
-            status.debug('⬆️', 'Enqueuing plugin job', { job })
+            status.debug('⬆️', 'Enqueuing plugin job', {
+                type: job.type,
+                pluginConfigId: job.pluginConfigId,
+                pluginConfigTeam: job.pluginConfigTeam,
+            })
+
             try {
                 await graphileWorker.enqueue(JobName.PLUGIN_JOB, job)
                 resolveOffset(message.offset)

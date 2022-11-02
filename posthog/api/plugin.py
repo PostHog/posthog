@@ -195,6 +195,7 @@ class PluginSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "url",
+            "icon",
             "config_schema",
             "tag",
             "latest_tag",
