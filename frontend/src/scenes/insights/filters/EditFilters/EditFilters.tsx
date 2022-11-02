@@ -7,8 +7,16 @@ import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 
 export function EditFilters(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
+    const { setFilters } = useActions(insightLogic)
     const { filters, editOpen, editText } = useValues(editFiltersLogic(insightProps))
     const { openEditFilters, closeEditFilters, setEditText } = useActions(editFiltersLogic(insightProps))
+
+    let invalidJSON = false
+    try {
+        JSON.parse(editText)
+    } catch (e) {
+        invalidJSON = true
+    }
 
     return (
         <>
@@ -27,8 +35,28 @@ export function EditFilters(): JSX.Element {
                 <code>&lt;/&gt;</code>
             </LemonButton>
             {editOpen ? (
-                <Drawer visible={editOpen} onClose={closeEditFilters} width={440}>
+                <Drawer
+                    visible={editOpen}
+                    onClose={closeEditFilters}
+                    width={440}
+                    footer={
+                        <div className="flex space-x-2">
+                            <LemonButton
+                                type="primary"
+                                onClick={() => setFilters(JSON.parse(editText))}
+                                disabled={invalidJSON}
+                                tooltip={invalidJSON ? 'Invalid JSON' : null}
+                            >
+                                Update
+                            </LemonButton>
+                            <LemonButton type="secondary" onClick={closeEditFilters}>
+                                Cancel
+                            </LemonButton>
+                        </div>
+                    }
+                >
                     <LemonTextArea value={editText} onChange={(val) => setEditText(val)} />
+                    {invalidJSON ? <div className="text-red">Invalid JSON</div> : null}
                 </Drawer>
             ) : null}
         </>

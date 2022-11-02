@@ -3,7 +3,6 @@ import type { editFiltersLogicType } from './editFiltersLogicType'
 import { InsightLogicProps } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { forms } from 'kea-forms'
 
 export const editFiltersLogic = kea<editFiltersLogicType>([
     props({} as InsightLogicProps),
@@ -17,13 +16,6 @@ export const editFiltersLogic = kea<editFiltersLogicType>([
         openEditFilters: (filters: Record<string, any>) => ({ filters }),
         closeEditFilters: true,
         setEditText: (value: string) => ({ value }),
-    }),
-    forms({
-        editForm: {
-            defaults: {
-                editText: '',
-            },
-        },
     }),
     reducers({
         editOpen: [false, { openEditFilters: () => true, closeEditFilters: () => false }],
