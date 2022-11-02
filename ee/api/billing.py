@@ -331,7 +331,7 @@ class BillingViewset(viewsets.GenericViewSet):
             for product in data["products"]:
                 if product["type"] in usage:
                     usage[product["type"]]["usage"] = product["current_usage"]
-                    usage[product["type"]]["limit"] = product.get("usage_limit", product.get("free_allocation"))
+                    usage[product["type"]]["limit"] = product.get("usage_limit")
         else:
             # We don't have a subscription so use the calculated usage
             calculated_usage = get_cached_current_usage(organization)
@@ -342,7 +342,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
             for product in data["products"]:
                 if product["type"] in usage:
-                    usage[product["type"]]["limit"] = product.get("usage_limit", product.get("free_allocation"))
+                    usage[product["type"]]["limit"] = product.get("free_allocation")
 
         if usage != organization.usage:
             organization.usage = usage

@@ -358,6 +358,8 @@ class TestBillingAPI(APILicensedTest):
             customer=create_billing_customer(has_active_subscription=True)
         )
 
+        mock_request.return_value.json.return_value["customer"]["products"][0]["current_usage"] = 1000
+
         assert not self.organization.usage
         res = self.client.get("/api/billing-v2")
         assert res.status_code == 200
@@ -365,7 +367,7 @@ class TestBillingAPI(APILicensedTest):
         assert self.organization.usage == {
             "events": {
                 "limit": None,
-                "usage": 0,
+                "usage": 1000,
             },
             "recordings": {
                 "limit": None,
