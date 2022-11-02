@@ -215,12 +215,6 @@ export async function startPluginsServer(
         // 3. clickhouse_events_json and plugin_events_ingestion
         // 4. conversion_events_buffer
         //
-        if (hub.capabilities.http) {
-            // start http server used for the healthcheck
-            // TODO: include bufferConsumer in healthcheck
-            httpServer = createHttpServer(hub!, serverInstance as ServerInstance)
-        }
-
         if (hub.capabilities.processPluginJobs || hub.capabilities.pluginScheduledTasks) {
             graphileWorker = new GraphileWorker(hub)
             // `connectProducer` just runs the PostgreSQL migrations. Ideally it
@@ -371,6 +365,12 @@ export async function startPluginsServer(
 
         hub.lastActivity = new Date().valueOf()
         hub.lastActivityType = 'serverStart'
+
+        if (hub.capabilities.http) {
+            // start http server used for the healthcheck
+            // TODO: include bufferConsumer in healthcheck
+            httpServer = createHttpServer(hub!, serverInstance as ServerInstance)
+        }
 
         return serverInstance as ServerInstance
     } catch (error) {
