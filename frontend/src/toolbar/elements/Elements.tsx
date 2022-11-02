@@ -22,7 +22,8 @@ export function Elements(): JSX.Element {
         highlightElementMeta,
     } = useValues(elementsLogic)
     const { setHoverElement, selectElement } = useActions(elementsLogic)
-    const { highestClickCount } = useValues(heatmapLogic)
+    const { highestClickCount, shiftPressed } = useValues(heatmapLogic)
+    const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
 
     return (
         <>
@@ -59,7 +60,7 @@ export function Elements(): JSX.Element {
                         key={`inspect-${index}`}
                         rect={rect}
                         style={{
-                            pointerEvents: 'all',
+                            pointerEvents: heatmapPointerEvents,
                             cursor: 'pointer',
                             zIndex: 0,
                             opacity:
@@ -83,7 +84,7 @@ export function Elements(): JSX.Element {
                             <HeatmapElement
                                 rect={rect}
                                 style={{
-                                    pointerEvents: inspectEnabled ? 'none' : 'all',
+                                    pointerEvents: inspectEnabled ? 'none' : heatmapPointerEvents,
                                     zIndex: 1,
                                     opacity: !hoverElement || hoverElement === element ? 1 : 0.4,
                                     transition: 'opacity 0.2s, box-shadow 0.2s',
@@ -101,7 +102,7 @@ export function Elements(): JSX.Element {
                             <HeatmapLabel
                                 rect={rect}
                                 style={{
-                                    pointerEvents: 'all',
+                                    pointerEvents: heatmapPointerEvents,
                                     zIndex: 5,
                                     opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
                                     transition: 'opacity 0.2s, transform 0.2s linear',
@@ -136,7 +137,7 @@ export function Elements(): JSX.Element {
                                     opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
                                     transition: 'opacity 0.2s, transform 0.2s linear',
                                     transform: hoverElement === element ? 'scale(1.3)' : 'none',
-                                    pointerEvents: 'all',
+                                    pointerEvents: heatmapPointerEvents,
                                     cursor: 'pointer',
                                     color: 'hsla(141, 21%, 12%, 1)',
                                     background: 'hsl(147, 100%, 62%)',
