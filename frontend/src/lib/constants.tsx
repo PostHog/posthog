@@ -129,6 +129,7 @@ export const FEATURE_FLAGS = {
     FEEDBACK_BUTTON: 'feedback-button', // owner: @luke
     RECORDING_LIST_ICONS: 'recording-list-icons', // owner: @benjackwhite
     RECORDINGS_ON_FEATURE_FLAGS: 'recordings-on-feature-flags', // owner: @EDsCODE
+    WEBSITE_ANALYTICS_TEMPLATE: 'website-analytics-template', // owner: @pauldambra
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
