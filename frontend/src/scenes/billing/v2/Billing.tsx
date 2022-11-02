@@ -10,7 +10,7 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Spinner, SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { AlertMessage } from 'lib/components/AlertMessage'
@@ -421,7 +421,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                                     Your critical data will still be ingested and available in the
                                                     product
                                                 </b>
-                                                . Some features may cease operation if your usage greatly exceeds your
+                                                . Some features may stop working if your usage greatly exceeds your
                                                 billing cap.
                                             </>
                                         }
@@ -455,13 +455,12 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                             >
                                                 Save
                                             </LemonButton>
-                                        ) : billingLoading ? (
-                                            <Spinner className="text-lg" />
                                         ) : (
                                             <LemonSwitch
                                                 className="my-2"
                                                 checked={showBillingLimit}
                                                 onChange={onBillingLimitToggle}
+                                                disabled={billingLoading}
                                             />
                                         )}
                                     </div>
