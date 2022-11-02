@@ -145,6 +145,7 @@ jobs:
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_DATABASE: 'posthog_test'
             KAFKA_HOSTS: 'kafka:9092'
+            DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
 
         steps:
             - name: Code check out
@@ -198,32 +199,28 @@ jobs:
 
             - name: Install package.json dependencies with Yarn
               if: steps.yarn-cache.cache-hit != 'true'
-              run: cd plugin-server && yarn
+              run: |
+                  cd plugin-server
+                  yarn
+                  yarn build
 
             - name: Wait for Clickhouse & Kafka
               run: bin/check_kafka_clickhouse_up
 
             - name: Set up databases
               env:
-                  TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-              run: cd plugin-server && yarn setup:test
+              run: |
+                  ./manage.py migrate
+                  ./manage.py migrate_clickhouse
 
             - name: Test with Jest
               env:
-                  # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
-                  REDIS_URL: 'redis://localhost'
+                  WORKER_CONCURRENCY: '1'
+                  CONVERSION_BUFFER_ENABLED: 'true'
+                  BUFFER_CONVERSION_SECONDS: '2' # Make sure we don't have to wait for the default 60 seconds
+                  KAFKA_MAX_MESSAGE_BATCH_SIZE: '0'
               run: |
-                  # NOTE: we use a concurrency of 1 as there seems to be some
-                  # instability otherwise. I don't see this instability locally.
-                  cd plugin-server && yarn functional_tests --maxConcurrency=1 --coverage
-
-            - name: Uploader
-              uses: actions/upload-artifact@v3
-              with:
-                  name: functional-coverage
-                  if-no-files-found: warn
-                  retention-days: 1
-                  path: 'plugin-server/coverage'
+                  cd plugin-server
+                  yarn start:dist &
+                  yarn functional_tests --maxConcurrency=20

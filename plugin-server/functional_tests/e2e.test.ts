@@ -1,5 +1,5 @@
 import ClickHouse from '@posthog/clickhouse'
-import { createServer, Server } from 'http'
+import { createServer } from 'http'
 import Redis from 'ioredis'
 import { Consumer, Kafka, KafkaMessage, Partitioners, Producer } from 'kafkajs'
 import { Pool } from 'pg'
@@ -8,23 +8,8 @@ import { v4 as uuidv4 } from 'uuid'
 import { defaultConfig } from '../src/config/config'
 import { ONE_HOUR } from '../src/config/constants'
 import {
-    KAFKA_BUFFER,
-    KAFKA_EVENTS_DEAD_LETTER_QUEUE,
-    KAFKA_EVENTS_JSON,
-    KAFKA_EVENTS_PLUGIN_INGESTION,
-    KAFKA_GROUPS,
-    KAFKA_PERSON,
-    KAFKA_PERSON_DISTINCT_ID,
-    KAFKA_PERSON_UNIQUE_ID,
-    KAFKA_PLUGIN_LOG_ENTRIES,
-    KAFKA_SESSION_RECORDING_EVENTS,
-} from '../src/config/kafka-topics'
-import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
-import {
     ActionStep,
-    LogLevel,
     PluginLogEntry,
-    PluginsServerConfig,
     RawAction,
     RawClickHouseEvent,
     RawPerson,
@@ -34,45 +19,8 @@ import { Plugin, PluginConfig } from '../src/types'
 import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
 import { delayUntilEventIngested } from '../tests/helpers/clickhouse'
-import { createTopics } from '../tests/helpers/kafka'
 import { insertRow } from '../tests/helpers/sql'
-
-jest.setTimeout(60000) // 60 sec timeout
-
-const extraServerConfig: Partial<PluginsServerConfig> = {
-    WORKER_CONCURRENCY: 1,
-    LOG_LEVEL: LogLevel.Log,
-    // Conversion buffer is now default enabled, so we should enable it for
-    // tests.
-    CONVERSION_BUFFER_ENABLED: true,
-    // Enable buffer topic for all teams. We are already testing the legacy
-    // functionality in `e2e.buffer.test.ts`, which we can remove once we've
-    // completely switched over.
-    CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: '*',
-    // To enable the tests for person on events to work as expected, we need to
-    // add a slight delay.
-    BUFFER_CONVERSION_SECONDS: 2,
-    // Make sure producer flushes for each message immediately. Note that this
-    // does mean that we are not testing the async nature of the producer by
-    // doing this.
-    // TODO: update producer queueMessage functionality to have flush run async
-    // even if the queue is full and flush needs to be called.
-    KAFKA_MAX_MESSAGE_BATCH_SIZE: 0,
-}
-
-const startMultiServer = async () => {
-    // All capabilities run as separate servers
-    const ingestionServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'ingestion' })
-    const asyncServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'exports' })
-    const jobsServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'jobs' })
-    const schedulerServer = startPluginsServer({ ...extraServerConfig, PLUGIN_SERVER_MODE: 'scheduler' })
-
-    return await Promise.all([ingestionServer, asyncServer, jobsServer, schedulerServer])
-}
-
-const startSingleServer = async () => {
-    return [await startPluginsServer(extraServerConfig)]
-}
+// import { beforeAll, afterAll, test, expect } from 'vitest'
 
 let producer: Producer
 let clickHouseClient: ClickHouse
@@ -99,18 +47,6 @@ beforeAll(async () => {
         },
     })
     kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS] })
-    await createTopics(kafka, [
-        KAFKA_EVENTS_JSON,
-        KAFKA_EVENTS_PLUGIN_INGESTION,
-        KAFKA_BUFFER,
-        KAFKA_GROUPS,
-        KAFKA_SESSION_RECORDING_EVENTS,
-        KAFKA_PERSON,
-        KAFKA_PERSON_UNIQUE_ID,
-        KAFKA_PERSON_DISTINCT_ID,
-        KAFKA_PLUGIN_LOG_ENTRIES,
-        KAFKA_EVENTS_DEAD_LETTER_QUEUE,
-    ])
     producer = kafka.producer({ createPartitioner: Partitioners.DefaultPartitioner })
     await producer.connect()
     redis = new Redis(defaultConfig.REDIS_URL)
@@ -122,19 +58,13 @@ afterAll(async () => {
     await Promise.all([producer.disconnect(), postgres.end(), redis.disconnect()])
 })
 
-describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) => {
-    let pluginsServers: ServerInstance[]
-
-    beforeAll(async () => {
-        pluginsServers = await pluginServer()
-    })
-
-    afterAll(async () => {
-        await Promise.all(pluginsServers.map((instance) => instance.stop()))
-    })
-
-    describe(`plugin method tests (${pluginServer.name})`, () => {
-        const indexJs = `
+test.concurrent(`plugin method tests: event captured, processed, ingested`, async () => {
+    const plugin = await createPlugin(postgres, {
+        organization_id: organizationId,
+        name: 'test plugin',
+        plugin_type: 'source',
+        is_global: false,
+        source__index_ts: `
             export async function processEvent(event) {
                 event.properties.processed = 'hell yes'
                 event.properties.upperUuid = event.properties.uuid?.toUpperCase()
@@ -151,958 +81,964 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
                 }
                 console.info(JSON.stringify(['onEvent', event]))
             }
-        `
+        `,
+    })
+    const teamId = await createTeam(postgres, organizationId)
+    const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
 
-        test('event captured, processed, ingested', async () => {
-            const plugin = await createPlugin(postgres, {
-                organization_id: organizationId,
-                name: 'test plugin',
-                plugin_type: 'source',
-                is_global: false,
-                source__index_ts: indexJs,
-            })
-            const teamId = await createTeam(postgres, organizationId)
-            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
-            const distinctId = new UUIDT().toString()
-            const uuid = new UUIDT().toString()
+    const event = {
+        event: 'custom event',
+        properties: { name: 'haha' },
+    }
 
-            const event = {
-                event: 'custom event',
-                properties: { name: 'haha' },
+    await capture(producer, teamId, distinctId, uuid, event.event, event.properties)
+
+    await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
+    const events = await fetchEvents(clickHouseClient, teamId)
+    expect(events.length).toBe(1)
+
+    // processEvent ran and modified
+    expect(events[0].properties.processed).toEqual('hell yes')
+    expect(events[0].properties.upperUuid).toEqual(uuid.toUpperCase())
+
+    // onEvent ran
+    const onEvent = await delayUntilEventIngested(
+        async () =>
+            (
+                await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+            ).filter(({ message: [method] }) => method === 'onEvent'),
+        1,
+        500,
+        40
+    )
+
+    expect(onEvent.length).toBeGreaterThan(0)
+
+    const onEventEvent = onEvent[0].message[1]
+    expect(onEventEvent.event).toEqual('custom event')
+    expect(onEventEvent.properties).toEqual(expect.objectContaining(event.properties))
+})
+
+test.concurrent(
+    `plugin method tests: correct $autocapture properties included in onEvent calls`,
+    async () => {
+        // The plugin server does modifications to the `event.properties`
+        // and as a results we remove the initial `$elements` from the
+        // object. Thus we want to ensure that this information is passed
+        // through to any plugins with `onEvent` handlers
+        const plugin = await createPlugin(postgres, {
+            organization_id: organizationId,
+            name: 'test plugin',
+            plugin_type: 'source',
+            is_global: false,
+            source__index_ts: `
+            export async function processEvent(event) {
+                event.properties.processed = 'hell yes'
+                event.properties.upperUuid = event.properties.uuid?.toUpperCase()
+                event.properties['$snapshot_data'] = 'no way'
+                return event
             }
+    
+            export function onEvent (event, { global }) {
+                // we use this to mock setupPlugin being
+                // run after some events were already ingested
+                global.timestampBoundariesForTeam = {
+                    max: new Date(),
+                    min: new Date(Date.now()-${ONE_HOUR})
+                }
+                console.info(JSON.stringify(['onEvent', event]))
+            }
+        `,
+        })
+        const teamId = await createTeam(postgres, organizationId)
+        const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
 
-            await capture(producer, teamId, distinctId, uuid, event.event, event.properties)
+        const distinctId = new UUIDT().toString()
+        const uuid = new UUIDT().toString()
 
-            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
-            const events = await fetchEvents(clickHouseClient, teamId)
-            expect(events.length).toBe(1)
+        const properties = {
+            $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+        }
 
-            // processEvent ran and modified
-            expect(events[0].properties.processed).toEqual('hell yes')
-            expect(events[0].properties.upperUuid).toEqual(uuid.toUpperCase())
+        const event = {
+            event: '$autocapture',
+            properties: properties,
+        }
 
-            // onEvent ran
-            const onEvent = await delayUntilEventIngested(
-                async () =>
-                    (
-                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                    ).filter(({ message: [method] }) => method === 'onEvent'),
-                1,
-                500,
-                40
-            )
+        await capture(producer, teamId, distinctId, uuid, event.event, event.properties)
 
-            expect(onEvent.length).toBeGreaterThan(0)
+        const onEvent = await delayUntilEventIngested(
+            async () =>
+                (
+                    await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                ).filter(({ message: [method] }) => method === 'onEvent'),
+            1,
+            500,
+            40
+        )
 
-            const onEventEvent = onEvent[0].message[1]
-            expect(onEventEvent.event).toEqual('custom event')
-            expect(onEventEvent.properties).toEqual(expect.objectContaining(event.properties))
+        expect(onEvent.length).toBeGreaterThan(0)
+
+        const onEventEvent = onEvent[0].message[1]
+        expect(onEventEvent.elements).toEqual([
+            expect.objectContaining({
+                attributes: {},
+                nth_child: 1,
+                nth_of_type: 2,
+                tag_name: 'div',
+                text: '💻',
+            }),
+        ])
+    },
+    20000
+)
+
+test.concurrent(
+    `session recording ingestion: snapshot captured, processed, ingested`,
+    async () => {
+        const teamId = await createTeam(postgres, organizationId)
+        const distinctId = new UUIDT().toString()
+        const uuid = new UUIDT().toString()
+
+        await capture(producer, teamId, distinctId, uuid, '$snapshot', {
+            $session_id: '1234abc',
+            $snapshot_data: 'yes way',
         })
 
-        test('correct $autocapture properties included in onEvent calls', async () => {
-            // The plugin server does modifications to the `event.properties`
-            // and as a results we remove the initial `$elements` from the
-            // object. Thus we want to ensure that this information is passed
-            // through to any plugins with `onEvent` handlers
-            const plugin = await createPlugin(postgres, {
-                organization_id: organizationId,
-                name: 'test plugin',
-                plugin_type: 'source',
-                is_global: false,
-                source__index_ts: indexJs,
-            })
-            const teamId = await createTeam(postgres, organizationId)
-            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+        await delayUntilEventIngested(() => fetchSessionRecordingsEvents(clickHouseClient, teamId), 1, 500, 40)
+        const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
+        expect(events.length).toBe(1)
 
-            const distinctId = new UUIDT().toString()
-            const uuid = new UUIDT().toString()
+        // processEvent did not modify
+        expect(events[0].snapshot_data).toEqual('yes way')
+    },
+    20000
+)
 
-            const properties = {
-                $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
-            }
+test.concurrent(`event ingestion: can set and update group properties`, async () => {
+    const teamId = await createTeam(postgres, organizationId)
+    const distinctId = new UUIDT().toString()
 
-            const event = {
-                event: '$autocapture',
-                properties: properties,
-            }
-
-            await capture(producer, teamId, distinctId, uuid, event.event, event.properties)
-
-            const onEvent = await delayUntilEventIngested(
-                async () =>
-                    (
-                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                    ).filter(({ message: [method] }) => method === 'onEvent'),
-                1,
-                500,
-                40
-            )
-
-            expect(onEvent.length).toBeGreaterThan(0)
-
-            const onEventEvent = onEvent[0].message[1]
-            expect(onEventEvent.elements).toEqual([
-                expect.objectContaining({
-                    attributes: {},
-                    nth_child: 1,
-                    nth_of_type: 2,
-                    tag_name: 'div',
-                    text: '💻',
-                }),
-            ])
-        }, 20000)
+    const groupIdentityUuid = new UUIDT().toString()
+    await capture(producer, teamId, distinctId, groupIdentityUuid, '$groupidentify', {
+        distinct_id: distinctId,
+        $group_type: 'organization',
+        $group_key: 'posthog',
+        $group_set: {
+            prop: 'value',
+        },
     })
 
-    describe(`session recording ingestion (${pluginServer.name})`, () => {
-        test('snapshot captured, processed, ingested', async () => {
-            const teamId = await createTeam(postgres, organizationId)
-            const distinctId = new UUIDT().toString()
-            const uuid = new UUIDT().toString()
+    const [firstGroupIdentity] = await delayUntilEventIngested(
+        () => fetchEvents(clickHouseClient, teamId, groupIdentityUuid),
+        1,
+        500,
+        40
+    )
+    expect(firstGroupIdentity.event).toBeDefined()
 
-            await capture(producer, teamId, distinctId, uuid, '$snapshot', {
-                $session_id: '1234abc',
-                $snapshot_data: 'yes way',
-            })
+    const firstEventUuid = new UUIDT().toString()
+    await capture(producer, teamId, distinctId, firstEventUuid, 'custom event', {
+        name: 'haha',
+        $group_0: 'posthog',
+    })
+    const [firstEvent] = await delayUntilEventIngested(
+        () => fetchEvents(clickHouseClient, teamId, firstEventUuid),
+        1,
+        500,
+        40
+    )
+    expect(firstEvent).toEqual(
+        expect.objectContaining({
+            $group_0: 'posthog',
+            group0_properties: {
+                prop: 'value',
+            },
+        })
+    )
 
-            await delayUntilEventIngested(() => fetchSessionRecordingsEvents(clickHouseClient, teamId), 1, 500, 40)
-            const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
-            expect(events.length).toBe(1)
-
-            // processEvent did not modify
-            expect(events[0].snapshot_data).toEqual('yes way')
-        }, 20000)
+    const secondGroupIdentityUuid = new UUIDT().toString()
+    await capture(producer, teamId, distinctId, secondGroupIdentityUuid, '$groupidentify', {
+        distinct_id: distinctId,
+        $group_type: 'organization',
+        $group_key: 'posthog',
+        $group_set: {
+            prop: 'updated value',
+        },
     })
 
-    describe(`event ingestion (${pluginServer.name})`, () => {
-        test('can set and update group properties', async () => {
-            const teamId = await createTeam(postgres, organizationId)
-            const distinctId = new UUIDT().toString()
+    const [secondGroupIdentity] = await delayUntilEventIngested(
+        () => fetchEvents(clickHouseClient, teamId, secondGroupIdentityUuid),
+        1,
+        500,
+        40
+    )
+    expect(secondGroupIdentity).toBeDefined()
 
-            const groupIdentityUuid = new UUIDT().toString()
-            await capture(producer, teamId, distinctId, groupIdentityUuid, '$groupidentify', {
-                distinct_id: distinctId,
-                $group_type: 'organization',
-                $group_key: 'posthog',
-                $group_set: {
-                    prop: 'value',
-                },
-            })
-
-            const [firstGroupIdentity] = await delayUntilEventIngested(
-                () => fetchEvents(clickHouseClient, teamId, groupIdentityUuid),
-                1,
-                500,
-                40
-            )
-            expect(firstGroupIdentity.event).toBeDefined()
-
-            const firstEventUuid = new UUIDT().toString()
-            await capture(producer, teamId, distinctId, firstEventUuid, 'custom event', {
-                name: 'haha',
-                $group_0: 'posthog',
-            })
-            const [firstEvent] = await delayUntilEventIngested(
-                () => fetchEvents(clickHouseClient, teamId, firstEventUuid),
-                1,
-                500,
-                40
-            )
-            expect(firstEvent).toEqual(
-                expect.objectContaining({
-                    $group_0: 'posthog',
-                    group0_properties: {
-                        prop: 'value',
-                    },
-                })
-            )
-
-            const secondGroupIdentityUuid = new UUIDT().toString()
-            await capture(producer, teamId, distinctId, secondGroupIdentityUuid, '$groupidentify', {
-                distinct_id: distinctId,
-                $group_type: 'organization',
-                $group_key: 'posthog',
-                $group_set: {
-                    prop: 'updated value',
-                },
-            })
-
-            const [secondGroupIdentity] = await delayUntilEventIngested(
-                () => fetchEvents(clickHouseClient, teamId, secondGroupIdentityUuid),
-                1,
-                500,
-                40
-            )
-            expect(secondGroupIdentity).toBeDefined()
-
-            const secondEventUuid = new UUIDT().toString()
-            await capture(producer, teamId, distinctId, secondEventUuid, 'custom event', {
-                name: 'haha',
-                $group_0: 'posthog',
-            })
-            const [event] = await delayUntilEventIngested(
-                () => fetchEvents(clickHouseClient, teamId, secondEventUuid),
-                1,
-                500,
-                40
-            )
-            expect(event).toEqual(
-                expect.objectContaining({
-                    $group_0: 'posthog',
-                    group0_properties: {
-                        prop: 'updated value',
-                    },
-                })
-            )
+    const secondEventUuid = new UUIDT().toString()
+    await capture(producer, teamId, distinctId, secondEventUuid, 'custom event', {
+        name: 'haha',
+        $group_0: 'posthog',
+    })
+    const [event] = await delayUntilEventIngested(
+        () => fetchEvents(clickHouseClient, teamId, secondEventUuid),
+        1,
+        500,
+        40
+    )
+    expect(event).toEqual(
+        expect.objectContaining({
+            $group_0: 'posthog',
+            group0_properties: {
+                prop: 'updated value',
+            },
         })
+    )
+})
 
-        test('can $set and update person properties', async () => {
-            const teamId = await createTeam(postgres, organizationId)
-            const distinctId = new UUIDT().toString()
-            const personEventUuid = new UUIDT().toString()
+test.concurrent(`event ingestion: can $set and update person properties`, async () => {
+    const teamId = await createTeam(postgres, organizationId)
+    const distinctId = new UUIDT().toString()
+    const personEventUuid = new UUIDT().toString()
 
-            await capture(producer, teamId, distinctId, personEventUuid, '$identify', {
-                distinct_id: distinctId,
-                $set: { prop: 'value' },
-            })
-
-            const firstUuid = new UUIDT().toString()
-
-            await capture(producer, teamId, distinctId, firstUuid, 'custom event', {})
-
-            const [firstEvent] = await delayUntilEventIngested(
-                () => fetchEvents(clickHouseClient, teamId, firstUuid),
-                1,
-                500,
-                40
-            )
-            expect(firstEvent).toEqual(
-                expect.objectContaining({
-                    person_properties: {
-                        prop: 'value',
-                    },
-                })
-            )
-
-            await capture(producer, teamId, distinctId, personEventUuid, '$identify', {
-                distinct_id: distinctId,
-                $set: { prop: 'updated value' },
-            })
-
-            const secondUuid = new UUIDT().toString()
-
-            await capture(producer, teamId, distinctId, secondUuid, 'custom event', {})
-
-            const [secondEvent] = await delayUntilEventIngested(
-                () => fetchEvents(clickHouseClient, teamId, secondUuid),
-                1,
-                500,
-                40
-            )
-            expect(secondEvent).toEqual(
-                expect.objectContaining({
-                    person_properties: {
-                        prop: 'updated value',
-                    },
-                })
-            )
-        })
-
-        test('can $set_once person properties but not update', async () => {
-            const teamId = await createTeam(postgres, organizationId)
-            const distinctId = new UUIDT().toString()
-
-            const personEventUuid = new UUIDT().toString()
-            await capture(producer, teamId, distinctId, personEventUuid, '$identify', {
-                distinct_id: distinctId,
-                $set_once: { prop: 'value' },
-            })
-
-            const firstUuid = new UUIDT().toString()
-            await capture(producer, teamId, distinctId, firstUuid, 'custom event', {})
-
-            const [firstEvent] = await delayUntilEventIngested(
-                () => fetchEvents(clickHouseClient, teamId, firstUuid),
-                1,
-                500,
-                40
-            )
-            expect(firstEvent).toEqual(
-                expect.objectContaining({
-                    person_properties: {
-                        prop: 'value',
-                    },
-                })
-            )
-
-            await capture(producer, teamId, distinctId, personEventUuid, '$identify', {
-                distinct_id: distinctId,
-                $set_once: { prop: 'updated value' },
-            })
-
-            const secondUuid = new UUIDT().toString()
-            await capture(producer, teamId, distinctId, secondUuid, 'custom event', {})
-
-            const [secondEvent] = await delayUntilEventIngested(
-                () => fetchEvents(clickHouseClient, teamId, secondUuid),
-                1,
-                500,
-                40
-            )
-            expect(secondEvent).toEqual(
-                expect.objectContaining({
-                    person_properties: {
-                        prop: 'value',
-                    },
-                })
-            )
-        })
-
-        test('anonymous event recieves same person_id if $identify happenes shortly after', async () => {
-            // NOTE: this test depends on there being a delay between the
-            // anonymouse event ingestion and the processing of this event.
-            const teamId = await createTeam(postgres, organizationId)
-            const initialDistinctId = 'initialDistinctId'
-            const returningDistinctId = 'returningDistinctId'
-            const personIdentifier = 'test@posthog.com'
-
-            // First we identify the user using an initial distinct id. After
-            // which we capture an event with a different distinct id, then
-            // identify this user again with the same person identifier.
-            //
-            // This is to simulate the case where:
-            //
-            //  1. user signs up initially, creating a person
-            //  2. user returns but as an anonymous user, capturing events
-            //  3. user identifies themselves, for instance by logging in
-            //
-            // In this case we want to end up with on Person to which all the
-            // events are associated.
-
-            await capture(producer, teamId, personIdentifier, new UUIDT().toString(), '$identify', {
-                distinct_id: personIdentifier,
-                $anon_distinct_id: initialDistinctId,
-            })
-
-            await capture(producer, teamId, returningDistinctId, new UUIDT().toString(), 'custom event', {
-                name: 'hehe',
-                uuid: new UUIDT().toString(),
-            })
-
-            await new Promise((resolve) => setTimeout(resolve, 100))
-
-            await capture(producer, teamId, personIdentifier, new UUIDT().toString(), '$identify', {
-                distinct_id: personIdentifier,
-                $anon_distinct_id: returningDistinctId,
-            })
-
-            const events = await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 3, 500, 40)
-            expect(events.length).toBe(3)
-            expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
-
-            await delayUntilEventIngested(() => fetchPersons(clickHouseClient, teamId), 1, 500, 40)
-            const persons = await fetchPersons(clickHouseClient, teamId)
-            expect(persons.length).toBe(1)
-        })
+    await capture(producer, teamId, distinctId, personEventUuid, '$identify', {
+        distinct_id: distinctId,
+        $set: { prop: 'value' },
     })
 
-    describe(`exports (${pluginServer.name})`, () => {
-        const indexJs = `
+    const firstUuid = new UUIDT().toString()
+
+    await capture(producer, teamId, distinctId, firstUuid, 'custom event', {})
+
+    const [firstEvent] = await delayUntilEventIngested(
+        () => fetchEvents(clickHouseClient, teamId, firstUuid),
+        1,
+        500,
+        40
+    )
+    expect(firstEvent).toEqual(
+        expect.objectContaining({
+            person_properties: {
+                prop: 'value',
+            },
+        })
+    )
+
+    await capture(producer, teamId, distinctId, personEventUuid, '$identify', {
+        distinct_id: distinctId,
+        $set: { prop: 'updated value' },
+    })
+
+    const secondUuid = new UUIDT().toString()
+
+    await capture(producer, teamId, distinctId, secondUuid, 'custom event', {})
+
+    const [secondEvent] = await delayUntilEventIngested(
+        () => fetchEvents(clickHouseClient, teamId, secondUuid),
+        1,
+        500,
+        40
+    )
+    expect(secondEvent).toEqual(
+        expect.objectContaining({
+            person_properties: {
+                prop: 'updated value',
+            },
+        })
+    )
+})
+
+test.concurrent(`event ingestion: can $set_once person properties but not update`, async () => {
+    const teamId = await createTeam(postgres, organizationId)
+    const distinctId = new UUIDT().toString()
+
+    const personEventUuid = new UUIDT().toString()
+    await capture(producer, teamId, distinctId, personEventUuid, '$identify', {
+        distinct_id: distinctId,
+        $set_once: { prop: 'value' },
+    })
+
+    const firstUuid = new UUIDT().toString()
+    await capture(producer, teamId, distinctId, firstUuid, 'custom event', {})
+
+    const [firstEvent] = await delayUntilEventIngested(
+        () => fetchEvents(clickHouseClient, teamId, firstUuid),
+        1,
+        500,
+        40
+    )
+    expect(firstEvent).toEqual(
+        expect.objectContaining({
+            person_properties: {
+                prop: 'value',
+            },
+        })
+    )
+
+    await capture(producer, teamId, distinctId, personEventUuid, '$identify', {
+        distinct_id: distinctId,
+        $set_once: { prop: 'updated value' },
+    })
+
+    const secondUuid = new UUIDT().toString()
+    await capture(producer, teamId, distinctId, secondUuid, 'custom event', {})
+
+    const [secondEvent] = await delayUntilEventIngested(
+        () => fetchEvents(clickHouseClient, teamId, secondUuid),
+        1,
+        500,
+        40
+    )
+    expect(secondEvent).toEqual(
+        expect.objectContaining({
+            person_properties: {
+                prop: 'value',
+            },
+        })
+    )
+})
+
+test.concurrent(
+    `event ingestion: anonymous event recieves same person_id if $identify happenes shortly after`,
+    async () => {
+        // NOTE: this test depends on there being a delay between the
+        // anonymouse event ingestion and the processing of this event.
+        const teamId = await createTeam(postgres, organizationId)
+        const initialDistinctId = 'initialDistinctId'
+        const returningDistinctId = 'returningDistinctId'
+        const personIdentifier = 'test@posthog.com'
+
+        // First we identify the user using an initial distinct id. After
+        // which we capture an event with a different distinct id, then
+        // identify this user again with the same person identifier.
+        //
+        // This is to simulate the case where:
+        //
+        //  1. user signs up initially, creating a person
+        //  2. user returns but as an anonymous user, capturing events
+        //  3. user identifies themselves, for instance by logging in
+        //
+        // In this case we want to end up with on Person to which all the
+        // events are associated.
+
+        await capture(producer, teamId, personIdentifier, new UUIDT().toString(), '$identify', {
+            distinct_id: personIdentifier,
+            $anon_distinct_id: initialDistinctId,
+        })
+
+        await capture(producer, teamId, returningDistinctId, new UUIDT().toString(), 'custom event', {
+            name: 'hehe',
+            uuid: new UUIDT().toString(),
+        })
+
+        await new Promise((resolve) => setTimeout(resolve, 100))
+
+        await capture(producer, teamId, personIdentifier, new UUIDT().toString(), '$identify', {
+            distinct_id: personIdentifier,
+            $anon_distinct_id: returningDistinctId,
+        })
+
+        const events = await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 3, 500, 40)
+        expect(events.length).toBe(3)
+        expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
+
+        await delayUntilEventIngested(() => fetchPersons(clickHouseClient, teamId), 1, 500, 40)
+        const persons = await fetchPersons(clickHouseClient, teamId)
+        expect(persons.length).toBe(1)
+    }
+)
+
+test.concurrent(`exports: exporting events on ingestion`, async () => {
+    const plugin = await createPlugin(postgres, {
+        organization_id: organizationId,
+        name: 'export plugin',
+        plugin_type: 'source',
+        is_global: false,
+        source__index_ts: `
             export const exportEvents = async (events, { global, config }) => {
                 console.info(JSON.stringify(['exportEvents', events]))
             }
-        `
+        `,
+    })
+    const teamId = await createTeam(postgres, organizationId)
+    const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
 
-        test('exporting events on ingestion', async () => {
-            const plugin = await createPlugin(postgres, {
-                organization_id: organizationId,
-                name: 'export plugin',
-                plugin_type: 'source',
-                is_global: false,
-                source__index_ts: indexJs,
-            })
-            const teamId = await createTeam(postgres, organizationId)
-            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
-            const distinctId = new UUIDT().toString()
-            const uuid = new UUIDT().toString()
-
-            // First let's ingest an event
-            await capture(producer, teamId, distinctId, uuid, 'custom event', {
-                name: 'hehe',
-                uuid: new UUIDT().toString(),
-            })
-
-            const events = await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
-            expect(events.length).toBe(1)
-
-            // Then check that the exportEvents function was called
-            const exportEvents = await delayUntilEventIngested(
-                async () =>
-                    (
-                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                    ).filter(({ message: [method] }) => method === 'exportEvents'),
-                1,
-                500,
-                40
-            )
-
-            expect(exportEvents.length).toBeGreaterThan(0)
-
-            const exportedEvents = exportEvents[0].message[1]
-            expect(exportedEvents).toEqual([
-                expect.objectContaining({
-                    distinct_id: distinctId,
-                    team_id: teamId,
-                    event: 'custom event',
-                    properties: expect.objectContaining({
-                        name: 'hehe',
-                        uuid: uuid,
-                    }),
-                    timestamp: expect.any(String),
-                    uuid: uuid,
-                    elements: [],
-                }),
-            ])
-        })
-
-        test('exporting $autocapture events on ingestion', async () => {
-            const plugin = await createPlugin(postgres, {
-                organization_id: organizationId,
-                name: 'export plugin',
-                plugin_type: 'source',
-                is_global: false,
-                source__index_ts: indexJs,
-            })
-            const teamId = await createTeam(postgres, organizationId)
-            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
-            const distinctId = new UUIDT().toString()
-            const uuid = new UUIDT().toString()
-
-            // First let's ingest an event
-            await capture(producer, teamId, distinctId, uuid, '$autocapture', {
-                name: 'hehe',
-                uuid: new UUIDT().toString(),
-                $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
-            })
-
-            const events = await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
-            expect(events.length).toBe(1)
-
-            // Then check that the exportEvents function was called
-            const exportEvents = await delayUntilEventIngested(
-                async () =>
-                    (
-                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                    ).filter(({ message: [method] }) => method === 'exportEvents'),
-                1,
-                500,
-                40
-            )
-
-            expect(exportEvents.length).toBeGreaterThan(0)
-
-            const exportedEvents = exportEvents[0].message[1]
-            expect(exportedEvents).toEqual([
-                expect.objectContaining({
-                    distinct_id: distinctId,
-                    team_id: teamId,
-                    event: '$autocapture',
-                    properties: expect.objectContaining({
-                        name: 'hehe',
-                        uuid: uuid,
-                    }),
-                    timestamp: expect.any(String),
-                    uuid: uuid,
-                    elements: [
-                        {
-                            tag_name: 'div',
-                            nth_child: 1,
-                            nth_of_type: 2,
-                            order: 0,
-                            $el_text: '💻',
-                            text: '💻',
-                            attributes: {},
-                        },
-                    ],
-                }),
-            ])
-        })
-
-        test('historical exports', async () => {
-            const teamId = await createTeam(postgres, organizationId)
-            const distinctId = new UUIDT().toString()
-            const uuid = new UUIDT().toString()
-
-            const plugin = await createPlugin(postgres, {
-                organization_id: organizationId,
-                name: 'export plugin',
-                plugin_type: 'source',
-                is_global: false,
-                source__index_ts: indexJs,
-            })
-            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
-
-            // First let's capture an event and wait for it to be ingested so
-            // so we can check that the historical event is the same as the one
-            // passed to processEvent on initial ingestion.
-            await capture(producer, teamId, distinctId, uuid, '$autocapture', {
-                name: 'hehe',
-                uuid: new UUIDT().toString(),
-                $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
-            })
-
-            // Then check that the exportEvents function was called
-            const exportEvents = await delayUntilEventIngested(
-                async () =>
-                    (
-                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                    ).filter(({ message: [method] }) => method === 'exportEvents'),
-                1,
-                500,
-                40
-            )
-
-            expect(exportEvents.length).toBeGreaterThan(0)
-            const [exportedEvent] = exportEvents[0].message[1]
-
-            // NOTE: the frontend doesn't actually push to this queue but rather
-            // adds directly to PostgreSQL using the graphile-worker stored
-            // procedure `add_job`. I'd rather keep these tests graphile
-            // unaware.
-            await producer.send({
-                topic: 'jobs_test',
-                messages: [
-                    {
-                        key: teamId.toString(),
-                        value: JSON.stringify({
-                            type: 'Export historical events',
-                            pluginConfigId: pluginConfig.id,
-                            pluginConfigTeam: teamId,
-                            payload: {
-                                dateFrom: new Date(Date.now() - 60000).toISOString(),
-                                dateTo: new Date(Date.now()).toISOString(),
-                            },
-                        }),
-                    },
-                ],
-            })
-
-            // Then check that the exportEvents function was called with the
-            // same data that was used with the non-historical export, with the
-            // additions of details related to the historical export.
-            const historicallyExportedEvents = await delayUntilEventIngested(
-                async () =>
-                    (await fetchPluginLogEntries(clickHouseClient, pluginConfig.id))
-                        .filter(({ message: [method] }) => method === 'exportEvents')
-                        .filter(({ message: [, events] }) =>
-                            events.some((event) => event.properties['$$is_historical_export_event'])
-                        ),
-                1,
-                500,
-                40
-            )
-
-            expect(historicallyExportedEvents.length).toBeGreaterThan(0)
-
-            const historicallyExportedEvent = historicallyExportedEvents[0].message[1]
-            expect(historicallyExportedEvent).toEqual([
-                expect.objectContaining({
-                    ...exportedEvent,
-                    ip: '', // NOTE: for some reason this is "" when exported historically, but null otherwise.
-                    properties: {
-                        ...exportedEvent.properties,
-                        $$is_historical_export_event: true,
-                        $$historical_export_timestamp: expect.any(String),
-                        $$historical_export_source_db: 'clickhouse',
-                    },
-                }),
-            ])
-        })
-
-        test('historical exports v2', async () => {
-            const teamId = await createTeam(postgres, organizationId)
-            const distinctId = new UUIDT().toString()
-            const uuid = new UUIDT().toString()
-
-            const plugin = await createPlugin(postgres, {
-                organization_id: organizationId,
-                name: 'export plugin',
-                plugin_type: 'source',
-                is_global: false,
-                source__index_ts: indexJs,
-            })
-            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
-
-            // First let's capture an event and wait for it to be ingested so
-            // so we can check that the historical event is the same as the one
-            // passed to processEvent on initial ingestion.
-            await capture(producer, teamId, distinctId, uuid, '$autocapture', {
-                name: 'hehe',
-                uuid: new UUIDT().toString(),
-                $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
-            })
-
-            // Then check that the exportEvents function was called
-            const exportEvents = await delayUntilEventIngested(
-                async () =>
-                    (
-                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                    ).filter(({ message: [method] }) => method === 'exportEvents'),
-                1,
-                500,
-                40
-            )
-
-            expect(exportEvents.length).toBeGreaterThan(0)
-            const [exportedEvent] = exportEvents[0].message[1]
-
-            // NOTE: the frontend doesn't actually push to this queue but rather
-            // adds directly to PostgreSQL using the graphile-worker stored
-            // procedure `add_job`. I'd rather keep these tests graphile
-            // unaware.
-            await producer.send({
-                topic: 'jobs_test',
-                messages: [
-                    {
-                        key: teamId.toString(),
-                        value: JSON.stringify({
-                            type: 'Export historical events V2',
-                            pluginConfigId: pluginConfig.id,
-                            pluginConfigTeam: teamId,
-                            payload: {
-                                dateRange: [
-                                    new Date(Date.now() - 60000).toISOString(),
-                                    new Date(Date.now()).toISOString(),
-                                ],
-                                $job_id: 'test',
-                                parallelism: 1,
-                            },
-                        }),
-                    },
-                ],
-            })
-
-            // Then check that the exportEvents function was called with the
-            // same data that was used with the non-historical export, with the
-            // additions of details related to the historical export.
-            const historicallyExportedEvents = await delayUntilEventIngested(
-                async () =>
-                    (await fetchPluginLogEntries(clickHouseClient, pluginConfig.id))
-                        .filter(({ message: [method] }) => method === 'exportEvents')
-                        .filter(({ message: [, events] }) =>
-                            events.some((event) => event.properties['$$is_historical_export_event'])
-                        ),
-                1,
-                500,
-                40
-            )
-
-            expect(historicallyExportedEvents.length).toBeGreaterThan(0)
-
-            const historicallyExportedEvent = historicallyExportedEvents[0].message[1]
-            expect(historicallyExportedEvent).toEqual([
-                expect.objectContaining({
-                    ...exportedEvent,
-                    ip: '', // NOTE: for some reason this is "" when exported historically, but null otherwise.
-                    properties: {
-                        ...exportedEvent.properties,
-                        $$is_historical_export_event: true,
-                        $$historical_export_timestamp: expect.any(String),
-                        $$historical_export_source_db: 'clickhouse',
-                    },
-                }),
-            ])
-        })
+    // First let's ingest an event
+    await capture(producer, teamId, distinctId, uuid, 'custom event', {
+        name: 'hehe',
+        uuid: new UUIDT().toString(),
     })
 
-    describe(`plugin jobs (${pluginServer.name})`, () => {
-        test('can call runNow from onEvent', async () => {
-            const indexJs = `    
-                export function onEvent (event, { jobs }) {
-                    console.info(JSON.stringify(['onEvent', event]))
-                    jobs.runMeAsync().runNow()
-                }
+    const events = await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
+    expect(events.length).toBe(1)
 
-                export const jobs = {
-                    runMeAsync: async () => {
-                        console.info(JSON.stringify(['runMeAsync']))
-                    }
-                }
-            `
+    // Then check that the exportEvents function was called
+    const exportEvents = await delayUntilEventIngested(
+        async () =>
+            (
+                await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+            ).filter(({ message: [method] }) => method === 'exportEvents'),
+        1,
+        500,
+        40
+    )
 
-            const plugin = await createPlugin(postgres, {
-                organization_id: organizationId,
-                name: 'jobs plugin',
-                plugin_type: 'source',
-                is_global: false,
-                source__index_ts: indexJs,
-            })
-            const teamId = await createTeam(postgres, organizationId)
-            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
-            const distinctId = new UUIDT().toString()
-            const uuid = new UUIDT().toString()
+    expect(exportEvents.length).toBeGreaterThan(0)
 
-            // First let's ingest an event
-            await capture(producer, teamId, distinctId, uuid, 'custom event', {
+    const exportedEvents = exportEvents[0].message[1]
+    expect(exportedEvents).toEqual([
+        expect.objectContaining({
+            distinct_id: distinctId,
+            team_id: teamId,
+            event: 'custom event',
+            properties: expect.objectContaining({
                 name: 'hehe',
-                uuid: new UUIDT().toString(),
-            })
+                uuid: uuid,
+            }),
+            timestamp: expect.any(String),
+            uuid: uuid,
+            elements: [],
+        }),
+    ])
+})
 
-            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
-
-            const events = await fetchEvents(clickHouseClient, teamId)
-            expect(events.length).toBe(1)
-
-            // Then check that the runNow function was called
-            const runNow = await delayUntilEventIngested(
-                async () =>
-                    (
-                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                    ).filter(({ message: [method] }) => method === 'runMeAsync'),
-                1,
-                500,
-                40
-            )
-
-            expect(runNow.length).toBeGreaterThan(0)
-        })
-
-        test('can call runNow from processEvent', async () => {
-            const indexJs = `    
-                export function processEvent(event, { jobs }) {
-                    console.info(JSON.stringify(['processEvent', event]))
-                    jobs.runMeAsync().runNow()
-                    return event
-                }
-
-                export const jobs = {
-                    runMeAsync: async () => {
-                        console.info(JSON.stringify(['runMeAsync']))
-                    }
-                }
-            `
-
-            const plugin = await createPlugin(postgres, {
-                organization_id: organizationId,
-                name: 'jobs plugin',
-                plugin_type: 'source',
-                is_global: false,
-                source__index_ts: indexJs,
-            })
-            const teamId = await createTeam(postgres, organizationId)
-            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
-            const distinctId = new UUIDT().toString()
-            const uuid = new UUIDT().toString()
-
-            // First let's ingest an event
-            await capture(producer, teamId, distinctId, uuid, 'custom event', {
-                name: 'hehe',
-                uuid: new UUIDT().toString(),
-            })
-
-            await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
-
-            const events = await fetchEvents(clickHouseClient, teamId)
-            expect(events.length).toBe(1)
-
-            // Then check that the runNow function was called
-            const runNow = await delayUntilEventIngested(
-                async () =>
-                    (
-                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                    ).filter(({ message: [method] }) => method === 'runMeAsync'),
-                1,
-                500,
-                40
-            )
-
-            expect(runNow.length).toBeGreaterThan(0)
-        })
-
-        test('runEveryMinute is executed', async () => {
-            // NOTE: we do not check Hour and Day, merely because if we advance
-            // too much it seems we end up performing alot of reloads of
-            // actions, which prevents the test from completing.
-            //
-            // NOTE: we do not use Fake Timers here as there is an issue in that
-            // it only appears to work for timers in the main thread, and not
-            // ones in the worker threads.
-            const plugin = await createPlugin(postgres, {
-                organization_id: organizationId,
-                name: 'runEveryMinute plugin',
-                plugin_type: 'source',
-                is_global: false,
-                source__index_ts: `
-                    export async function runEveryMinute() {
-                        console.info(JSON.stringify(['runEveryMinute']))
-                    }
-                `,
-            })
-
-            const teamId = await createTeam(postgres, organizationId)
-            const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
-
-            const runNow = await delayUntilEventIngested(
-                async () =>
-                    (
-                        await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                    ).filter(({ message: [method] }) => method === 'runEveryMinute'),
-                1,
-                1000,
-                60
-            )
-
-            expect(runNow.length).toBeGreaterThan(0)
-        }, 120000)
-    })
-
-    describe(`webhooks (${pluginServer.name})`, () => {
-        let server: Server
-        let webHookCalledWith: any
-
-        beforeAll(() => {
-            server = createServer((req, res) => {
-                let body = ''
-                req.on('data', (chunk) => {
-                    body += chunk
-                })
-                req.on('end', () => {
-                    webHookCalledWith = JSON.parse(body)
-                    res.writeHead(200, { 'Content-Type': 'text/plain' })
-                    res.end()
-                })
-            })
-            server.listen()
-        })
-
-        beforeEach(() => {
-            webHookCalledWith = undefined
-        })
-
-        afterAll(() => {
-            server.close()
-        })
-
-        test('fires slack webhook', async () => {
-            // Create an action with post_to_slack enabled.
-            // NOTE: I'm not 100% sure how this works i.e. what all the step
-            // configuration means so there's probably a more succinct way to do
-            // this.
-            const distinctId = new UUIDT().toString()
-
-            const teamId = await createTeam(postgres, organizationId, `http://localhost:${server.address()?.port}`)
-            const user = await createUser(postgres, teamId, new UUIDT().toString())
-            await createAction(
-                postgres,
-                {
-                    team_id: teamId,
-                    name: 'slack',
-                    description: 'slack',
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    deleted: false,
-                    post_to_slack: true,
-                    slack_message_format: 'default',
-                    created_by_id: user.id,
-                    is_calculating: false,
-                    last_calculated_at: new Date().toISOString(),
-                },
-                [
-                    {
-                        name: 'slack',
-                        tag_name: 'div',
-                        text: 'text',
-                        href: null,
-                        url: 'http://localhost:8000',
-                        url_matching: null,
-                        event: '$autocapture',
-                        properties: null,
-                        selector: null,
-                    },
-                ]
-            )
-
-            await reloadActions(redis)
-
-            await capture(producer, teamId, distinctId, new UUIDT().toString(), '$autocapture', {
-                name: 'hehe',
-                uuid: new UUIDT().toString(),
-                $current_url: 'http://localhost:8000',
-                $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }],
-            })
-
-            for (const attempt in Array.from(Array(10).keys())) {
-                console.debug(`Attempt ${attempt} to check webhook was called`)
-                if (webHookCalledWith) {
-                    break
-                }
-                await new Promise((resolve) => setTimeout(resolve, 1000))
+test.concurrent(`exports: exporting $autocapture events on ingestion`, async () => {
+    const plugin = await createPlugin(postgres, {
+        organization_id: organizationId,
+        name: 'export plugin',
+        plugin_type: 'source',
+        is_global: false,
+        source__index_ts: `
+            export const exportEvents = async (events, { global, config }) => {
+                console.info(JSON.stringify(['exportEvents', events]))
             }
+        `,
+    })
+    const teamId = await createTeam(postgres, organizationId)
+    const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
 
-            expect(webHookCalledWith).toEqual({ text: 'default' })
-        })
+    // First let's ingest an event
+    await capture(producer, teamId, distinctId, uuid, '$autocapture', {
+        name: 'hehe',
+        uuid: new UUIDT().toString(),
+        $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
     })
 
-    describe(`jobs-consumer (${pluginServer.name})`, () => {
-        // Test out some error cases that we wouldn't be able to handle without
-        // producing to the jobs queue directly.
+    const events = await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
+    expect(events.length).toBe(1)
 
-        let dlq: KafkaMessage[]
-        let dlqConsumer: Consumer
+    // Then check that the exportEvents function was called
+    const exportEvents = await delayUntilEventIngested(
+        async () =>
+            (
+                await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+            ).filter(({ message: [method] }) => method === 'exportEvents'),
+        1,
+        500,
+        40
+    )
 
-        beforeAll(async () => {
-            dlq = []
-            dlqConsumer = kafka.consumer({ groupId: 'jobs-consumer-test' })
-            await dlqConsumer.subscribe({ topic: 'jobs_dlq_test' })
-            await dlqConsumer.run({
-                eachMessage: ({ message }) => {
-                    dlq.push(message)
-                    return Promise.resolve()
+    expect(exportEvents.length).toBeGreaterThan(0)
+
+    const exportedEvents = exportEvents[0].message[1]
+    expect(exportedEvents).toEqual([
+        expect.objectContaining({
+            distinct_id: distinctId,
+            team_id: teamId,
+            event: '$autocapture',
+            properties: expect.objectContaining({
+                name: 'hehe',
+                uuid: uuid,
+            }),
+            timestamp: expect.any(String),
+            uuid: uuid,
+            elements: [
+                {
+                    tag_name: 'div',
+                    nth_child: 1,
+                    nth_of_type: 2,
+                    order: 0,
+                    $el_text: '💻',
+                    text: '💻',
+                    attributes: {},
                 },
-            })
-        })
+            ],
+        }),
+    ])
+})
 
-        afterAll(async () => {
-            await dlqConsumer.disconnect()
-        })
+test.concurrent(`exports: historical exports`, async () => {
+    const teamId = await createTeam(postgres, organizationId)
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
 
-        test('handles empty messages', async () => {
-            const key = uuidv4()
+    const plugin = await createPlugin(postgres, {
+        organization_id: organizationId,
+        name: 'export plugin',
+        plugin_type: 'source',
+        is_global: false,
+        source__index_ts: `
+            export const exportEvents = async (events, { global, config }) => {
+                console.info(JSON.stringify(['exportEvents', events]))
+            }
+        `,
+    })
+    const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
 
-            await producer.send({
-                topic: 'jobs_test',
-                messages: [
-                    {
-                        key: key,
-                        value: null,
+    // First let's capture an event and wait for it to be ingested so
+    // so we can check that the historical event is the same as the one
+    // passed to processEvent on initial ingestion.
+    await capture(producer, teamId, distinctId, uuid, '$autocapture', {
+        name: 'hehe',
+        uuid: new UUIDT().toString(),
+        $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+    })
+
+    // Then check that the exportEvents function was called
+    const exportEvents = await delayUntilEventIngested(
+        async () =>
+            (
+                await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+            ).filter(({ message: [method] }) => method === 'exportEvents'),
+        1,
+        500,
+        40
+    )
+
+    expect(exportEvents.length).toBeGreaterThan(0)
+    const [exportedEvent] = exportEvents[0].message[1]
+
+    // NOTE: the frontend doesn't actually push to this queue but rather
+    // adds directly to PostgreSQL using the graphile-worker stored
+    // procedure `add_job`. I'd rather keep these tests graphile
+    // unaware.
+    await producer.send({
+        topic: 'jobs',
+        messages: [
+            {
+                key: teamId.toString(),
+                value: JSON.stringify({
+                    type: 'Export historical events',
+                    pluginConfigId: pluginConfig.id,
+                    pluginConfigTeam: teamId,
+                    payload: {
+                        dateFrom: new Date(Date.now() - 60000).toISOString(),
+                        dateTo: new Date(Date.now()).toISOString(),
                     },
-                ],
-            })
+                }),
+            },
+        ],
+    })
 
-            const messages = await delayUntilEventIngested(() =>
-                dlq.filter((message) => message.key?.toString() === key)
-            )
-            expect(messages.length).toBe(1)
+    // Then check that the exportEvents function was called with the
+    // same data that was used with the non-historical export, with the
+    // additions of details related to the historical export.
+    const historicallyExportedEvents = await delayUntilEventIngested(
+        async () =>
+            (await fetchPluginLogEntries(clickHouseClient, pluginConfig.id))
+                .filter(({ message: [method] }) => method === 'exportEvents')
+                .filter(({ message: [, events] }) =>
+                    events.some((event) => event.properties['$$is_historical_export_event'])
+                ),
+        1,
+        500,
+        40
+    )
+
+    expect(historicallyExportedEvents.length).toBeGreaterThan(0)
+
+    const historicallyExportedEvent = historicallyExportedEvents[0].message[1]
+    expect(historicallyExportedEvent).toEqual([
+        expect.objectContaining({
+            ...exportedEvent,
+            ip: '', // NOTE: for some reason this is "" when exported historically, but null otherwise.
+            properties: {
+                ...exportedEvent.properties,
+                $$is_historical_export_event: true,
+                $$historical_export_timestamp: expect.any(String),
+                $$historical_export_source_db: 'clickhouse',
+            },
+        }),
+    ])
+})
+
+test.concurrent(`exports: historical exports v2`, async () => {
+    const teamId = await createTeam(postgres, organizationId)
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
+
+    const plugin = await createPlugin(postgres, {
+        organization_id: organizationId,
+        name: 'export plugin',
+        plugin_type: 'source',
+        is_global: false,
+        source__index_ts: `
+            export const exportEvents = async (events, { global, config }) => {
+                console.info(JSON.stringify(['exportEvents', events]))
+            }
+        `,
+    })
+    const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+
+    // First let's capture an event and wait for it to be ingested so
+    // so we can check that the historical event is the same as the one
+    // passed to processEvent on initial ingestion.
+    await capture(producer, teamId, distinctId, uuid, '$autocapture', {
+        name: 'hehe',
+        uuid: new UUIDT().toString(),
+        $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+    })
+
+    // Then check that the exportEvents function was called
+    const exportEvents = await delayUntilEventIngested(
+        async () =>
+            (
+                await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+            ).filter(({ message: [method] }) => method === 'exportEvents'),
+        1,
+        500,
+        40
+    )
+
+    expect(exportEvents.length).toBeGreaterThan(0)
+    const [exportedEvent] = exportEvents[0].message[1]
+
+    // NOTE: the frontend doesn't actually push to this queue but rather
+    // adds directly to PostgreSQL using the graphile-worker stored
+    // procedure `add_job`. I'd rather keep these tests graphile
+    // unaware.
+    await producer.send({
+        topic: 'jobs',
+        messages: [
+            {
+                key: teamId.toString(),
+                value: JSON.stringify({
+                    type: 'Export historical events V2',
+                    pluginConfigId: pluginConfig.id,
+                    pluginConfigTeam: teamId,
+                    payload: {
+                        dateRange: [new Date(Date.now() - 60000).toISOString(), new Date(Date.now()).toISOString()],
+                        $job_id: 'test',
+                        parallelism: 1,
+                    },
+                }),
+            },
+        ],
+    })
+
+    // Then check that the exportEvents function was called with the
+    // same data that was used with the non-historical export, with the
+    // additions of details related to the historical export.
+    const historicallyExportedEvents = await delayUntilEventIngested(
+        async () =>
+            (await fetchPluginLogEntries(clickHouseClient, pluginConfig.id))
+                .filter(({ message: [method] }) => method === 'exportEvents')
+                .filter(({ message: [, events] }) =>
+                    events.some((event) => event.properties['$$is_historical_export_event'])
+                ),
+        1,
+        500,
+        40
+    )
+
+    expect(historicallyExportedEvents.length).toBeGreaterThan(0)
+
+    const historicallyExportedEvent = historicallyExportedEvents[0].message[1]
+    expect(historicallyExportedEvent).toEqual([
+        expect.objectContaining({
+            ...exportedEvent,
+            ip: '', // NOTE: for some reason this is "" when exported historically, but null otherwise.
+            properties: {
+                ...exportedEvent.properties,
+                $$is_historical_export_event: true,
+                $$historical_export_timestamp: expect.any(String),
+                $$historical_export_source_db: 'clickhouse',
+            },
+        }),
+    ])
+})
+
+test.concurrent(`plugin jobs: can call runNow from onEvent`, async () => {
+    const indexJs = `    
+        export function onEvent (event, { jobs }) {
+            console.info(JSON.stringify(['onEvent', event]))
+            jobs.runMeAsync().runNow()
+        }
+
+        export const jobs = {
+            runMeAsync: async () => {
+                console.info(JSON.stringify(['runMeAsync']))
+            }
+        }
+    `
+
+    const plugin = await createPlugin(postgres, {
+        organization_id: organizationId,
+        name: 'jobs plugin',
+        plugin_type: 'source',
+        is_global: false,
+        source__index_ts: indexJs,
+    })
+    const teamId = await createTeam(postgres, organizationId)
+    const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
+
+    // First let's ingest an event
+    await capture(producer, teamId, distinctId, uuid, 'custom event', {
+        name: 'hehe',
+        uuid: new UUIDT().toString(),
+    })
+
+    await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
+
+    const events = await fetchEvents(clickHouseClient, teamId)
+    expect(events.length).toBe(1)
+
+    // Then check that the runNow function was called
+    const runNow = await delayUntilEventIngested(
+        async () =>
+            (
+                await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+            ).filter(({ message: [method] }) => method === 'runMeAsync'),
+        1,
+        500,
+        40
+    )
+
+    expect(runNow.length).toBeGreaterThan(0)
+})
+
+test.concurrent(`plugin jobs: can call runNow from processEvent`, async () => {
+    const indexJs = `    
+        export function processEvent(event, { jobs }) {
+            console.info(JSON.stringify(['processEvent', event]))
+            jobs.runMeAsync().runNow()
+            return event
+        }
+
+        export const jobs = {
+            runMeAsync: async () => {
+                console.info(JSON.stringify(['runMeAsync']))
+            }
+        }
+    `
+
+    const plugin = await createPlugin(postgres, {
+        organization_id: organizationId,
+        name: 'jobs plugin',
+        plugin_type: 'source',
+        is_global: false,
+        source__index_ts: indexJs,
+    })
+    const teamId = await createTeam(postgres, organizationId)
+    const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
+
+    // First let's ingest an event
+    await capture(producer, teamId, distinctId, uuid, 'custom event', {
+        name: 'hehe',
+        uuid: new UUIDT().toString(),
+    })
+
+    await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
+
+    const events = await fetchEvents(clickHouseClient, teamId)
+    expect(events.length).toBe(1)
+
+    // Then check that the runNow function was called
+    const runNow = await delayUntilEventIngested(
+        async () =>
+            (
+                await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+            ).filter(({ message: [method] }) => method === 'runMeAsync'),
+        1,
+        500,
+        40
+    )
+
+    expect(runNow.length).toBeGreaterThan(0)
+})
+
+test.concurrent(
+    `plugin jobs: runEveryMinute is executed`,
+    async () => {
+        // NOTE: we do not check Hour and Day, merely because if we advance
+        // too much it seems we end up performing alot of reloads of
+        // actions, which prevents the test from completing.
+        //
+        // NOTE: we do not use Fake Timers here as there is an issue in that
+        // it only appears to work for timers in the main thread, and not
+        // ones in the worker threads.
+        const plugin = await createPlugin(postgres, {
+            organization_id: organizationId,
+            name: 'runEveryMinute plugin',
+            plugin_type: 'source',
+            is_global: false,
+            source__index_ts: `
+            export async function runEveryMinute() {
+                console.info(JSON.stringify(['runEveryMinute']))
+            }
+        `,
         })
 
-        test('handles invalid JSON', async () => {
-            const key = uuidv4()
+        const teamId = await createTeam(postgres, organizationId)
+        const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
 
-            await producer.send({
-                topic: 'jobs_test',
-                messages: [
-                    {
-                        key: key,
-                        value: 'invalid json',
-                    },
-                ],
-            })
+        const runNow = await delayUntilEventIngested(
+            async () =>
+                (
+                    await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                ).filter(({ message: [method] }) => method === 'runEveryMinute'),
+            1,
+            1000,
+            60
+        )
 
-            const messages = await delayUntilEventIngested(() =>
-                dlq.filter((message) => message.key?.toString() === key)
-            )
-            expect(messages.length).toBe(1)
+        expect(runNow.length).toBeGreaterThan(0)
+    },
+    120000
+)
+
+test.concurrent(`webhooks: fires slack webhook`, async () => {
+    // Create an action with post_to_slack enabled.
+    // NOTE: I'm not 100% sure how this works i.e. what all the step
+    // configuration means so there's probably a more succinct way to do
+    // this.
+    let webHookCalledWith: any
+    const server = createServer((req, res) => {
+        let body = ''
+        req.on('data', (chunk) => {
+            body += chunk
+        })
+        req.on('end', () => {
+            webHookCalledWith = JSON.parse(body)
+            res.writeHead(200, { 'Content-Type': 'text/plain' })
+            res.end()
         })
     })
+
+    try {
+        server.listen()
+
+        const distinctId = new UUIDT().toString()
+
+        const teamId = await createTeam(postgres, organizationId, `http://localhost:${server.address()?.port}`)
+        const user = await createUser(postgres, teamId, new UUIDT().toString())
+        await createAction(
+            postgres,
+            {
+                team_id: teamId,
+                name: 'slack',
+                description: 'slack',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                deleted: false,
+                post_to_slack: true,
+                slack_message_format: 'default',
+                created_by_id: user.id,
+                is_calculating: false,
+                last_calculated_at: new Date().toISOString(),
+            },
+            [
+                {
+                    name: 'slack',
+                    tag_name: 'div',
+                    text: 'text',
+                    href: null,
+                    url: 'http://localhost:8000',
+                    url_matching: null,
+                    event: '$autocapture',
+                    properties: null,
+                    selector: null,
+                },
+            ]
+        )
+
+        await reloadActions(redis)
+
+        await capture(producer, teamId, distinctId, new UUIDT().toString(), '$autocapture', {
+            name: 'hehe',
+            uuid: new UUIDT().toString(),
+            $current_url: 'http://localhost:8000',
+            $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }],
+        })
+
+        for (const attempt in Array.from(Array(10).keys())) {
+            console.debug(`Attempt ${attempt} to check webhook was called`)
+            if (webHookCalledWith) {
+                break
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+        }
+
+        expect(webHookCalledWith).toEqual({ text: 'default' })
+    } finally {
+        server.close()
+    }
+})
+
+// Test out some error cases that we wouldn't be able to handle without
+// producing to the jobs queue directly.
+
+let dlq: KafkaMessage[]
+let dlqConsumer: Consumer
+
+beforeAll(async () => {
+    dlq = []
+    dlqConsumer = kafka.consumer({ groupId: 'jobs-consumer-test' })
+    await dlqConsumer.subscribe({ topic: 'jobs_dlq' })
+    await dlqConsumer.run({
+        eachMessage: ({ message }) => {
+            dlq.push(message)
+            return Promise.resolve()
+        },
+    })
+})
+
+afterAll(async () => {
+    await dlqConsumer.disconnect()
+})
+
+test.concurrent(`jobs-consumer: handles empty messages`, async () => {
+    const key = uuidv4()
+
+    await producer.send({
+        topic: 'jobs',
+        messages: [
+            {
+                key: key,
+                value: null,
+            },
+        ],
+    })
+
+    const messages = await delayUntilEventIngested(() => dlq.filter((message) => message.key?.toString() === key))
+    expect(messages.length).toBe(1)
+})
+
+test.concurrent(`jobs-consumer: handles invalid JSON`, async () => {
+    const key = uuidv4()
+
+    await producer.send({
+        topic: 'jobs',
+        messages: [
+            {
+                key: key,
+                value: 'invalid json',
+            },
+        ],
+    })
+
+    const messages = await delayUntilEventIngested(() => dlq.filter((message) => message.key?.toString() === key))
+    expect(messages.length).toBe(1)
 })
 
 const capture = async (
@@ -1114,7 +1050,7 @@ const capture = async (
     properties: object = {}
 ) => {
     await producer.send({
-        topic: 'events_plugin_ingestion_test',
+        topic: 'events_plugin_ingestion',
         messages: [
             {
                 key: teamId.toString(),
@@ -1167,7 +1103,7 @@ const createPluginConfig = async (
 }
 
 const createAndReloadPluginConfig = async (pgClient: Pool, teamId: number, pluginId: number, redis: Redis.Redis) => {
-    const pluginConfig = await createPluginConfig(postgres, { team_id: teamId, plugin_id: pluginId })
+    const pluginConfig = await createPluginConfig(pgClient, { team_id: teamId, plugin_id: pluginId })
     // Make sure the plugin server reloads the newly created plugin config.
     // TODO: avoid reaching into the pluginsServer internals and rather use
     // the pubsub mechanism to trigger this.
