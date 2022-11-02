@@ -274,6 +274,189 @@ describe.each([[startSingleServer], [startMultiServer]])('E2E', (pluginServer) =
     })
 
     describe(`event ingestion (${pluginServer.name})`, () => {
+        test('can set and update group properties', async () => {
+            const teamId = await createTeam(postgres, organizationId)
+            const distinctId = new UUIDT().toString()
+
+            const groupIdentityUuid = new UUIDT().toString()
+            await capture(producer, teamId, distinctId, groupIdentityUuid, '$groupidentify', {
+                distinct_id: distinctId,
+                $group_type: 'organization',
+                $group_key: 'posthog',
+                $group_set: {
+                    prop: 'value',
+                },
+            })
+
+            const [firstGroupIdentity] = await delayUntilEventIngested(
+                () => fetchEvents(clickHouseClient, teamId, groupIdentityUuid),
+                1,
+                500,
+                40
+            )
+            expect(firstGroupIdentity.event).toBeDefined()
+
+            const firstEventUuid = new UUIDT().toString()
+            await capture(producer, teamId, distinctId, firstEventUuid, 'custom event', {
+                name: 'haha',
+                $group_0: 'posthog',
+            })
+            const [firstEvent] = await delayUntilEventIngested(
+                () => fetchEvents(clickHouseClient, teamId, firstEventUuid),
+                1,
+                500,
+                40
+            )
+            expect(firstEvent).toEqual(
+                expect.objectContaining({
+                    $group_0: 'posthog',
+                    group0_properties: {
+                        prop: 'value',
+                    },
+                })
+            )
+
+            const secondGroupIdentityUuid = new UUIDT().toString()
+            await capture(producer, teamId, distinctId, secondGroupIdentityUuid, '$groupidentify', {
+                distinct_id: distinctId,
+                $group_type: 'organization',
+                $group_key: 'posthog',
+                $group_set: {
+                    prop: 'updated value',
+                },
+            })
+
+            const [secondGroupIdentity] = await delayUntilEventIngested(
+                () => fetchEvents(clickHouseClient, teamId, secondGroupIdentityUuid),
+                1,
+                500,
+                40
+            )
+            expect(secondGroupIdentity).toBeDefined()
+
+            const secondEventUuid = new UUIDT().toString()
+            await capture(producer, teamId, distinctId, secondEventUuid, 'custom event', {
+                name: 'haha',
+                $group_0: 'posthog',
+            })
+            const [event] = await delayUntilEventIngested(
+                () => fetchEvents(clickHouseClient, teamId, secondEventUuid),
+                1,
+                500,
+                40
+            )
+            expect(event).toEqual(
+                expect.objectContaining({
+                    $group_0: 'posthog',
+                    group0_properties: {
+                        prop: 'updated value',
+                    },
+                })
+            )
+        })
+
+        test('can $set and update person properties', async () => {
+            const teamId = await createTeam(postgres, organizationId)
+            const distinctId = new UUIDT().toString()
+            const personEventUuid = new UUIDT().toString()
+
+            await capture(producer, teamId, distinctId, personEventUuid, '$identify', {
+                distinct_id: distinctId,
+                $set: { prop: 'value' },
+            })
+
+            const firstUuid = new UUIDT().toString()
+
+            await capture(producer, teamId, distinctId, firstUuid, 'custom event', {})
+
+            const [firstEvent] = await delayUntilEventIngested(
+                () => fetchEvents(clickHouseClient, teamId, firstUuid),
+                1,
+                500,
+                40
+            )
+            expect(firstEvent).toEqual(
+                expect.objectContaining({
+                    person_properties: {
+                        prop: 'value',
+                    },
+                })
+            )
+
+            await capture(producer, teamId, distinctId, personEventUuid, '$identify', {
+                distinct_id: distinctId,
+                $set: { prop: 'updated value' },
+            })
+
+            const secondUuid = new UUIDT().toString()
+
+            await capture(producer, teamId, distinctId, secondUuid, 'custom event', {})
+
+            const [secondEvent] = await delayUntilEventIngested(
+                () => fetchEvents(clickHouseClient, teamId, secondUuid),
+                1,
+                500,
+                40
+            )
+            expect(secondEvent).toEqual(
+                expect.objectContaining({
+                    person_properties: {
+                        prop: 'updated value',
+                    },
+                })
+            )
+        })
+
+        test('can $set_once person properties but not update', async () => {
+            const teamId = await createTeam(postgres, organizationId)
+            const distinctId = new UUIDT().toString()
+
+            const personEventUuid = new UUIDT().toString()
+            await capture(producer, teamId, distinctId, personEventUuid, '$identify', {
+                distinct_id: distinctId,
+                $set_once: { prop: 'value' },
+            })
+
+            const firstUuid = new UUIDT().toString()
+            await capture(producer, teamId, distinctId, firstUuid, 'custom event', {})
+
+            const [firstEvent] = await delayUntilEventIngested(
+                () => fetchEvents(clickHouseClient, teamId, firstUuid),
+                1,
+                500,
+                40
+            )
+            expect(firstEvent).toEqual(
+                expect.objectContaining({
+                    person_properties: {
+                        prop: 'value',
+                    },
+                })
+            )
+
+            await capture(producer, teamId, distinctId, personEventUuid, '$identify', {
+                distinct_id: distinctId,
+                $set_once: { prop: 'updated value' },
+            })
+
+            const secondUuid = new UUIDT().toString()
+            await capture(producer, teamId, distinctId, secondUuid, 'custom event', {})
+
+            const [secondEvent] = await delayUntilEventIngested(
+                () => fetchEvents(clickHouseClient, teamId, secondUuid),
+                1,
+                500,
+                40
+            )
+            expect(secondEvent).toEqual(
+                expect.objectContaining({
+                    person_properties: {
+                        prop: 'value',
+                    },
+                })
+            )
+        })
+
         test('anonymous event recieves same person_id if $identify happenes shortly after', async () => {
             // NOTE: this test depends on there being a delay between the
             // anonymouse event ingestion and the processing of this event.
@@ -996,10 +1179,11 @@ const reloadActions = async (redis: Redis.Redis) => {
     await redis.publish('reload-actions', '')
 }
 
-const fetchEvents = async (clickHouseClient: ClickHouse, teamId: number) => {
-    const queryResult = (await clickHouseClient.querying(
-        `SELECT * FROM events WHERE team_id = ${teamId} ORDER BY timestamp ASC`
-    )) as unknown as ClickHouse.ObjectQueryResult<RawClickHouseEvent>
+const fetchEvents = async (clickHouseClient: ClickHouse, teamId: number, uuid?: string) => {
+    const queryResult = (await clickHouseClient.querying(`
+        SELECT * FROM events 
+        WHERE team_id = ${teamId} ${uuid ? `AND uuid = '${uuid}'` : ``} ORDER BY timestamp ASC
+    `)) as unknown as ClickHouse.ObjectQueryResult<RawClickHouseEvent>
     return queryResult.data.map(parseRawClickHouseEvent)
 }
 
