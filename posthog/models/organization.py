@@ -193,7 +193,7 @@ class Organization(UUIDModel):
 
     @property
     def has_billing_v2_setup(self):
-        if hasattr(self, "billing") and self.billing.stripe_subscription_id:
+        if hasattr(self, "billing") and self.billing.stripe_subscription_id:  # type: ignore
             return False
 
         return self.usage is not None
