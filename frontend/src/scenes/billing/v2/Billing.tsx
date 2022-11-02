@@ -285,7 +285,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
-        [750]: 'medium',
+        750: 'medium',
     })
 
     const onBillingLimitToggle = (): void => {
