@@ -67,10 +67,11 @@ export function BridgePage({
                                     textAlign: 'center',
                                 }}
                             >
-                                Interested in self-hosting PostHog?&nbsp;
-                                <a href="https://license.posthog.com">
-                                    <strong>Get a license key</strong>
+                                Interested in{' '}
+                                <a href="https://posthog.com/docs/self-host">
+                                    <strong>self-hosting PostHog</strong>
                                 </a>
+                                ?
                             </div>
                         )}
                     </div>
