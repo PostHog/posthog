@@ -320,6 +320,8 @@ def execute_with_progress(
 
         raise err
     finally:
+        ch_client.disconnect()
+
         execution_time = perf_counter() - start_time
 
         QUERY_TIMEOUT_THREAD.cancel(timeout_task)
