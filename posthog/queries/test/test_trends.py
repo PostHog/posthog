@@ -1171,10 +1171,12 @@ def trend_test_factory(trends):
             breakdown_vals = [val["breakdown_value"] for val in daily_response]
             self.assertTrue("value_21" in breakdown_vals)
 
-        def test_trends_compare(self):
+        def test_trends_compare_day_interval(self):
             self._create_events()
             with freeze_time("2020-01-04T13:00:01Z"):
-                response = trends().run(Filter(data={"compare": "true", "events": [{"id": "sign up"}]}), self.team)
+                response = trends().run(
+                    Filter(data={"compare": "true", "date_from": "-7d", "events": [{"id": "sign up"}]}), self.team
+                )
 
             self.assertEqual(response[0]["label"], "sign up")
             self.assertEqual(response[0]["labels"][4], "day 4")
@@ -1184,35 +1186,35 @@ def trend_test_factory(trends):
             self.assertEqual(
                 response[0]["days"],
                 [
-                    "2019-12-28",
-                    "2019-12-29",
-                    "2019-12-30",
-                    "2019-12-31",
-                    "2020-01-01",
-                    "2020-01-02",
-                    "2020-01-03",
-                    "2020-01-04",
+                    "2019-12-28",  # -7d, current period
+                    "2019-12-29",  # -6d, current period
+                    "2019-12-30",  # -5d, current period
+                    "2019-12-31",  # -4d, current period
+                    "2020-01-01",  # -3d, current period
+                    "2020-01-02",  # -2d, current period
+                    "2020-01-03",  # -1d, current period
+                    "2020-01-04",  # -0d, current period (this one's ongoing!)
                 ],
             )
 
             self.assertEqual(
                 response[1]["days"],
                 [
-                    "2019-12-21",
-                    "2019-12-22",
-                    "2019-12-23",
-                    "2019-12-24",
-                    "2019-12-25",
-                    "2019-12-26",
-                    "2019-12-27",
-                    "2019-12-28",
+                    "2019-12-20",  # -7d, previous period
+                    "2019-12-21",  # -6d, previous period
+                    "2019-12-22",  # -5d, previous period
+                    "2019-12-23",  # -4d, previous period
+                    "2019-12-24",  # -3d, previous period
+                    "2019-12-25",  # -2d, previous period
+                    "2019-12-26",  # -1d, previous period
+                    "2019-12-27",  # -0d, previous period
                 ],
             )
             self.assertEqual(response[1]["label"], "sign up")
             self.assertEqual(response[1]["labels"][3], "day 3")
-            self.assertEqual(response[1]["data"][3], 1.0)
+            self.assertEqual(response[1]["data"][4], 1.0)
             self.assertEqual(response[1]["labels"][4], "day 4")
-            self.assertEqual(response[1]["data"][4], 0.0)
+            self.assertEqual(response[1]["data"][5], 0.0)
 
             with freeze_time("2020-01-04T13:00:01Z"):
                 no_compare_response = trends().run(
@@ -1224,6 +1226,126 @@ def trend_test_factory(trends):
             self.assertEqual(no_compare_response[0]["data"][4], 3.0)
             self.assertEqual(no_compare_response[0]["labels"][5], "2-Jan-2020")
             self.assertEqual(no_compare_response[0]["data"][5], 1.0)
+
+        def test_trends_compare_hour_interval(self):
+            self._create_events(use_time=True)
+            with freeze_time("2020-01-02T20:17:00Z"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "compare": "true",
+                            "date_from": "dStart",
+                            "interval": "hour",
+                            "events": [{"id": "sign up"}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(
+                response[0]["days"],
+                [
+                    "2020-01-02 00:00:00",
+                    "2020-01-02 01:00:00",
+                    "2020-01-02 02:00:00",
+                    "2020-01-02 03:00:00",
+                    "2020-01-02 04:00:00",
+                    "2020-01-02 05:00:00",
+                    "2020-01-02 06:00:00",
+                    "2020-01-02 07:00:00",
+                    "2020-01-02 08:00:00",
+                    "2020-01-02 09:00:00",
+                    "2020-01-02 10:00:00",
+                    "2020-01-02 11:00:00",
+                    "2020-01-02 12:00:00",
+                    "2020-01-02 13:00:00",
+                    "2020-01-02 14:00:00",
+                    "2020-01-02 15:00:00",
+                    "2020-01-02 16:00:00",
+                    "2020-01-02 17:00:00",
+                    "2020-01-02 18:00:00",
+                    "2020-01-02 19:00:00",
+                    "2020-01-02 20:00:00",
+                ],
+            )
+            self.assertEqual(
+                response[0]["data"],
+                [
+                    0,  # 00:00
+                    0,  # 01:00
+                    0,  # 02:00
+                    0,  # 03:00
+                    0,  # 04:00
+                    0,  # 05:00
+                    0,  # 06:00
+                    0,  # 07:00
+                    0,  # 08:00
+                    0,  # 09:00
+                    0,  # 10:00
+                    0,  # 11:00
+                    0,  # 12:00
+                    0,  # 13:00
+                    0,  # 14:00
+                    0,  # 15:00
+                    1,  # 16:00
+                    0,  # 17:00
+                    0,  # 18:00
+                    0,  # 19:00
+                    0,  # 20:00
+                ],
+            )
+            self.assertEqual(
+                response[1]["days"],
+                [
+                    "2020-01-01 00:00:00",
+                    "2020-01-01 01:00:00",
+                    "2020-01-01 02:00:00",
+                    "2020-01-01 03:00:00",
+                    "2020-01-01 04:00:00",
+                    "2020-01-01 05:00:00",
+                    "2020-01-01 06:00:00",
+                    "2020-01-01 07:00:00",
+                    "2020-01-01 08:00:00",
+                    "2020-01-01 09:00:00",
+                    "2020-01-01 10:00:00",
+                    "2020-01-01 11:00:00",
+                    "2020-01-01 12:00:00",
+                    "2020-01-01 13:00:00",
+                    "2020-01-01 14:00:00",
+                    "2020-01-01 15:00:00",
+                    "2020-01-01 16:00:00",
+                    "2020-01-01 17:00:00",
+                    "2020-01-01 18:00:00",
+                    "2020-01-01 19:00:00",
+                    "2020-01-01 20:00:00",
+                ],
+            )
+            self.assertEqual(
+                response[1]["data"],
+                [
+                    3,  # 00:00
+                    0,  # 01:00
+                    0,  # 02:00
+                    0,  # 03:00
+                    0,  # 04:00
+                    0,  # 05:00
+                    0,  # 06:00
+                    0,  # 07:00
+                    0,  # 08:00
+                    0,  # 09:00
+                    0,  # 10:00
+                    0,  # 11:00
+                    0,  # 12:00
+                    0,  # 13:00
+                    0,  # 14:00
+                    0,  # 15:00
+                    0,  # 16:00
+                    0,  # 17:00
+                    0,  # 18:00
+                    0,  # 19:00
+                    0,  # 20:00
+                ],
+            )
 
         def _test_events_with_dates(self, dates: List[str], result, query_time=None, **filter_params):
             _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})

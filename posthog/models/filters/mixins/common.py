@@ -329,22 +329,20 @@ class DateMixin(BaseParamMixin):
     @cached_property
     def date_to(self) -> datetime.datetime:
         if not self._date_to:
-            if self.interval == "hour":  # type: ignore
-                return timezone.now() + relativedelta(minutes=1)
-            date = timezone.now()
+            return timezone.now()
         else:
             if isinstance(self._date_to, str):
                 try:
-                    date = datetime.datetime.strptime(self._date_to, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
+                    return datetime.datetime.strptime(self._date_to, "%Y-%m-%d").replace(
+                        hour=23, minute=59, second=59, microsecond=999999, tzinfo=pytz.UTC
+                    )
                 except ValueError:
                     try:
                         return datetime.datetime.strptime(self._date_to, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
                     except ValueError:
-                        date = relative_date_parse(self._date_to)
+                        return relative_date_parse(self._date_to)
             else:
                 return self._date_to
-
-        return date.replace(hour=23, minute=59, second=59, microsecond=99999)
 
     @cached_property
     def use_explicit_dates(self) -> bool:
