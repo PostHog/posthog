@@ -171,12 +171,11 @@ class BillingViewset(viewsets.GenericViewSet):
 
             calculated_usage = get_cached_current_usage(org) if org else None
 
-            if calculated_usage is not None:
-                for product in response["products"] + response["products_enterprise"]:
-                    if product["type"] in calculated_usage:
-                        product["current_usage"] = calculated_usage[product["type"]]
-                    else:
-                        product["current_usage"] = 0
+            for product in response["products"] + response["products_enterprise"]:
+                if calculated_usage and product["type"] in calculated_usage:
+                    product["current_usage"] = calculated_usage[product["type"]]
+                else:
+                    product["current_usage"] = 0
 
         # Either way calculate the percentage_used for each product
         for product in response["products"]:
