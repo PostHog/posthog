@@ -452,7 +452,7 @@ def send_all_org_usage_reports(
         )
 
         if team.organization.id not in org_reports:
-            orgs_by_id[team.organization.id] = team.organization
+            orgs_by_id[str(team.organization.id)] = team.organization
 
             org_report = OrgReport(
                 date=period_start.strftime("%Y-%m-%d"),
@@ -491,7 +491,7 @@ def send_all_org_usage_reports(
         if dry_run:
             continue
 
-        org_id = str(org_report.organization_id)
+        org_id = org_report.organization_id
 
         # First capture the events to PostHog
         try:
