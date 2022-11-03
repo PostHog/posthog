@@ -470,6 +470,18 @@ def get_compare_period_dates(
     else:
         # Align previous period time range to day boundaries
         new_date_from = new_date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+        if interval == "day":
+            # KLUDGE: Unfortunately common relative date ranges such as "Last 7 days" (-7d) or "Last 14 days" (-14d)
+            # are wrong because they treat the current ongoing day as an _extra_ one. This means that those ranges
+            # are in reality, respectively, 8 and 15 days long. So for the common use case of comparing weeks,
+            # it's not possible to just use that period length directly - the results for the previous period
+            # would be misaligned by a day.
+            # The proper fix would be making this routine smarter, so that IF a relative date range is used,
+            # the number of days is subtracted directly (e.g. 7). This would also be easily extensible to other units,
+            # such as weeks, months, etc. (those are tested at present and so MIGHT be misaligned).
+            # However, as a quick fix for the most common week-by-week case, we just always add a day to counteract the
+            # woes of relative date ranges:
+            new_date_from += datetime.timedelta(days=1)
         new_date_to = (new_date_from + diff).replace(hour=23, minute=59, second=59, microsecond=999999)
     return new_date_from, new_date_to
 
