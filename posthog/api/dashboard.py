@@ -263,7 +263,10 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         serialized_tiles = []
 
         for tile in (
-            dashboard.tiles.exclude(deleted=True).filter(Q(insight__deleted=False) | Q(insight__isnull=True)).all()
+            dashboard.tiles.exclude(deleted=True)
+            .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
+            .select_related("insight", "text", "insight__created_by", "insight__last_modified_by", "insight__team")
+            .all()
         ):
             if isinstance(tile.layouts, str):
                 tile.layouts = json.loads(tile.layouts)
@@ -346,10 +349,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
         if self.action != "list":
             tiles_prefetch_queryset = (
                 DashboardTile.objects.select_related(
-                    "insight",
-                    "text",
-                    "insight__created_by",
-                    "insight__last_modified_by",
+                    "insight", "text", "insight__created_by", "insight__last_modified_by", "insight__team"
                 )
                 .exclude(deleted=True)
                 .filter(Q(insight__deleted=False) | Q(insight__isnull=True))

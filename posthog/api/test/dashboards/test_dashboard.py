@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, Literal, Optional, Tuple
 from unittest.mock import MagicMock
 
 from dateutil import parser
@@ -15,7 +15,6 @@ from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-from posthog.test.db_context_capturing import capture_db_queries
 from posthog.utils import generate_cache_key
 
 
@@ -150,34 +149,26 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     @snapshot_postgres_queries
     def test_adding_insights_is_not_nplus1_for_gets(self):
         dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
-        dashboard_two_id, _ = self._create_dashboard({"name": "dashboard two"})
         filter_dict = {
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
             "insight": "TRENDS",
         }
 
-        query_counts: List[int] = []
-        queries: List[List[Dict[str, str]]] = []
+        with self.assertNumQueries(11):
+            self._get_dashboard(dashboard_id)
 
-        count, qs = self._get_dashboard_counting_queries(dashboard_id)
-        query_counts.append(count)
-        queries.append(qs)
+        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+        with self.assertNumQueries(21):
+            self._get_dashboard(dashboard_id)
 
-        # add insights to the dashboard and count how many queries to read the dashboard afterwards
-        for _ in range(5):
-            self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            count, qs = self._get_dashboard_counting_queries(dashboard_id)
-            query_counts.append(count)
-            queries.append(qs)
+        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+        with self.assertNumQueries(24):
+            self._get_dashboard(dashboard_id)
 
-        # fewer queries when loading dashboard with no insights
-        self.assertLess(query_counts[0], query_counts[1])
-        # then only climbs by three queries for each additional insight
-        self.assertTrue(
-            all(j - i == 3 for i, j in zip(query_counts[2:], query_counts[3:])),
-            f"received: {query_counts}",
-        )
+        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+        with self.assertNumQueries(27):
+            self._get_dashboard(dashboard_id)
 
     @snapshot_postgres_queries
     def test_listing_dashboards_is_not_nplus1(self) -> None:
@@ -897,10 +888,3 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()
-
-    def _get_dashboard_counting_queries(self, dashboard_id: int) -> Tuple[int, List[Dict[str, str]]]:
-        with capture_db_queries() as capture_query_context:
-            self._get_dashboard(dashboard_id)
-
-            query_count = len(capture_query_context.captured_queries)
-            return query_count, capture_query_context.captured_queries
