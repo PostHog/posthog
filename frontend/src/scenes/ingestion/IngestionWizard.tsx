@@ -21,6 +21,9 @@ import { SitePopover } from '~/layout/navigation/TopBar/SitePopover'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { PanelHeader } from './panels/PanelComponents'
+import { InviteTeamPanel } from './panels/InviteTeamPanel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: IngestionWizard,
@@ -28,8 +31,9 @@ export const scene: SceneExport = {
 }
 
 export function IngestionWizard(): JSX.Element {
-    const { platform, framework, verify, addBilling } = useValues(ingestionLogic)
+    const { platform, framework, verify, addBilling, technical } = useValues(ingestionLogic)
     const { reportIngestionLandingSeen } = useActions(eventUsageLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useEffect(() => {
         if (!platform) {
@@ -45,7 +49,15 @@ export function IngestionWizard(): JSX.Element {
         )
     }
 
-    if (!platform && !verify) {
+    if (!platform && !verify && !!featureFlags[FEATURE_FLAGS.ONBOARDING_V2] && !technical) {
+        return (
+            <IngestionContainer>
+                <InviteTeamPanel />
+            </IngestionContainer>
+        )
+    }
+
+    if (!platform && !verify && !!featureFlags[FEATURE_FLAGS.ONBOARDING_V2] ? technical : true) {
         return (
             <IngestionContainer>
                 <PlatformPanel />
