@@ -932,7 +932,7 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
 
         const teamId = await createTeam(postgres, organizationId, `http://localhost:${server.address()?.port}`)
         const user = await createUser(postgres, teamId, new UUIDT().toString())
-        await createAction(
+        const action = await createAction(
             postgres,
             {
                 team_id: teamId,
@@ -962,7 +962,7 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
             ]
         )
 
-        await reloadActions(redis)
+        await reloadAction(redis, teamId, action.id)
 
         await capture(producer, teamId, distinctId, new UUIDT().toString(), '$autocapture', {
             name: 'hehe',
@@ -1111,8 +1111,8 @@ const createAndReloadPluginConfig = async (pgClient: Pool, teamId: number, plugi
     return pluginConfig
 }
 
-const reloadActions = async (redis: Redis.Redis) => {
-    await redis.publish('reload-actions', '')
+const reloadAction = async (redis: Redis.Redis, teamId: number, actionId: number) => {
+    await redis.publish('reload-action', JSON.stringify({ teamId, actionId }))
 }
 
 const fetchEvents = async (clickHouseClient: ClickHouse, teamId: number, uuid?: string) => {
@@ -1212,7 +1212,7 @@ const createAction = async (
             action_id: actionRow.id,
         })
     }
-    return action
+    return actionRow
 }
 
 const createUser = async (pgClient: Pool, teamId: number, email: string) => {

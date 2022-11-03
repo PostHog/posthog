@@ -15,6 +15,7 @@ export WORKER_CONCURRENCY=1
 export CONVERSION_BUFFER_ENABLED=true
 export BUFFER_CONVERSION_SECONDS=2 # Make sure we don't have to wait for the default 60 seconds
 export KAFKA_MAX_MESSAGE_BATCH_SIZE=0
+export APP_METRICS_GATHERED_FOR_ALL=true
 
 ./node_modules/.bin/c8 --reporter html node dist/index.js &
 SERVER_PID=$!
