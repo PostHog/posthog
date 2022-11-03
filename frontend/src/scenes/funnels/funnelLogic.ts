@@ -1190,7 +1190,6 @@ export const funnelLogic = kea<funnelLogicType>({
     listeners: ({ actions, values, props }) => ({
         setStepReference: ({ stepReference }) => {
             if (stepReference !== values.filters.funnel_step_reference) {
-                console.log('setting filters')
                 actions.setFilters({ funnel_step_reference: stepReference }, true, true)
             }
         },
