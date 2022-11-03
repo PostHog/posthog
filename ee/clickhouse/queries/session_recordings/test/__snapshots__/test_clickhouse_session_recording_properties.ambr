@@ -7,7 +7,7 @@
   AND event IN ['$pageview']
   AND session_id IN ['1']
   AND timestamp >= '2021-01-13 12:00:00'
-  AND timestamp <= '2021-01-22 11:59:59'
+  AND timestamp <= '2021-01-22 08:00:00'
   GROUP BY session_id
   '
 ---
