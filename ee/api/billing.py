@@ -153,7 +153,16 @@ class BillingViewset(viewsets.GenericViewSet):
             not billing_service_response.get("customer", {}).get("has_active_subscription")
             and not settings.BILLING_V2_ENABLED
         ):
-            if not (distinct_id and posthoganalytics.get_feature_flag("billing-v2-enabled", distinct_id)):
+            if not (
+                distinct_id
+                and posthoganalytics.get_feature_flag(
+                    "billing-v2-enabled",
+                    distinct_id,
+                    groups={
+                        "organization": str(org.id),
+                    },
+                )
+            ):
                 raise NotFound("Billing V2 is not enabled for this organization")
 
         # Sync the License and Org if we have a valid response
