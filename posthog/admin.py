@@ -168,8 +168,9 @@ class OrganizationAdmin(admin.ModelAdmin):
         )
 
     def billing_link_v2(self, organization: Organization) -> str:
-        if organization.has_billing_v2_setup:
-            url = f"{settings.BILLING_SERVICE_URL}/admin/billing/customer/?q={organization.pk}"
+        if not organization.has_billing_v2_setup:
+            return ""
+        url = f"{settings.BILLING_SERVICE_URL}/admin/billing/customer/?q={organization.pk}"
         return format_html(f'<a href="{url}">Billing V2 →</a>')
 
     def usage_posthog(self, organization: Organization):
