@@ -223,7 +223,7 @@ jobs:
                   KAFKA_MAX_MESSAGE_BATCH_SIZE: '0'
               run: |
                   cd plugin-server
-                  yarn start:dist &
+                  yarn run c8 --reporter html node dist/index.js &
 
                   until curl http://localhost:6738/_ready; do
                       echo ''
@@ -235,3 +235,11 @@ jobs:
               run: |
                   cd plugin-server
                   yarn functional_tests --maxConcurrency=10
+
+            - name: Upload coverage report
+              uses: actions/upload-artifact@v3
+              with:
+                  name: functional-coverage
+                  if-no-files-found: warn
+                  retention-days: 1
+                  path: 'plugin-server/coverage'
