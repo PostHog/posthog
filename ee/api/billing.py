@@ -288,6 +288,8 @@ class BillingViewset(viewsets.GenericViewSet):
         return org
 
     def _get_products(self, license: Optional[License], organization: Optional[Organization]):
+        headers = {}
+
         if license and organization:
             billing_service_token = build_billing_token(license, organization)
             headers = {"Authorization": f"Bearer {billing_service_token}"}
