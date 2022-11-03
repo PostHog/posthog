@@ -97,8 +97,9 @@ def get_cached_current_usage(organization: Organization) -> Dict[str, int]:
             "recordings": 0,
         }
 
+        (start_period, end_period) = get_this_month_date_range()
+
         for team in teams:
-            (start_period, end_period) = get_this_month_date_range()
             usage["recordings"] += get_recording_count_for_team_and_period(team.id, start_period, end_period)
             usage["events"] += get_event_count_for_team_and_period(team.id, start_period, end_period)
 
@@ -164,18 +165,17 @@ class BillingViewset(viewsets.GenericViewSet):
 
         # If we don't have products then get the default ones with our local usage calculation
         if not response.get("products"):
-            products = self._get_products()
+            products = self._get_products(license, org)
             response["products"] = products["standard"]
             response["products_enterprise"] = products["enterprise"]
 
             calculated_usage = get_cached_current_usage(org) if org else None
 
-            if calculated_usage is not None:
-                for product in response["products"] + response["products_enterprise"]:
-                    if product["type"] in calculated_usage:
-                        product["current_usage"] = calculated_usage[product["type"]]
-                    else:
-                        product["current_usage"] = 0
+            for product in response["products"] + response["products_enterprise"]:
+                if calculated_usage and product["type"] in calculated_usage:
+                    product["current_usage"] = calculated_usage[product["type"]]
+                else:
+                    product["current_usage"] = 0
 
         # Either way calculate the percentage_used for each product
         for product in response["products"]:
@@ -287,10 +287,14 @@ class BillingViewset(viewsets.GenericViewSet):
 
         return org
 
-    def _get_products(self):
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/products",
-        )
+    def _get_products(self, license: Optional[License], organization: Optional[Organization]):
+        headers = {}
+
+        if license and organization:
+            billing_service_token = build_billing_token(license, organization)
+            headers = {"Authorization": f"Bearer {billing_service_token}"}
+
+        res = requests.get(f"{BILLING_SERVICE_URL}/api/products", headers=headers)
 
         handle_billing_service_error(res)
 
