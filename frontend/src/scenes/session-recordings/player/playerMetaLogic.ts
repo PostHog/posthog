@@ -8,13 +8,6 @@ import { ceilMsToClosestSecond, findLastIndex } from 'lib/utils'
 import { getEpochTimeFromPlayerPosition } from './playerUtils'
 import { sessionRecordingsListLogic } from '../playlist/sessionRecordingsListLogic'
 
-const getPersonProperties = (person: Partial<PersonType>, keys: string[]): string | null => {
-    if (keys.some((k) => !person?.properties?.[k])) {
-        return null
-    }
-    return keys.map((k) => person?.properties?.[k]).join(', ')
-}
-
 export const playerMetaLogic = kea<playerMetaLogicType>({
     path: (key) => ['scenes', 'session-recordings', 'player', 'playerMetaLogic', key],
     props: {} as SessionRecordingPlayerProps,
@@ -50,16 +43,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>({
                     sessionRecordings.find((sessionRecording) => sessionRecording.id === props.sessionRecordingId)
                         ?.person ?? null
                 )
-            },
-        ],
-        description: [
-            (selectors) => [selectors.sessionPerson],
-            (person) => {
-                const location = person
-                    ? getPersonProperties(person, ['$geoip_city_name', '$geoip_country_code'])
-                    : null
-                const device = person ? getPersonProperties(person, ['$browser', '$os']) : null
-                return [device, location].filter((s) => s).join(' · ')
             },
         ],
         resolution: [

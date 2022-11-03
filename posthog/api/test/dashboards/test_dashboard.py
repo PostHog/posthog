@@ -1,5 +1,6 @@
 import json
 from typing import Any, Dict, List, Literal, Optional, Tuple
+from unittest.mock import MagicMock
 
 from dateutil import parser
 from django.utils import timezone
@@ -7,6 +8,7 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.api.dashboard import DashboardSerializer
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
@@ -361,6 +363,37 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         ).json()
         self.assertEqual(len(excludes_deleted_insights_response["tiles"]), 0)
         self.assertEqual(len(excludes_deleted_insights_response["tiles"]), 0)
+
+    def test_dashboard_insights_out_of_synch_with_tiles_are_not_shown(self):
+        """
+        regression test reported by customer, insight was deleted without deleting its tiles and was still shown
+        """
+        dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
+        insight_id, _ = self._create_insight(
+            {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard_id], "name": "some_item"}
+        )
+        out_of_synch_insight_id, _ = self._create_insight(
+            {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard_id], "name": "out of synch"}
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/").json()
+        self.assertEqual(len(response["tiles"]), 2)
+
+        Insight.objects.filter(id=out_of_synch_insight_id).update(deleted=True)
+        assert DashboardTile.objects.get(insight_id=out_of_synch_insight_id).deleted is None
+
+        excludes_deleted_insights_response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/"
+        ).json()
+        self.assertEqual(len(excludes_deleted_insights_response["tiles"]), 1)
+
+        # if loaded directly e.g. when shared/exported it doesn't use the ViewSet's queryset...
+        # so delete filtering needs to be in more places
+        dashboard = Dashboard.objects.get(id=dashboard_id)
+        mock_view = MagicMock()
+        mock_view.action = "retrieve"
+        dashboard_data = DashboardSerializer(dashboard, context={"view": mock_view, "request": MagicMock()}).data
+        assert len(dashboard_data["tiles"]) == 1
 
     def test_dashboard_insight_tiles_can_be_loaded_correct_context(self):
         dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})

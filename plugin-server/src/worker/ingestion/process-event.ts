@@ -6,6 +6,7 @@ import { KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import {
     ClickHouseTimestamp,
     Element,
+    GroupTypeIndex,
     Hub,
     IngestionPersonData,
     ISOTimestamp,
@@ -160,10 +161,10 @@ export class EventsProcessor {
 
     getGroupIdentifiers(properties: Properties): GroupId[] {
         const res: GroupId[] = []
-        for (let groupIndex = 0; groupIndex < this.db.MAX_GROUP_TYPES_PER_TEAM; ++groupIndex) {
-            const key = `$group_${groupIndex}`
+        for (let groupTypeIndex = 0; groupTypeIndex < this.db.MAX_GROUP_TYPES_PER_TEAM; ++groupTypeIndex) {
+            const key = `$group_${groupTypeIndex}`
             if (key in properties) {
-                res.push([groupIndex, properties[key]])
+                res.push([groupTypeIndex as GroupTypeIndex, properties[key]])
             }
         }
         return res

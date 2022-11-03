@@ -12,6 +12,19 @@ on:
             - 'posthog/plugins/**'
             - 'docker*.yml'
             - '*Dockerfile'
+    push:
+        branches:
+            - master
+        paths:
+            - .github/workflows/ci-plugin-server.yml
+            - 'plugin-server/**'
+            - 'ee/clickhouse/migrations/**'
+            - 'ee/migrations/**'
+            - 'ee/management/commands/setup_test_environment.py'
+            - 'posthog/migrations/**'
+            - 'posthog/plugins/**'
+            - 'docker*.yml'
+            - '*Dockerfile'
 
 env:
     OBJECT_STORAGE_ENABLED: true
@@ -36,10 +49,10 @@ jobs:
         steps:
             - uses: actions/checkout@v3
 
-            - name: Set up Node 16
+            - name: Set up Node 18
               uses: actions/setup-node@v3
               with:
-                  node-version: 16
+                  node-version: 18
 
             - name: Install package.json dependencies with Yarn
               run: yarn
@@ -96,10 +109,10 @@ jobs:
                   python -m pip install -r requirements-dev.txt
                   python -m pip install -r requirements.txt
 
-            - name: Set up Node 16
+            - name: Set up Node 18
               uses: actions/setup-node@v3
               with:
-                  node-version: 16
+                  node-version: 18
 
             - name: Get yarn cache directory path
               id: yarn-cache-dir-path
@@ -145,6 +158,7 @@ jobs:
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_DATABASE: 'posthog_test'
             KAFKA_HOSTS: 'kafka:9092'
+            DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
 
         steps:
             - name: Code check out
@@ -177,10 +191,10 @@ jobs:
                   python -m pip install -r requirements-dev.txt
                   python -m pip install -r requirements.txt
 
-            - name: Set up Node 16
+            - name: Set up Node 18
               uses: actions/setup-node@v3
               with:
-                  node-version: 16
+                  node-version: 18
 
             - name: Get yarn cache directory path
               id: yarn-cache-dir-path
@@ -198,32 +212,39 @@ jobs:
 
             - name: Install package.json dependencies with Yarn
               if: steps.yarn-cache.cache-hit != 'true'
-              run: cd plugin-server && yarn
+              run: |
+                  cd plugin-server
+                  yarn install --frozen-lockfile
+                  yarn build
 
             - name: Wait for Clickhouse & Kafka
               run: bin/check_kafka_clickhouse_up
 
             - name: Set up databases
               env:
-                  TEST: 'true'
+                  DEBUG: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-              run: cd plugin-server && yarn setup:test
+              run: |
+                  ./manage.py migrate
+                  ./manage.py migrate_clickhouse
+
+            - name: Start plugin-server
+              env:
+                  WORKER_CONCURRENCY: '1'
+                  CONVERSION_BUFFER_ENABLED: 'true'
+                  BUFFER_CONVERSION_SECONDS: '2' # Make sure we don't have to wait for the default 60 seconds
+                  KAFKA_MAX_MESSAGE_BATCH_SIZE: '0'
+              run: |
+                  cd plugin-server
+                  yarn start:dist &
+
+                  until curl http://localhost:6738/_ready; do
+                      echo ''
+                      echo 'Waiting for plugin-server to be ready...'
+                      sleep 1
+                  done
 
             - name: Test with Jest
-              env:
-                  # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
-                  REDIS_URL: 'redis://localhost'
               run: |
-                  # NOTE: we use a concurrency of 1 as there seems to be some
-                  # instability otherwise. I don't see this instability locally.
-                  cd plugin-server && yarn functional_tests --maxConcurrency=1 --coverage
-
-            - name: Uploader
-              uses: actions/upload-artifact@v3
-              with:
-                  name: functional-coverage
-                  if-no-files-found: warn
-                  retention-days: 1
-                  path: 'plugin-server/coverage'
+                  cd plugin-server
+                  yarn functional_tests --maxConcurrency=10

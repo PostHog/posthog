@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 import { IconOpenInNew, IconWarning } from 'lib/components/icons'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { useEffect } from 'react'
 import { EnvironmentConfigOption, preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { InstanceSetting } from '~/types'
 import { MetricValue, RenderMetricValue } from './RenderMetricValue'
@@ -16,7 +15,7 @@ export function InstanceConfigTab(): JSX.Element {
     const { configOptions, preflightLoading } = useValues(preflightLogic)
     const { editableInstanceSettings, instanceSettingsLoading, instanceConfigMode, instanceConfigEditingState } =
         useValues(systemStatusLogic)
-    const { loadInstanceSettings, setInstanceConfigMode, updateInstanceConfigValue, clearInstanceConfigEditing } =
+    const { setInstanceConfigMode, updateInstanceConfigValue, clearInstanceConfigEditing } =
         useActions(systemStatusLogic)
 
     useKeyboardHotkeys({
@@ -46,10 +45,6 @@ export function InstanceConfigTab(): JSX.Element {
         setInstanceConfigMode(ConfigMode.View)
         clearInstanceConfigEditing()
     }
-
-    useEffect(() => {
-        loadInstanceSettings()
-    }, [])
 
     const columns: LemonTableColumns<InstanceSetting> = [
         {
