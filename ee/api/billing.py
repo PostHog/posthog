@@ -155,6 +155,7 @@ class BillingViewset(viewsets.GenericViewSet):
         ):
             if not (
                 distinct_id
+                and org
                 and posthoganalytics.get_feature_flag(
                     "billing-v2-enabled",
                     distinct_id,
