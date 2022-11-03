@@ -156,51 +156,64 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
     return (period_start, period_end)
 
 
-def relative_date_parse(input: str) -> datetime.datetime:
+def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
+    """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
-        return datetime.datetime.strptime(input, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
+        return datetime.datetime.strptime(input, "%Y-%m-%d").replace(tzinfo=pytz.UTC), None
     except ValueError:
         pass
 
     # when input also contains the time for intervals "hour" and "minute"
     # the above try fails. Try one more time from isoformat.
     try:
-        return parser.isoparse(input).replace(tzinfo=pytz.UTC)
+        return parser.isoparse(input).replace(tzinfo=pytz.UTC), None
     except ValueError:
         pass
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)
     date = timezone.now()
+    delta_mapping: Dict[str, int] = {}
     if not match:
-        return date
+        return date, delta_mapping
     if match.group("type") == "h":
-        date -= relativedelta(hours=int(match.group("number")))
-        return date.replace(minute=0, second=0, microsecond=0)
+        delta_mapping["hours"] = int(match.group("number"))
     elif match.group("type") == "d":
         if match.group("number"):
-            date -= relativedelta(days=int(match.group("number")))
+            delta_mapping["days"] = int(match.group("number"))
     elif match.group("type") == "w":
         if match.group("number"):
-            date -= relativedelta(weeks=int(match.group("number")))
+            delta_mapping["weeks"] = int(match.group("number"))
     elif match.group("type") == "m":
         if match.group("number"):
-            date -= relativedelta(months=int(match.group("number")))
+            delta_mapping["months"] = int(match.group("number"))
         if match.group("position") == "Start":
-            date -= relativedelta(day=1)
+            delta_mapping["day"] = 1
         if match.group("position") == "End":
-            date -= relativedelta(day=31)
+            delta_mapping["day"] = 31
     elif match.group("type") == "q":
         if match.group("number"):
-            date -= relativedelta(weeks=13 * int(match.group("number")))
+            delta_mapping["weeks"] = 13 * int(match.group("number"))
     elif match.group("type") == "y":
         if match.group("number"):
-            date -= relativedelta(years=int(match.group("number")))
+            delta_mapping["years"] = int(match.group("number"))
         if match.group("position") == "Start":
-            date -= relativedelta(month=1, day=1)
+            delta_mapping["month"] = 1
+            delta_mapping["day"] = 1
         if match.group("position") == "End":
-            date -= relativedelta(month=12, day=31)
-    return date.replace(hour=0, minute=0, second=0, microsecond=0)
+            delta_mapping["month"] = 12
+            delta_mapping["day"] = 31
+    date -= relativedelta(**delta_mapping)
+    # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
+    if "hours" in delta_mapping:
+        date = date.replace(minute=0, second=0, microsecond=0)
+    else:
+        date = date.replace(hour=0, minute=0, second=0, microsecond=0)
+    return date, delta_mapping
+
+
+def relative_date_parse(input: str) -> datetime.datetime:
+    return relative_date_parse_with_delta_mapping(input)[0]
 
 
 def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dict[str, datetime.datetime]:
@@ -458,7 +471,12 @@ def convert_property_value(input: Union[str, bool, dict, list, int, Optional[str
 
 
 def get_compare_period_dates(
-    date_from: datetime.datetime, date_to: datetime.datetime, interval: str
+    date_from: datetime.datetime,
+    date_to: datetime.datetime,
+    interval: str,
+    *,
+    is_date_from_relative: bool,
+    is_date_to_relative: bool,
 ) -> Tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
     new_date_from = date_from - diff
@@ -470,7 +488,8 @@ def get_compare_period_dates(
     else:
         # Align previous period time range to day boundaries
         new_date_from = new_date_from.replace(hour=0, minute=0, second=0, microsecond=0)
-        if interval == "day":
+        # Handle case where one of the dates comes from a relative string and the other not
+        if interval == "day" and is_date_from_relative and not is_date_to_relative:
             # KLUDGE: Unfortunately common relative date ranges such as "Last 7 days" (-7d) or "Last 14 days" (-14d)
             # are wrong because they treat the current ongoing day as an _extra_ one. This means that those ranges
             # are in reality, respectively, 8 and 15 days long. So for the common use case of comparing weeks,

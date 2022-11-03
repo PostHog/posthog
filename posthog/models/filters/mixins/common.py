@@ -49,7 +49,7 @@ from posthog.models.entity import Entity, ExclusionEntity, MathType
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
 from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
-from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse
+from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse_with_delta_mapping
 
 # When updating this regex, remember to update the regex with the same name in TrendsFormula.tsx
 ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)\.]+)"
@@ -305,6 +305,11 @@ class CompareMixin(BaseParamMixin):
 
 
 class DateMixin(BaseParamMixin):
+    # Whether date_from was originally a relative string (e.g. -14d)
+    is_date_from_relative: bool
+    # Whether date_to was originally a relative string (e.g. -7d)
+    is_date_to_relative: bool
+
     @cached_property
     def _date_from(self) -> Optional[Union[str, datetime.datetime]]:
         return self._data.get(DATE_FROM, None)
@@ -315,11 +320,15 @@ class DateMixin(BaseParamMixin):
 
     @cached_property
     def date_from(self) -> Optional[datetime.datetime]:
+        self.is_date_from_relative = False
         if self._date_from:
             if self._date_from == "all":
                 return None
             elif isinstance(self._date_from, str):
-                return relative_date_parse(self._date_from)
+                date, delta_mapping = relative_date_parse_with_delta_mapping(self._date_from)
+                if delta_mapping is not None:
+                    self.is_date_from_relative = True
+                return date
             else:
                 return self._date_from
         return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
@@ -328,6 +337,7 @@ class DateMixin(BaseParamMixin):
 
     @cached_property
     def date_to(self) -> datetime.datetime:
+        self.is_date_to_relative = False
         if not self._date_to:
             return timezone.now()
         else:
@@ -340,7 +350,10 @@ class DateMixin(BaseParamMixin):
                     try:
                         return datetime.datetime.strptime(self._date_to, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
                     except ValueError:
-                        return relative_date_parse(self._date_to)
+                        date, delta_mapping = relative_date_parse_with_delta_mapping(self._date_to)
+                        if delta_mapping is not None:
+                            self.is_date_to_relative = True
+                        return date
             else:
                 return self._date_to
 

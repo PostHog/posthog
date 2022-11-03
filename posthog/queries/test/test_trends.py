@@ -1171,7 +1171,7 @@ def trend_test_factory(trends):
             breakdown_vals = [val["breakdown_value"] for val in daily_response]
             self.assertTrue("value_21" in breakdown_vals)
 
-        def test_trends_compare_day_interval(self):
+        def test_trends_compare_day_interval_relative_range(self):
             self._create_events()
             with freeze_time("2020-01-04T13:00:01Z"):
                 response = trends().run(
@@ -1227,7 +1227,46 @@ def trend_test_factory(trends):
             self.assertEqual(no_compare_response[0]["labels"][5], "2-Jan-2020")
             self.assertEqual(no_compare_response[0]["data"][5], 1.0)
 
-        def test_trends_compare_hour_interval(self):
+        def test_trends_compare_day_interval_fixed_range_single(self):
+            self._create_events(use_time=True)
+            with freeze_time("2020-01-02T20:17:00Z"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "compare": "true",
+                            # A fixed single-day range requires different handling than a relative range like -7d
+                            "date_from": "2020-01-02",
+                            "interval": "day",
+                            "events": [{"id": "sign up"}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(
+                response[0]["days"],
+                [
+                    "2020-01-02",  # Current day
+                ],
+            )
+            self.assertEqual(
+                response[0]["data"],
+                [1],
+            )
+            self.assertEqual(
+                response[1]["days"],
+                [
+                    "2020-01-01",  # Previous day
+                ],
+            )
+            self.assertEqual(
+                response[1]["data"],
+                [
+                    3,
+                ],
+            )
+
+        def test_trends_compare_hour_interval_relative_range(self):
             self._create_events(use_time=True)
             with freeze_time("2020-01-02T20:17:00Z"):
                 response = trends().run(
