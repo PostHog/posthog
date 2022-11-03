@@ -241,3 +241,7 @@ class Team(UUIDClassicModel):
         return str(self.pk)
 
     __repr__ = sane_repr("uuid", "name", "api_token")
+
+
+def groups_on_events_querying_enabled():
+    return person_on_events_ready() and get_instance_setting("GROUPS_ON_EVENTS_ENABLED")

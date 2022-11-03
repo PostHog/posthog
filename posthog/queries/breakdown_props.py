@@ -17,6 +17,7 @@ from posthog.models.property.util import (
     parse_prop_grouped_clauses,
 )
 from posthog.models.team import Team
+from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
@@ -128,11 +129,14 @@ def get_breakdown_prop_values(
             person_properties_mode=person_properties_mode,
         )
 
+    direct_on_events = person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS and (
+        filter.breakdown_type != "group" or groups_on_events_querying_enabled()
+    )
     value_expression = _to_value_expression(
         filter.breakdown_type,
         filter.breakdown,
         filter.breakdown_group_type_index,
-        direct_on_events=True if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else False,
+        direct_on_events=direct_on_events,
         cast_as_float=filter.using_histogram,
     )
 
