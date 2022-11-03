@@ -294,7 +294,7 @@ class BillingViewset(viewsets.GenericViewSet):
             billing_service_token = build_billing_token(license, organization)
             headers = {"Authorization": f"Bearer {billing_service_token}"}
 
-        res = requests.get(f"{BILLING_SERVICE_URL}/api/products", headers)
+        res = requests.get(f"{BILLING_SERVICE_URL}/api/products", headers=headers)
 
         handle_billing_service_error(res)
 
