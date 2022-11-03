@@ -9,6 +9,7 @@ import { SeekSkip, Timestamp } from 'scenes/session-recordings/player/PlayerCont
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import {
     IconFullScreen,
+    IconOpenInNew,
     IconPause,
     IconPlay,
     IconSkipInactivity,
@@ -17,13 +18,25 @@ import {
 } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function PlayerController({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { togglePlayPause, setSpeed, setSkipInactivitySetting, setTab, setIsFullScreen } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
-    const { currentPlayerState, speed, isSmallScreen, isSmallPlayer, skipInactivitySetting, tab, isFullScreen } =
-        useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+    const {
+        currentPlayerState,
+        speed,
+        isSmallScreen,
+        isSmallPlayer,
+        skipInactivitySetting,
+        tab,
+        isFullScreen,
+        rootFrame,
+    } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="p-3 bg-light flex flex-col select-none">
@@ -131,6 +144,25 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
                             />
                         </LemonButton>
                     </Tooltip>
+                    {!!featureFlags[FEATURE_FLAGS.LIVE_SESSION_RECORDING_FRAME_PREVIEW] && rootFrame && (
+                        <Tooltip title={`See live preview of current frame`}>
+                            <LemonButton
+                                size="small"
+                                status="primary-alt"
+                                onClick={() => {
+                                    const htmlString =
+                                        rootFrame?.getElementsByTagName('iframe')?.[0].contentWindow?.document
+                                            ?.documentElement?.outerHTML
+                                    if (htmlString) {
+                                        const wnd = window.open('about:blank', '_blank')
+                                        wnd?.document.write(htmlString)
+                                    }
+                                }}
+                            >
+                                <IconOpenInNew className="text-xl text-primary-alt" />
+                            </LemonButton>
+                        </Tooltip>
+                    )}
                 </div>
             </div>
         </div>
