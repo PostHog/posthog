@@ -243,7 +243,6 @@ export const systemStatusLogic = kea<systemStatusLogicType>({
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadSystemStatus()
-            actions.loadInstanceSettings()
         },
     }),
 
