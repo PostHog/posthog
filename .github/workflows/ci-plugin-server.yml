@@ -12,6 +12,19 @@ on:
             - 'posthog/plugins/**'
             - 'docker*.yml'
             - '*Dockerfile'
+    push:
+        branches:
+            - master
+        paths:
+            - .github/workflows/ci-plugin-server.yml
+            - 'plugin-server/**'
+            - 'ee/clickhouse/migrations/**'
+            - 'ee/migrations/**'
+            - 'ee/management/commands/setup_test_environment.py'
+            - 'posthog/migrations/**'
+            - 'posthog/plugins/**'
+            - 'docker*.yml'
+            - '*Dockerfile'
 
 env:
     OBJECT_STORAGE_ENABLED: true
