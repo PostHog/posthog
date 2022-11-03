@@ -637,7 +637,6 @@ export interface CohortGroupType {
     name?: string
 }
 
-// Note this will eventually replace CohortGroupType once `cohort-filters` FF is released
 // Synced with `posthog/models/property.py`
 export interface CohortCriteriaType {
     id: string // Criteria filter id
@@ -1548,6 +1547,15 @@ export interface FeatureFlagType {
     rollout_percentage: number | null
     ensure_experience_continuity: boolean | null
     experiment_set: string[] | null
+    rollback_conditions: FeatureFlagRollbackConditions[]
+    performed_rollback: boolean
+}
+
+export interface FeatureFlagRollbackConditions {
+    threshold: number
+    threshold_type: string
+    threshold_metric?: FilterType
+    operator?: string
 }
 
 export interface CombinedFeatureFlagAndValueType {
@@ -2190,4 +2198,9 @@ export interface MediaUploadResponse {
     id: string
     image_location: string
     name: string
+}
+
+export enum RolloutConditionType {
+    Insight = 'insight',
+    Sentry = 'sentry',
 }
