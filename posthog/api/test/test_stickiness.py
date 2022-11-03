@@ -9,7 +9,7 @@ from freezegun import freeze_time
 
 from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models.team import Team
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, snapshot_clickhouse_queries
 from posthog.utils import encode_get_request_params
 
 
@@ -459,6 +459,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             second_result = self.client.get(result["next"]).json()
             self.assertEqual(len(second_result["results"][0]["people"]), 50)
 
+        @snapshot_clickhouse_queries
         def test_compare(self):
             self._create_multiple_people()
 
