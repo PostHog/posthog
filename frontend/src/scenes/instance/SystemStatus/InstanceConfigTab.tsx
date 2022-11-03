@@ -10,13 +10,18 @@ import { ConfigMode, systemStatusLogic } from './systemStatusLogic'
 import { InstanceConfigSaveModal } from './InstanceConfigSaveModal'
 import { pluralize } from 'lib/utils'
 import { LemonButton } from '@posthog/lemon-ui'
+import { useEffect } from 'react'
 
 export function InstanceConfigTab(): JSX.Element {
     const { configOptions, preflightLoading } = useValues(preflightLogic)
     const { editableInstanceSettings, instanceSettingsLoading, instanceConfigMode, instanceConfigEditingState } =
         useValues(systemStatusLogic)
-    const { setInstanceConfigMode, updateInstanceConfigValue, clearInstanceConfigEditing } =
+    const { loadInstanceSettings, setInstanceConfigMode, updateInstanceConfigValue, clearInstanceConfigEditing } =
         useActions(systemStatusLogic)
+
+    useEffect(() => {
+        loadInstanceSettings()
+    }, [])
 
     useKeyboardHotkeys({
         e: {
