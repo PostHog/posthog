@@ -56,11 +56,19 @@ export const ingestionLogic = kea<ingestionLogicType>([
         actions: [teamLogic, ['updateCurrentTeamSuccess']],
     }),
     actions({
+        setTechnical: (technical: boolean) => ({ technical }),
         setPlatform: (platform: PlatformType) => ({ platform }),
         setFramework: (framework: Framework) => ({ framework: framework as Framework }),
         setVerify: (verify: boolean) => ({ verify }),
         setAddBilling: (addBilling: boolean) => ({ addBilling }),
-        setState: (platform: PlatformType, framework: string | null, verify: boolean, addBilling: boolean) => ({
+        setState: (
+            technical: boolean | null,
+            platform: PlatformType,
+            framework: string | null,
+            verify: boolean,
+            addBilling: boolean
+        ) => ({
+            technical,
             platform,
             framework,
             verify,
@@ -80,6 +88,13 @@ export const ingestionLogic = kea<ingestionLogicType>([
         isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
     }),
     reducers({
+        technical: [
+            null as null | boolean,
+            {
+                setTechnical: (_, { technical }) => technical,
+                setState: (_, { technical }) => technical,
+            },
+        ],
         platform: [
             null as null | PlatformType,
             {
@@ -200,6 +215,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
     })),
 
     actionToUrl(({ values }) => ({
+        setTechnical: () => getUrl(values),
         setPlatform: () => getUrl(values),
         setFramework: () => getUrl(values),
         setVerify: () => getUrl(values),
@@ -215,9 +231,10 @@ export const ingestionLogic = kea<ingestionLogicType>([
     })),
 
     urlToAction(({ actions }) => ({
-        '/ingestion': () => actions.setState(null, null, false, false),
+        '/ingestion': () => actions.setState(null, null, null, false, false),
         '/ingestion/billing': (_: any, { platform, framework }) => {
             actions.setState(
+                null,
                 platform === 'mobile'
                     ? MOBILE
                     : platform === 'web'
@@ -236,6 +253,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
         },
         '/ingestion/verify': (_: any, { platform, framework }) => {
             actions.setState(
+                true,
                 platform === 'mobile'
                     ? MOBILE
                     : platform === 'web'
@@ -254,6 +272,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
         },
         '/ingestion/api': (_: any, { platform }) => {
             actions.setState(
+                true,
                 platform === 'mobile' ? MOBILE : platform === 'web' ? WEB : platform === 'backend' ? BACKEND : null,
                 API,
                 false,
@@ -262,6 +281,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
         },
         '/ingestion(/:platform)(/:framework)': ({ platform, framework }) => {
             actions.setState(
+                true,
                 platform === 'mobile'
                     ? MOBILE
                     : platform === 'web'
@@ -322,13 +342,13 @@ export const ingestionLogic = kea<ingestionLogicType>([
         onBack: () => {
             switch (values.currentStep) {
                 case INGESTION_STEPS.BILLING:
-                    actions.setState(values.platform, values.framework, true, false)
+                    actions.setState(values.technical, values.platform, values.framework, true, false)
                     return
                 case INGESTION_STEPS.VERIFY:
-                    actions.setState(values.platform, null, false, false)
+                    actions.setState(values.technical, values.platform, null, false, false)
                     return
                 case INGESTION_STEPS.CONNECT_PRODUCT:
-                    actions.setState(null, null, false, false)
+                    actions.setState(null, null, null, false, false)
                     return
                 default:
                     return
