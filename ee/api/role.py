@@ -5,6 +5,8 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions, extract_organization
 
+DEFAULT_ROLE_NAME = "Write"
+
 
 class RoleSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)

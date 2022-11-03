@@ -17,6 +17,7 @@ from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AvailableFeature
+from posthog.settings.ee import EE_AVAILABLE
 from posthog.utils import get_instance_realm
 
 from .organization import Organization, OrganizationMembership
@@ -211,7 +212,17 @@ class User(AbstractUser, UUIDClassicModel):
                 # If project access control IS applicable, make sure the user is assigned a project they have access to
                 # We don't need to check for ExplicitTeamMembership as none can exist for a completely new member
                 self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
+
+            if EE_AVAILABLE and AvailableFeature.ROLE_BASED_ACCESS in organization.available_features:
+                from ee.api.role import DEFAULT_ROLE_NAME
+                from ee.models.role import Role, RoleMembership
+
+                default_role = Role.objects.filter(name=DEFAULT_ROLE_NAME, organization=organization)
+                if default_role.exists():
+                    RoleMembership.objects.create(role=default_role, user=self)
+
             self.save()
+
             return membership
 
     @property

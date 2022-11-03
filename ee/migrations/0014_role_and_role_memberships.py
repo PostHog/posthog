@@ -3,6 +3,7 @@
 from django.conf import settings
 from django.db import migrations, models, transaction
 import django.db.models.deletion
+from ee.api.role import DEFAULT_ROLE_NAME
 import posthog.models.utils
 
 
@@ -14,7 +15,7 @@ def add_default_role(apps, schema_editor):
     orgs = Organization.objects.all()
     for organization in orgs:
         with transaction.atomic():
-            default_role = Role.objects.create(name="Write", organization=organization)
+            default_role = Role.objects.create(name=DEFAULT_ROLE_NAME, organization=organization)
             org_members = organization.members.all()
             for member in org_members:
                 RoleMembership.create(role=default_role, user=member)

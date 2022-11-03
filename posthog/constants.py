@@ -25,6 +25,7 @@ class AvailableFeature(str, Enum):
     WHITE_LABELLING = "white_labelling"
     SUBSCRIPTIONS = "subscriptions"
     APP_METRICS = "app_metrics"
+    ROLE_BASED_ACCESS = "role_based_access"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

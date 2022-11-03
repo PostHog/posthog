@@ -1,4 +1,5 @@
 import json
+from posthog.settings.ee import EE_AVAILABLE
 import sys
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
@@ -54,6 +55,12 @@ class OrganizationManager(models.Manager):
                 user.current_organization = organization
                 user.current_team = team
                 user.save()
+            if EE_AVAILABLE and AvailableFeature.ROLE_BASED_ACCESS in organization.available_features:
+                from ee.api.role import DEFAULT_ROLE_NAME
+                from ee.models.role import Role
+
+                Role.objects.create(name=DEFAULT_ROLE_NAME, organization=organization)
+
         return organization, organization_membership, team
 
 
