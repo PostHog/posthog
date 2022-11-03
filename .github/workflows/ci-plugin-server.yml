@@ -232,17 +232,10 @@ jobs:
                       sleep 1
                   done
 
-            # - name: Test with Jest
-            #   run: |
-            #       cd plugin-server
-            #       yarn functional_tests --maxConcurrency=10
+                  yarn functional_tests --maxConcurrency=10
 
-            - name: Stop plugin-server
-              run: |
-                  jobs
-                  ps ax
-                  kill "${{ env.PLUGIN_SERVER_PID }}"
-                  wait "${{ env.PLUGIN_SERVER_PID }}"
+                  kill $!
+                  wait $!
 
             - name: Upload coverage report
               uses: actions/upload-artifact@v3
