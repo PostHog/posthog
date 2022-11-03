@@ -1,4 +1,4 @@
-import { kea, path, actions, connect, reducers, afterMount, selectors } from 'kea'
+import { kea, path, actions, connect, reducers, afterMount, selectors, listeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import type { billingLogicType } from './billingLogicType'
@@ -6,20 +6,13 @@ import { BillingProductV2Type, BillingV2Type, BillingVersion } from '~/types'
 import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urlToAction } from 'kea-router'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { forms } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from '@posthog/lemon-ui'
 import { projectUsage } from './billing-utils'
+import posthog from 'posthog-js'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
-
-export enum BillingAlertType {
-    SetupBilling = 'setup_billing',
-    UsageNearLimit = 'usage_near_limit',
-    UsageLimitExceeded = 'usage_limit_exceeded',
-    FreeUsageNearLimit = 'free_usage_near_limit',
-}
 
 export interface BillingAlertConfig {
     status: 'info' | 'warning' | 'error'
@@ -46,10 +39,11 @@ export const billingLogic = kea<billingLogicType>([
     path(['scenes', 'billing', 'v2', 'billingLogic']),
     actions({
         setShowLicenseDirectInput: (show: boolean) => ({ show }),
+        reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
+        reportBillingV2Shown: true,
     }),
     connect({
         values: [featureFlagLogic, ['featureFlags']],
-        actions: [eventUsageLogic, ['reportIngestionBillingCancelled']],
     }),
     reducers({
         showLicenseDirectInput: [
@@ -59,7 +53,7 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
     }),
-    loaders(({}) => ({
+    loaders(() => ({
         billing: [
             null as BillingV2Type | null,
             {
@@ -71,6 +65,7 @@ export const billingLogic = kea<billingLogicType>([
 
                 updateBillingLimits: async (limits: { [key: string]: string | null }) => {
                     const response = await api.update('api/billing-v2', { custom_limits_usd: limits })
+
                     lemonToast.success('Billing limits updated')
                     return parseBillingResponse(response)
                 },
@@ -152,6 +147,17 @@ export const billingLogic = kea<billingLogicType>([
                     throw e
                 }
             },
+        },
+    })),
+
+    listeners(() => ({
+        reportBillingV2Shown: () => {
+            posthog.capture('billing v2 shown')
+        },
+        reportBillingAlertShown: ({ alertConfig }) => {
+            posthog.capture('billing alert shown', {
+                ...alertConfig,
+            })
         },
     })),
 

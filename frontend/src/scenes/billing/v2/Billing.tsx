@@ -36,9 +36,15 @@ const DEFAULT_BILLING_LIMIT = 500
 
 export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
     const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingLogic)
-    const { setShowLicenseDirectInput } = useActions(billingLogic)
+    const { setShowLicenseDirectInput, reportBillingV2Shown } = useActions(billingLogic)
     const { preflight } = useValues(preflightLogic)
     const [enterprisePackage, setEnterprisePackage] = useState(false)
+
+    useEffect(() => {
+        if (billing) {
+            reportBillingV2Shown()
+        }
+    }, [!!billing])
 
     if (!billing && billingLoading) {
         return <SpinnerOverlay />
