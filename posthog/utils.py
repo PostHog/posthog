@@ -473,10 +473,9 @@ def convert_property_value(input: Union[str, bool, dict, list, int, Optional[str
 def get_compare_period_dates(
     date_from: datetime.datetime,
     date_to: datetime.datetime,
+    date_from_delta_mapping: Optional[Dict[str, int]],
+    date_to_delta_mapping: Optional[Dict[str, int]],
     interval: str,
-    *,
-    is_date_from_relative: bool,
-    is_date_to_relative: bool,
 ) -> Tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
     new_date_from = date_from - diff
@@ -488,18 +487,22 @@ def get_compare_period_dates(
     else:
         # Align previous period time range to day boundaries
         new_date_from = new_date_from.replace(hour=0, minute=0, second=0, microsecond=0)
-        # Handle case where one of the dates comes from a relative string and the other not
-        if interval == "day" and is_date_from_relative and not is_date_to_relative:
+        # Handle date_from = -7d, -14d etc. specially
+        if (
+            interval == "day"
+            and date_from_delta_mapping
+            and date_from_delta_mapping["days"]
+            and date_from_delta_mapping["days"] % 7 == 0
+            and not date_to_delta_mapping
+        ):
             # KLUDGE: Unfortunately common relative date ranges such as "Last 7 days" (-7d) or "Last 14 days" (-14d)
             # are wrong because they treat the current ongoing day as an _extra_ one. This means that those ranges
             # are in reality, respectively, 8 and 15 days long. So for the common use case of comparing weeks,
             # it's not possible to just use that period length directly - the results for the previous period
             # would be misaligned by a day.
-            # The proper fix would be making this routine smarter, so that IF a relative date range is used,
-            # the number of days is subtracted directly (e.g. 7). This would also be easily extensible to other units,
-            # such as weeks, months, etc. (comparisons for those are not tested at present and so MIGHT be misaligned).
-            # However, as a quick fix for the most common week-by-week case, we just always add a day to counteract the
-            # woes of relative date ranges:
+            # The proper fix would be making -7d actually 7 days, but that requires careful consideration.
+            # As a quick fix for the most common week-by-week case, we just always add a day to counteract the woes
+            # of relative date ranges:
             new_date_from += datetime.timedelta(days=1)
         new_date_to = (new_date_from + diff).replace(hour=23, minute=59, second=59, microsecond=999999)
     return new_date_from, new_date_to

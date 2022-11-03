@@ -305,10 +305,8 @@ class CompareMixin(BaseParamMixin):
 
 
 class DateMixin(BaseParamMixin):
-    # Whether date_from was originally a relative string (e.g. -14d)
-    is_date_from_relative: bool
-    # Whether date_to was originally a relative string (e.g. -7d)
-    is_date_to_relative: bool
+    date_from_delta_mapping: Optional[Dict[str, int]]
+    date_to_delta_mapping: Optional[Dict[str, int]]
 
     @cached_property
     def _date_from(self) -> Optional[Union[str, datetime.datetime]]:
@@ -320,14 +318,13 @@ class DateMixin(BaseParamMixin):
 
     @cached_property
     def date_from(self) -> Optional[datetime.datetime]:
-        self.is_date_from_relative = False
+        self.date_from_delta_mapping = None
         if self._date_from:
             if self._date_from == "all":
                 return None
             elif isinstance(self._date_from, str):
                 date, delta_mapping = relative_date_parse_with_delta_mapping(self._date_from)
-                if delta_mapping is not None:
-                    self.is_date_from_relative = True
+                self.date_from_delta_mapping = delta_mapping
                 return date
             else:
                 return self._date_from
@@ -337,7 +334,7 @@ class DateMixin(BaseParamMixin):
 
     @cached_property
     def date_to(self) -> datetime.datetime:
-        self.is_date_to_relative = False
+        self.date_to_delta_mapping = None
         if not self._date_to:
             return timezone.now()
         else:
@@ -351,8 +348,7 @@ class DateMixin(BaseParamMixin):
                         return datetime.datetime.strptime(self._date_to, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
                     except ValueError:
                         date, delta_mapping = relative_date_parse_with_delta_mapping(self._date_to)
-                        if delta_mapping is not None:
-                            self.is_date_to_relative = True
+                        self.date_to_delta_mapping = delta_mapping
                         return date
             else:
                 return self._date_to
