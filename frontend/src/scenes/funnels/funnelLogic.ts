@@ -305,12 +305,6 @@ export const funnelLogic = kea<funnelLogicType>({
         people: {
             clearFunnel: () => [],
         },
-        stepReference: [
-            FunnelStepReference.total as FunnelStepReference,
-            {
-                setStepReference: (_, { stepReference }) => stepReference,
-            },
-        ],
         isGroupingOutliers: [
             true,
             {
@@ -455,6 +449,10 @@ export const funnelLogic = kea<funnelLogicType>({
 
     selectors: ({ selectors }) => ({
         loadedFilters: [(s) => [s.insight], ({ filters }) => (filters?.insight === InsightType.FUNNELS ? filters : {})],
+        stepReference: [
+            (s) => [s.filters],
+            ({ funnel_step_reference }) => funnel_step_reference || FunnelStepReference.total,
+        ],
         results: [
             (s) => [s.insight],
             ({ filters, result }): FunnelAPIResponse => {
@@ -1190,6 +1188,11 @@ export const funnelLogic = kea<funnelLogicType>({
     }),
 
     listeners: ({ actions, values, props }) => ({
+        setStepReference: ({ stepReference }) => {
+            if (stepReference !== values.filters.funnel_step_reference) {
+                actions.setFilters({ funnel_step_reference: stepReference }, true, true)
+            }
+        },
         toggleVisibilityByBreakdown: ({ breakdownValue }) => {
             const key = getVisibilityKey(breakdownValue)
             const currentIsHidden = !!values.hiddenLegendKeys?.[key]
