@@ -45,31 +45,3 @@
     text-align: center;
     margin-bottom: 1rem;
 }
-
-.billing-pricing-explanation-box {
-    background-color: var(--mark-color);
-    border-radius: 0.5rem;
-    position: relative;
-    display: flex;
-    flex-direction: row;
-}
-
-.billing-hog {
-    overflow: hidden;
-    position: relative;
-    width: 200px;
-    padding-top: 1rem;
-}
-
-@media screen and (max-width: 767px) {
-    .billing-hog {
-        display: none;
-    }
-}
-
-.billing-hog-img {
-    position: absolute;
-    top: 0;
-    height: 200px;
-    width: 200px;
-}

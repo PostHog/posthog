@@ -1,6 +1,15 @@
 import json
 import sys
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    TypedDict,
+    Union,
+)
 
 import structlog
 from django.conf import settings
@@ -31,6 +40,11 @@ except ImportError:
 logger = structlog.get_logger(__name__)
 
 INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
+
+
+class OrganizationUsageInfo(TypedDict):
+    usage: Optional[int]
+    limit: Optional[int]
 
 
 class OrganizationManager(models.Manager):
@@ -94,9 +108,18 @@ class Organization(UUIDModel):
         default=PluginsAccessLevel.CONFIG,
         choices=PluginsAccessLevel.choices,
     )
-    available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
     for_internal_metrics: models.BooleanField = models.BooleanField(default=False)
     is_member_join_email_enabled: models.BooleanField = models.BooleanField(default=True)
+
+    # Managed by Billing
+    available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
+    # Managed by Billing, cached here for usage controls
+    # Like {
+    #   'events': { 'usage': 10000, 'limit': 20000 },
+    #   'recordings': { 'usage': 10000, 'limit': 20000 }
+    # }
+    # Also currently indicates if the organization is on billing V2 or not
+    usage: models.JSONField = models.JSONField(null=True, blank=True)
 
     # DEPRECATED attributes (should be removed on next major version)
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)
@@ -141,6 +164,11 @@ class Organization(UUIDModel):
         """Updates field `available_features`. Does not `save()`."""
         # TODO BW: Get available features from billing service
 
+        if self.has_billing_v2_setup:
+            # Usage indicates billing V2 - we don't update billing as that is done
+            # whenever the billing service is called
+            return self.available_features
+
         plan, realm = self._billing_plan_details
         if not plan:
             self.available_features = []
@@ -152,6 +180,23 @@ class Organization(UUIDModel):
 
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
         return feature in self.available_features
+
+    def get_usage_for_feature(self, feature: str) -> Optional[int]:
+        if not self.usage:
+            return None
+        return self.usage.get(feature, {}).get("usage", None)
+
+    def get_limit_for_feature(self, feature: str) -> Optional[int]:
+        if not self.usage:
+            return None
+        return self.usage.get(feature, {}).get("limit", None)
+
+    @property
+    def has_billing_v2_setup(self):
+        if hasattr(self, "billing") and self.billing.stripe_subscription_id:  # type: ignore
+            return False
+
+        return self.usage is not None
 
     @property
     def active_invites(self) -> QuerySet:
