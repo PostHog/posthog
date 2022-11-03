@@ -32,6 +32,8 @@ export type BillingV2Props = {
     compact?: boolean
 }
 
+const DEFAULT_BILLING_LIMIT = 500
+
 export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
     const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingLogic)
     const { setShowLicenseDirectInput } = useActions(billingLogic)
@@ -229,7 +231,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
     // The actual stored billing limit
     const customLimitUsd = billing?.custom_limits_usd?.[product.type]
     const [isEditingBillingLimit, setIsEditingBillingLimit] = useState(false)
-    const [billingLimitInput, setBillingLimitInput] = useState<number | undefined>(100)
+    const [billingLimitInput, setBillingLimitInput] = useState<number | undefined>(DEFAULT_BILLING_LIMIT)
 
     const billingLimitAsUsage = isEditingBillingLimit
         ? convertAmountToUsage(`${billingLimitInput}`, product.tiers)
@@ -295,7 +297,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
         setBillingLimitInput(
             parseInt(customLimitUsd || '0') ||
                 parseInt(convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers)) ||
-                100
+                DEFAULT_BILLING_LIMIT
         )
     }, [customLimitUsd])
 
@@ -384,8 +386,8 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
             })}
             ref={ref}
         >
-            <div className="flex-1 py-4 pr-2 space-y-4">
-                <div className="flex gap-4 items-center">
+            <div className="flex-1 py-4 pr-2 ">
+                <div className="flex gap-4 items-center pb-4">
                     {product.image_url ? (
                         <img className="w-10 h-10" alt="Logo for product" src={product.image_url} />
                     ) : null}
