@@ -27,8 +27,7 @@
       
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
-  
-      SETTINGS kafka_skip_broken_messages = 100
+  SETTINGS kafka_handle_error_mode='stream'
   
   '
 ---
@@ -50,6 +49,7 @@
       error_details String CODEC(ZSTD(3))
   )
   ENGINE=Kafka('test.kafka.broker:9092', 'clickhouse_app_metrics_test', 'group1', 'JSONEachRow')
+  SETTINGS kafka_handle_error_mode='stream'
   
   '
 ---
@@ -108,8 +108,7 @@
       
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
-  
-      SETTINGS kafka_skip_broken_messages = 100
+  SETTINGS kafka_handle_error_mode='stream'
   
   '
 ---
@@ -125,6 +124,7 @@
       group_properties VARCHAR
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
+  SETTINGS kafka_handle_error_mode='stream'
   
   '
 ---
@@ -140,6 +140,7 @@
       timestamp DateTime64(6, 'UTC')
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_ingestion_warnings_test', 'group1', 'JSONEachRow')
+  SETTINGS kafka_handle_error_mode='stream'
   
   '
 ---
@@ -158,6 +159,8 @@
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
   
+  SETTINGS kafka_handle_error_mode='stream'
+  
   '
 ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_distinct_id2]
@@ -172,6 +175,8 @@
       version Int64 DEFAULT 1
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
+  
+  SETTINGS kafka_handle_error_mode='stream'
   
   '
 ---
@@ -206,6 +211,9 @@
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
   
+  
+  SETTINGS kafka_handle_error_mode='stream'
+  
   '
 ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_session_recording_events]
@@ -224,6 +232,10 @@
       
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
+  
+  
+  
+  SETTINGS kafka_handle_error_mode='stream'
   
   '
 ---
@@ -330,6 +342,7 @@
   , _offset UInt64
   
   ) ENGINE = Distributed('posthog', 'posthog_test', 'events', sipHash64(distinct_id))
+  
   
   '
 ---
@@ -441,6 +454,7 @@
   , _offset UInt64
   
   ) ENGINE = ReplacingMergeTree(_timestamp)
+  
   Order By (team_id, group_type_index, group_key)
   
   
@@ -480,6 +494,7 @@
   
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_ingestion_warnings', rand())
   
+  
   '
 ---
 # name: test_create_table_query[ingestion_warnings_mv]
@@ -518,6 +533,39 @@
       error_details String CODEC(ZSTD(3))
   )
   ENGINE=Kafka('kafka:9092', 'clickhouse_app_metrics_test', 'group1', 'JSONEachRow')
+  SETTINGS kafka_handle_error_mode='stream'
+  
+  '
+---
+# name: test_create_table_query[kafka_app_metrics_dlq]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_app_metrics_dlq ON CLUSTER 'posthog'
+  (
+      topic VARCHAR,
+      partition Int64,
+      offset Int64,
+      raw VARCHAR,
+      error VARCHAR
+  )
+  ENGINE = MergeTree()
+  ORDER BY (topic, partition, offset)
+  
+  '
+---
+# name: test_create_table_query[kafka_app_metrics_dlq_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW kafka_app_metrics_dlq_mv ON CLUSTER 'posthog'
+  TO posthog_test.kafka_app_metrics_dlq
+  AS SELECT
+      _topic AS topic,
+      _partition AS partition,
+      _offset AS offset,
+      _raw_message AS raw,
+      _error AS error
+  FROM posthog_test.kafka_app_metrics
+  WHERE length(_error) > 0
   
   '
 ---
@@ -576,8 +624,39 @@
       
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
+  SETTINGS kafka_handle_error_mode='stream'
   
-      SETTINGS kafka_skip_broken_messages = 100
+  '
+---
+# name: test_create_table_query[kafka_events_json_dlq]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_events_json_dlq ON CLUSTER 'posthog'
+  (
+      topic VARCHAR,
+      partition Int64,
+      offset Int64,
+      raw VARCHAR,
+      error VARCHAR
+  )
+  ENGINE = MergeTree()
+  ORDER BY (topic, partition, offset)
+  
+  '
+---
+# name: test_create_table_query[kafka_events_json_dlq_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW kafka_events_json_dlq_mv ON CLUSTER 'posthog'
+  TO posthog_test.kafka_events_json_dlq
+  AS SELECT
+      _topic AS topic,
+      _partition AS partition,
+      _offset AS offset,
+      _raw_message AS raw,
+      _error AS error
+  FROM posthog_test.kafka_events_json
+  WHERE length(_error) > 0
   
   '
 ---
@@ -593,6 +672,39 @@
       group_properties VARCHAR
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
+  SETTINGS kafka_handle_error_mode='stream'
+  
+  '
+---
+# name: test_create_table_query[kafka_groups_dlq]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_groups_dlq ON CLUSTER 'posthog'
+  (
+      topic VARCHAR,
+      partition Int64,
+      offset Int64,
+      raw VARCHAR,
+      error VARCHAR
+  )
+  ENGINE = MergeTree()
+  ORDER BY (topic, partition, offset)
+  
+  '
+---
+# name: test_create_table_query[kafka_groups_dlq_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW kafka_groups_dlq_mv ON CLUSTER 'posthog'
+  TO posthog_test.kafka_groups_dlq
+  AS SELECT
+      _topic AS topic,
+      _partition AS partition,
+      _offset AS offset,
+      _raw_message AS raw,
+      _error AS error
+  FROM posthog_test.kafka_groups
+  WHERE length(_error) > 0
   
   '
 ---
@@ -608,6 +720,39 @@
       timestamp DateTime64(6, 'UTC')
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_ingestion_warnings_test', 'group1', 'JSONEachRow')
+  SETTINGS kafka_handle_error_mode='stream'
+  
+  '
+---
+# name: test_create_table_query[kafka_ingestion_warnings_dlq]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_ingestion_warnings_dlq ON CLUSTER 'posthog'
+  (
+      topic VARCHAR,
+      partition Int64,
+      offset Int64,
+      raw VARCHAR,
+      error VARCHAR
+  )
+  ENGINE = MergeTree()
+  ORDER BY (topic, partition, offset)
+  
+  '
+---
+# name: test_create_table_query[kafka_ingestion_warnings_dlq_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW kafka_ingestion_warnings_dlq_mv ON CLUSTER 'posthog'
+  TO posthog_test.kafka_ingestion_warnings_dlq
+  AS SELECT
+      _topic AS topic,
+      _partition AS partition,
+      _offset AS offset,
+      _raw_message AS raw,
+      _error AS error
+  FROM posthog_test.kafka_ingestion_warnings
+  WHERE length(_error) > 0
   
   '
 ---
@@ -626,6 +771,8 @@
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
   
+  SETTINGS kafka_handle_error_mode='stream'
+  
   '
 ---
 # name: test_create_table_query[kafka_person_distinct_id2]
@@ -641,6 +788,40 @@
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
   
+  SETTINGS kafka_handle_error_mode='stream'
+  
+  '
+---
+# name: test_create_table_query[kafka_person_distinct_id2_dlq]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2_dlq ON CLUSTER 'posthog'
+  (
+      topic VARCHAR,
+      partition Int64,
+      offset Int64,
+      raw VARCHAR,
+      error VARCHAR
+  )
+  ENGINE = MergeTree()
+  ORDER BY (topic, partition, offset)
+  
+  '
+---
+# name: test_create_table_query[kafka_person_distinct_id2_dlq_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW kafka_person_distinct_id2_dlq_mv ON CLUSTER 'posthog'
+  TO posthog_test.kafka_person_distinct_id2_dlq
+  AS SELECT
+      _topic AS topic,
+      _partition AS partition,
+      _offset AS offset,
+      _raw_message AS raw,
+      _error AS error
+  FROM posthog_test.kafka_person_distinct_id2
+  WHERE length(_error) > 0
+  
   '
 ---
 # name: test_create_table_query[kafka_person_distinct_id]
@@ -654,6 +835,38 @@
       _sign Nullable(Int8),
       is_deleted Nullable(Int8)
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_table_query[kafka_person_dlq]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_person_dlq ON CLUSTER 'posthog'
+  (
+      topic VARCHAR,
+      partition Int64,
+      offset Int64,
+      raw VARCHAR,
+      error VARCHAR
+  )
+  ENGINE = MergeTree()
+  ORDER BY (topic, partition, offset)
+  
+  '
+---
+# name: test_create_table_query[kafka_person_dlq_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW kafka_person_dlq_mv ON CLUSTER 'posthog'
+  TO posthog_test.kafka_person_dlq
+  AS SELECT
+      _topic AS topic,
+      _partition AS partition,
+      _offset AS offset,
+      _raw_message AS raw,
+      _error AS error
+  FROM posthog_test.kafka_person
+  WHERE length(_error) > 0
   
   '
 ---
@@ -674,6 +887,41 @@
       
   ) ENGINE = Kafka('kafka:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
   
+  
+  SETTINGS kafka_handle_error_mode='stream'
+  
+  '
+---
+# name: test_create_table_query[kafka_plugin_log_entries_dlq]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries_dlq ON CLUSTER 'posthog'
+  (
+      topic VARCHAR,
+      partition Int64,
+      offset Int64,
+      raw VARCHAR,
+      error VARCHAR
+  )
+  ENGINE = MergeTree()
+  ORDER BY (topic, partition, offset)
+  
+  '
+---
+# name: test_create_table_query[kafka_plugin_log_entries_dlq_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW kafka_plugin_log_entries_dlq_mv ON CLUSTER 'posthog'
+  TO posthog_test.kafka_plugin_log_entries_dlq
+  AS SELECT
+      _topic AS topic,
+      _partition AS partition,
+      _offset AS offset,
+      _raw_message AS raw,
+      _error AS error
+  FROM posthog_test.kafka_plugin_log_entries
+  WHERE length(_error) > 0
+  
   '
 ---
 # name: test_create_table_query[kafka_session_recording_events]
@@ -692,6 +940,42 @@
       
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
+  
+  
+  
+  SETTINGS kafka_handle_error_mode='stream'
+  
+  '
+---
+# name: test_create_table_query[kafka_session_recording_events_dlq]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_session_recording_events_dlq ON CLUSTER 'posthog'
+  (
+      topic VARCHAR,
+      partition Int64,
+      offset Int64,
+      raw VARCHAR,
+      error VARCHAR
+  )
+  ENGINE = MergeTree()
+  ORDER BY (topic, partition, offset)
+  
+  '
+---
+# name: test_create_table_query[kafka_session_recording_events_dlq_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW kafka_session_recording_events_dlq_mv ON CLUSTER 'posthog'
+  TO posthog_test.kafka_session_recording_events_dlq
+  AS SELECT
+      _topic AS topic,
+      _partition AS partition,
+      _offset AS offset,
+      _raw_message AS raw,
+      _error AS error
+  FROM posthog_test.kafka_session_recording_events
+  WHERE length(_error) > 0
   
   '
 ---
@@ -712,7 +996,7 @@
   , _offset UInt64
   
   ) ENGINE = ReplacingMergeTree(version)
-  Order By (team_id, id)
+  ORDER BY (team_id, id)
   
   
   '
@@ -733,10 +1017,9 @@
   
   , _partition UInt64
   ) ENGINE = ReplacingMergeTree(version)
+  (team_id, distinct_id)
+  SETTINGS index_granularity = 512
   
-      ORDER BY (team_id, distinct_id)
-      SETTINGS index_granularity = 512
-      
   '
 ---
 # name: test_create_table_query[person_distinct_id2_mv]
@@ -890,14 +1173,16 @@
       window_id VARCHAR,
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
-      
-      , has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot'
-  
+      , has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot', events_summary Array(String) COMMENT 'column_materializer::events_summary', click_count Int8 COMMENT 'column_materializer::click_count', keypress_count Int8 COMMENT 'column_materializer::keypress_count', timestamps_summary Array(DateTime64(6, 'UTC')) COMMENT 'column_materializer::timestamps_summary', first_event_timestamp DateTime64(6, 'UTC') COMMENT 'column_materializer::first_event_timestamp', last_event_timestamp DateTime64(6, 'UTC') COMMENT 'column_materializer::last_event_timestamp', urls Array(String) COMMENT 'column_materializer::urls'
       
   , _timestamp DateTime
   , _offset UInt64
   
   ) ENGINE = Distributed('posthog', 'posthog_test', 'session_recording_events', sipHash64(distinct_id))
+  
+  
+  
+  
   
   '
 ---
@@ -989,6 +1274,7 @@
   , _offset UInt64
   
   ) ENGINE = ReplacingMergeTree(_timestamp)
+  
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
   SAMPLE BY cityHash64(distinct_id)
@@ -1012,6 +1298,7 @@
   , _partition UInt64
   
   ) ENGINE = MergeTree()
+  
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), type, source, timestamp)
   
@@ -1030,9 +1317,7 @@
       window_id VARCHAR,
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
-      
-      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'
-  
+      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp DateTime64(6, 'UTC') MATERIALIZED arrayReduce('min', timestamps_summary), last_event_timestamp DateTime64(6, 'UTC') MATERIALIZED arrayReduce('max', timestamps_summary), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
       
   , _timestamp DateTime
   , _offset UInt64
@@ -1041,7 +1326,7 @@
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
   
-  SETTINGS index_granularity=512
+  SETTINGS index_granularity = 512
   
   '
 ---
@@ -1078,6 +1363,7 @@
   
   ) ENGINE = Distributed('posthog', 'posthog_test', 'events', sipHash64(distinct_id))
   
+  
   '
 ---
 # name: test_create_table_query[writable_session_recording_events]
@@ -1099,6 +1385,10 @@
   , _offset UInt64
   
   ) ENGINE = Distributed('posthog', 'posthog_test', 'session_recording_events', sipHash64(distinct_id))
+  
+  
+  
+  
   
   '
 ---
@@ -1165,6 +1455,7 @@
   , _offset UInt64
   
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.groups', '{replica}-{shard}', _timestamp)
+  
   Order By (team_id, group_type_index, group_key)
   SETTINGS storage_policy = 'hot_to_cold'
   
@@ -1187,7 +1478,7 @@
   , _offset UInt64
   
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person', '{replica}-{shard}', version)
-  Order By (team_id, id)
+  ORDER BY (team_id, id)
   SETTINGS storage_policy = 'hot_to_cold'
   
   '
@@ -1208,10 +1499,9 @@
   
   , _partition UInt64
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_distinct_id2', '{replica}-{shard}', version)
+  (team_id, distinct_id)
+  SETTINGS index_granularity = 512
   
-      ORDER BY (team_id, distinct_id)
-      SETTINGS index_granularity = 512
-      
   '
 ---
 # name: test_create_table_query_replicated_and_storage[person_distinct_id]
@@ -1346,6 +1636,7 @@
   , _offset UInt64
   
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.events', '{replica}', _timestamp)
+  
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
   SAMPLE BY cityHash64(distinct_id)
@@ -1369,6 +1660,7 @@
   , _partition UInt64
   
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_ingestion_warnings', '{replica}')
+  
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), type, source, timestamp)
   
@@ -1387,9 +1679,7 @@
       window_id VARCHAR,
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
-      
-      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'
-  
+      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp DateTime64(6, 'UTC') MATERIALIZED arrayReduce('min', timestamps_summary), last_event_timestamp DateTime64(6, 'UTC') MATERIALIZED arrayReduce('max', timestamps_summary), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
       
   , _timestamp DateTime
   , _offset UInt64
@@ -1398,7 +1688,7 @@
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
   
-  SETTINGS index_granularity=512
+  SETTINGS index_granularity = 512
   
   '
 ---

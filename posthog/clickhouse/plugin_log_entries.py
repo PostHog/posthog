@@ -48,16 +48,16 @@ KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL = lambda: PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL.f
 )
 
 KAFKA_PLUGIN_LOG_ENTRIES_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
-    table=f"{CLICKHOUSE_DATABASE}.kafka_plugin_log_entries_dlq",
+    table="kafka_plugin_log_entries_dlq",
     cluster=CLICKHOUSE_CLUSTER,
     engine=MergeTreeEngine("kafka_plugin_log_entries_dlq", replication_scheme=ReplicationScheme.REPLICATED),
 )
 
-
 KAFKA_PLUGIN_LOG_ENTRIES_DLQ_MV_SQL = lambda: KAFKA_ENGINE_DLQ_MV_BASE_SQL.format(
-    view_name=f"{CLICKHOUSE_DATABASE}.kafka_plugin_log_entries_dlq_mv",
+    view_name="kafka_plugin_log_entries_dlq_mv",
     target_table=f"{CLICKHOUSE_DATABASE}.kafka_plugin_log_entries_dlq",
     kafka_table_name=f"{CLICKHOUSE_DATABASE}.kafka_plugin_log_entries",
+    cluster=CLICKHOUSE_CLUSTER,
 )
 
 PLUGIN_LOG_ENTRIES_TABLE_MV_SQL = """

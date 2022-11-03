@@ -23,7 +23,7 @@ ORDER BY (topic, partition, offset)
 """
 
 KAFKA_ENGINE_DLQ_MV_BASE_SQL = """
-CREATE MATERIALIZED VIEW {view_name}
+CREATE MATERIALIZED VIEW {view_name} ON CLUSTER '{cluster}'
 TO {target_table}
 AS SELECT
     _topic AS topic,

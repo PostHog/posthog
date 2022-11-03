@@ -113,15 +113,16 @@ KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_TABL
 )
 
 KAFKA_SESSION_RECORDING_EVENTS_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
-    table=f"{settings.CLICKHOUSE_DATABASE}.kafka_session_recording_events_dlq",
+    table=f"kafka_session_recording_events_dlq",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=MergeTreeEngine("kafka_session_recording_events_dlq", replication_scheme=ReplicationScheme.REPLICATED),
 )
 
 KAFKA_SESSION_RECORDING_EVENTS_DLQ_MV_SQL = lambda: KAFKA_ENGINE_DLQ_MV_BASE_SQL.format(
-    view_name=f"{settings.CLICKHOUSE_DATABASE}.kafka_session_recording_events_dlq_mv",
+    view_name="kafka_session_recording_events_dlq_mv",
     target_table=f"{settings.CLICKHOUSE_DATABASE}.kafka_session_recording_events_dlq",
     kafka_table_name=f"{settings.CLICKHOUSE_DATABASE}.kafka_session_recording_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
 )
 
 SESSION_RECORDING_EVENTS_TABLE_MV_SQL = lambda: """

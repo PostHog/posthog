@@ -71,15 +71,16 @@ SETTINGS kafka_handle_error_mode='stream'
 
 # MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
 KAFKA_APP_METRICS_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
-    table=f"{settings.CLICKHOUSE_DATABASE}.kafka_app_metrics_dlq",
+    table="kafka_app_metrics_dlq",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=MergeTreeEngine("kafka_app_metrics_dlq", replication_scheme=ReplicationScheme.REPLICATED),
 )
 
 KAFKA_APP_METRICS_DLQ_MV_SQL = lambda: KAFKA_ENGINE_DLQ_MV_BASE_SQL.format(
-    view_name=f"{settings.CLICKHOUSE_DATABASE}.kafka_app_metrics_dlq_mv",
+    view_name="kafka_app_metrics_dlq_mv",
     target_table=f"{settings.CLICKHOUSE_DATABASE}.kafka_app_metrics_dlq",
     kafka_table_name=f"{settings.CLICKHOUSE_DATABASE}.kafka_app_metrics",
+    cluster=settings.CLICKHOUSE_CLUSTER,
 )
 
 APP_METRICS_MV_TABLE_SQL = (

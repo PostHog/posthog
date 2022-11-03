@@ -49,15 +49,16 @@ KAFKA_GROUPS_TABLE_SQL = lambda: GROUPS_TABLE_BASE_SQL.format(
 
 
 KAFKA_GROUPS_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
-    table=f"{CLICKHOUSE_DATABASE}.kafka_groups_dlq",
+    table="kafka_groups_dlq",
     cluster=CLICKHOUSE_CLUSTER,
     engine=MergeTreeEngine("kafka_groups_dlq", replication_scheme=ReplicationScheme.REPLICATED),
 )
 
 KAFKA_GROUPS_DLQ_MV_SQL = lambda: KAFKA_ENGINE_DLQ_MV_BASE_SQL.format(
-    view_name=f"{CLICKHOUSE_DATABASE}.kafka_groups_dlq_mv",
+    view_name="kafka_groups_dlq_mv",
     target_table=f"{CLICKHOUSE_DATABASE}.kafka_groups_dlq",
     kafka_table_name=f"{CLICKHOUSE_DATABASE}.kafka_groups",
+    cluster=CLICKHOUSE_CLUSTER,
 )
 
 # You must include the database here because of a bug in clickhouse

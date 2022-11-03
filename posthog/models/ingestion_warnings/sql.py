@@ -45,15 +45,16 @@ KAFKA_INGESTION_WARNINGS_TABLE_SQL = lambda: INGESTION_WARNINGS_TABLE_BASE_SQL.f
 )
 
 KAFKA_INGESTION_WARNINGS_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
-    table=f"{settings.CLICKHOUSE_DATABASE}.kafka_ingestion_warnings_dlq",
+    table="kafka_ingestion_warnings_dlq",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=MergeTreeEngine("kafka_ingestion_warnings_dlq", replication_scheme=ReplicationScheme.REPLICATED),
 )
 
 KAFKA_INGESTION_WARNINGS_DLQ_MV_SQL = lambda: KAFKA_ENGINE_DLQ_MV_BASE_SQL.format(
-    view_name=f"{settings.CLICKHOUSE_DATABASE}.kafka_ingestion_warnings_dlq_mv",
+    view_name="kafka_ingestion_warnings_dlq_mv",
     target_table=f"{settings.CLICKHOUSE_DATABASE}.kafka_ingestion_warnings_dlq",
     kafka_table_name=f"{settings.CLICKHOUSE_DATABASE}.kafka_ingestion_warnings",
+    cluster=settings.CLICKHOUSE_CLUSTER,
 )
 
 INGESTION_WARNINGS_MV_TABLE_SQL = lambda: """

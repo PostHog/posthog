@@ -100,15 +100,16 @@ KAFKA_EVENTS_TABLE_JSON_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
 
 
 KAFKA_EVENTS_JSON_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
-    table=f"{settings.CLICKHOUSE_DATABASE}.kafka_events_json_dlq",
+    table="kafka_events_json_dlq",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=MergeTreeEngine("kafka_events_json_dlq", replication_scheme=ReplicationScheme.REPLICATED),
 )
 
 KAFKA_EVENTS_JSON_DLQ_MV_SQL = lambda: KAFKA_ENGINE_DLQ_MV_BASE_SQL.format(
-    view_name=f"{settings.CLICKHOUSE_DATABASE}.kafka_events_json_dlq_mv",
+    view_name="kafka_events_json_dlq_mv",
     target_table=f"{settings.CLICKHOUSE_DATABASE}.kafka_events_json_dlq",
     kafka_table_name=f"{settings.CLICKHOUSE_DATABASE}.kafka_events_json",
+    cluster=settings.CLICKHOUSE_CLUSTER,
 )
 
 EVENTS_TABLE_JSON_MV_SQL = lambda: """
