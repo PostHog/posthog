@@ -106,6 +106,58 @@
   OFFSET 0 SETTINGS optimize_move_to_prewhere = 0
   '
 ---
+# name: TestClickhouseStickiness.test_compare
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT countDistinct(aggregation_target),
+         num_intervals
+  FROM
+    (SELECT pdi.person_id AS aggregation_target,
+            countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 2
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+       AND event = 'watched movie'
+     GROUP BY aggregation_target)
+  WHERE num_intervals <= 9
+  GROUP BY num_intervals
+  ORDER BY num_intervals SETTINGS optimize_move_to_prewhere = 0
+  '
+---
+# name: TestClickhouseStickiness.test_compare.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT countDistinct(aggregation_target),
+         num_intervals
+  FROM
+    (SELECT pdi.person_id AS aggregation_target,
+            countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 2
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-24 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
+       AND event = 'watched movie'
+     GROUP BY aggregation_target)
+  WHERE num_intervals <= 9
+  GROUP BY num_intervals
+  ORDER BY num_intervals SETTINGS optimize_move_to_prewhere = 0
+  '
+---
 # name: TestClickhouseStickiness.test_filter_by_group_properties
   '
   /* user_id:0 request:_snapshot_ */
