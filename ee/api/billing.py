@@ -132,6 +132,7 @@ class BillingViewset(viewsets.GenericViewSet):
     def list(self, request: HttpRequest, *args: Any, **kwargs: Any) -> Response:
         license = License.objects.first_valid()
         org = self._get_org()
+        distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
 
         # If on Cloud and we have the property billing - return 404 as we always use legacy billing it it exists
         if hasattr(org, "billing"):
@@ -151,7 +152,6 @@ class BillingViewset(viewsets.GenericViewSet):
             not billing_service_response.get("customer", {}).get("has_active_subscription")
             and not settings.BILLING_V2_ENABLED
         ):
-            distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
             if not (distinct_id and posthoganalytics.get_feature_flag("billing-v2-enabled", distinct_id)):
                 raise NotFound("Billing V2 is not enabled for this organization")
 
@@ -185,6 +185,11 @@ class BillingViewset(viewsets.GenericViewSet):
         # Before responding ensure the org is updated with the latest info
         if org:
             self._update_org_details(org, response)
+
+        if distinct_id and billing_service_response.get("stripe_customer_id"):
+            posthoganalytics.identify(
+                distinct_id, {"$groups": {"customer": billing_service_response["stripe_customer_id"]}}
+            )
 
         return Response(response)
 
