@@ -239,6 +239,7 @@ jobs:
 
             - name: Upload coverage report
               uses: actions/upload-artifact@v3
+              if: always()
               with:
                   name: functional-coverage
                   if-no-files-found: warn
