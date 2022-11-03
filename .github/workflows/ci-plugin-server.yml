@@ -215,27 +215,10 @@ jobs:
                   ./manage.py migrate
                   ./manage.py migrate_clickhouse
 
-            - name: Start plugin-server
-              env:
-                  WORKER_CONCURRENCY: '1'
-                  CONVERSION_BUFFER_ENABLED: 'true'
-                  BUFFER_CONVERSION_SECONDS: '2' # Make sure we don't have to wait for the default 60 seconds
-                  KAFKA_MAX_MESSAGE_BATCH_SIZE: '0'
+            - name: Run functional tests
               run: |
                   cd plugin-server
-                  yarn run c8 --reporter html node dist/index.js &
-                  echo "PLUGIN_SERVER_PID=$!" >> $GITHUB_ENV
-
-                  until curl http://localhost:6738/_ready; do
-                      echo ''
-                      echo 'Waiting for plugin-server to be ready...'
-                      sleep 1
-                  done
-
-                  yarn functional_tests --maxConcurrency=10
-
-                  kill $!
-                  wait $!
+                  ./bin/ci_functional_tests.sh
 
             - name: Upload coverage report
               uses: actions/upload-artifact@v3
