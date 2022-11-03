@@ -1,6 +1,6 @@
 import datetime
 import re
-from typing import Any, Callable, Dict, List, Union, cast
+from typing import Any, Callable, Dict, List, TypeVar, Union, cast
 
 from dateutil import parser
 from django.db.models import Exists, OuterRef, Q
@@ -8,14 +8,17 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
+from posthog.models.filters.path_filter import PathFilter
 from posthog.models.person import Person
 from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.queries.util import convert_to_datetime_aware
 from posthog.utils import get_compare_period_dates
 
+F = TypeVar("F", Filter, PathFilter)
 
-def determine_compared_filter(filter: Filter) -> Filter:
+
+def determine_compared_filter(filter: F) -> F:
     if not filter.date_to or not filter.date_from:
         raise ValidationError("You need date_from and date_to to compare")
     date_from, date_to = get_compare_period_dates(filter.date_from, filter.date_to, filter.interval)
