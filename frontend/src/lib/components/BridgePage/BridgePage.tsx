@@ -58,15 +58,7 @@ export function BridgePage({
                         ) : null}
 
                         {showSelfHostCta && (
-                            <div
-                                style={{
-                                    border: '1px solid var(--border)',
-                                    borderRadius: 'var(--radius)',
-                                    padding: '1rem',
-                                    marginTop: '2rem',
-                                    textAlign: 'center',
-                                }}
-                            >
+                            <div className="border rounded p-4 mt-8 text-center">
                                 Interested in{' '}
                                 <a href="https://posthog.com/docs/self-host">
                                     <strong>self-hosting PostHog</strong>
