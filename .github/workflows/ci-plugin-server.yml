@@ -224,6 +224,7 @@ jobs:
               run: |
                   cd plugin-server
                   yarn run c8 --reporter html node dist/index.js &
+                  echo "PLUGIN_SERVER_PID=$!" >> $GITHUB_ENV
 
                   until curl http://localhost:6738/_ready; do
                       echo ''
@@ -235,6 +236,11 @@ jobs:
               run: |
                   cd plugin-server
                   yarn functional_tests --maxConcurrency=10
+
+            - name: Stop plugin-server
+              run: |
+                  kill "${{ env.PLUGIN_SERVER_PID }}"
+                  wait "${{ env.PLUGIN_SERVER_PID }}"
 
             - name: Upload coverage report
               uses: actions/upload-artifact@v3
