@@ -65,7 +65,7 @@ export function Signup(): JSX.Element | null {
                 </>
             }
             sideLogo={showRegionSelect}
-            showSelfHostCta={preflight?.cloud === true}
+            showSelfHostCta={preflight?.cloud}
         >
             <div className="space-y-2">
                 <h2>{!preflight?.demo ? 'Get started' : 'Explore PostHog yourself'}</h2>
