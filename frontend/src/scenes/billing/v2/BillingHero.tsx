@@ -6,8 +6,8 @@ export const BillingHero = (): JSX.Element => {
         <div className="BillingHero">
             <div className="p-4">
                 <p className="text-xs uppercase my-0">How pricing works</p>
-                <h1 className="ingestion-title">Pay per event sent to PostHog.</h1>
-                <h1 className="ingestion-title text-danger">Get access to all features.</h1>
+                <h1 className="ingestion-title">Get the whole hog.</h1>
+                <h1 className="ingestion-title text-danger">Only pay for what you use.</h1>
                 <p className="mt-2 mb-0">Product analytics, session recording, feature flags, a/b testing, and more.</p>
             </div>
             <div className="BillingHero__hog">
