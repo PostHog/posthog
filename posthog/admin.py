@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.utils.html import format_html
@@ -131,10 +132,18 @@ class OrganizationAdmin(admin.ModelAdmin):
         "plugins_access_level",
         "billing_plan",
         "organization_billing_link",
-        "usage",
+        "billing_link_v2",
+        "usage_posthog",
     ]
     inlines = [OrganizationTeamInline, OrganizationMemberInline]
-    readonly_fields = ["created_at", "updated_at", "billing_plan", "organization_billing_link", "usage"]
+    readonly_fields = [
+        "created_at",
+        "updated_at",
+        "billing_plan",
+        "organization_billing_link",
+        "billing_link_v2",
+        "usage_posthog",
+    ]
     search_fields = ("name", "members__email")
     list_display = (
         "name",
@@ -143,6 +152,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "members_count",
         "first_member",
         "organization_billing_link",
+        "billing_link_v2",
     )
 
     def members_count(self, organization: Organization):
@@ -157,7 +167,13 @@ class OrganizationAdmin(admin.ModelAdmin):
             '<a href="/admin/multi_tenancy/organizationbilling/{}/change/">Billing →</a>', organization.pk
         )
 
-    def usage(self, organization: Organization):
+    def billing_link_v2(self, organization: Organization) -> str:
+        if not organization.has_billing_v2_setup:
+            return ""
+        url = f"{settings.BILLING_SERVICE_URL}/admin/billing/customer/?q={organization.pk}"
+        return format_html(f'<a href="{url}">Billing V2 →</a>')
+
+    def usage_posthog(self, organization: Organization):
         return format_html(
             '<a target="_blank" href="/insights/new?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%2C%22math%22%3A%22dau%22%7D%5D&properties=%5B%7B%22key%22%3A%22organization_id%22%2C%22value%22%3A%22{}%22%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22person%22%7D%5D&actions=%5B%5D&new_entity=%5B%5D">See usage on PostHog →</a>',
             organization.id,

@@ -1,5 +1,5 @@
 import { cleanFilters } from './cleanFilters'
-import { FilterType, FunnelVizType, InsightType } from '~/types'
+import { FilterType, FunnelStepReference, FunnelVizType, InsightType } from '~/types'
 import { FEATURE_FLAGS, ShownAsValue } from 'lib/constants'
 
 describe('cleanFilters', () => {
@@ -239,5 +239,17 @@ describe('cleanFilters', () => {
         )
 
         expect(cleanedFilters).toHaveProperty('smoothing_intervals', 1)
+    })
+
+    it('can add funnel step reference', () => {
+        const cleanedFilters = cleanFilters(
+            {
+                funnel_step_reference: FunnelStepReference.previous,
+                insight: InsightType.FUNNELS,
+            },
+            {}
+        )
+
+        expect(cleanedFilters).toHaveProperty('funnel_step_reference', FunnelStepReference.previous)
     })
 })

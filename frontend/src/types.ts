@@ -816,6 +816,7 @@ export interface BillingProductV2Type {
     name: string
     description: string
     price_description: string
+    image_url?: string
     free_allocation: number
     tiers: {
         unit_amount_usd: string
@@ -1213,6 +1214,7 @@ export interface FilterType {
     funnel_viz_type?: FunnelVizType // parameter sent to funnels API for time conversion code path
     funnel_from_step?: number // used in time to convert: initial step index to compute time to convert
     funnel_to_step?: number // used in time to convert: ending step index to compute time to convert
+    funnel_step_reference?: FunnelStepReference // whether conversion shown in graph should be across all steps or just from the previous step
     funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
     compare?: boolean
     bin_count?: BinCountValue // used in time to convert: number of bins to show in histogram
@@ -1547,6 +1549,15 @@ export interface FeatureFlagType {
     rollout_percentage: number | null
     ensure_experience_continuity: boolean | null
     experiment_set: string[] | null
+    rollback_conditions: FeatureFlagRollbackConditions[]
+    performed_rollback: boolean
+}
+
+export interface FeatureFlagRollbackConditions {
+    threshold: number
+    threshold_type: string
+    threshold_metric?: FilterType
+    operator?: string
 }
 
 export interface CombinedFeatureFlagAndValueType {
@@ -2189,4 +2200,9 @@ export interface MediaUploadResponse {
     id: string
     image_location: string
     name: string
+}
+
+export enum RolloutConditionType {
+    Insight = 'insight',
+    Sentry = 'sentry',
 }
