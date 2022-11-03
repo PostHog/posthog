@@ -19,6 +19,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.EventPropertyDefinition]: () => import('./data-management/definition/DefinitionView'),
     [Scene.WebPerformance]: () => import('./performance/WebPerformance'),
     [Scene.SessionRecordings]: () => import('./session-recordings/SessionRecordings'),
+    [Scene.SessionRecording]: () => import('./session-recordings/detail/SessionRecordingDetail'),
     [Scene.Person]: () => import('./persons/Person'),
     [Scene.Persons]: () => import('./persons/Persons'),
     [Scene.Groups]: () => import('./groups/Groups'),

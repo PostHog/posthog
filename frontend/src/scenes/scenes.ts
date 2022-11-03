@@ -86,6 +86,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Recordings',
     },
+    [Scene.SessionRecording]: {
+        projectBased: true,
+        name: 'Recordings',
+    },
     [Scene.Person]: {
         projectBased: true,
         name: 'Person',
@@ -275,6 +279,7 @@ export const routes: Record<string, Scene> = {
     [urls.events()]: Scene.Events,
     [urls.webPerformance()]: Scene.WebPerformance,
     [urls.webPerformance() + '/*']: Scene.WebPerformance,
+    [urls.sessionRecording(':id')]: Scene.SessionRecording,
     [urls.sessionRecordings()]: Scene.SessionRecordings,
     [urls.person('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,
