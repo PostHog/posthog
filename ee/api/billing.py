@@ -195,6 +195,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
     @action(methods=["PATCH"], detail=False, url_path="/")
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
         license = License.objects.first_valid()
         if not license:
             raise Exception("There is no license configured for this instance yet.")
@@ -202,13 +203,24 @@ class BillingViewset(viewsets.GenericViewSet):
 
         billing_service_token = build_billing_token(license, org)
 
-        res = requests.patch(
-            f"{BILLING_SERVICE_URL}/api/billing/",
-            headers={"Authorization": f"Bearer {billing_service_token}"},
-            json={"custom_limits_usd": request.data.get("custom_limits_usd")},
-        )
+        custom_limits_usd = request.data.get("custom_limits_usd")
 
-        handle_billing_service_error(res)
+        if custom_limits_usd:
+            res = requests.patch(
+                f"{BILLING_SERVICE_URL}/api/billing/",
+                headers={"Authorization": f"Bearer {billing_service_token}"},
+                json={"custom_limits_usd": custom_limits_usd},
+            )
+
+            handle_billing_service_error(res)
+
+            if distinct_id:
+                posthoganalytics.capture(distinct_id, "billing limits updated", properties={**custom_limits_usd})
+                posthoganalytics.group_identify(
+                    "organization",
+                    str(org.id),
+                    properties={f"billing_limits_{key}": value for key, value in custom_limits_usd.items()},
+                )
 
         return self.list(request, *args, **kwargs)
 
