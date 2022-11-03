@@ -1,9 +1,9 @@
 from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
-from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
+from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_APP_METRICS
-from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL
+from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL, KAFKA_ENGINE_DLQ_MV_BASE_SQL
 
 SHARDED_APP_METRICS_TABLE_ENGINE = lambda: AggregatingMergeTree(
     "sharded_app_metrics", replication_scheme=ReplicationScheme.SHARDED
@@ -69,9 +69,17 @@ SETTINGS kafka_handle_error_mode='stream'
 """
 )
 
+# MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
 KAFKA_APP_METRICS_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
-    database=settings.CLICKHOUSE_DATABASE,
-    kafka_table_name="kafka_app_metrics",
+    table=f"{settings.CLICKHOUSE_DATABASE}.kafka_app_metrics_dlq",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=MergeTreeEngine("kafka_app_metrics_dlq", replication_scheme=ReplicationScheme.REPLICATED),
+)
+
+KAFKA_APP_METRICS_DLQ_MV_SQL = lambda: KAFKA_ENGINE_DLQ_MV_BASE_SQL.format(
+    view_name=f"{settings.CLICKHOUSE_DATABASE}.kafka_app_metrics_dlq_mv",
+    target_table=f"{settings.CLICKHOUSE_DATABASE}.kafka_app_metrics_dlq",
+    kafka_table_name=f"{settings.CLICKHOUSE_DATABASE}.kafka_app_metrics",
 )
 
 APP_METRICS_MV_TABLE_SQL = (

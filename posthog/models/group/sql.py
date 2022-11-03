@@ -1,8 +1,8 @@
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
-from posthog.clickhouse.table_engines import ReplacingMergeTree
+from posthog.clickhouse.table_engines import MergeTreeEngine, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_GROUPS
-from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL
+from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL, KAFKA_ENGINE_DLQ_MV_BASE_SQL
 from posthog.models.person.sql import GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     group_properties VARCHAR
     {extra_fields}
 ) ENGINE = {engine}
+{settings}
 """
 
 GROUPS_TABLE_ENGINE = lambda: ReplacingMergeTree(GROUPS_TABLE, ver="_timestamp")
@@ -35,21 +36,28 @@ GROUPS_TABLE_SQL = lambda: (
     engine=GROUPS_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY(),
+    settings="",
 )
 
-KAFKA_GROUPS_TABLE_SQL = lambda: (
-    GROUPS_TABLE_BASE_SQL.format(
-        table_name="kafka_" + GROUPS_TABLE,
-        cluster=CLICKHOUSE_CLUSTER,
-        engine=kafka_engine(KAFKA_GROUPS),
-        extra_fields="",
-    )
-    + " SETTINGS kafka_handle_error_mode='stream'"
+KAFKA_GROUPS_TABLE_SQL = lambda: GROUPS_TABLE_BASE_SQL.format(
+    table_name="kafka_" + GROUPS_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    engine=kafka_engine(KAFKA_GROUPS),
+    extra_fields="",
+    settings="SETTINGS kafka_handle_error_mode='stream'",
 )
 
-KAFKA_GROUPS_TABLE_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
-    database=CLICKHOUSE_DATABASE,
-    kafka_table_name="kafka_" + GROUPS_TABLE,
+
+KAFKA_GROUPS_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
+    table=f"{CLICKHOUSE_DATABASE}.kafka_groups_dlq",
+    cluster=CLICKHOUSE_CLUSTER,
+    engine=MergeTreeEngine("kafka_groups_dlq", replication_scheme=ReplicationScheme.REPLICATED),
+)
+
+KAFKA_GROUPS_DLQ_MV_SQL = lambda: KAFKA_ENGINE_DLQ_MV_BASE_SQL.format(
+    view_name=f"{CLICKHOUSE_DATABASE}.kafka_groups_dlq_mv",
+    target_table=f"{CLICKHOUSE_DATABASE}.kafka_groups_dlq",
+    kafka_table_name=f"{CLICKHOUSE_DATABASE}.kafka_groups",
 )
 
 # You must include the database here because of a bug in clickhouse

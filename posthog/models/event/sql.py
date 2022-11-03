@@ -2,9 +2,9 @@ from django.conf import settings
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, trim_quotes_expr
-from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
+from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
-from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL
+from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL, KAFKA_ENGINE_DLQ_MV_BASE_SQL
 
 EVENTS_DATA_TABLE = lambda: "sharded_events" if settings.CLICKHOUSE_REPLICATION else "events"
 WRITABLE_EVENTS_DATA_TABLE = lambda: "writable_events" if settings.CLICKHOUSE_REPLICATION else EVENTS_DATA_TABLE()
@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     {materialized_columns}
     {extra_fields}
 ) ENGINE = {engine}
+{settings}
 """
 
 EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
@@ -81,26 +82,33 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
     sample_by="SAMPLE BY cityHash64(distinct_id)",
     storage_policy=STORAGE_POLICY(),
+    settings="",
 )
 
 # we add the settings to prevent poison pills from stopping ingestion
 # kafka_skip_broken_messages is an int, not a boolean, so we explicitly set
 # the max block size to consume from kafka such that we skip _all_ broken messages
 # this is an added safety mechanism given we control payloads to this topic
-KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (
-    EVENTS_TABLE_BASE_SQL.format(
-        table_name="kafka_events_json",
-        cluster=settings.CLICKHOUSE_CLUSTER,
-        engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
-        extra_fields="",
-        materialized_columns="",
-    )
-    + " SETTINGS kafka_handle_error_mode='stream'"
+KAFKA_EVENTS_TABLE_JSON_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
+    table_name="kafka_events_json",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
+    extra_fields="",
+    materialized_columns="",
+    settings="SETTINGS kafka_handle_error_mode='stream'",
 )
 
-KAFKA_EVENTS_TABLE_JSON_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
-    database=settings.CLICKHOUSE_DATABASE,
-    kafka_table_name="kafka_events_json",
+
+KAFKA_EVENTS_JSON_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
+    table=f"{settings.CLICKHOUSE_DATABASE}.kafka_events_json_dlq",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=MergeTreeEngine("kafka_events_json_dlq", replication_scheme=ReplicationScheme.REPLICATED),
+)
+
+KAFKA_EVENTS_JSON_DLQ_MV_SQL = lambda: KAFKA_ENGINE_DLQ_MV_BASE_SQL.format(
+    view_name=f"{settings.CLICKHOUSE_DATABASE}.kafka_events_json_dlq_mv",
+    target_table=f"{settings.CLICKHOUSE_DATABASE}.kafka_events_json_dlq",
+    kafka_table_name=f"{settings.CLICKHOUSE_DATABASE}.kafka_events_json",
 )
 
 EVENTS_TABLE_JSON_MV_SQL = lambda: """
@@ -146,6 +154,7 @@ WRITABLE_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns="",
+    settings="",
 )
 
 # This table is responsible for reading from events on a cluster setting
@@ -155,6 +164,7 @@ DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
+    settings="",
 )
 
 INSERT_EVENT_SQL = (

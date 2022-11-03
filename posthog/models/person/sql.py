@@ -1,8 +1,8 @@
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
-from posthog.clickhouse.table_engines import CollapsingMergeTree, ReplacingMergeTree
+from posthog.clickhouse.table_engines import CollapsingMergeTree, MergeTreeEngine, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
-from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL
+from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL, KAFKA_ENGINE_DLQ_MV_BASE_SQL
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 TRUNCATE_PERSON_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
@@ -28,36 +28,39 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     version UInt64
     {extra_fields}
 ) ENGINE = {engine}
+{order_by}
+{settings}
 """
 
 PERSONS_TABLE_ENGINE = lambda: ReplacingMergeTree(PERSONS_TABLE, ver="version")
-PERSONS_TABLE_SQL = lambda: (
-    PERSONS_TABLE_BASE_SQL
-    + """Order By (team_id, id)
-{storage_policy}
-"""
-).format(
+PERSONS_TABLE_SQL = lambda: PERSONS_TABLE_BASE_SQL.format(
     table_name=PERSONS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=PERSONS_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS,
-    storage_policy=STORAGE_POLICY(),
+    order_by="ORDER BY (team_id, id)",
+    settings=STORAGE_POLICY(),
 )
 
-KAFKA_PERSONS_TABLE_SQL = lambda: (
-    PERSONS_TABLE_BASE_SQL.format(
-        table_name="kafka_" + PERSONS_TABLE,
-        cluster=CLICKHOUSE_CLUSTER,
-        engine=kafka_engine(KAFKA_PERSON),
-        extra_fields="",
-    )
-    + " SETTINGS kafka_handle_error_mode='stream'"
+KAFKA_PERSONS_TABLE_SQL = lambda: PERSONS_TABLE_BASE_SQL.format(
+    table_name="kafka_" + PERSONS_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    engine=kafka_engine(KAFKA_PERSON),
+    extra_fields="",
+    order_by="",
+    settings="SETTINGS kafka_handle_error_mode='stream'",
 )
 
+KAFKA_PERSON_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
+    table=f"{CLICKHOUSE_DATABASE}.kafka_person_dlq",
+    cluster=CLICKHOUSE_CLUSTER,
+    engine=MergeTreeEngine("kafka_person_dlq", replication_scheme=ReplicationScheme.REPLICATED),
+)
 
-KAFKA_PERSONS_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
-    database=CLICKHOUSE_DATABASE,
-    kafka_table_name="kafka_" + PERSONS_TABLE,
+KAFKA_PERSON_DLQ_MV_SQL = lambda: KAFKA_ENGINE_DLQ_MV_BASE_SQL.format(
+    view_name=f"{CLICKHOUSE_DATABASE}.kafka_person_dlq_mv",
+    target_table=f"{CLICKHOUSE_DATABASE}.kafka_person_dlq",
+    kafka_table_name=f"{CLICKHOUSE_DATABASE}.kafka_person",
 )
 
 # You must include the database here because of a bug in clickhouse
@@ -183,36 +186,40 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     version Int64 DEFAULT 1
     {extra_fields}
 ) ENGINE = {engine}
+{order_by}
+{settings}
 """
 
 PERSON_DISTINCT_ID2_TABLE_ENGINE = lambda: ReplacingMergeTree(PERSON_DISTINCT_ID2_TABLE, ver="version")
-PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
-    PERSON_DISTINCT_ID2_TABLE_BASE_SQL
-    + """
-    ORDER BY (team_id, distinct_id)
-    SETTINGS index_granularity = 512
-    """
-).format(
+PERSON_DISTINCT_ID2_TABLE_SQL = lambda: PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
     table_name=PERSON_DISTINCT_ID2_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=PERSON_DISTINCT_ID2_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS + "\n, _partition UInt64",
+    order_by="(team_id, distinct_id)",
+    settings="SETTINGS index_granularity = 512",
 )
 
-KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
-    PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
-        table_name="kafka_" + PERSON_DISTINCT_ID2_TABLE,
-        cluster=CLICKHOUSE_CLUSTER,
-        engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID),
-        extra_fields="",
-    )
-    + " SETTINGS kafka_handle_error_mode='stream'"
+KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL = lambda: PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
+    table_name="kafka_" + PERSON_DISTINCT_ID2_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID),
+    extra_fields="",
+    order_by="",
+    settings="SETTINGS kafka_handle_error_mode='stream'",
 )
 
 
 KAFKA_PERSON_DISTINCT_ID2_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
-    database=CLICKHOUSE_DATABASE,
-    kafka_table_name="kafka_" + PERSON_DISTINCT_ID2_TABLE,
+    table=f"{CLICKHOUSE_DATABASE}.kafka_person_distinct_id2_dlq",
+    cluster=CLICKHOUSE_CLUSTER,
+    engine=MergeTreeEngine("kafka_person_distinct_id2_dlq", replication_scheme=ReplicationScheme.REPLICATED),
+)
+
+KAFKA_PERSON_DISTINCT_ID2_DLQ_MV_SQL = lambda: KAFKA_ENGINE_DLQ_MV_BASE_SQL.format(
+    view_name=f"{CLICKHOUSE_DATABASE}.kafka_person_distinct_id2_dlq_mv",
+    target_table=f"{CLICKHOUSE_DATABASE}.kafka_person_distinct_id2_dlq",
+    kafka_table_name=f"{CLICKHOUSE_DATABASE}.kafka_person_distinct_id2",
 )
 
 # You must include the database here because of a bug in clickhouse

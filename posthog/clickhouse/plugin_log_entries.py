@@ -1,7 +1,7 @@
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
-from posthog.clickhouse.table_engines import ReplacingMergeTree
+from posthog.clickhouse.table_engines import MergeTreeEngine, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PLUGIN_LOG_ENTRIES
-from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL
+from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL, KAFKA_ENGINE_DLQ_MV_BASE_SQL
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 PLUGIN_LOG_ENTRIES_TABLE = "plugin_log_entries"
@@ -21,36 +21,43 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     instance_id UUID
     {extra_fields}
 ) ENGINE = {engine}
+{partition_by}
+{ttl_period}
+{settings}
 """
 
 PLUGIN_LOG_ENTRIES_TABLE_ENGINE = lambda: ReplacingMergeTree(PLUGIN_LOG_ENTRIES_TABLE, ver="_timestamp")
-PLUGIN_LOG_ENTRIES_TABLE_SQL = lambda: (
-    PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL
-    + """PARTITION BY plugin_id ORDER BY (team_id, id)
-{ttl_period}
-SETTINGS index_granularity=512
-"""
-).format(
+PLUGIN_LOG_ENTRIES_TABLE_SQL = lambda: PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL.format(
     table_name=PLUGIN_LOG_ENTRIES_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     extra_fields=KAFKA_COLUMNS,
     engine=PLUGIN_LOG_ENTRIES_TABLE_ENGINE(),
     ttl_period=ttl_period("timestamp", PLUGIN_LOG_ENTRIES_TTL_WEEKS),
+    partition_by="PARTITION BY plugin_id ORDER BY (team_id, id)",
+    settings="SETTINGS index_granularity=512",
 )
 
-KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL = lambda: (
-    PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL.format(
-        table_name="kafka_" + PLUGIN_LOG_ENTRIES_TABLE,
-        cluster=CLICKHOUSE_CLUSTER,
-        engine=kafka_engine(topic=KAFKA_PLUGIN_LOG_ENTRIES),
-        extra_fields="",
-    )
-    + " SETTINGS kafka_handle_error_mode='stream'"
+KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL = lambda: PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL.format(
+    table_name="kafka_" + PLUGIN_LOG_ENTRIES_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    engine=kafka_engine(topic=KAFKA_PLUGIN_LOG_ENTRIES),
+    extra_fields="",
+    ttl_period="",
+    partition_by="",
+    settings="SETTINGS kafka_handle_error_mode='stream'",
 )
 
 KAFKA_PLUGIN_LOG_ENTRIES_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
-    database=CLICKHOUSE_DATABASE,
-    kafka_table_name="kafka_" + PLUGIN_LOG_ENTRIES_TABLE,
+    table=f"{CLICKHOUSE_DATABASE}.kafka_plugin_log_entries_dlq",
+    cluster=CLICKHOUSE_CLUSTER,
+    engine=MergeTreeEngine("kafka_plugin_log_entries_dlq", replication_scheme=ReplicationScheme.REPLICATED),
+)
+
+
+KAFKA_PLUGIN_LOG_ENTRIES_DLQ_MV_SQL = lambda: KAFKA_ENGINE_DLQ_MV_BASE_SQL.format(
+    view_name=f"{CLICKHOUSE_DATABASE}.kafka_plugin_log_entries_dlq_mv",
+    target_table=f"{CLICKHOUSE_DATABASE}.kafka_plugin_log_entries_dlq",
+    kafka_table_name=f"{CLICKHOUSE_DATABASE}.kafka_plugin_log_entries",
 )
 
 PLUGIN_LOG_ENTRIES_TABLE_MV_SQL = """
