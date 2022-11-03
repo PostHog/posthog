@@ -4,17 +4,86 @@ import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { BlushingHog } from 'lib/components/hedgehogs'
 import { BillingEnrollment } from 'scenes/billing/BillingEnrollment'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/components/icons'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic as billingLogicV2 } from 'scenes/billing/v2/billingLogic'
 import { Plan } from 'scenes/billing/Plan'
+import { BillingV2 } from 'scenes/billing/v2/Billing'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { urls } from 'scenes/urls'
+import { BillingHero } from 'scenes/billing/v2/BillingHero'
 
 export function BillingPanel(): JSX.Element {
     const { completeOnboarding } = useActions(ingestionLogic)
     const { reportIngestionContinueWithoutBilling } = useActions(eventUsageLogic)
-    const { billing } = useValues(billingLogic)
+    const { billing, billingVersion } = useValues(billingLogic)
+    const { billing: billingV2 } = useValues(billingLogicV2)
+
+    if (!billingVersion) {
+        return (
+            <CardContainer>
+                <div className="space-y-4" style={{ width: 800 }}>
+                    <LemonSkeleton className="w-full h-10" />
+                    <LemonSkeleton className="w-full" />
+                    <LemonSkeleton className="w-full" />
+                    <div className="h-20" />
+                    <div className="h-20" />
+                    <LemonSkeleton className="w-full h-10" />
+                    <LemonSkeleton className="w-full h-10" />
+                </div>
+            </CardContainer>
+        )
+    }
+
+    if (billingVersion == 'v2') {
+        return (
+            <CardContainer>
+                {billingV2?.has_active_subscription ? (
+                    <div className="flex flex-col space-y-4">
+                        <h1 className="ingestion-title">You're good to go!</h1>
+
+                        <p>
+                            Your organisation is setup for billing with premium features and the increased free tiers
+                            enabled.
+                        </p>
+                        <LemonButton
+                            size="large"
+                            fullWidth
+                            center
+                            type="primary"
+                            onClick={() => {
+                                completeOnboarding()
+                            }}
+                        >
+                            Complete
+                        </LemonButton>
+                    </div>
+                ) : (
+                    <div className="text-left flex flex-col space-y-4">
+                        <h1 className="ingestion-title">Add payment method</h1>
+                        <BillingV2 redirectPath={urls.ingestion() + '/billing'} />
+
+                        <LemonDivider dashed />
+
+                        <LemonButton
+                            size="large"
+                            fullWidth
+                            center
+                            type="tertiary"
+                            onClick={() => {
+                                completeOnboarding()
+                                reportIngestionContinueWithoutBilling()
+                            }}
+                        >
+                            Skip for now
+                        </LemonButton>
+                    </div>
+                )}
+            </CardContainer>
+        )
+    }
 
     return (
         <CardContainer>
@@ -25,19 +94,7 @@ export function BillingPanel(): JSX.Element {
                         Your first million events every month are free. We'll let you know if you exceed this, so you
                         never get an unexpected bill.
                     </p>
-                    <div className="billing-pricing-explanation-box">
-                        <div className="p-4">
-                            <p className="text-xs uppercase my-0">How pricing works</p>
-                            <h1 className="ingestion-title">Pay per event sent to PostHog.</h1>
-                            <h1 className="ingestion-title text-danger">Get access to all features.</h1>
-                            <p className="mt-2 mb-0">
-                                Product analytics, session recording, feature flags, a/b testing, and more.
-                            </p>
-                        </div>
-                        <div className="billing-hog">
-                            <BlushingHog className="billing-hog-img" />
-                        </div>
-                    </div>
+                    <BillingHero />
                     <BillingEnrollment />
                     <div>
                         <h3 className="font-bold">No surprise bills</h3>

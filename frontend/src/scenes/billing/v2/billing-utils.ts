@@ -57,6 +57,10 @@ export const convertUsageToAmount = (usage: number, tiers: BillingProductV2Type[
 }
 
 export const convertAmountToUsage = (amount: string, tiers: BillingProductV2Type['tiers']): number => {
+    if (!amount) {
+        return 0
+    }
+
     let remainingAmount = parseFloat(amount)
     let usage = 0
     let previousTier: BillingProductV2Type['tiers'][0] | undefined = undefined
