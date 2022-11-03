@@ -228,23 +228,16 @@ jobs:
                   ./manage.py migrate
                   ./manage.py migrate_clickhouse
 
-            - name: Start plugin-server
-              env:
-                  WORKER_CONCURRENCY: '1'
-                  CONVERSION_BUFFER_ENABLED: 'true'
-                  BUFFER_CONVERSION_SECONDS: '2' # Make sure we don't have to wait for the default 60 seconds
-                  KAFKA_MAX_MESSAGE_BATCH_SIZE: '0'
+            - name: Run functional tests
               run: |
                   cd plugin-server
-                  yarn start:dist &
+                  ./bin/ci_functional_tests.sh
 
-                  until curl http://localhost:6738/_ready; do
-                      echo ''
-                      echo 'Waiting for plugin-server to be ready...'
-                      sleep 1
-                  done
-
-            - name: Test with Jest
-              run: |
-                  cd plugin-server
-                  yarn functional_tests --maxConcurrency=10
+            - name: Upload coverage report
+              uses: actions/upload-artifact@v3
+              if: always()
+              with:
+                  name: functional-coverage
+                  if-no-files-found: warn
+                  retention-days: 1
+                  path: 'plugin-server/coverage'
