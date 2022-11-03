@@ -169,7 +169,7 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
     ordering = ["-last_calculated_at", "name"]
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = super().get_queryset().select_related("created_by")
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
