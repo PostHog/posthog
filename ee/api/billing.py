@@ -165,7 +165,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
         # If we don't have products then get the default ones with our local usage calculation
         if not response.get("products"):
-            products = self._get_products()
+            products = self._get_products(license, org)
             response["products"] = products["standard"]
             response["products_enterprise"] = products["enterprise"]
 
@@ -287,10 +287,12 @@ class BillingViewset(viewsets.GenericViewSet):
 
         return org
 
-    def _get_products(self):
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/products",
-        )
+    def _get_products(self, license: Optional[License], organization: Optional[Organization]):
+        if license and organization:
+            billing_service_token = build_billing_token(license, organization)
+            headers = {"Authorization": f"Bearer {billing_service_token}"}
+
+        res = requests.get(f"{BILLING_SERVICE_URL}/api/products", headers)
 
         handle_billing_service_error(res)
 
