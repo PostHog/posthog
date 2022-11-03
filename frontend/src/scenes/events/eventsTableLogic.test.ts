@@ -45,7 +45,7 @@ const secondEvent = makeEvent('1', '2023-05-05T00:00:00.000Z')
 
 const beforeLastEventsTimestamp = '2023-05-05T00:00:00.000Z'
 const afterTheFirstEvent = 'the first timestamp'
-const afterOneYearAgo = '2020-05-05T00:00:00.000Z'
+const fourMonthsAgo = '2021-01-05T00:00:00.000Z'
 const fiveDaysAgo = '2021-04-30T00:00:00.000Z'
 const orderByTimestamp = '["-timestamp"]'
 const emptyProperties = '[]'
@@ -135,6 +135,7 @@ describe('eventsTableLogic', () => {
             logic = eventsTableLogic({
                 key: 'test-key',
                 sceneUrl: urls.events(),
+                fetchMonths: 4,
             })
             logic.mount()
         })
@@ -303,7 +304,7 @@ describe('eventsTableLogic', () => {
                     })
                 })
 
-                it('fetch events sets after to 5 days ago and then a year ago when there are no events', async () => {
+                it('fetch events sets after to 5 days ago and then fetchMonhs ago when there are no events', async () => {
                     ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
 
                     await expectLogic(logic, () => {
@@ -322,7 +323,7 @@ describe('eventsTableLogic', () => {
                     expect(getUrlParameters(lastGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
-                        after: afterOneYearAgo,
+                        after: fourMonthsAgo,
                     })
                 })
 
@@ -530,7 +531,7 @@ describe('eventsTableLogic', () => {
                     expect(getUrlParameters(lastGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
-                        after: afterOneYearAgo,
+                        after: fourMonthsAgo,
                         before: beforeLastEventsTimestamp,
                     })
                 })

@@ -18,6 +18,7 @@ from posthog.models.property.util import (
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.queries.trends.util import COUNT_PER_ACTOR_MATH_FUNCTIONS
 
 
 class PersonQuery:
@@ -138,8 +139,11 @@ class PersonQuery:
         "Returns whether properties or any other columns are actually being queried"
         if any(self._uses_person_id(prop) for prop in self._filter.property_groups.flat):
             return True
-        if any(self._uses_person_id(prop) for entity in self._filter.entities for prop in entity.property_groups.flat):
-            return True
+        for entity in self._filter.entities:
+            if entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS or any(
+                self._uses_person_id(prop) for prop in entity.property_groups.flat
+            ):
+                return True
 
         return len(self._column_optimizer.person_columns_to_query) > 0
 

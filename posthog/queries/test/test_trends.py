@@ -147,27 +147,19 @@ def trend_test_factory(trends):
             _create_action(team=self.team, name="sign up")
 
         def _create_event_count_per_user_events(self):
-            _create_person(team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"])
-            _create_person(team_id=self.team.pk, distinct_ids=["tintin"])
-            _create_person(team_id=self.team.pk, distinct_ids=["murmur"])
-            _create_person(team_id=self.team.pk, distinct_ids=["reeree"])
+            _create_person(team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"fruit": "mango"})
+            _create_person(team_id=self.team.pk, distinct_ids=["tintin"], properties={"fruit": "mango"})
+            _create_person(team_id=self.team.pk, distinct_ids=["murmur"], properties={})  # No fruit here
+            _create_person(team_id=self.team.pk, distinct_ids=["reeree"], properties={"fruit": "tomato"})
 
             with freeze_time("2020-01-01 00:06:02"):
                 _create_event(
-                    team=self.team,
-                    event="viewed video",
-                    distinct_id="anonymous_id",
+                    team=self.team, event="viewed video", distinct_id="anonymous_id", properties={"color": "red"}
                 )
                 _create_event(
-                    team=self.team,
-                    event="viewed video",
-                    distinct_id="blabla",
+                    team=self.team, event="viewed video", distinct_id="blabla", properties={}  # No color here
                 )
-                _create_event(
-                    team=self.team,
-                    event="viewed video",
-                    distinct_id="reeree",
-                )
+                _create_event(team=self.team, event="viewed video", distinct_id="reeree", properties={"color": "blue"})
                 _create_event(
                     team=self.team,
                     event="sign up",
@@ -182,33 +174,13 @@ def trend_test_factory(trends):
                 )
 
             with freeze_time("2020-01-04 23:17:00"):
-                _create_event(
-                    team=self.team,
-                    event="viewed video",
-                    distinct_id="tintin",
-                )
+                _create_event(team=self.team, event="viewed video", distinct_id="tintin", properties={"color": "red"})
 
             with freeze_time("2020-01-05 19:06:34"):
-                _create_event(
-                    team=self.team,
-                    event="viewed video",
-                    distinct_id="blabla",
-                )
-                _create_event(
-                    team=self.team,
-                    event="viewed video",
-                    distinct_id="tintin",
-                )
-                _create_event(
-                    team=self.team,
-                    event="viewed video",
-                    distinct_id="tintin",
-                )
-                _create_event(
-                    team=self.team,
-                    event="viewed video",
-                    distinct_id="tintin",
-                )
+                _create_event(team=self.team, event="viewed video", distinct_id="blabla", properties={"color": "blue"})
+                _create_event(team=self.team, event="viewed video", distinct_id="tintin", properties={"color": "red"})
+                _create_event(team=self.team, event="viewed video", distinct_id="tintin", properties={"color": "red"})
+                _create_event(team=self.team, event="viewed video", distinct_id="tintin", properties={"color": "blue"})
 
         def test_trends_per_day(self):
             self._create_events()
@@ -3292,6 +3264,7 @@ def trend_test_factory(trends):
                 ],
             )
 
+        @snapshot_clickhouse_queries
         def test_trends_aggregate_by_distinct_id(self):
             # Stopgap until https://github.com/PostHog/meta/pull/39 is implemented
 
@@ -3361,6 +3334,19 @@ def trend_test_factory(trends):
                         self.team,
                     )
                 self.assertEqual(weekly_response[0]["data"][0], 3)  # this would be 2 without the aggregate hack
+
+                # Make sure breakdown doesn't cause us to join on pdi
+                with freeze_time("2019-12-31T13:00:01Z"):
+                    daily_response = trends().run(
+                        Filter(
+                            data={
+                                "interval": "day",
+                                "events": [{"id": "sign up", "math": "dau"}],
+                                "breakdown": "$some_prop",
+                            }
+                        ),
+                        self.team,
+                    )
 
         @test_with_materialized_columns(["$some_property"])
         def test_breakdown_filtering_limit(self):
@@ -5102,6 +5088,98 @@ def trend_test_factory(trends):
                 "2020-01-07",
             ]
             assert daily_response[0]["data"] == [2.0, 0.0, 0.0, 1.0, 3.0, 0.0, 0.0]
+
+        def test_trends_volume_per_user_average_with_event_property_breakdown(self):
+            self._create_event_count_per_user_events()
+
+            daily_response = trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_LINEAR,
+                        "breakdown": "color",
+                        "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-07",
+                    }
+                ),
+                self.team,
+            )
+
+            assert len(daily_response) == 3
+            assert daily_response[0]["breakdown_value"] == "red"
+            assert daily_response[1]["breakdown_value"] == "blue"
+            assert daily_response[2]["breakdown_value"] == ""
+            assert daily_response[0]["days"] == [
+                "2020-01-01",
+                "2020-01-02",
+                "2020-01-03",
+                "2020-01-04",
+                "2020-01-05",
+                "2020-01-06",
+                "2020-01-07",
+            ]
+            assert daily_response[1]["days"] == daily_response[0]["days"]
+            assert daily_response[2]["days"] == daily_response[0]["days"]
+            assert daily_response[0]["data"] == [1.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0]  # red
+            assert daily_response[1]["data"] == [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]  # blue
+            assert daily_response[2]["data"] == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # none
+
+        def test_trends_volume_per_user_average_with_person_property_breakdown(self):
+            self._create_event_count_per_user_events()
+
+            daily_response = trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_LINEAR,
+                        "breakdown": "fruit",
+                        "breakdown_type": "person",
+                        "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-07",
+                    }
+                ),
+                self.team,
+            )
+
+            assert len(daily_response) == 2
+            assert daily_response[0]["breakdown_value"] == "mango"
+            assert daily_response[1]["breakdown_value"] == "tomato"
+            assert daily_response[0]["days"] == [
+                "2020-01-01",
+                "2020-01-02",
+                "2020-01-03",
+                "2020-01-04",
+                "2020-01-05",
+                "2020-01-06",
+                "2020-01-07",
+            ]
+            assert daily_response[1]["days"] == daily_response[0]["days"]
+            assert daily_response[0]["data"] == [2.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0]  # red
+            assert daily_response[1]["data"] == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # blue
+
+        def test_trends_volume_per_user_average_aggregated_with_event_property_breakdown(self):
+            self._create_event_count_per_user_events()
+
+            daily_response = trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_TABLE,
+                        "breakdown": "color",
+                        "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-07",
+                    }
+                ),
+                self.team,
+            )
+
+            assert len(daily_response) == 3
+            assert daily_response[0]["breakdown_value"] == "red"
+            assert daily_response[1]["breakdown_value"] == "blue"
+            assert daily_response[2]["breakdown_value"] == ""
+            assert daily_response[0]["aggregated_value"] == 2.0  # red
+            assert daily_response[1]["aggregated_value"] == 1.0  # blue
+            assert daily_response[2]["aggregated_value"] == 1.0  # none
 
     return TestTrends
 
