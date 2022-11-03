@@ -203,7 +203,7 @@ def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetim
         if match.group("position") == "End":
             delta_mapping["month"] = 12
             delta_mapping["day"] = 31
-    date -= relativedelta(**delta_mapping)
+    date -= relativedelta(**delta_mapping)  # type: ignore
     # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
     if "hours" in delta_mapping:
         date = date.replace(minute=0, second=0, microsecond=0)
