@@ -177,7 +177,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                                         <Link
                                             to={lastPageviewEvent?.properties['$current_url']}
                                             target="_blank"
-                                            className="truncate text-muted-alt"
+                                            className="truncate"
                                         >
                                             {lastPageviewEvent?.properties['$current_url']}
                                         </Link>
