@@ -1,6 +1,6 @@
 import { useActions } from 'kea'
-import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
-import { THIRD_PARTY, BOOKMARKLET, platforms } from 'scenes/ingestion/constants'
+import { ingestionLogic } from '../ingestionLogic'
+import { THIRD_PARTY, BOOKMARKLET, platforms } from '../constants'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
 import { LemonDivider } from 'lib/components/LemonDivider'

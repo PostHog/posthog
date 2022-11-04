@@ -1,13 +1,13 @@
 import { useEffect } from 'react'
 import './IngestionWizard.scss'
 
-import { VerificationPanel } from 'scenes/ingestion/panels/VerificationPanel'
-import { InstructionsPanel } from 'scenes/ingestion/panels/InstructionsPanel'
-import { MOBILE, BACKEND, WEB, BOOKMARKLET, THIRD_PARTY } from 'scenes/ingestion/constants'
+import { VerificationPanel } from 'scenes/ingestion/v2/panels/VerificationPanel'
+import { InstructionsPanel } from 'scenes/ingestion/v2/panels/InstructionsPanel'
+import { MOBILE, BACKEND, WEB, BOOKMARKLET, THIRD_PARTY } from 'scenes/ingestion/v2/constants'
 import { useValues, useActions } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/v2/ingestionLogic'
-import { FrameworkPanel } from 'scenes/ingestion/panels/FrameworkPanel'
-import { PlatformPanel } from 'scenes/ingestion/panels/PlatformPanel'
+import { FrameworkPanel } from 'scenes/ingestion/v2/panels/FrameworkPanel'
+import { PlatformPanel } from 'scenes/ingestion/v2/panels/PlatformPanel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { BookmarkletPanel } from './panels/BookmarkletPanel'
@@ -24,11 +24,11 @@ import { PanelHeader } from './panels/PanelComponents'
 import { InviteTeamPanel } from './panels/InviteTeamPanel'
 
 export const scene: SceneExport = {
-    component: IngestionWizard,
+    component: IngestionWizardV2,
     logic: ingestionLogic,
 }
 
-export function IngestionWizard(): JSX.Element {
+export function IngestionWizardV2(): JSX.Element {
     const { platform, framework, verify, addBilling, technical } = useValues(ingestionLogic)
     const { reportIngestionLandingSeen } = useActions(eventUsageLogic)
 
@@ -49,6 +49,7 @@ export function IngestionWizard(): JSX.Element {
     if (!platform && !verify && !technical) {
         return (
             <IngestionContainer>
+                <p>{technical} TECHNICAL</p>
                 <InviteTeamPanel />
             </IngestionContainer>
         )

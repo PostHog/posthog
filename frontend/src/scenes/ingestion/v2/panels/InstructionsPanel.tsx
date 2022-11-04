@@ -13,9 +13,9 @@ import {
     RNInstructions,
     RubyInstructions,
 } from 'scenes/ingestion/frameworks'
-import { API, MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
+import { API, MOBILE, BACKEND, WEB } from '../constants'
 import { useValues } from 'kea'
-import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
+import { ingestionLogic } from '../ingestionLogic'
 import { WebInstructions } from '../frameworks/WebInstructions'
 
 const frameworksSnippet: Record<string, React.ComponentType> = {

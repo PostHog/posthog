@@ -21,6 +21,9 @@ import { SitePopover } from '~/layout/navigation/TopBar/SitePopover'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { PanelHeader } from './panels/PanelComponents'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IngestionWizardV2 } from './v2/IngestionWizard'
 
 export const scene: SceneExport = {
     component: IngestionWizard,
@@ -30,12 +33,17 @@ export const scene: SceneExport = {
 export function IngestionWizard(): JSX.Element {
     const { platform, framework, verify, addBilling } = useValues(ingestionLogic)
     const { reportIngestionLandingSeen } = useActions(eventUsageLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useEffect(() => {
         if (!platform) {
             reportIngestionLandingSeen()
         }
     }, [platform])
+
+    if (featureFlags[FEATURE_FLAGS.ONBOARDING_V2]) {
+        return <IngestionWizardV2 />
+    }
 
     if (addBilling) {
         return (
