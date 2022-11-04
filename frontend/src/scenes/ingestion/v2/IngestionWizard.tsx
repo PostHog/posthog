@@ -49,7 +49,6 @@ export function IngestionWizardV2(): JSX.Element {
     if (!platform && !verify && !technical) {
         return (
             <IngestionContainer>
-                <p>{technical} TECHNICAL</p>
                 <InviteTeamPanel />
             </IngestionContainer>
         )

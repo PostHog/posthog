@@ -1,15 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { Framework, PlatformType } from 'scenes/ingestion/v2/types'
-import {
-    API,
-    MOBILE,
-    BACKEND,
-    WEB,
-    BOOKMARKLET,
-    thirdPartySources,
-    THIRD_PARTY,
-    ThirdPartySource,
-} from 'scenes/ingestion/constants'
+import { API, MOBILE, BACKEND, WEB, BOOKMARKLET, thirdPartySources, THIRD_PARTY, ThirdPartySource } from '../constants'
 import type { ingestionLogicType } from './ingestionLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -388,6 +379,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
 
 function getUrl(values: ingestionLogicType['values']): string | [string, Record<string, undefined | string>] {
     const { technical, platform, framework, verify, addBilling } = values
+    console.log(technical, 'TECHNICAL')
 
     let url = '/ingestion'
 
