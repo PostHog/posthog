@@ -49,14 +49,14 @@ KAFKA_GROUPS_TABLE_SQL = lambda: GROUPS_TABLE_BASE_SQL.format(
 
 
 KAFKA_GROUPS_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
-    table="kafka_groups_dlq",
+    table="kafka_dlq_groups",
     cluster=CLICKHOUSE_CLUSTER,
-    engine=MergeTreeEngine("kafka_groups_dlq", replication_scheme=ReplicationScheme.REPLICATED),
+    engine=MergeTreeEngine("kafka_dlq_groups", replication_scheme=ReplicationScheme.REPLICATED),
 )
 
 KAFKA_GROUPS_DLQ_MV_SQL = lambda: KAFKA_ENGINE_DLQ_MV_BASE_SQL.format(
-    view_name="kafka_groups_dlq_mv",
-    target_table=f"{CLICKHOUSE_DATABASE}.kafka_groups_dlq",
+    view_name="kafka_dlq_groups_mv",
+    target_table=f"{CLICKHOUSE_DATABASE}.kafka_dlq_groups",
     kafka_table_name=f"{CLICKHOUSE_DATABASE}.kafka_groups",
     cluster=CLICKHOUSE_CLUSTER,
 )

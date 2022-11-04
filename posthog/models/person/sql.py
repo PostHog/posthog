@@ -52,14 +52,14 @@ KAFKA_PERSONS_TABLE_SQL = lambda: PERSONS_TABLE_BASE_SQL.format(
 )
 
 KAFKA_PERSON_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
-    table="kafka_person_dlq",
+    table="kafka_dlq_person",
     cluster=CLICKHOUSE_CLUSTER,
-    engine=MergeTreeEngine("kafka_person_dlq", replication_scheme=ReplicationScheme.REPLICATED),
+    engine=MergeTreeEngine("kafka_dlq_person", replication_scheme=ReplicationScheme.REPLICATED),
 )
 
 KAFKA_PERSON_DLQ_MV_SQL = lambda: KAFKA_ENGINE_DLQ_MV_BASE_SQL.format(
-    view_name=f"kafka_person_dlq_mv",
-    target_table=f"{CLICKHOUSE_DATABASE}.kafka_person_dlq",
+    view_name=f"kafka_dlq_person_mv",
+    target_table=f"{CLICKHOUSE_DATABASE}.kafka_dlq_person",
     kafka_table_name=f"{CLICKHOUSE_DATABASE}.kafka_person",
     cluster=CLICKHOUSE_CLUSTER,
 )
@@ -212,14 +212,14 @@ KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL = lambda: PERSON_DISTINCT_ID2_TABLE_BASE_SQL
 
 
 KAFKA_PERSON_DISTINCT_ID2_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
-    table=f"kafka_person_distinct_id2_dlq",
+    table="kafka_dlq_person_distinct_id2",
     cluster=CLICKHOUSE_CLUSTER,
-    engine=MergeTreeEngine("kafka_person_distinct_id2_dlq", replication_scheme=ReplicationScheme.REPLICATED),
+    engine=MergeTreeEngine("kafka_dlq_person_distinct_id2", replication_scheme=ReplicationScheme.REPLICATED),
 )
 
 KAFKA_PERSON_DISTINCT_ID2_DLQ_MV_SQL = lambda: KAFKA_ENGINE_DLQ_MV_BASE_SQL.format(
-    view_name=f"kafka_person_distinct_id2_dlq_mv",
-    target_table=f"{CLICKHOUSE_DATABASE}.kafka_person_distinct_id2_dlq",
+    view_name=f"kafka_dlq_person_distinct_id2_mv",
+    target_table=f"{CLICKHOUSE_DATABASE}.kafka_dlq_person_distinct_id2",
     kafka_table_name=f"{CLICKHOUSE_DATABASE}.kafka_person_distinct_id2",
     cluster=CLICKHOUSE_CLUSTER,
 )

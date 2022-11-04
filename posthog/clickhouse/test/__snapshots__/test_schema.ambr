@@ -34,7 +34,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_app_metrics]
   '
   
-  CREATE TABLE kafka_app_metrics ON CLUSTER posthog
+  CREATE TABLE kafka_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -242,7 +242,7 @@
 # name: test_create_table_query[app_metrics]
   '
   
-  CREATE TABLE app_metrics ON CLUSTER posthog
+  CREATE TABLE app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -518,7 +518,7 @@
 # name: test_create_table_query[kafka_app_metrics]
   '
   
-  CREATE TABLE kafka_app_metrics ON CLUSTER posthog
+  CREATE TABLE kafka_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -537,10 +537,10 @@
   
   '
 ---
-# name: test_create_table_query[kafka_app_metrics_dlq]
+# name: test_create_table_query[kafka_dlq_app_metrics]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_app_metrics_dlq ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_dlq_app_metrics ON CLUSTER 'posthog'
   (
       topic VARCHAR,
       partition Int64,
@@ -553,11 +553,11 @@
   
   '
 ---
-# name: test_create_table_query[kafka_app_metrics_dlq_mv]
+# name: test_create_table_query[kafka_dlq_app_metrics_mv]
   '
   
-  CREATE MATERIALIZED VIEW kafka_app_metrics_dlq_mv ON CLUSTER 'posthog'
-  TO posthog_test.kafka_app_metrics_dlq
+  CREATE MATERIALIZED VIEW kafka_dlq_app_metrics_mv ON CLUSTER 'posthog'
+  TO posthog_test.kafka_dlq_app_metrics
   AS SELECT
       _topic AS topic,
       _partition AS partition,
@@ -565,6 +565,230 @@
       _raw_message AS raw,
       _error AS error
   FROM posthog_test.kafka_app_metrics
+  WHERE length(_error) > 0
+  
+  '
+---
+# name: test_create_table_query[kafka_dlq_events_json]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_dlq_events_json ON CLUSTER 'posthog'
+  (
+      topic VARCHAR,
+      partition Int64,
+      offset Int64,
+      raw VARCHAR,
+      error VARCHAR
+  )
+  ENGINE = MergeTree()
+  ORDER BY (topic, partition, offset)
+  
+  '
+---
+# name: test_create_table_query[kafka_dlq_events_json_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW kafka_dlq_events_json_mv ON CLUSTER 'posthog'
+  TO posthog_test.kafka_dlq_events_json
+  AS SELECT
+      _topic AS topic,
+      _partition AS partition,
+      _offset AS offset,
+      _raw_message AS raw,
+      _error AS error
+  FROM posthog_test.kafka_events_json
+  WHERE length(_error) > 0
+  
+  '
+---
+# name: test_create_table_query[kafka_dlq_groups]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_dlq_groups ON CLUSTER 'posthog'
+  (
+      topic VARCHAR,
+      partition Int64,
+      offset Int64,
+      raw VARCHAR,
+      error VARCHAR
+  )
+  ENGINE = MergeTree()
+  ORDER BY (topic, partition, offset)
+  
+  '
+---
+# name: test_create_table_query[kafka_dlq_groups_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW kafka_dlq_groups_mv ON CLUSTER 'posthog'
+  TO posthog_test.kafka_dlq_groups
+  AS SELECT
+      _topic AS topic,
+      _partition AS partition,
+      _offset AS offset,
+      _raw_message AS raw,
+      _error AS error
+  FROM posthog_test.kafka_groups
+  WHERE length(_error) > 0
+  
+  '
+---
+# name: test_create_table_query[kafka_dlq_ingestion_warnings]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_dlq_ingestion_warnings ON CLUSTER 'posthog'
+  (
+      topic VARCHAR,
+      partition Int64,
+      offset Int64,
+      raw VARCHAR,
+      error VARCHAR
+  )
+  ENGINE = MergeTree()
+  ORDER BY (topic, partition, offset)
+  
+  '
+---
+# name: test_create_table_query[kafka_dlq_ingestion_warnings_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW kafka_dlq_ingestion_warnings_mv ON CLUSTER 'posthog'
+  TO posthog_test.kafka_dlq_ingestion_warnings
+  AS SELECT
+      _topic AS topic,
+      _partition AS partition,
+      _offset AS offset,
+      _raw_message AS raw,
+      _error AS error
+  FROM posthog_test.kafka_ingestion_warnings
+  WHERE length(_error) > 0
+  
+  '
+---
+# name: test_create_table_query[kafka_dlq_person]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_dlq_person ON CLUSTER 'posthog'
+  (
+      topic VARCHAR,
+      partition Int64,
+      offset Int64,
+      raw VARCHAR,
+      error VARCHAR
+  )
+  ENGINE = MergeTree()
+  ORDER BY (topic, partition, offset)
+  
+  '
+---
+# name: test_create_table_query[kafka_dlq_person_distinct_id2]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_dlq_person_distinct_id2 ON CLUSTER 'posthog'
+  (
+      topic VARCHAR,
+      partition Int64,
+      offset Int64,
+      raw VARCHAR,
+      error VARCHAR
+  )
+  ENGINE = MergeTree()
+  ORDER BY (topic, partition, offset)
+  
+  '
+---
+# name: test_create_table_query[kafka_dlq_person_distinct_id2_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW kafka_dlq_person_distinct_id2_mv ON CLUSTER 'posthog'
+  TO posthog_test.kafka_dlq_person_distinct_id2
+  AS SELECT
+      _topic AS topic,
+      _partition AS partition,
+      _offset AS offset,
+      _raw_message AS raw,
+      _error AS error
+  FROM posthog_test.kafka_person_distinct_id2
+  WHERE length(_error) > 0
+  
+  '
+---
+# name: test_create_table_query[kafka_dlq_person_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW kafka_dlq_person_mv ON CLUSTER 'posthog'
+  TO posthog_test.kafka_dlq_person
+  AS SELECT
+      _topic AS topic,
+      _partition AS partition,
+      _offset AS offset,
+      _raw_message AS raw,
+      _error AS error
+  FROM posthog_test.kafka_person
+  WHERE length(_error) > 0
+  
+  '
+---
+# name: test_create_table_query[kafka_dlq_plugin_log_entries]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_dlq_plugin_log_entries ON CLUSTER 'posthog'
+  (
+      topic VARCHAR,
+      partition Int64,
+      offset Int64,
+      raw VARCHAR,
+      error VARCHAR
+  )
+  ENGINE = MergeTree()
+  ORDER BY (topic, partition, offset)
+  
+  '
+---
+# name: test_create_table_query[kafka_dlq_plugin_log_entries_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW kafka_dlq_plugin_log_entries_mv ON CLUSTER 'posthog'
+  TO posthog_test.kafka_dlq_plugin_log_entries
+  AS SELECT
+      _topic AS topic,
+      _partition AS partition,
+      _offset AS offset,
+      _raw_message AS raw,
+      _error AS error
+  FROM posthog_test.kafka_plugin_log_entries
+  WHERE length(_error) > 0
+  
+  '
+---
+# name: test_create_table_query[kafka_dlq_session_recording_events]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_dlq_session_recording_events ON CLUSTER 'posthog'
+  (
+      topic VARCHAR,
+      partition Int64,
+      offset Int64,
+      raw VARCHAR,
+      error VARCHAR
+  )
+  ENGINE = MergeTree()
+  ORDER BY (topic, partition, offset)
+  
+  '
+---
+# name: test_create_table_query[kafka_dlq_session_recording_events_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW kafka_dlq_session_recording_events_mv ON CLUSTER 'posthog'
+  TO posthog_test.kafka_dlq_session_recording_events
+  AS SELECT
+      _topic AS topic,
+      _partition AS partition,
+      _offset AS offset,
+      _raw_message AS raw,
+      _error AS error
+  FROM posthog_test.kafka_session_recording_events
   WHERE length(_error) > 0
   
   '
@@ -628,38 +852,6 @@
   
   '
 ---
-# name: test_create_table_query[kafka_events_json_dlq]
-  '
-  
-  CREATE TABLE IF NOT EXISTS kafka_events_json_dlq ON CLUSTER 'posthog'
-  (
-      topic VARCHAR,
-      partition Int64,
-      offset Int64,
-      raw VARCHAR,
-      error VARCHAR
-  )
-  ENGINE = MergeTree()
-  ORDER BY (topic, partition, offset)
-  
-  '
----
-# name: test_create_table_query[kafka_events_json_dlq_mv]
-  '
-  
-  CREATE MATERIALIZED VIEW kafka_events_json_dlq_mv ON CLUSTER 'posthog'
-  TO posthog_test.kafka_events_json_dlq
-  AS SELECT
-      _topic AS topic,
-      _partition AS partition,
-      _offset AS offset,
-      _raw_message AS raw,
-      _error AS error
-  FROM posthog_test.kafka_events_json
-  WHERE length(_error) > 0
-  
-  '
----
 # name: test_create_table_query[kafka_groups]
   '
   
@@ -676,38 +868,6 @@
   
   '
 ---
-# name: test_create_table_query[kafka_groups_dlq]
-  '
-  
-  CREATE TABLE IF NOT EXISTS kafka_groups_dlq ON CLUSTER 'posthog'
-  (
-      topic VARCHAR,
-      partition Int64,
-      offset Int64,
-      raw VARCHAR,
-      error VARCHAR
-  )
-  ENGINE = MergeTree()
-  ORDER BY (topic, partition, offset)
-  
-  '
----
-# name: test_create_table_query[kafka_groups_dlq_mv]
-  '
-  
-  CREATE MATERIALIZED VIEW kafka_groups_dlq_mv ON CLUSTER 'posthog'
-  TO posthog_test.kafka_groups_dlq
-  AS SELECT
-      _topic AS topic,
-      _partition AS partition,
-      _offset AS offset,
-      _raw_message AS raw,
-      _error AS error
-  FROM posthog_test.kafka_groups
-  WHERE length(_error) > 0
-  
-  '
----
 # name: test_create_table_query[kafka_ingestion_warnings]
   '
   
@@ -721,38 +881,6 @@
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_ingestion_warnings_test', 'group1', 'JSONEachRow')
   SETTINGS kafka_handle_error_mode='stream'
-  
-  '
----
-# name: test_create_table_query[kafka_ingestion_warnings_dlq]
-  '
-  
-  CREATE TABLE IF NOT EXISTS kafka_ingestion_warnings_dlq ON CLUSTER 'posthog'
-  (
-      topic VARCHAR,
-      partition Int64,
-      offset Int64,
-      raw VARCHAR,
-      error VARCHAR
-  )
-  ENGINE = MergeTree()
-  ORDER BY (topic, partition, offset)
-  
-  '
----
-# name: test_create_table_query[kafka_ingestion_warnings_dlq_mv]
-  '
-  
-  CREATE MATERIALIZED VIEW kafka_ingestion_warnings_dlq_mv ON CLUSTER 'posthog'
-  TO posthog_test.kafka_ingestion_warnings_dlq
-  AS SELECT
-      _topic AS topic,
-      _partition AS partition,
-      _offset AS offset,
-      _raw_message AS raw,
-      _error AS error
-  FROM posthog_test.kafka_ingestion_warnings
-  WHERE length(_error) > 0
   
   '
 ---
@@ -792,38 +920,6 @@
   
   '
 ---
-# name: test_create_table_query[kafka_person_distinct_id2_dlq]
-  '
-  
-  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2_dlq ON CLUSTER 'posthog'
-  (
-      topic VARCHAR,
-      partition Int64,
-      offset Int64,
-      raw VARCHAR,
-      error VARCHAR
-  )
-  ENGINE = MergeTree()
-  ORDER BY (topic, partition, offset)
-  
-  '
----
-# name: test_create_table_query[kafka_person_distinct_id2_dlq_mv]
-  '
-  
-  CREATE MATERIALIZED VIEW kafka_person_distinct_id2_dlq_mv ON CLUSTER 'posthog'
-  TO posthog_test.kafka_person_distinct_id2_dlq
-  AS SELECT
-      _topic AS topic,
-      _partition AS partition,
-      _offset AS offset,
-      _raw_message AS raw,
-      _error AS error
-  FROM posthog_test.kafka_person_distinct_id2
-  WHERE length(_error) > 0
-  
-  '
----
 # name: test_create_table_query[kafka_person_distinct_id]
   '
   
@@ -835,38 +931,6 @@
       _sign Nullable(Int8),
       is_deleted Nullable(Int8)
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
-  
-  '
----
-# name: test_create_table_query[kafka_person_dlq]
-  '
-  
-  CREATE TABLE IF NOT EXISTS kafka_person_dlq ON CLUSTER 'posthog'
-  (
-      topic VARCHAR,
-      partition Int64,
-      offset Int64,
-      raw VARCHAR,
-      error VARCHAR
-  )
-  ENGINE = MergeTree()
-  ORDER BY (topic, partition, offset)
-  
-  '
----
-# name: test_create_table_query[kafka_person_dlq_mv]
-  '
-  
-  CREATE MATERIALIZED VIEW kafka_person_dlq_mv ON CLUSTER 'posthog'
-  TO posthog_test.kafka_person_dlq
-  AS SELECT
-      _topic AS topic,
-      _partition AS partition,
-      _offset AS offset,
-      _raw_message AS raw,
-      _error AS error
-  FROM posthog_test.kafka_person
-  WHERE length(_error) > 0
   
   '
 ---
@@ -892,38 +956,6 @@
   
   '
 ---
-# name: test_create_table_query[kafka_plugin_log_entries_dlq]
-  '
-  
-  CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries_dlq ON CLUSTER 'posthog'
-  (
-      topic VARCHAR,
-      partition Int64,
-      offset Int64,
-      raw VARCHAR,
-      error VARCHAR
-  )
-  ENGINE = MergeTree()
-  ORDER BY (topic, partition, offset)
-  
-  '
----
-# name: test_create_table_query[kafka_plugin_log_entries_dlq_mv]
-  '
-  
-  CREATE MATERIALIZED VIEW kafka_plugin_log_entries_dlq_mv ON CLUSTER 'posthog'
-  TO posthog_test.kafka_plugin_log_entries_dlq
-  AS SELECT
-      _topic AS topic,
-      _partition AS partition,
-      _offset AS offset,
-      _raw_message AS raw,
-      _error AS error
-  FROM posthog_test.kafka_plugin_log_entries
-  WHERE length(_error) > 0
-  
-  '
----
 # name: test_create_table_query[kafka_session_recording_events]
   '
   
@@ -944,38 +976,6 @@
   
   
   SETTINGS kafka_handle_error_mode='stream'
-  
-  '
----
-# name: test_create_table_query[kafka_session_recording_events_dlq]
-  '
-  
-  CREATE TABLE IF NOT EXISTS kafka_session_recording_events_dlq ON CLUSTER 'posthog'
-  (
-      topic VARCHAR,
-      partition Int64,
-      offset Int64,
-      raw VARCHAR,
-      error VARCHAR
-  )
-  ENGINE = MergeTree()
-  ORDER BY (topic, partition, offset)
-  
-  '
----
-# name: test_create_table_query[kafka_session_recording_events_dlq_mv]
-  '
-  
-  CREATE MATERIALIZED VIEW kafka_session_recording_events_dlq_mv ON CLUSTER 'posthog'
-  TO posthog_test.kafka_session_recording_events_dlq
-  AS SELECT
-      _topic AS topic,
-      _partition AS partition,
-      _offset AS offset,
-      _raw_message AS raw,
-      _error AS error
-  FROM posthog_test.kafka_session_recording_events
-  WHERE length(_error) > 0
   
   '
 ---
@@ -1017,7 +1017,7 @@
   
   , _partition UInt64
   ) ENGINE = ReplacingMergeTree(version)
-  (team_id, distinct_id)
+  ORDER BY (team_id, distinct_id)
   SETTINGS index_granularity = 512
   
   '
@@ -1209,7 +1209,7 @@
 # name: test_create_table_query[sharded_app_metrics]
   '
   
-  CREATE TABLE sharded_app_metrics ON CLUSTER posthog
+  CREATE TABLE sharded_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -1499,7 +1499,7 @@
   
   , _partition UInt64
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_distinct_id2', '{replica}-{shard}', version)
-  (team_id, distinct_id)
+  ORDER BY (team_id, distinct_id)
   SETTINGS index_granularity = 512
   
   '
@@ -1571,7 +1571,7 @@
 # name: test_create_table_query_replicated_and_storage[sharded_app_metrics]
   '
   
-  CREATE TABLE sharded_app_metrics ON CLUSTER posthog
+  CREATE TABLE sharded_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
