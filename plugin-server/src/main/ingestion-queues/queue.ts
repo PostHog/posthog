@@ -54,8 +54,8 @@ async function startQueueKafka(server: Hub, workerMethods: WorkerMethods): Promi
         return null
     }
 
-    const IngestionConsumer = new IngestionConsumer(server, workerMethods)
-    await IngestionConsumer.start()
+    const ingestionConsumer = new IngestionConsumer(server, workerMethods)
+    await ingestionConsumer.start()
 
-    return IngestionConsumer
+    return ingestionConsumer
 }
