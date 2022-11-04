@@ -3,7 +3,7 @@ import json
 from typing import Any, Dict, List, Optional, cast
 
 import structlog
-from django.db.models import Prefetch, Q, QuerySet
+from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from drf_spectacular.utils import extend_schema
@@ -262,9 +262,9 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         serialized_tiles = []
 
-        for tile in (
-            dashboard.tiles.exclude(deleted=True).filter(Q(insight__deleted=False) | Q(insight__isnull=True)).all()
-        ):
+        for tile in DashboardTile.dashboard_queryset(dashboard.tiles):
+            self.context.update({"dashboard_tile": tile})
+
             if isinstance(tile.layouts, str):
                 tile.layouts = json.loads(tile.layouts)
             self.context.update({"filters_hash": tile.filters_hash})
@@ -283,6 +283,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         insights = []
         for tile in dashboard.tiles.all():
+            self.context.update({"dashboard_tile": tile})
             if tile.insight:
                 insight = tile.insight
                 layouts = tile.layouts
@@ -344,17 +345,8 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
         )
 
         if self.action != "list":
-            tiles_prefetch_queryset = (
-                DashboardTile.objects.select_related(
-                    "insight",
-                    "text",
-                    "insight__created_by",
-                    "insight__last_modified_by",
-                )
-                .exclude(deleted=True)
-                .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
-                .prefetch_related("insight__dashboards__team__organization")
-                .order_by("insight__order")
+            tiles_prefetch_queryset = DashboardTile.dashboard_queryset(
+                DashboardTile.objects.prefetch_related("insight__dashboards__team__organization")
             )
             try:
                 dashboard_id = self.kwargs["pk"]
