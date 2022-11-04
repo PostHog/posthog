@@ -165,6 +165,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(response[0]["labels"][6], "7 days")
             self.assertEqual(response[0]["data"][6], 0)
 
+        @snapshot_clickhouse_queries
         def test_stickiness_all_time(self):
             self._create_multiple_people()
 
@@ -186,6 +187,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(response[0]["labels"][6], "7 days")
             self.assertEqual(response[0]["data"][6], 0)
 
+        @snapshot_clickhouse_queries
         def test_stickiness_hours(self):
             self._create_multiple_people(period=timedelta(hours=1))
 
@@ -379,6 +381,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(response[0]["count"], 4)
             self.assertEqual(response[0]["labels"][0], "1 day")
 
+        @snapshot_clickhouse_queries
         def test_stickiness_people_endpoint(self):
             person1, _, _, person4 = self._create_multiple_people()
 
@@ -428,6 +431,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(len(people), 1)
             self.assertEqual(str(people[0]["id"]), str(person1.uuid))
 
+        @snapshot_clickhouse_queries
         def test_stickiness_people_paginated(self):
             for i in range(150):
                 person_name = f"person{i}"
