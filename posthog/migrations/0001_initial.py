@@ -2,6 +2,7 @@
 
 import django.contrib.postgres.fields
 import django.contrib.postgres.indexes
+import django.contrib.postgres.operations
 import django.core.validators
 import django.db.models.deletion
 import django.utils.timezone
@@ -27,6 +28,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        django.contrib.postgres.operations.TrigramExtension(),
         migrations.CreateModel(
             name="User",
             fields=[
