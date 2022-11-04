@@ -11,6 +11,7 @@ from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models.element import Element
 from posthog.models.filters import Filter
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import Property, TableWithProperties
 from posthog.models.property.util import (
     PropertyGroup,
@@ -563,6 +564,10 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             "events", "some_mat_prop2", "x", "properties", materialised_table_column="person_properties"
         )
         self.assertEqual(string_expr, ('"mat_pp_some_mat_prop2"', True))
+
+    def test_get_property_string_expr_groups(self):
+        if not get_instance_setting("GROUPS_ON_EVENTS_ENABLED"):
+            return
 
         string_expr = get_property_string_expr(
             "events",
