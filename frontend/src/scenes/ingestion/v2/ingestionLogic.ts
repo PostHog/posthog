@@ -379,7 +379,6 @@ export const ingestionLogic = kea<ingestionLogicType>([
 
 function getUrl(values: ingestionLogicType['values']): string | [string, Record<string, undefined | string>] {
     const { technical, platform, framework, verify, addBilling } = values
-    console.log(technical, 'TECHNICAL')
 
     let url = '/ingestion'
 

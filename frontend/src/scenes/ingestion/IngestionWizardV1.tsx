@@ -1,13 +1,13 @@
 import { useEffect } from 'react'
 import './IngestionWizard.scss'
 
-import { VerificationPanel } from 'scenes/ingestion/v2/panels/VerificationPanel'
-import { InstructionsPanel } from 'scenes/ingestion/v2/panels/InstructionsPanel'
-import { MOBILE, BACKEND, WEB, BOOKMARKLET, THIRD_PARTY } from 'scenes/ingestion/v2/constants'
+import { VerificationPanel } from 'scenes/ingestion/panels/VerificationPanel'
+import { InstructionsPanel } from 'scenes/ingestion/panels/InstructionsPanel'
+import { MOBILE, BACKEND, WEB, BOOKMARKLET, THIRD_PARTY } from 'scenes/ingestion/constants'
 import { useValues, useActions } from 'kea'
-import { ingestionLogic } from 'scenes/ingestion/v2/ingestionLogic'
-import { FrameworkPanel } from 'scenes/ingestion/v2/panels/FrameworkPanel'
-import { PlatformPanel } from 'scenes/ingestion/v2/panels/PlatformPanel'
+import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
+import { FrameworkPanel } from 'scenes/ingestion/panels/FrameworkPanel'
+import { PlatformPanel } from 'scenes/ingestion/panels/PlatformPanel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { BookmarkletPanel } from './panels/BookmarkletPanel'
 import { ThirdPartyPanel } from './panels/ThirdPartyPanel'
@@ -20,10 +20,9 @@ import { SitePopover } from '~/layout/navigation/TopBar/SitePopover'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { PanelHeader } from './panels/PanelComponents'
-import { InviteTeamPanel } from './panels/InviteTeamPanel'
 
-export function IngestionWizardV2(): JSX.Element {
-    const { platform, framework, verify, addBilling, technical } = useValues(ingestionLogic)
+export function IngestionWizardV1(): JSX.Element {
+    const { platform, framework, verify, addBilling } = useValues(ingestionLogic)
     const { reportIngestionLandingSeen } = useActions(eventUsageLogic)
 
     useEffect(() => {
@@ -40,15 +39,7 @@ export function IngestionWizardV2(): JSX.Element {
         )
     }
 
-    if (!platform && !verify && !technical) {
-        return (
-            <IngestionContainer>
-                <InviteTeamPanel />
-            </IngestionContainer>
-        )
-    }
-
-    if (!platform && !verify && technical) {
+    if (!platform && !verify) {
         return (
             <IngestionContainer>
                 <PlatformPanel />
