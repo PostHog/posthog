@@ -10,12 +10,11 @@ import { PlayerFilter } from 'scenes/session-recordings/player/list/PlayerFilter
 import { SessionRecordingPlayerProps } from '~/types'
 import { PlayerMeta } from './PlayerMeta'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
-import { NotFound } from 'lib/components/NotFound'
-import { Link } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
 import clsx from 'clsx'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
+import { urls } from 'scenes/urls'
 
 export function useFrameRef({
     sessionRecordingId,
@@ -39,6 +38,7 @@ export function SessionRecordingPlayer({
     includeMeta = true,
     recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
     matching,
+    isDetail = false, // True if player is shown in separate detail page
 }: SessionRecordingPlayerProps): JSX.Element {
     const { handleKeyDown, setIsFullScreen, setPause } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey, recordingStartTime, matching })
@@ -53,6 +53,7 @@ export function SessionRecordingPlayer({
                 action: () => setIsFullScreen(!isFullScreen),
             },
             ...(isFullScreen ? { escape: { action: () => setIsFullScreen(false) } } : {}),
+            ...(!isDetail ? { d: { action: () => open(urls.sessionRecording(sessionRecordingId), '_blank') } } : {}),
         },
         [isFullScreen]
     )
@@ -66,17 +67,7 @@ export function SessionRecordingPlayer({
     if (isNotFound) {
         return (
             <div className="text-center">
-                <NotFound
-                    object={'Recording'}
-                    caption={
-                        <>
-                            The requested recording doesn't seem to exist. The recording may still be processing,
-                            deleted due to age or have not been enabled. Please check your{' '}
-                            <Link to={urls.projectSettings()}>project settings</Link> that recordings is turned on and
-                            enabled for the domain in question.
-                        </>
-                    }
-                />
+                <RecordingNotFound />
             </div>
         )
     }
@@ -85,7 +76,6 @@ export function SessionRecordingPlayer({
         <div
             className={clsx('SessionRecordingPlayer', { 'SessionRecordingPlayer--fullscreen': isFullScreen })}
             onKeyDown={handleKeyDown}
-            tabIndex={0}
         >
             {includeMeta || isFullScreen ? (
                 <PlayerMeta sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
@@ -94,7 +84,7 @@ export function SessionRecordingPlayer({
                 <PlayerFrame sessionRecordingId={sessionRecordingId} ref={frame} playerKey={playerKey} />
             </div>
             <LemonDivider className="my-0" />
-            <PlayerController sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+            <PlayerController sessionRecordingId={sessionRecordingId} playerKey={playerKey} isDetail={isDetail} />
             {!isFullScreen && (
                 <>
                     <LemonDivider className="my-0" />
