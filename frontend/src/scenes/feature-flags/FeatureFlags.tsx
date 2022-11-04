@@ -71,7 +71,11 @@ function OverViewTab(): JSX.Element {
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
                 return (
                     <>
-                        {featureFlag.active ? (
+                        {featureFlag.performed_rollback ? (
+                            <LemonTag type="warning" className="uppercase">
+                                Rolled Back
+                            </LemonTag>
+                        ) : featureFlag.active ? (
                             <LemonTag type="success" className="uppercase">
                                 Enabled
                             </LemonTag>

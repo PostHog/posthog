@@ -9,6 +9,7 @@ import { SeekSkip, Timestamp } from 'scenes/session-recordings/player/PlayerCont
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import {
     IconFullScreen,
+    IconOpenInNew,
     IconPause,
     IconPlay,
     IconSkipInactivity,
@@ -17,8 +18,13 @@ import {
 } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
+import { urls } from 'scenes/urls'
 
-export function PlayerController({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+interface PlayerControllerProps extends SessionRecordingPlayerProps {
+    isDetail: boolean
+}
+
+export function PlayerController({ sessionRecordingId, playerKey, isDetail }: PlayerControllerProps): JSX.Element {
     const { togglePlayPause, setSpeed, setSkipInactivitySetting, setTab, setIsFullScreen } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
@@ -118,7 +124,7 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
                             />
                         </LemonButton>
                     </Tooltip>
-                    <Tooltip title={`${!isFullScreen ? 'Go' : 'exit'} full screen (F)`}>
+                    <Tooltip title={`${!isFullScreen ? 'Go' : 'Exit'} full screen (F)`}>
                         <LemonButton
                             size="small"
                             status="primary-alt"
@@ -131,6 +137,18 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
                             />
                         </LemonButton>
                     </Tooltip>
+                    {!isDetail && (
+                        <Tooltip title={'Open in new tab (D)'}>
+                            <LemonButton
+                                size="small"
+                                status="primary-alt"
+                                to={urls.sessionRecording(sessionRecordingId)}
+                                targetBlank
+                            >
+                                <IconOpenInNew className={'text-xl text-primary-alt'} />
+                            </LemonButton>
+                        </Tooltip>
+                    )}
                 </div>
             </div>
         </div>

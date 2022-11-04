@@ -100,17 +100,6 @@ def make_ch_pool(**overrides) -> ChPool:
     return ChPool(**kwargs)
 
 
-ch_client = SyncClient(
-    host=CLICKHOUSE_HOST,
-    database=CLICKHOUSE_DATABASE,
-    secure=CLICKHOUSE_SECURE,
-    user=CLICKHOUSE_USER,
-    password=CLICKHOUSE_PASSWORD,
-    ca_certs=CLICKHOUSE_CA,
-    verify=CLICKHOUSE_VERIFY,
-    settings={"mutations_sync": "1"} if TEST else {},
-)
-
 ch_pool = make_ch_pool()
 
 
@@ -331,6 +320,8 @@ def execute_with_progress(
 
         raise err
     finally:
+        ch_client.disconnect()
+
         execution_time = perf_counter() - start_time
 
         QUERY_TIMEOUT_THREAD.cancel(timeout_task)
@@ -418,6 +409,16 @@ def substitute_params(query, params):
     containing code is only responsible for it's parameters, and we can
     avoid any potential param collisions.
     """
+    ch_client = SyncClient(
+        host=CLICKHOUSE_HOST,
+        database=CLICKHOUSE_DATABASE,
+        secure=CLICKHOUSE_SECURE,
+        user=CLICKHOUSE_USER,
+        password=CLICKHOUSE_PASSWORD,
+        ca_certs=CLICKHOUSE_CA,
+        verify=CLICKHOUSE_VERIFY,
+        settings={"mutations_sync": "1"} if TEST else {},
+    )
     return cast(SyncClient, ch_client).substitute_params(query, params)
 
 

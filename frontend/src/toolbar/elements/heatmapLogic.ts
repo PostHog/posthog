@@ -17,6 +17,7 @@ export const heatmapLogic = kea<heatmapLogicType>({
         enableHeatmap: true,
         disableHeatmap: true,
         setShowHeatmapTooltip: (showHeatmapTooltip: boolean) => ({ showHeatmapTooltip }),
+        setShiftPressed: (shiftPressed: boolean) => ({ shiftPressed }),
         setHeatmapFilter: (filter: Partial<FilterType>) => ({ filter }),
     },
 
@@ -42,6 +43,12 @@ export const heatmapLogic = kea<heatmapLogicType>({
             false,
             {
                 setShowHeatmapTooltip: (_, { showHeatmapTooltip }) => showHeatmapTooltip,
+            },
+        ],
+        shiftPressed: [
+            false,
+            {
+                setShiftPressed: (_, { shiftPressed }) => shiftPressed,
             },
         ],
         heatmapFilter: [
@@ -210,11 +217,27 @@ export const heatmapLogic = kea<heatmapLogicType>({
         ],
     },
 
-    events: ({ actions, values }) => ({
+    events: ({ actions, values, cache }) => ({
         afterMount() {
             if (values.heatmapEnabled) {
                 actions.getEvents()
             }
+            cache.keyDownListener = (event: KeyboardEvent) => {
+                if (event.shiftKey && !values.shiftPressed) {
+                    actions.setShiftPressed(true)
+                }
+            }
+            cache.keyUpListener = (event: KeyboardEvent) => {
+                if (!event.shiftKey && values.shiftPressed) {
+                    actions.setShiftPressed(false)
+                }
+            }
+            window.addEventListener('keydown', cache.keyDownListener)
+            window.addEventListener('keyup', cache.keyUpListener)
+        },
+        beforeUnmount() {
+            window.removeEventListener('keydown', cache.keyDownListener)
+            window.removeEventListener('keyup', cache.keyUpListener)
         },
     }),
 

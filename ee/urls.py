@@ -15,6 +15,7 @@ from .api import (
     hooks,
     license,
     role,
+    sentry_stats,
     subscription,
 )
 
@@ -46,4 +47,7 @@ def extend_api_router(
     projects_router.register(r"subscriptions", subscription.SubscriptionViewSet, "subscriptions", ["team_id"])
 
 
-urlpatterns: List[Any] = [path("api/saml/metadata/", authentication.saml_metadata_view)]
+urlpatterns: List[Any] = [
+    path("api/saml/metadata/", authentication.saml_metadata_view),
+    path("api/sentry_errors/", sentry_stats.sentry_stats),
+]

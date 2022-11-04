@@ -17,6 +17,7 @@ import {
     ClickhouseGroup,
     ClickHousePerson,
     ClickHousePersonDistinctId2,
+    ClickHouseTimestamp,
     Cohort,
     CohortPeople,
     Database,
@@ -122,13 +123,11 @@ export interface CreatePersonalApiKeyPayload {
     created_at: Date
 }
 
-export type GroupType = number
-
-export type GroupId = [GroupType, GroupKey]
+export type GroupId = [GroupTypeIndex, GroupKey]
 
 export interface CachedGroupData {
     properties: Properties
-    created_at: string
+    created_at: ClickHouseTimestamp
 }
 
 const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
@@ -550,7 +549,7 @@ export class DB {
     REDIS_PERSON_UUID_PREFIX = 'person_uuid'
     REDIS_PERSON_CREATED_AT_PREFIX = 'person_created_at'
     REDIS_PERSON_PROPERTIES_PREFIX = 'person_props'
-    REDIS_GROUP_DATA_PREFIX = 'group_data_cache'
+    REDIS_GROUP_DATA_PREFIX = 'group_data_cache_v2'
 
     private getPersonIdCacheKey(teamId: number, distinctId: string): string {
         return `${this.REDIS_PERSON_ID_PREFIX}:${teamId}:${distinctId}`
@@ -568,7 +567,7 @@ export class DB {
         return `${this.REDIS_PERSON_PROPERTIES_PREFIX}:${teamId}:${personId}`
     }
 
-    private getGroupDataCacheKey(teamId: number, groupTypeIndex: number, groupKey: string): string {
+    public getGroupDataCacheKey(teamId: number, groupTypeIndex: number, groupKey: string): string {
         return `${this.REDIS_GROUP_DATA_PREFIX}:${teamId}:${groupTypeIndex}:${groupKey}`
     }
 
@@ -681,8 +680,12 @@ export class DB {
         await this.redisSet(groupCacheKey, groupData)
     }
 
-    public async getGroupsColumns(teamId: number, groupIds: GroupId[]): Promise<Record<string, any>> {
-        const groupColumns: Record<string, any> = {}
+    public async getGroupsColumns(
+        teamId: number,
+        groupIds: GroupId[]
+    ): Promise<Record<string, string | ClickHouseTimestamp>> {
+        const groupPropertiesColumns: Record<string, string> = {}
+        const groupCreatedAtColumns: Record<string, ClickHouseTimestamp> = {}
 
         for (const [groupTypeIndex, groupKey] of groupIds) {
             const groupCacheKey = this.getGroupDataCacheKey(teamId, groupTypeIndex, groupKey)
@@ -695,11 +698,8 @@ export class DB {
 
                 if (cachedGroupData) {
                     this.statsd?.increment('group_info_cache.hit')
-                    groupColumns[propertiesColumnName] = JSON.stringify(cachedGroupData.properties)
-                    groupColumns[createdAtColumnName] = castTimestampOrNow(
-                        cachedGroupData.created_at,
-                        TimestampFormat.ClickHouse
-                    )
+                    groupPropertiesColumns[propertiesColumnName] = JSON.stringify(cachedGroupData.properties)
+                    groupCreatedAtColumns[createdAtColumnName] = cachedGroupData.created_at
 
                     continue
                 }
@@ -713,11 +713,14 @@ export class DB {
             const storedGroupData = await this.fetchGroup(teamId, groupTypeIndex as GroupTypeIndex, groupKey)
 
             if (storedGroupData) {
-                groupColumns[propertiesColumnName] = JSON.stringify(storedGroupData.group_properties)
+                groupPropertiesColumns[propertiesColumnName] = JSON.stringify(storedGroupData.group_properties)
 
-                const createdAt = castTimestampOrNow(storedGroupData.created_at.toUTC(), TimestampFormat.ClickHouse)
+                const createdAt = castTimestampOrNow(
+                    storedGroupData.created_at.toUTC(),
+                    TimestampFormat.ClickHouse
+                ) as ClickHouseTimestamp
 
-                groupColumns[createdAtColumnName] = createdAt
+                groupCreatedAtColumns[createdAtColumnName] = createdAt
 
                 // We found data in Postgres, so update the cache
                 // We also don't want to throw here, worst case is we'll have to fetch from Postgres again next time
@@ -734,15 +737,18 @@ export class DB {
                 this.statsd?.increment('groups_data_missing_entirely')
                 status.debug('🔍', `Could not find group data for group ${groupCacheKey} in cache or storage`)
 
-                groupColumns[propertiesColumnName] = '{}'
-                groupColumns[createdAtColumnName] = castTimestampOrNow(
+                groupPropertiesColumns[propertiesColumnName] = '{}'
+                groupCreatedAtColumns[createdAtColumnName] = castTimestampOrNow(
                     DateTime.fromJSDate(new Date(0)).toUTC(),
                     TimestampFormat.ClickHouse
-                )
+                ) as ClickHouseTimestamp
             }
         }
 
-        return groupColumns
+        return {
+            ...groupPropertiesColumns,
+            ...groupCreatedAtColumns,
+        }
     }
 
     public async fetchPersons(database?: Database.Postgres): Promise<Person[]>
@@ -1707,7 +1713,7 @@ export class DB {
         if (options?.cache) {
             await this.updateGroupCache(teamId, groupTypeIndex, groupKey, {
                 properties: groupProperties,
-                created_at: castTimestampOrNow(createdAt),
+                created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse),
             })
         }
     }
@@ -1749,7 +1755,7 @@ export class DB {
 
         await this.updateGroupCache(teamId, groupTypeIndex, groupKey, {
             properties: groupProperties,
-            created_at: castTimestampOrNow(createdAt),
+            created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse),
         })
     }
 

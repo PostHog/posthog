@@ -15,7 +15,7 @@ const sections = [
         title: 'US hosting',
         features: [
             'Faster if you and your users are based in the US',
-            'Easier to comply with US regulations, such as HIPAA.',
+            'Easier to comply with some US regulations',
             'Hosted in Virginia, USA',
         ],
     },
