@@ -1,6 +1,6 @@
 import { useActions } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
-import { LemonButtonWithSideAction } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { IconChevronRight } from 'lib/components/icons'
@@ -21,24 +21,22 @@ export function InviteTeamPanel(): JSX.Element {
             </p>
             <LemonDivider thick dashed className="my-6" />
             <div className="flex flex-col mb-6">
-                <LemonButtonWithSideAction
+                <LemonButton
                     onClick={() => setTechnical(true)}
                     fullWidth
                     size="large"
                     className="mb-4"
                     type="primary"
-                    sideAction={{
-                        icon: <IconChevronRight />,
-                    }}
+                    sideIcon={<IconChevronRight />}
                 >
                     <div className="mt-4 mb-0">
                         <p className="mb-2">I can add a code snippet to my product.</p>
                         <p className="font-normal text-xs">
-                            Available for JavaScript, Android, iOS, React Native, Node,js, Ruby, Go, and more.
+                            Available for JavaScript, Android, iOS, React Native, Node.js, Ruby, Go, and more.
                         </p>
                     </div>
-                </LemonButtonWithSideAction>
-                <LemonButtonWithSideAction
+                </LemonButton>
+                <LemonButton
                     onClick={() => {
                         setTechnical(false)
                         showInviteModal()
@@ -48,9 +46,7 @@ export function InviteTeamPanel(): JSX.Element {
                     size="large"
                     className="mb-4"
                     type="secondary"
-                    sideAction={{
-                        icon: <IconChevronRight />,
-                    }}
+                    sideIcon={<IconChevronRight />}
                 >
                     <div className="mt-4 mb-0">
                         <p className="mb-2">I'll need a team member to add the code snippet to our product.</p>
@@ -58,7 +54,7 @@ export function InviteTeamPanel(): JSX.Element {
                             We'll send an invite and instructions for getting the code snippet added.
                         </p>
                     </div>
-                </LemonButtonWithSideAction>
+                </LemonButton>
             </div>
         </div>
     )
