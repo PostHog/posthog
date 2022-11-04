@@ -6,6 +6,13 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -1040,6 +1047,13 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -1970,6 +1984,13 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
