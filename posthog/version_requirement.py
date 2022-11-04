@@ -56,6 +56,8 @@ def get_clickhouse_version() -> Version:
 
     client = default_client()
     rows = client.execute("SELECT version()")
+    client.disconnect()
+
     version = rows[0][0]
 
     return version_string_to_semver(version)

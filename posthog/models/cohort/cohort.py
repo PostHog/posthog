@@ -97,6 +97,11 @@ class Cohort(models.Model):
 
     @property
     def properties(self) -> PropertyGroup:
+
+        if self.filters:
+            # Do not try simplifying properties at this stage. We'll let this happen at query time.
+            return Filter(data={**self.filters, "is_simplified": True}, team=self.team).property_groups
+
         # convert deprecated groups to properties
         if self.groups:
             property_groups = []
@@ -156,10 +161,6 @@ class Cohort(models.Model):
                     return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
 
             return PropertyGroup(PropertyOperatorType.OR, property_groups)
-
-        if self.filters:
-            # Do not try simplifying properties at this stage. We'll let this happen at query time.
-            return Filter(data={**self.filters, "is_simplified": True}, team=self.team).property_groups
 
         return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
 

@@ -2,7 +2,7 @@ from typing import List
 
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Q, UniqueConstraint
+from django.db.models import Q, QuerySet, UniqueConstraint
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
@@ -78,6 +78,21 @@ class DashboardTile(models.Model):
                 self.filters_hash = generate_insight_cache_key(self.insight, self.dashboard)
 
         super(DashboardTile, self).save(*args, **kwargs)
+
+    @staticmethod
+    def dashboard_queryset(queryset: QuerySet) -> QuerySet:
+        return (
+            queryset.select_related(
+                "insight",
+                "text",
+                "insight__created_by",
+                "insight__last_modified_by",
+                "insight__team",
+            )
+            .exclude(deleted=True)
+            .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
+            .order_by("insight__order")
+        )
 
 
 @receiver(post_save, sender=Insight)

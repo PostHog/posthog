@@ -288,3 +288,79 @@ export async function getErrorForPluginConfig(id: number): Promise<any> {
     await db.end()
     return error
 }
+
+export const createPlugin = async (pgClient: Pool, plugin: Omit<Plugin, 'id'>) => {
+    return await insertRow(pgClient, 'posthog_plugin', {
+        ...plugin,
+        config_schema: {},
+        from_json: false,
+        from_web: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        is_preinstalled: false,
+        capabilities: {},
+    })
+}
+
+export const createPluginConfig = async (
+    pgClient: Pool,
+    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config' | 'has_error'>
+) => {
+    return await insertRow(pgClient, 'posthog_pluginconfig', {
+        ...pluginConfig,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        enabled: true,
+        order: 0,
+        config: {},
+    })
+}
+
+export const createOrganization = async (pgClient: Pool) => {
+    const organizationId = new UUIDT().toString()
+    await insertRow(pgClient, 'posthog_organization', {
+        id: organizationId,
+        name: 'TEST ORG',
+        plugins_access_level: 9,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        personalization: '{}', // DEPRECATED
+        setup_section_2_completed: true, // DEPRECATED
+        for_internal_metrics: false,
+        available_features: [],
+        domain_whitelist: [],
+        is_member_join_email_enabled: false,
+        slug: Math.round(Math.random() * 20000),
+    })
+    return organizationId
+}
+
+export const createTeam = async (pgClient: Pool, organizationId: string) => {
+    const team = await insertRow(pgClient, 'posthog_team', {
+        organization_id: organizationId,
+        app_urls: [],
+        name: 'TEST PROJECT',
+        event_names: [],
+        event_names_with_usage: [],
+        event_properties: [],
+        event_properties_with_usage: [],
+        event_properties_numerical: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        anonymize_ips: false,
+        completed_snippet_onboarding: true,
+        ingested_event: true,
+        uuid: new UUIDT().toString(),
+        session_recording_opt_in: true,
+        plugins_opt_in: false,
+        opt_out_capture: false,
+        is_demo: false,
+        api_token: new UUIDT().toString(),
+        test_account_filters: [],
+        timezone: 'UTC',
+        data_attributes: ['data-attr'],
+        person_display_name_properties: [],
+        access_control: false,
+    })
+    return team.id
+}

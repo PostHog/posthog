@@ -48,6 +48,8 @@ export const urls = {
     webPerformanceWaterfall: (id: string): string => `/web-performance/${id}/waterfall`,
     sessionRecordings: (filters?: Partial<FilterType>): string =>
         combineUrl('/recordings', filters ? { filters } : {}).url,
+    sessionRecording: (id: string, filters?: Partial<FilterType>): string =>
+        combineUrl(`/recordings/${id}`, filters ? { filters } : {}).url,
     person: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     persons: (): string => '/persons',
@@ -70,6 +72,8 @@ export const urls = {
     appMetrics: (pluginConfigId: string | number, params: AppMetricsUrlParams = {}): string =>
         combineUrl(`/app/${pluginConfigId}/metrics`, params).url,
     appHistoricalExports: (pluginConfigId: string | number): string => `/app/${pluginConfigId}/historical_exports`,
+    appHistory: (pluginConfigId: string | number, searchParams?: Record<string, any>): string =>
+        combineUrl(`/app/${pluginConfigId}/history`, searchParams).url,
     projectCreateFirst: (): string => '/project/create',
     projectHomepage: (): string => '/home',
     projectSettings: (section?: string): string => `/project/settings${section ? `#${section}` : ''}`,

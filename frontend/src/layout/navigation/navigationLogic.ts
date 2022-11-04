@@ -148,7 +148,7 @@ export const navigationLogic = kea<navigationLogicType>({
                 return systemStatusLoading || !asyncMigrations || asyncMigrations.value
             },
         ],
-        updateAvailable: [
+        anyUpdateAvailable: [
             (selectors) => [
                 selectors.latestVersion,
                 selectors.latestVersionLoading,
@@ -156,12 +156,30 @@ export const navigationLogic = kea<navigationLogicType>({
             ],
             (latestVersion, latestVersionLoading, preflight) => {
                 // Always latest version in multitenancy
-                return (
-                    !latestVersionLoading &&
-                    !preflight?.cloud &&
-                    latestVersion &&
-                    latestVersion !== preflight?.posthog_version
-                )
+                if (latestVersionLoading || preflight?.cloud || !latestVersion || !preflight?.posthog_version) {
+                    return false
+                }
+                const [latestMajor, latestMinor, latestPatch] = latestVersion.split('.').map((n) => parseInt(n))
+                const [currentMajor, currentMinor, currentPatch] = preflight.posthog_version
+                    .split('.')
+                    .map((n) => parseInt(n))
+                return latestMajor > currentMajor || latestMinor > currentMinor || latestPatch > currentPatch
+            },
+        ],
+        minorUpdateAvailable: [
+            (selectors) => [
+                selectors.latestVersion,
+                selectors.latestVersionLoading,
+                preflightLogic.selectors.preflight,
+            ],
+            (latestVersion, latestVersionLoading, preflight): boolean => {
+                // Always latest version in multitenancy
+                if (latestVersionLoading || preflight?.cloud || !latestVersion || !preflight?.posthog_version) {
+                    return false
+                }
+                const [latestMajor, latestMinor] = latestVersion.split('.').map((n) => parseInt(n))
+                const [currentMajor, currentMinor] = preflight.posthog_version.split('.').map((n) => parseInt(n))
+                return latestMajor > currentMajor || latestMinor > currentMinor
             },
         ],
         projectNoticeVariantWithClosability: [

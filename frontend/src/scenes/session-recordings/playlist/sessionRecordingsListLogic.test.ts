@@ -9,7 +9,7 @@ import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
 import { PropertyOperator } from '~/types'
 import { useMocks } from '~/mocks/jest'
-import { sessionRecordingDataLogic } from './player/sessionRecordingDataLogic'
+import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 
 describe('sessionRecordingsListLogic', () => {
     let logic: ReturnType<typeof sessionRecordingsListLogic.build>

@@ -3,6 +3,7 @@ import * as Sentry from '@sentry/node'
 
 import { runInSpan } from '../../../sentry'
 import { Hub, PostIngestionEvent } from '../../../types'
+import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
 import { LazyPersonContainer } from '../lazy-person-container'
@@ -171,6 +172,13 @@ export class EventPipelineRunner {
         status.info('🔔', err)
         Sentry.captureException(err, { extra: { currentStepName, serializedArgs, originalEvent: this.originalEvent } })
         this.hub.statsd?.increment('kafka_queue.event_pipeline.step.error', { step: currentStepName })
+
+        if (err instanceof DependencyUnavailableError) {
+            // If this is an error with a dependency that we control, we want to
+            // ensure that the caller knows that the event was not processed,
+            // for a reason that we control and that is transient.
+            throw err
+        }
 
         if (STEPS_TO_EMIT_TO_DLQ_ON_FAILURE.includes(currentStepName)) {
             try {

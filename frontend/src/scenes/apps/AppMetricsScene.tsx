@@ -9,6 +9,8 @@ import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { ErrorDetailsModal } from './ErrorDetailsModal'
 import { Tooltip } from 'lib/components/Tooltip'
 import { IconInfo } from 'lib/components/icons'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 
 export const scene: SceneExport = {
     component: AppMetrics,
@@ -17,14 +19,19 @@ export const scene: SceneExport = {
 }
 
 export function AppMetrics(): JSX.Element {
-    const { activeTab, pluginConfig, pluginConfigLoading, showTab } = useValues(appMetricsSceneLogic)
+    const { activeTab, pluginConfig, pluginConfigLoading, showTab, shouldShowAppMetrics } =
+        useValues(appMetricsSceneLogic)
     const { setActiveTab } = useActions(appMetricsSceneLogic)
 
     return (
         <div>
             <PageHeader
                 title={pluginConfig ? pluginConfig.plugin_info.name : <LemonSkeleton />}
-                caption="An overview of metrics and exports for this app."
+                caption={
+                    shouldShowAppMetrics && pluginConfig
+                        ? 'An overview of metrics and exports for this app.'
+                        : undefined
+                }
             />
 
             {pluginConfigLoading || !activeTab ? (
@@ -75,6 +82,9 @@ export function AppMetrics(): JSX.Element {
                             <HistoricalExportsTab />
                         </Tabs.TabPane>
                     )}
+                    <Tabs.TabPane tab="History" key={AppMetricsTab.History}>
+                        <ActivityLog scope={ActivityScope.PLUGIN} id={pluginConfig?.id} />
+                    </Tabs.TabPane>
                 </Tabs>
             )}
 

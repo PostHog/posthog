@@ -7,6 +7,9 @@ export async function createEventStep(
     event: PreIngestionEvent,
     personContainer: LazyPersonContainer
 ): Promise<StepResult> {
-    const ingestionEvent = await runner.hub.eventsProcessor.createEvent(event, personContainer)
-    return runner.nextStep('runAsyncHandlersStep', ingestionEvent, personContainer)
+    await runner.hub.eventsProcessor.createEvent(event, personContainer)
+    // NOTE: we always stop here. Previously we had an optimization to run the
+    // async functions within this pipeline. Instead we unify how the pipeline
+    // runs no matter how you have PLUGIN_SERVER_MODE set.
+    return null
 }

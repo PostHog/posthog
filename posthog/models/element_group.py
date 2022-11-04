@@ -34,7 +34,7 @@ class ElementGroupManager(models.Manager):
                 )
             for element in elements:
                 element.group = group
-                setattr(element, "pk", None)
+                element.pk = None
             Element.objects.bulk_create(elements)
             return group
 

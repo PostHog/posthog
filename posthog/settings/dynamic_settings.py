@@ -1,3 +1,4 @@
+from posthog.settings.base_variables import E2E_TESTING, TEST
 from posthog.settings.utils import get_from_env, str_to_bool
 
 CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
@@ -27,7 +28,7 @@ CONSTANCE_CONFIG = {
         str,
     ),
     "PERSON_ON_EVENTS_ENABLED": (
-        get_from_env("PERSON_ON_EVENTS_ENABLED", False, type_cast=str_to_bool),
+        get_from_env("PERSON_ON_EVENTS_ENABLED", not TEST and not E2E_TESTING, type_cast=str_to_bool),
         "Whether to use query path using person_id, person_properties, and group_properties on events or the old query",
         bool,
     ),
@@ -144,6 +145,16 @@ CONSTANCE_CONFIG = {
         "Used to enable the running of experimental async migrations",
         bool,
     ),
+    "SENTRY_AUTH_TOKEN": (
+        get_from_env("SENTRY_AUTH_TOKEN", default=""),
+        "Used to enable Sentry error tracking in PostHog",
+        str,
+    ),
+    "SENTRY_ORGANIZATION": (
+        get_from_env("SENTRY_ORGANIZATION", default=""),
+        "Used to enable Sentry error tracking in PostHog",
+        str,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -172,8 +183,10 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SLACK_APP_SIGNING_SECRET",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
+    "SENTRY_AUTH_TOKEN",
+    "SENTRY_ORGANIZATION",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
 # On the frontend UI will clearly show which configuration elements are secret and whether they have a set value or not.
-SECRET_SETTINGS = ["EMAIL_HOST_PASSWORD", "SLACK_APP_CLIENT_SECRET", "SLACK_APP_SIGNING_SECRET"]
+SECRET_SETTINGS = ["EMAIL_HOST_PASSWORD", "SLACK_APP_CLIENT_SECRET", "SLACK_APP_SIGNING_SECRET", "SENTRY_AUTH_TOKEN"]

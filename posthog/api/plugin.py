@@ -6,7 +6,7 @@ import requests
 from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
-from django.db import connections
+from django.db import connections, transaction
 from django.db.models import Q
 from django.http import HttpResponse
 from django.utils.encoding import smart_str
@@ -195,6 +195,7 @@ class PluginSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "url",
+            "icon",
             "config_schema",
             "tag",
             "latest_tag",
@@ -260,6 +261,8 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        queryset = queryset.select_related("organization")
+
         if self.action == "get" or self.action == "list":
             if can_install_plugins(self.organization) or can_configure_plugins(self.organization):
                 return queryset
@@ -298,6 +301,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         Plugin.objects.filter(id=plugin.id).update(
             latest_tag=latest_url.get("tag", latest_url.get("version", None)), latest_tag_checked_at=now()
         )
+        plugin.refresh_from_db()
 
         return Response({"plugin": PluginSerializer(plugin).data})
 
@@ -365,8 +369,9 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if plugin.plugin_type not in (Plugin.PluginType.SOURCE, Plugin.PluginType.LOCAL):
             validated_data: Dict[str, Any] = {}
             plugin_json = update_validated_data_from_url(validated_data, plugin.url)
-            serializer.update(plugin, validated_data)
-            PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
+            with transaction.atomic():
+                serializer.update(plugin, validated_data)
+                PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
         return Response(serializer.data)
 
     def destroy(self, request: request.Request, *args, **kwargs) -> Response:

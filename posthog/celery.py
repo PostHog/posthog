@@ -171,6 +171,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             name="count tiles with no filters_hash",
         )
 
+        sender.add_periodic_task(
+            crontab(hour="*"), check_flags_to_rollback.s(), name="check feature flags that should be rolled back"
+        )
+
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect
@@ -638,5 +642,15 @@ def clickhouse_send_license_usage():
             from ee.tasks.send_license_usage import send_license_usage
 
             send_license_usage()
+    except ImportError:
+        pass
+
+
+@app.task(ignore_result=True)
+def check_flags_to_rollback():
+    try:
+        from ee.tasks.auto_rollback_feature_flag import check_flags_to_rollback
+
+        check_flags_to_rollback()
     except ImportError:
         pass

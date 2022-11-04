@@ -454,6 +454,7 @@ export interface RecordingConsoleLog extends RecordingTimeMixinType {
     previewContent?: React.ReactNode // Content to show in first line
     fullContent?: React.ReactNode // Full content to show when item is expanded
     traceContent?: React.ReactNode // Url content to show on right side
+    rawString: string // Raw text used for fuzzy search
     level: LogLevel
 }
 
@@ -636,7 +637,6 @@ export interface CohortGroupType {
     name?: string
 }
 
-// Note this will eventually replace CohortGroupType once `cohort-filters` FF is released
 // Synced with `posthog/models/property.py`
 export interface CohortCriteriaType {
     id: string // Criteria filter id
@@ -775,6 +775,10 @@ export interface SessionRecordingType {
     distinct_id?: string
     email?: string
     person?: PersonType
+}
+
+export interface SessionRecordingPropertiesType {
+    id: string
     properties?: Record<string, any>
 }
 
@@ -812,23 +816,29 @@ export interface BillingProductV2Type {
     name: string
     description: string
     price_description: string
+    image_url?: string
     free_allocation: number
     tiers: {
         unit_amount_usd: string
         current_amount_usd?: string | null
         up_to: number | null
     }[]
+    tiered: boolean
     current_usage?: number
     projected_usage?: number
     percentage_usage: number
     current_amount_usd?: string
     usage_limit?: number
+    unit_amount_usd: string | null
 }
 
 export interface BillingV2Type {
+    has_active_subscription: boolean
     stripe_portal_url?: string
+    deactivated?: boolean
     current_total_amount_usd?: string
     products: BillingProductV2Type[]
+    products_enterprise?: BillingProductV2Type[]
 
     custom_limits_usd?: {
         [key: string]: string | null | undefined
@@ -984,6 +994,7 @@ export interface PluginType {
     description?: string
     url?: string
     tag?: string
+    icon?: string
     latest_tag?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
@@ -1203,6 +1214,7 @@ export interface FilterType {
     funnel_viz_type?: FunnelVizType // parameter sent to funnels API for time conversion code path
     funnel_from_step?: number // used in time to convert: initial step index to compute time to convert
     funnel_to_step?: number // used in time to convert: ending step index to compute time to convert
+    funnel_step_reference?: FunnelStepReference // whether conversion shown in graph should be across all steps or just from the previous step
     funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
     compare?: boolean
     bin_count?: BinCountValue // used in time to convert: number of bins to show in histogram
@@ -1238,6 +1250,10 @@ export interface FilterType {
 }
 
 export interface RecordingEventsFilters {
+    query: string
+}
+
+export interface RecordingConsoleLogsFilters {
     query: string
 }
 
@@ -1384,6 +1400,14 @@ export interface FunnelsTimeConversionBins {
     average_conversion_time: number
 }
 
+export interface HistogramGraphDatum {
+    id: number
+    bin0: number
+    bin1: number
+    count: number
+    label: string
+}
+
 export interface FunnelTimeConversionMetrics {
     averageTime: number
     stepRate: number
@@ -1525,6 +1549,15 @@ export interface FeatureFlagType {
     rollout_percentage: number | null
     ensure_experience_continuity: boolean | null
     experiment_set: string[] | null
+    rollback_conditions: FeatureFlagRollbackConditions[]
+    performed_rollback: boolean
+}
+
+export interface FeatureFlagRollbackConditions {
+    threshold: number
+    threshold_type: string
+    threshold_metric?: FilterType
+    operator?: string
 }
 
 export interface CombinedFeatureFlagAndValueType {
@@ -2163,6 +2196,7 @@ export interface SessionRecordingPlayerProps {
     includeMeta?: boolean
     recordingStartTime?: string
     matching?: MatchedRecording[]
+    isDetail?: boolean
 }
 
 export enum FeatureFlagReleaseType {
@@ -2174,4 +2208,9 @@ export interface MediaUploadResponse {
     id: string
     image_location: string
     name: string
+}
+
+export enum RolloutConditionType {
+    Insight = 'insight',
+    Sentry = 'sentry',
 }
