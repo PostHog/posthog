@@ -3,12 +3,13 @@ import { ingestionLogic } from 'scenes/ingestion/v2/ingestionLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { IconChevronRight } from 'lib/components/icons'
+import { IconArrowRight, IconChevronRight } from 'lib/components/icons'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { BOOKMARKLET } from '../constants'
 
 export function InviteTeamPanel(): JSX.Element {
-    const { setTechnical } = useActions(ingestionLogic)
+    const { setTechnical, setPlatform } = useActions(ingestionLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
 
@@ -54,6 +55,20 @@ export function InviteTeamPanel(): JSX.Element {
                             We'll send an invite and instructions for getting the code snippet added.
                         </p>
                     </div>
+                </LemonButton>
+                <LemonButton
+                    onClick={() => {
+                        setTechnical(false)
+                        setPlatform(BOOKMARKLET)
+                    }}
+                    center
+                    fullWidth
+                    size="large"
+                    className="mb-4"
+                    type="tertiary"
+                    sideIcon={<IconArrowRight />}
+                >
+                    I'm just exploring
                 </LemonButton>
             </div>
         </div>
