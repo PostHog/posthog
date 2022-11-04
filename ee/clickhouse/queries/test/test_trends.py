@@ -111,19 +111,18 @@ class TestClickhouseTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T12:00:02Z",
         )
 
-        with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
-            response = Trends().run(
-                Filter(
-                    data={
-                        "date_from": "2020-01-01T00:00:00Z",
-                        "date_to": "2020-01-12T00:00:00Z",
-                        "breakdown": "key",
-                        "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
-                        "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
-                    }
-                ),
-                self.team,
-            )
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-01T00:00:00Z",
+                    "date_to": "2020-01-12T00:00:00Z",
+                    "breakdown": "key",
+                    "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
+                    "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
+                }
+            ),
+            self.team,
+        )
 
         self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["breakdown_value"], "oh")
