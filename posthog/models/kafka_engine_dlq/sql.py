@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS {table} ON CLUSTER '{cluster}'
 )
 ENGINE = {engine}
 PARTITION BY toYYYYMM(timestamp)
-ORDER BY (topic, partition, offset, toStartOfHour(timestamp))
+ORDER BY (topic, toStartOfDay(timestamp), partition, offset)
 """
     + TTL_POLICY
 )
