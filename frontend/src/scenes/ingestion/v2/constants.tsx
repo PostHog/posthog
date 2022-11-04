@@ -1,6 +1,7 @@
 import { PlatformType } from 'scenes/ingestion/types'
 import { Segment } from './panels/ThirdPartyIcons'
 
+export const TECHNICAL = 'TECHNICAL'
 export const PLATFORM_TYPE = 'PLATFORM_TYPE'
 export const FRAMEWORK = 'FRAMEWORK'
 export const INSTRUCTIONS = 'INSTRUCTIONS'

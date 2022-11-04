@@ -5,7 +5,7 @@ import { VerificationPanel } from 'scenes/ingestion/panels/VerificationPanel'
 import { InstructionsPanel } from 'scenes/ingestion/panels/InstructionsPanel'
 import { MOBILE, BACKEND, WEB, BOOKMARKLET, THIRD_PARTY } from 'scenes/ingestion/constants'
 import { useValues, useActions } from 'kea'
-import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
+import { ingestionLogic } from 'scenes/ingestion/v2/ingestionLogic'
 import { FrameworkPanel } from 'scenes/ingestion/panels/FrameworkPanel'
 import { PlatformPanel } from 'scenes/ingestion/panels/PlatformPanel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -21,6 +21,7 @@ import { SitePopover } from '~/layout/navigation/TopBar/SitePopover'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { PanelHeader } from './panels/PanelComponents'
+import { InviteTeamPanel } from './panels/InviteTeamPanel'
 
 export const scene: SceneExport = {
     component: IngestionWizard,
@@ -28,7 +29,7 @@ export const scene: SceneExport = {
 }
 
 export function IngestionWizard(): JSX.Element {
-    const { platform, framework, verify, addBilling } = useValues(ingestionLogic)
+    const { platform, framework, verify, addBilling, technical } = useValues(ingestionLogic)
     const { reportIngestionLandingSeen } = useActions(eventUsageLogic)
 
     useEffect(() => {
@@ -45,7 +46,15 @@ export function IngestionWizard(): JSX.Element {
         )
     }
 
-    if (!platform && !verify) {
+    if (!platform && !verify && !technical) {
+        return (
+            <IngestionContainer>
+                <InviteTeamPanel />
+            </IngestionContainer>
+        )
+    }
+
+    if (!platform && !verify && technical) {
         return (
             <IngestionContainer>
                 <PlatformPanel />

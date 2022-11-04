@@ -27,6 +27,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export enum INGESTION_STEPS {
     START = 'Get started',
+    PLATFORM = 'Select your platform',
     CONNECT_PRODUCT = 'Connect your product',
     VERIFY = 'Listen for events',
     BILLING = 'Add payment method',
@@ -35,6 +36,7 @@ export enum INGESTION_STEPS {
 
 export enum INGESTION_STEPS_WITHOUT_BILLING {
     START = 'Get started',
+    PLATFORM = 'Select your platform',
     CONNECT_PRODUCT = 'Connect your product',
     VERIFY = 'Listen for events',
     DONE = 'Done!',
@@ -56,11 +58,19 @@ export const ingestionLogic = kea<ingestionLogicType>([
         actions: [teamLogic, ['updateCurrentTeamSuccess']],
     }),
     actions({
+        setTechnical: (technical: boolean) => ({ technical }),
         setPlatform: (platform: PlatformType) => ({ platform }),
         setFramework: (framework: Framework) => ({ framework: framework as Framework }),
         setVerify: (verify: boolean) => ({ verify }),
         setAddBilling: (addBilling: boolean) => ({ addBilling }),
-        setState: (platform: PlatformType, framework: string | null, verify: boolean, addBilling: boolean) => ({
+        setState: (
+            technical: boolean | null,
+            platform: PlatformType,
+            framework: string | null,
+            verify: boolean,
+            addBilling: boolean
+        ) => ({
+            technical,
             platform,
             framework,
             verify,
@@ -80,6 +90,13 @@ export const ingestionLogic = kea<ingestionLogicType>([
         isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
     }),
     reducers({
+        technical: [
+            null as null | boolean,
+            {
+                setTechnical: (_, { technical }) => technical,
+                setState: (_, { technical }) => technical,
+            },
+        ],
         platform: [
             null as null | PlatformType,
             {
@@ -148,8 +165,10 @@ export const ingestionLogic = kea<ingestionLogicType>([
     }),
     selectors(() => ({
         currentStep: [
-            (s) => [s.platform, s.framework, s.verify, s.addBilling],
-            (platform, framework, verify, addBilling) => {
+            // TODO I think we can take advantage of this project to refactor this logic
+            // we should probably just use a state machine rather than having all these variables
+            (s) => [s.technical, s.platform, s.framework, s.verify, s.addBilling],
+            (technical, platform, framework, verify, addBilling) => {
                 if (addBilling) {
                     return INGESTION_STEPS.BILLING
                 }
@@ -158,6 +177,9 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 }
                 if (platform || framework) {
                     return INGESTION_STEPS.CONNECT_PRODUCT
+                }
+                if (technical) {
+                    return INGESTION_STEPS.PLATFORM
                 }
                 return INGESTION_STEPS.START
             },
@@ -200,6 +222,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
     })),
 
     actionToUrl(({ values }) => ({
+        setTechnical: () => getUrl(values),
         setPlatform: () => getUrl(values),
         setFramework: () => getUrl(values),
         setVerify: () => getUrl(values),
@@ -215,9 +238,10 @@ export const ingestionLogic = kea<ingestionLogicType>([
     })),
 
     urlToAction(({ actions }) => ({
-        '/ingestion': () => actions.setState(null, null, false, false),
+        '/ingestion': () => actions.setState(null, null, null, false, false),
         '/ingestion/billing': (_: any, { platform, framework }) => {
             actions.setState(
+                null,
                 platform === 'mobile'
                     ? MOBILE
                     : platform === 'web'
@@ -236,6 +260,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
         },
         '/ingestion/verify': (_: any, { platform, framework }) => {
             actions.setState(
+                true,
                 platform === 'mobile'
                     ? MOBILE
                     : platform === 'web'
@@ -254,6 +279,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
         },
         '/ingestion/api': (_: any, { platform }) => {
             actions.setState(
+                true,
                 platform === 'mobile' ? MOBILE : platform === 'web' ? WEB : platform === 'backend' ? BACKEND : null,
                 API,
                 false,
@@ -262,6 +288,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
         },
         '/ingestion(/:platform)(/:framework)': ({ platform, framework }) => {
             actions.setState(
+                true,
                 platform === 'mobile'
                     ? MOBILE
                     : platform === 'web'
@@ -297,6 +324,9 @@ export const ingestionLogic = kea<ingestionLogicType>([
         sidebarStepClick: ({ step }) => {
             switch (step) {
                 case INGESTION_STEPS.START:
+                    actions.setTechnical(false)
+                    return
+                case INGESTION_STEPS.PLATFORM:
                     actions.setPlatform(null)
                     return
                 case INGESTION_STEPS.CONNECT_PRODUCT:
@@ -322,13 +352,16 @@ export const ingestionLogic = kea<ingestionLogicType>([
         onBack: () => {
             switch (values.currentStep) {
                 case INGESTION_STEPS.BILLING:
-                    actions.setState(values.platform, values.framework, true, false)
+                    actions.setState(values.technical, values.platform, values.framework, true, false)
                     return
                 case INGESTION_STEPS.VERIFY:
-                    actions.setState(values.platform, null, false, false)
+                    actions.setState(values.technical, values.platform, null, false, false)
                     return
                 case INGESTION_STEPS.CONNECT_PRODUCT:
-                    actions.setState(null, null, false, false)
+                    actions.setState(values.technical, null, null, false, false)
+                    return
+                case INGESTION_STEPS.PLATFORM:
+                    actions.setState(null, null, null, false, false)
                     return
                 default:
                     return
@@ -354,7 +387,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
 ])
 
 function getUrl(values: ingestionLogicType['values']): string | [string, Record<string, undefined | string>] {
-    const { platform, framework, verify, addBilling } = values
+    const { technical, platform, framework, verify, addBilling } = values
 
     let url = '/ingestion'
 
@@ -419,6 +452,10 @@ function getUrl(values: ingestionLogicType['values']): string | [string, Record<
 
     if (platform === THIRD_PARTY) {
         url += '/third-party'
+    }
+
+    if (technical && !platform) {
+        url += '/platform'
     }
 
     if (framework) {
