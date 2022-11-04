@@ -197,7 +197,7 @@ PERSON_DISTINCT_ID2_TABLE_SQL = lambda: PERSON_DISTINCT_ID2_TABLE_BASE_SQL.forma
     cluster=CLICKHOUSE_CLUSTER,
     engine=PERSON_DISTINCT_ID2_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS + "\n, _partition UInt64",
-    order_by="(team_id, distinct_id)",
+    order_by="ORDER BY (team_id, distinct_id)",
     settings="SETTINGS index_granularity = 512",
 )
 
