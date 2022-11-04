@@ -216,7 +216,11 @@ class InsightSerializer(InsightBasicSerializer):
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:
         dashboard_tile: Optional[DashboardTile] = None
         if dashboard:
-            dashboard_tile = dashboard.tiles.filter(insight=insight, deleted=False).first()
+            dashboard_tile = (
+                DashboardTile.objects.filter(insight=insight, dashboard=dashboard)
+                .select_related("insight", "text", "insight__created_by", "insight__last_modified_by", "insight__team")
+                .first()
+            )
 
         return dashboard_tile
 
