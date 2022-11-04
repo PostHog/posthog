@@ -1180,6 +1180,9 @@ def test_prop_filter_json_extract_materialized(
 def test_prop_filter_json_extract_person_on_events_materialized(
     test_events, clean_up_materialised_columns, property, expected_event_indexes, team
 ):
+    if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+        return
+
     # simulates a group property being materialised
     materialize("events", property.key, table_column="group2_properties")
 
