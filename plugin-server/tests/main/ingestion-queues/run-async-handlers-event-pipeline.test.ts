@@ -242,7 +242,7 @@ describe('eachBatchAsyncHandlers', () => {
     })
 
     test('rejections from piscina are bubbled up to the consumer', async () => {
-        const IngestionConsumer = new IngestionConsumer(hub, {
+        const ingestionConsumer = new IngestionConsumer(hub, {
             runAsyncHandlersEventPipeline: () => {
                 throw new DependencyUnavailableError(
                     'Failed to produce',
@@ -260,7 +260,7 @@ describe('eachBatchAsyncHandlers', () => {
         })
 
         await expect(
-            IngestionConsumer.eachBatchConsumer({
+            ingestionConsumer.eachBatchConsumer({
                 batch: {
                     topic: KAFKA_EVENTS_JSON,
                     partition: 0,
