@@ -1,4 +1,3 @@
-import './UnitPicker.scss'
 import {
     AggregationAxisFormat,
     aggregationAxisFormatSelectOptions,
@@ -107,7 +106,6 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
                     onClickOutside: () => setIsVisible(false),
                     additionalRefs: [customUnitModalRef],
                     visible: isVisible,
-                    className: 'UnitPopup',
                     overlay: (
                         <>
                             {aggregationAxisFormatSelectOptions.map(({ value, label }, index) => (
