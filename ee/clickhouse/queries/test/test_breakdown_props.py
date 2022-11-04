@@ -6,7 +6,6 @@ from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.instance_setting import get_instance_setting
 from posthog.queries.breakdown_props import _to_bucketing_expression, get_breakdown_prop_values
 from posthog.queries.trends.util import process_math
 from posthog.test.base import (
@@ -186,9 +185,6 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_breakdown_group_props(self):
-        if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
-            return
-
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
 
