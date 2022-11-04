@@ -511,6 +511,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -600,41 +601,53 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config",
-         T6."id",
-         T6."password",
-         T6."last_login",
-         T6."first_name",
-         T6."last_name",
-         T6."is_staff",
-         T6."is_active",
-         T6."date_joined",
-         T6."uuid",
-         T6."current_organization_id",
-         T6."current_team_id",
-         T6."email",
-         T6."temporary_token",
-         T6."distinct_id",
-         T6."email_opt_in",
-         T6."partial_notification_settings",
-         T6."anonymize_data",
-         T6."toolbar_mode",
-         T6."events_column_config",
+         T7."id",
+         T7."password",
+         T7."last_login",
+         T7."first_name",
+         T7."last_name",
+         T7."is_staff",
+         T7."is_active",
+         T7."date_joined",
+         T7."uuid",
+         T7."current_organization_id",
+         T7."current_team_id",
+         T7."email",
+         T7."temporary_token",
+         T7."distinct_id",
+         T7."email_opt_in",
+         T7."partial_notification_settings",
+         T7."anonymize_data",
+         T7."toolbar_mode",
+         T7."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_savedfilter"."id",
+         "posthog_savedfilter"."name",
+         "posthog_savedfilter"."derived_name",
+         "posthog_savedfilter"."filters",
+         "posthog_savedfilter"."created_by_id",
+         "posthog_savedfilter"."last_modified_at",
+         "posthog_savedfilter"."last_modified_by_id",
+         "posthog_savedfilter"."team_id",
+         "posthog_savedfilter"."deleted"
   FROM "posthog_dashboardtile"
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_savedfilter" ON ("posthog_dashboardtile"."saved_filter_id" = "posthog_savedfilter"."id")
   LEFT OUTER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
-  LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
+  LEFT OUTER JOIN "posthog_user" T7 ON ("posthog_dashboarditem"."last_modified_by_id" = T7."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND (NOT "posthog_dashboarditem"."deleted"
-              OR "posthog_dashboardtile"."insight_id" IS NULL)
+         AND NOT ("posthog_dashboarditem"."deleted"
+                  AND "posthog_dashboarditem"."deleted" IS NOT NULL)
+         AND NOT ("posthog_savedfilter"."deleted"
+                  AND "posthog_savedfilter"."deleted" IS NOT NULL)
          AND "posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."dashboard_id" IN (1,
                                                         2,
@@ -743,6 +756,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -957,6 +971,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -1046,45 +1061,55 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config",
-         T6."id",
-         T6."password",
-         T6."last_login",
-         T6."first_name",
-         T6."last_name",
-         T6."is_staff",
-         T6."is_active",
-         T6."date_joined",
-         T6."uuid",
-         T6."current_organization_id",
-         T6."current_team_id",
-         T6."email",
-         T6."temporary_token",
-         T6."distinct_id",
-         T6."email_opt_in",
-         T6."partial_notification_settings",
-         T6."anonymize_data",
-         T6."toolbar_mode",
-         T6."events_column_config",
+         T7."id",
+         T7."password",
+         T7."last_login",
+         T7."first_name",
+         T7."last_name",
+         T7."is_staff",
+         T7."is_active",
+         T7."date_joined",
+         T7."uuid",
+         T7."current_organization_id",
+         T7."current_team_id",
+         T7."email",
+         T7."temporary_token",
+         T7."distinct_id",
+         T7."email_opt_in",
+         T7."partial_notification_settings",
+         T7."anonymize_data",
+         T7."toolbar_mode",
+         T7."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_savedfilter"."id",
+         "posthog_savedfilter"."name",
+         "posthog_savedfilter"."derived_name",
+         "posthog_savedfilter"."filters",
+         "posthog_savedfilter"."created_by_id",
+         "posthog_savedfilter"."last_modified_at",
+         "posthog_savedfilter"."last_modified_by_id",
+         "posthog_savedfilter"."team_id",
+         "posthog_savedfilter"."deleted"
   FROM "posthog_dashboardtile"
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_savedfilter" ON ("posthog_dashboardtile"."saved_filter_id" = "posthog_savedfilter"."id")
   LEFT OUTER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
-  LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
+  LEFT OUTER JOIN "posthog_user" T7 ON ("posthog_dashboarditem"."last_modified_by_id" = T7."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND (NOT "posthog_dashboarditem"."deleted"
-              OR "posthog_dashboardtile"."insight_id" IS NULL)
+         AND NOT ("posthog_dashboarditem"."deleted"
+                  AND "posthog_dashboarditem"."deleted" IS NOT NULL)
+         AND NOT ("posthog_savedfilter"."deleted"
+                  AND "posthog_savedfilter"."deleted" IS NOT NULL)
          AND "posthog_dashboardtile"."dashboard_id" = 2
-         AND "posthog_dashboardtile"."dashboard_id" = 2
-         AND (NOT "posthog_dashboarditem"."deleted"
-              OR "posthog_dashboardtile"."insight_id" IS NULL))
+         AND "posthog_dashboardtile"."dashboard_id" = 2)
   ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
@@ -1230,6 +1255,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -1985,6 +2011,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -2228,6 +2255,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -2538,6 +2566,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -2627,41 +2656,53 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config",
-         T6."id",
-         T6."password",
-         T6."last_login",
-         T6."first_name",
-         T6."last_name",
-         T6."is_staff",
-         T6."is_active",
-         T6."date_joined",
-         T6."uuid",
-         T6."current_organization_id",
-         T6."current_team_id",
-         T6."email",
-         T6."temporary_token",
-         T6."distinct_id",
-         T6."email_opt_in",
-         T6."partial_notification_settings",
-         T6."anonymize_data",
-         T6."toolbar_mode",
-         T6."events_column_config",
+         T7."id",
+         T7."password",
+         T7."last_login",
+         T7."first_name",
+         T7."last_name",
+         T7."is_staff",
+         T7."is_active",
+         T7."date_joined",
+         T7."uuid",
+         T7."current_organization_id",
+         T7."current_team_id",
+         T7."email",
+         T7."temporary_token",
+         T7."distinct_id",
+         T7."email_opt_in",
+         T7."partial_notification_settings",
+         T7."anonymize_data",
+         T7."toolbar_mode",
+         T7."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_savedfilter"."id",
+         "posthog_savedfilter"."name",
+         "posthog_savedfilter"."derived_name",
+         "posthog_savedfilter"."filters",
+         "posthog_savedfilter"."created_by_id",
+         "posthog_savedfilter"."last_modified_at",
+         "posthog_savedfilter"."last_modified_by_id",
+         "posthog_savedfilter"."team_id",
+         "posthog_savedfilter"."deleted"
   FROM "posthog_dashboardtile"
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_savedfilter" ON ("posthog_dashboardtile"."saved_filter_id" = "posthog_savedfilter"."id")
   LEFT OUTER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
-  LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
+  LEFT OUTER JOIN "posthog_user" T7 ON ("posthog_dashboarditem"."last_modified_by_id" = T7."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND (NOT "posthog_dashboarditem"."deleted"
-              OR "posthog_dashboardtile"."insight_id" IS NULL)
+         AND NOT ("posthog_dashboarditem"."deleted"
+                  AND "posthog_dashboarditem"."deleted" IS NOT NULL)
+         AND NOT ("posthog_savedfilter"."deleted"
+                  AND "posthog_savedfilter"."deleted" IS NOT NULL)
          AND "posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."dashboard_id" IN (1,
                                                         2,
@@ -2783,6 +2824,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -3017,6 +3059,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -3165,6 +3208,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -3254,42 +3298,54 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config",
-         T6."id",
-         T6."password",
-         T6."last_login",
-         T6."first_name",
-         T6."last_name",
-         T6."is_staff",
-         T6."is_active",
-         T6."date_joined",
-         T6."uuid",
-         T6."current_organization_id",
-         T6."current_team_id",
-         T6."email",
-         T6."temporary_token",
-         T6."distinct_id",
-         T6."email_opt_in",
-         T6."partial_notification_settings",
-         T6."anonymize_data",
-         T6."toolbar_mode",
-         T6."events_column_config",
+         T7."id",
+         T7."password",
+         T7."last_login",
+         T7."first_name",
+         T7."last_name",
+         T7."is_staff",
+         T7."is_active",
+         T7."date_joined",
+         T7."uuid",
+         T7."current_organization_id",
+         T7."current_team_id",
+         T7."email",
+         T7."temporary_token",
+         T7."distinct_id",
+         T7."email_opt_in",
+         T7."partial_notification_settings",
+         T7."anonymize_data",
+         T7."toolbar_mode",
+         T7."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_savedfilter"."id",
+         "posthog_savedfilter"."name",
+         "posthog_savedfilter"."derived_name",
+         "posthog_savedfilter"."filters",
+         "posthog_savedfilter"."created_by_id",
+         "posthog_savedfilter"."last_modified_at",
+         "posthog_savedfilter"."last_modified_by_id",
+         "posthog_savedfilter"."team_id",
+         "posthog_savedfilter"."deleted"
   FROM "posthog_dashboardtile"
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_savedfilter" ON ("posthog_dashboardtile"."saved_filter_id" = "posthog_savedfilter"."id")
   LEFT OUTER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
-  LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
+  LEFT OUTER JOIN "posthog_user" T7 ON ("posthog_dashboarditem"."last_modified_by_id" = T7."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND NOT ("posthog_dashboardtile"."deleted"
                   AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND (NOT "posthog_dashboarditem"."deleted"
-              OR "posthog_dashboardtile"."insight_id" IS NULL))
+         AND NOT ("posthog_dashboarditem"."deleted"
+                  AND "posthog_dashboarditem"."deleted" IS NOT NULL)
+         AND NOT ("posthog_savedfilter"."deleted"
+                  AND "posthog_savedfilter"."deleted" IS NOT NULL))
   ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
@@ -3299,6 +3355,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -3404,6 +3461,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -3509,6 +3567,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -3614,6 +3673,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -3703,45 +3763,55 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config",
-         T6."id",
-         T6."password",
-         T6."last_login",
-         T6."first_name",
-         T6."last_name",
-         T6."is_staff",
-         T6."is_active",
-         T6."date_joined",
-         T6."uuid",
-         T6."current_organization_id",
-         T6."current_team_id",
-         T6."email",
-         T6."temporary_token",
-         T6."distinct_id",
-         T6."email_opt_in",
-         T6."partial_notification_settings",
-         T6."anonymize_data",
-         T6."toolbar_mode",
-         T6."events_column_config",
+         T7."id",
+         T7."password",
+         T7."last_login",
+         T7."first_name",
+         T7."last_name",
+         T7."is_staff",
+         T7."is_active",
+         T7."date_joined",
+         T7."uuid",
+         T7."current_organization_id",
+         T7."current_team_id",
+         T7."email",
+         T7."temporary_token",
+         T7."distinct_id",
+         T7."email_opt_in",
+         T7."partial_notification_settings",
+         T7."anonymize_data",
+         T7."toolbar_mode",
+         T7."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_savedfilter"."id",
+         "posthog_savedfilter"."name",
+         "posthog_savedfilter"."derived_name",
+         "posthog_savedfilter"."filters",
+         "posthog_savedfilter"."created_by_id",
+         "posthog_savedfilter"."last_modified_at",
+         "posthog_savedfilter"."last_modified_by_id",
+         "posthog_savedfilter"."team_id",
+         "posthog_savedfilter"."deleted"
   FROM "posthog_dashboardtile"
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_savedfilter" ON ("posthog_dashboardtile"."saved_filter_id" = "posthog_savedfilter"."id")
   LEFT OUTER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
-  LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
+  LEFT OUTER JOIN "posthog_user" T7 ON ("posthog_dashboarditem"."last_modified_by_id" = T7."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND (NOT "posthog_dashboarditem"."deleted"
-              OR "posthog_dashboardtile"."insight_id" IS NULL)
+         AND NOT ("posthog_dashboarditem"."deleted"
+                  AND "posthog_dashboarditem"."deleted" IS NOT NULL)
+         AND NOT ("posthog_savedfilter"."deleted"
+                  AND "posthog_savedfilter"."deleted" IS NOT NULL)
          AND "posthog_dashboardtile"."dashboard_id" = 2
-         AND "posthog_dashboardtile"."dashboard_id" = 2
-         AND (NOT "posthog_dashboarditem"."deleted"
-              OR "posthog_dashboardtile"."insight_id" IS NULL))
+         AND "posthog_dashboardtile"."dashboard_id" = 2)
   ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
@@ -4004,6 +4074,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -4185,6 +4256,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -4215,6 +4287,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -4304,42 +4377,54 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config",
-         T6."id",
-         T6."password",
-         T6."last_login",
-         T6."first_name",
-         T6."last_name",
-         T6."is_staff",
-         T6."is_active",
-         T6."date_joined",
-         T6."uuid",
-         T6."current_organization_id",
-         T6."current_team_id",
-         T6."email",
-         T6."temporary_token",
-         T6."distinct_id",
-         T6."email_opt_in",
-         T6."partial_notification_settings",
-         T6."anonymize_data",
-         T6."toolbar_mode",
-         T6."events_column_config",
+         T7."id",
+         T7."password",
+         T7."last_login",
+         T7."first_name",
+         T7."last_name",
+         T7."is_staff",
+         T7."is_active",
+         T7."date_joined",
+         T7."uuid",
+         T7."current_organization_id",
+         T7."current_team_id",
+         T7."email",
+         T7."temporary_token",
+         T7."distinct_id",
+         T7."email_opt_in",
+         T7."partial_notification_settings",
+         T7."anonymize_data",
+         T7."toolbar_mode",
+         T7."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_savedfilter"."id",
+         "posthog_savedfilter"."name",
+         "posthog_savedfilter"."derived_name",
+         "posthog_savedfilter"."filters",
+         "posthog_savedfilter"."created_by_id",
+         "posthog_savedfilter"."last_modified_at",
+         "posthog_savedfilter"."last_modified_by_id",
+         "posthog_savedfilter"."team_id",
+         "posthog_savedfilter"."deleted"
   FROM "posthog_dashboardtile"
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_savedfilter" ON ("posthog_dashboardtile"."saved_filter_id" = "posthog_savedfilter"."id")
   LEFT OUTER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
-  LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
+  LEFT OUTER JOIN "posthog_user" T7 ON ("posthog_dashboarditem"."last_modified_by_id" = T7."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND NOT ("posthog_dashboardtile"."deleted"
                   AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND (NOT "posthog_dashboarditem"."deleted"
-              OR "posthog_dashboardtile"."insight_id" IS NULL))
+         AND NOT ("posthog_dashboarditem"."deleted"
+                  AND "posthog_dashboarditem"."deleted" IS NOT NULL)
+         AND NOT ("posthog_savedfilter"."deleted"
+                  AND "posthog_savedfilter"."deleted" IS NOT NULL))
   ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
@@ -4598,6 +4683,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -4815,6 +4901,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -5366,6 +5453,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -5904,6 +5992,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -6471,6 +6560,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -6762,6 +6852,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -7054,6 +7145,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -7143,41 +7235,53 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config",
-         T6."id",
-         T6."password",
-         T6."last_login",
-         T6."first_name",
-         T6."last_name",
-         T6."is_staff",
-         T6."is_active",
-         T6."date_joined",
-         T6."uuid",
-         T6."current_organization_id",
-         T6."current_team_id",
-         T6."email",
-         T6."temporary_token",
-         T6."distinct_id",
-         T6."email_opt_in",
-         T6."partial_notification_settings",
-         T6."anonymize_data",
-         T6."toolbar_mode",
-         T6."events_column_config",
+         T7."id",
+         T7."password",
+         T7."last_login",
+         T7."first_name",
+         T7."last_name",
+         T7."is_staff",
+         T7."is_active",
+         T7."date_joined",
+         T7."uuid",
+         T7."current_organization_id",
+         T7."current_team_id",
+         T7."email",
+         T7."temporary_token",
+         T7."distinct_id",
+         T7."email_opt_in",
+         T7."partial_notification_settings",
+         T7."anonymize_data",
+         T7."toolbar_mode",
+         T7."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_savedfilter"."id",
+         "posthog_savedfilter"."name",
+         "posthog_savedfilter"."derived_name",
+         "posthog_savedfilter"."filters",
+         "posthog_savedfilter"."created_by_id",
+         "posthog_savedfilter"."last_modified_at",
+         "posthog_savedfilter"."last_modified_by_id",
+         "posthog_savedfilter"."team_id",
+         "posthog_savedfilter"."deleted"
   FROM "posthog_dashboardtile"
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_savedfilter" ON ("posthog_dashboardtile"."saved_filter_id" = "posthog_savedfilter"."id")
   LEFT OUTER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
-  LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
+  LEFT OUTER JOIN "posthog_user" T7 ON ("posthog_dashboarditem"."last_modified_by_id" = T7."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND (NOT "posthog_dashboarditem"."deleted"
-              OR "posthog_dashboardtile"."insight_id" IS NULL)
+         AND NOT ("posthog_dashboarditem"."deleted"
+                  AND "posthog_dashboarditem"."deleted" IS NOT NULL)
+         AND NOT ("posthog_savedfilter"."deleted"
+                  AND "posthog_savedfilter"."deleted" IS NOT NULL)
          AND "posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."dashboard_id" IN (1,
                                                         2,
@@ -7193,6 +7297,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -7255,6 +7360,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -7344,45 +7450,55 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config",
-         T6."id",
-         T6."password",
-         T6."last_login",
-         T6."first_name",
-         T6."last_name",
-         T6."is_staff",
-         T6."is_active",
-         T6."date_joined",
-         T6."uuid",
-         T6."current_organization_id",
-         T6."current_team_id",
-         T6."email",
-         T6."temporary_token",
-         T6."distinct_id",
-         T6."email_opt_in",
-         T6."partial_notification_settings",
-         T6."anonymize_data",
-         T6."toolbar_mode",
-         T6."events_column_config",
+         T7."id",
+         T7."password",
+         T7."last_login",
+         T7."first_name",
+         T7."last_name",
+         T7."is_staff",
+         T7."is_active",
+         T7."date_joined",
+         T7."uuid",
+         T7."current_organization_id",
+         T7."current_team_id",
+         T7."email",
+         T7."temporary_token",
+         T7."distinct_id",
+         T7."email_opt_in",
+         T7."partial_notification_settings",
+         T7."anonymize_data",
+         T7."toolbar_mode",
+         T7."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_savedfilter"."id",
+         "posthog_savedfilter"."name",
+         "posthog_savedfilter"."derived_name",
+         "posthog_savedfilter"."filters",
+         "posthog_savedfilter"."created_by_id",
+         "posthog_savedfilter"."last_modified_at",
+         "posthog_savedfilter"."last_modified_by_id",
+         "posthog_savedfilter"."team_id",
+         "posthog_savedfilter"."deleted"
   FROM "posthog_dashboardtile"
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_savedfilter" ON ("posthog_dashboardtile"."saved_filter_id" = "posthog_savedfilter"."id")
   LEFT OUTER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
-  LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
+  LEFT OUTER JOIN "posthog_user" T7 ON ("posthog_dashboarditem"."last_modified_by_id" = T7."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND (NOT "posthog_dashboarditem"."deleted"
-              OR "posthog_dashboardtile"."insight_id" IS NULL)
+         AND NOT ("posthog_dashboarditem"."deleted"
+                  AND "posthog_dashboarditem"."deleted" IS NOT NULL)
+         AND NOT ("posthog_savedfilter"."deleted"
+                  AND "posthog_savedfilter"."deleted" IS NOT NULL)
          AND "posthog_dashboardtile"."dashboard_id" = 2
-         AND "posthog_dashboardtile"."dashboard_id" = 2
-         AND (NOT "posthog_dashboarditem"."deleted"
-              OR "posthog_dashboardtile"."insight_id" IS NULL))
+         AND "posthog_dashboardtile"."dashboard_id" = 2)
   ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
@@ -7461,6 +7577,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -7491,6 +7608,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -7580,42 +7698,54 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config",
-         T6."id",
-         T6."password",
-         T6."last_login",
-         T6."first_name",
-         T6."last_name",
-         T6."is_staff",
-         T6."is_active",
-         T6."date_joined",
-         T6."uuid",
-         T6."current_organization_id",
-         T6."current_team_id",
-         T6."email",
-         T6."temporary_token",
-         T6."distinct_id",
-         T6."email_opt_in",
-         T6."partial_notification_settings",
-         T6."anonymize_data",
-         T6."toolbar_mode",
-         T6."events_column_config",
+         T7."id",
+         T7."password",
+         T7."last_login",
+         T7."first_name",
+         T7."last_name",
+         T7."is_staff",
+         T7."is_active",
+         T7."date_joined",
+         T7."uuid",
+         T7."current_organization_id",
+         T7."current_team_id",
+         T7."email",
+         T7."temporary_token",
+         T7."distinct_id",
+         T7."email_opt_in",
+         T7."partial_notification_settings",
+         T7."anonymize_data",
+         T7."toolbar_mode",
+         T7."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_savedfilter"."id",
+         "posthog_savedfilter"."name",
+         "posthog_savedfilter"."derived_name",
+         "posthog_savedfilter"."filters",
+         "posthog_savedfilter"."created_by_id",
+         "posthog_savedfilter"."last_modified_at",
+         "posthog_savedfilter"."last_modified_by_id",
+         "posthog_savedfilter"."team_id",
+         "posthog_savedfilter"."deleted"
   FROM "posthog_dashboardtile"
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_savedfilter" ON ("posthog_dashboardtile"."saved_filter_id" = "posthog_savedfilter"."id")
   LEFT OUTER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
-  LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
+  LEFT OUTER JOIN "posthog_user" T7 ON ("posthog_dashboarditem"."last_modified_by_id" = T7."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND NOT ("posthog_dashboardtile"."deleted"
                   AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND (NOT "posthog_dashboarditem"."deleted"
-              OR "posthog_dashboardtile"."insight_id" IS NULL))
+         AND NOT ("posthog_dashboarditem"."deleted"
+                  AND "posthog_dashboarditem"."deleted" IS NOT NULL)
+         AND NOT ("posthog_savedfilter"."deleted"
+                  AND "posthog_savedfilter"."deleted" IS NOT NULL))
   ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
@@ -7785,6 +7915,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -7966,6 +8097,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -7996,6 +8128,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",
@@ -8085,42 +8218,54 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."events_column_config",
-         T6."id",
-         T6."password",
-         T6."last_login",
-         T6."first_name",
-         T6."last_name",
-         T6."is_staff",
-         T6."is_active",
-         T6."date_joined",
-         T6."uuid",
-         T6."current_organization_id",
-         T6."current_team_id",
-         T6."email",
-         T6."temporary_token",
-         T6."distinct_id",
-         T6."email_opt_in",
-         T6."partial_notification_settings",
-         T6."anonymize_data",
-         T6."toolbar_mode",
-         T6."events_column_config",
+         T7."id",
+         T7."password",
+         T7."last_login",
+         T7."first_name",
+         T7."last_name",
+         T7."is_staff",
+         T7."is_active",
+         T7."date_joined",
+         T7."uuid",
+         T7."current_organization_id",
+         T7."current_team_id",
+         T7."email",
+         T7."temporary_token",
+         T7."distinct_id",
+         T7."email_opt_in",
+         T7."partial_notification_settings",
+         T7."anonymize_data",
+         T7."toolbar_mode",
+         T7."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
          "posthog_text"."created_by_id",
          "posthog_text"."last_modified_at",
          "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
+         "posthog_text"."team_id",
+         "posthog_savedfilter"."id",
+         "posthog_savedfilter"."name",
+         "posthog_savedfilter"."derived_name",
+         "posthog_savedfilter"."filters",
+         "posthog_savedfilter"."created_by_id",
+         "posthog_savedfilter"."last_modified_at",
+         "posthog_savedfilter"."last_modified_by_id",
+         "posthog_savedfilter"."team_id",
+         "posthog_savedfilter"."deleted"
   FROM "posthog_dashboardtile"
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_savedfilter" ON ("posthog_dashboardtile"."saved_filter_id" = "posthog_savedfilter"."id")
   LEFT OUTER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
-  LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
+  LEFT OUTER JOIN "posthog_user" T7 ON ("posthog_dashboarditem"."last_modified_by_id" = T7."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND NOT ("posthog_dashboardtile"."deleted"
                   AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND (NOT "posthog_dashboarditem"."deleted"
-              OR "posthog_dashboardtile"."insight_id" IS NULL))
+         AND NOT ("posthog_dashboarditem"."deleted"
+                  AND "posthog_dashboarditem"."deleted" IS NOT NULL)
+         AND NOT ("posthog_savedfilter"."deleted"
+                  AND "posthog_savedfilter"."deleted" IS NOT NULL))
   ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
@@ -8431,6 +8576,7 @@
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."saved_filter_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
          "posthog_dashboardtile"."filters_hash",

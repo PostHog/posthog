@@ -900,6 +900,7 @@ export interface DashboardTile extends Tileable, Cacheable {
     id: number
     insight?: InsightModel
     text?: TextModel
+    saved_filter?: Record<string, any> //lazy lazy
     deleted?: boolean
 }
 

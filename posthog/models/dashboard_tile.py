@@ -24,11 +24,36 @@ class Text(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
 
+class SavedFilter(models.Model):
+    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    derived_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+
+    filters: models.JSONField = models.JSONField(default=dict)
+
+    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    last_modified_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
+    last_modified_by: models.ForeignKey = models.ForeignKey(
+        "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_saved_filter_tiles"
+    )
+
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+
+    deleted: models.BooleanField = models.BooleanField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            UniqueConstraint(fields=["name", "derived_name", "filters", "team"], name="unique_name_filters_team"),
+        ]
+
+
 class DashboardTile(models.Model):
     # Relations
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="tiles")
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, related_name="dashboard_tiles", null=True)
     text = models.ForeignKey("posthog.Text", on_delete=models.CASCADE, related_name="dashboard_tiles", null=True)
+    saved_filter = models.ForeignKey(
+        "posthog.SavedFilter", on_delete=models.CASCADE, related_name="dashboard_tiles", null=True
+    )
 
     # Tile layout and style
     layouts: models.JSONField = models.JSONField(default=dict)
@@ -53,7 +78,14 @@ class DashboardTile(models.Model):
             UniqueConstraint(
                 fields=["dashboard", "text"], name=f"unique_dashboard_text", condition=Q(("text__isnull", False))
             ),
-            models.CheckConstraint(check=build_check(("insight", "text")), name="dash_tile_exactly_one_related_object"),
+            UniqueConstraint(
+                fields=["dashboard", "saved_filter"],
+                name=f"unique_dashboard_filter",
+                condition=Q(("saved_filter__isnull", False)),
+            ),
+            models.CheckConstraint(
+                check=build_check(("insight", "text", "saved_filter")), name="dash_tile_exactly_one_related_object"
+            ),
         ]
 
     def clean(self):
@@ -63,13 +95,19 @@ class DashboardTile(models.Model):
         if related_fields != 1:
             raise ValidationError("Can only set either an insight or a text for this tile")
 
-        if self.insight is None and (
-            self.filters_hash is not None
-            or self.refreshing is not None
-            or self.refresh_attempt is not None
-            or self.last_refresh is not None
+        if (
+            self.insight is None
+            and self.saved_filter is None
+            and (
+                self.filters_hash is not None
+                or self.refreshing is not None
+                or self.refresh_attempt is not None
+                or self.last_refresh is not None
+            )
         ):
-            raise ValidationError("Fields to do with refreshing are only applicable when this is an insight tile")
+            raise ValidationError(
+                "Fields to do with refreshing are only applicable when this is an insight or saved filter tile"
+            )
 
     def save(self, *args, **kwargs) -> None:
         if self.insight is not None:
@@ -85,12 +123,14 @@ class DashboardTile(models.Model):
             queryset.select_related(
                 "insight",
                 "text",
+                "saved_filter",
                 "insight__created_by",
                 "insight__last_modified_by",
                 "insight__team",
             )
             .exclude(deleted=True)
-            .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
+            .exclude(insight__deleted=True)
+            .exclude(saved_filter__deleted=True)
             .order_by("insight__order")
         )
 

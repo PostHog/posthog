@@ -23,6 +23,7 @@ from posthog.constants import INSIGHT_TRENDS, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
+from posthog.models.dashboard_tile import SavedFilter
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import should_refresh
@@ -49,10 +50,21 @@ class TextSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
 
 
+class SavedFilterSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    last_modified_by = UserBasicSerializer(read_only=True)
+
+    class Meta:
+        model = SavedFilter
+        fields = "__all__"
+        read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
+
+
 class DashboardTileSerializer(serializers.ModelSerializer):
     id: serializers.IntegerField = serializers.IntegerField(required=False)
     insight = InsightSerializer()
     text = TextSerializer()
+    saved_filter = SavedFilterSerializer()
     last_refresh = serializers.SerializerMethodField(
         read_only=True,
         help_text="""
@@ -225,29 +237,18 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         tile = initial_data.pop("tiles", [])
         for tile_data in tile:
-            if tile_data.get("text", None):
-                text_json = tile_data.get("text")
-                created_by_json = text_json.get("created_by", None)
-                if created_by_json:
-                    last_modified_by = user
-                    created_by = User.objects.get(id=created_by_json.get("id"))
-                else:
-                    created_by = user
-                    last_modified_by = None
-                text, _ = Text.objects.update_or_create(
-                    id=text_json.get("id", None),
-                    defaults={
-                        **tile_data["text"],
-                        "team": instance.team,
-                        "created_by": created_by,
-                        "last_modified_by": last_modified_by,
-                        "last_modified_at": now(),
-                    },
-                )
-                DashboardTile.objects.update_or_create(
-                    id=tile_data.get("id", None), defaults={**tile_data, "text": text, "dashboard": instance}
-                )
-            elif "deleted" in tile_data or "color" in tile_data or "layouts" in tile_data:
+            text_data = tile_data.get("text", None)
+            saved_filter_data = tile_data.get("saved_filter", None)
+            if text_data:
+                self._upsert_text_tile(instance, tile_data, user)
+            if saved_filter_data:
+                self._upsert_saved_filter_tile(instance, tile_data, user)
+
+            if (
+                not text_data
+                and not saved_filter_data
+                and ("deleted" in tile_data or "color" in tile_data or "layouts" in tile_data)
+            ):
                 tile_data.pop("insight", None)  # don't ever update insight tiles here
 
                 DashboardTile.objects.update_or_create(
@@ -258,6 +259,54 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             report_user_action(user, "dashboard updated", instance.get_analytics_metadata())
 
         return instance
+
+    def _upsert_text_tile(self, instance: Dashboard, tile_data: Dict, user: User) -> None:
+        text_json = tile_data.get("text", {})
+        created_by_json = text_json.get("created_by", None)
+        if created_by_json:
+            last_modified_by = user
+            created_by = User.objects.get(id=created_by_json.get("id"))
+        else:
+            created_by = user
+            last_modified_by = None
+        text, _ = Text.objects.update_or_create(
+            id=text_json.get("id", None),
+            defaults={
+                **tile_data["text"],
+                "team": instance.team,
+                "created_by": created_by,
+                "last_modified_by": last_modified_by,
+                "last_modified_at": now(),
+            },
+        )
+        DashboardTile.objects.update_or_create(
+            id=tile_data.get("id", None), defaults={**tile_data, "text": text, "dashboard": instance}
+        )
+
+    def _upsert_saved_filter_tile(self, instance: Dashboard, saved_filter_data: Dict, user: User) -> None:
+        saved_filter_json = saved_filter_data.get("saved_filter", {})
+        created_by_json = saved_filter_json.get("created_by", None)
+        if created_by_json:
+            last_modified_by = user
+            created_by = User.objects.get(id=created_by_json.get("id"))
+        else:
+            created_by = user
+            last_modified_by = None
+
+        saved_filter, _ = SavedFilter.objects.update_or_create(
+            id=saved_filter_json.get("id", None),
+            defaults={
+                **saved_filter_data["saved_filter"],
+                "team": instance.team,
+                "created_by": created_by,
+                "last_modified_by": last_modified_by,
+                "last_modified_at": now(),
+            },
+        )
+        DashboardTile.objects.update_or_create(
+            id=saved_filter_data.get("id", None),
+            defaults={**saved_filter_data, "saved_filter": saved_filter, "dashboard": instance},
+        )
 
     def get_tiles(self, dashboard: Dashboard):
         if self.context["view"].action == "list":

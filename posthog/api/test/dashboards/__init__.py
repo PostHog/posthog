@@ -100,7 +100,7 @@ class DashboardAPI:
         response_json = response.json()
         return response_json.get("id", None), response_json
 
-    def update_text_tile(
+    def update_dashboard_tile(
         self,
         dashboard_id: int,
         tile: Dict,
@@ -125,3 +125,28 @@ class DashboardAPI:
         self.assertEqual(add_layouts_response.status_code, status.HTTP_200_OK)
         dashboard_json = self.get_dashboard(dashboard_id)
         return [t["layouts"] for t in dashboard_json["tiles"]]
+
+    def create_saved_filter_tile(
+        self,
+        dashboard_id: int,
+        name: str = "I AM A FILTER!",
+        derived_name: str = "",
+        filters: Optional[Dict] = None,
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_200_OK,
+    ) -> Tuple[int, Dict[str, Any]]:
+        if team_id is None:
+            team_id = self.team.id
+
+        if filters is None:
+            filters = {"events": [{"id": "$pageview"}]}
+
+        response = self.client.patch(
+            f"/api/projects/{team_id}/dashboards/{dashboard_id}",
+            {"tiles": [{"saved_filter": {"name": name, "derived_name": derived_name, "filters": filters}}]},
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+        response_json = response.json()
+        return response_json.get("id", None), response_json

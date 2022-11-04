@@ -78,6 +78,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "refreshing": None,
             "last_refresh": None,
             "insight": None,
+            "saved_filter": None,
             "filters_hash": None,
         }
 
@@ -126,7 +127,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             self.client.force_login(other_user)
             updated_tile = {**dashboard_json["tiles"][0]}
             updated_tile["text"]["body"] = "anche ciao"
-            dashboard_id, dashboard_json = self.dashboard_api.update_text_tile(dashboard_id, updated_tile)
+            dashboard_id, dashboard_json = self.dashboard_api.update_dashboard_tile(dashboard_id, updated_tile)
 
             sorted_tiles = sorted(dashboard_json["tiles"], key=lambda x: x["id"])
             assert len(sorted_tiles) == 2
@@ -161,7 +162,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
 
         updated_tile = {**dashboard_json["tiles"][0]}
         updated_tile["color"] = "purple"
-        dashboard_id, dashboard_json = self.dashboard_api.update_text_tile(dashboard_id, updated_tile)
+        dashboard_id, dashboard_json = self.dashboard_api.update_dashboard_tile(dashboard_id, updated_tile)
 
         assert len(dashboard_json["tiles"]) == 2
         assert [(t["id"], t["color"]) for t in dashboard_json["tiles"]] == [
@@ -199,7 +200,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
 
         assert len(dashboard_json["tiles"]) == 2
 
-        self.dashboard_api.update_text_tile(dashboard_id, {**dashboard_json["tiles"][0], "deleted": True})
+        self.dashboard_api.update_dashboard_tile(dashboard_id, {**dashboard_json["tiles"][0], "deleted": True})
 
         dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
         assert len(dashboard_json["tiles"]) == 1

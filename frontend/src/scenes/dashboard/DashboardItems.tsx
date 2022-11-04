@@ -13,6 +13,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton } from 'lib/components/LemonButton'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
+import { LiveEventsCard } from 'lib/components/Cards/LiveEventsCard/LiveEventsCard'
 
 export function DashboardItems(): JSX.Element {
     const {
@@ -98,7 +99,37 @@ export function DashboardItems(): JSX.Element {
                 draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content,button,.Popup"
             >
                 {tiles?.map((tile: DashboardTile) => {
-                    const { insight, text } = tile
+                    const { insight, text, saved_filter } = tile
+                    if (!!saved_filter) {
+                        return (
+                            <LiveEventsCard
+                                key={tile.id}
+                                savedFilterTile={tile}
+                                showResizeHandles={dashboardMode === DashboardMode.Edit}
+                                canResizeWidth={canResizeWidth}
+                                removeFromDashboard={() => removeTile(tile)}
+                                moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
+                                    if (!dashboard) {
+                                        throw new Error('must be on a dashboard to move an insight')
+                                    }
+                                    moveToDashboard(tile, dashboard.id, id, name)
+                                }}
+                                moreButtons={
+                                    canEditDashboard ? (
+                                        <LemonButton
+                                            onClick={() =>
+                                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.MoreDropdown)
+                                            }
+                                            status="stealth"
+                                            fullWidth
+                                        >
+                                            Edit layout (E)
+                                        </LemonButton>
+                                    ) : null
+                                }
+                            />
+                        )
+                    }
                     if (!!insight) {
                         return (
                             <InsightCard
