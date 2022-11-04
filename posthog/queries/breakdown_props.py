@@ -95,6 +95,7 @@ def get_breakdown_prop_values(
                 INNER JOIN ({get_team_distinct_ids_query(team.pk)}) AS pdi ON e.distinct_id = pdi.distinct_id
             """
 
+    if not groups_on_events_querying_enabled():
         groups_join_clause, groups_join_params = GroupsJoinQuery(filter, team.pk, column_optimizer).get_join_query()
 
     session_query = SessionQuery(filter=filter, team=team)
