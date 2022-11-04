@@ -1,11 +1,5 @@
 import { useActions } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
-import {
-    IS_TECHNICAL,
-    IS_NOT_TECHNICAL,
-    IS_TECHNICAL_SUBTEXT,
-    IS_NOT_TECHNICAL_SUBTEXT,
-} from 'scenes/ingestion/constants'
 import { LemonButtonWithSideAction } from 'lib/components/LemonButton'
 import './Panels.scss'
 import { LemonDivider } from 'lib/components/LemonDivider'
@@ -38,8 +32,10 @@ export function InviteTeamPanel(): JSX.Element {
                     }}
                 >
                     <div className="mt-4 mb-0">
-                        <p className="mb-2">{IS_TECHNICAL}</p>
-                        <p className="font-normal text-xs">{IS_TECHNICAL_SUBTEXT}</p>
+                        <p className="mb-2">I can add a code snippet to my product.</p>
+                        <p className="font-normal text-xs">
+                            Available for JavaScript, Android, iOS, React Native, Node,js, Ruby, Go, and more.
+                        </p>
                     </div>
                 </LemonButtonWithSideAction>
                 <LemonButtonWithSideAction
@@ -57,8 +53,10 @@ export function InviteTeamPanel(): JSX.Element {
                     }}
                 >
                     <div className="mt-4 mb-0">
-                        <p className="mb-2">{IS_NOT_TECHNICAL}</p>
-                        <p className="font-normal text-xs">{IS_NOT_TECHNICAL_SUBTEXT}</p>
+                        <p className="mb-2">I'll need a team member to add the code snippet to our product.</p>
+                        <p className="font-normal text-xs">
+                            We'll send an invite and instructions for getting the code snippet added.
+                        </p>
                     </div>
                 </LemonButtonWithSideAction>
             </div>

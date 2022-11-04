@@ -82,7 +82,6 @@ export function IngestionWizard(): JSX.Element {
     }
 
     if (platform === MOBILE || platform === BACKEND) {
-        console.log('this runs')
         return (
             <IngestionContainer>
                 <FrameworkPanel />

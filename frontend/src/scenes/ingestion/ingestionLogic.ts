@@ -165,6 +165,8 @@ export const ingestionLogic = kea<ingestionLogicType>([
     }),
     selectors(() => ({
         currentStep: [
+            // TODO I think we can take advantage of this project to refactor this logic
+            // we should probably just use a state machine rather than having all these variables
             (s) => [s.technical, s.platform, s.framework, s.verify, s.addBilling],
             (technical, platform, framework, verify, addBilling) => {
                 if (addBilling) {

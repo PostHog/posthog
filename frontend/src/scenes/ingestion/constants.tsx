@@ -7,11 +7,6 @@ export const FRAMEWORK = 'FRAMEWORK'
 export const INSTRUCTIONS = 'INSTRUCTIONS'
 export const VERIFICATION = 'VERIFICATION'
 
-export const IS_TECHNICAL = 'I can add a code snippet to my product.'
-export const IS_NOT_TECHNICAL = "I'll need a team member to add the code snippet to our product."
-export const IS_TECHNICAL_SUBTEXT = 'Available for JavaScript, Android, iOS, React Native, Node,js, Ruby, Go, and more.'
-export const IS_NOT_TECHNICAL_SUBTEXT = "We'll send an invite and instructions for getting the code snippet added."
-
 export const WEB = 'Web'
 export const MOBILE = 'Mobile'
 export const BACKEND = 'Backend'

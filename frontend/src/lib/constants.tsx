@@ -129,7 +129,7 @@ export const FEATURE_FLAGS = {
     RECORDINGS_ON_FEATURE_FLAGS: 'recordings-on-feature-flags', // owner: @EDsCODE
     AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE
     WEBSITE_ANALYTICS_TEMPLATE: 'website-analytics-template', // owner: @pauldambra
-    ONBOARDING_V2: 'onboarding-v2',
+    ONBOARDING_V2: 'onboarding-v2', // owner: @kappa90
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
