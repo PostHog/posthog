@@ -14,7 +14,6 @@
 //     DependencyUnavailableError Error being thrown.
 //  2. the KafkaQueue consumer handler will let the error bubble up to the
 //     KafkaJS consumer runner, which we assume will handle retries.
-
 import { RetryError } from '@posthog/plugin-scaffold'
 import Redis from 'ioredis'
 import { KafkaJSError } from 'kafkajs'
@@ -33,6 +32,7 @@ import {
     createTeam,
     POSTGRES_DELETE_TABLES_QUERY,
 } from '../../helpers/sql'
+import { IngestionConsumer } from './../../../src/main/ingestion-queues/kafka-queue'
 
 describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
     // Tests the failure cases for the workerTasks.runAsyncHandlersEventPipeline
