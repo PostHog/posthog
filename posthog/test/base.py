@@ -255,6 +255,7 @@ def test_with_materialized_columns(
     person_properties=[],
     group_properties=[],
     verify_no_jsonextract=True,
+    # :TODO: Remove this when groups-on-events is released
     materialize_only_with_person_on_events=False,
 ):
     """
