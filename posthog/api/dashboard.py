@@ -117,6 +117,12 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         return value
 
+    def validate_filters(self, value) -> Dict:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Filters must be a dictionary")
+
+        return value
+
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
