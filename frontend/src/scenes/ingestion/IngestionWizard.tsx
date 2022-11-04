@@ -57,7 +57,7 @@ export function IngestionWizard(): JSX.Element {
         )
     }
 
-    if (!platform && !verify && !!featureFlags[FEATURE_FLAGS.ONBOARDING_V2] ? technical : true) {
+    if (!platform && !verify && (!!featureFlags[FEATURE_FLAGS.ONBOARDING_V2] ? technical : true)) {
         return (
             <IngestionContainer>
                 <PlatformPanel />
@@ -82,6 +82,7 @@ export function IngestionWizard(): JSX.Element {
     }
 
     if (platform === MOBILE || platform === BACKEND) {
+        console.log('this runs')
         return (
             <IngestionContainer>
                 <FrameworkPanel />
