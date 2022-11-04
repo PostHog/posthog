@@ -1,7 +1,13 @@
 from django.conf import settings
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, trim_quotes_expr
+from posthog.clickhouse.kafka_engine import (
+    KAFKA_COLUMNS,
+    KAFKA_ENGINE_DEFAULT_SETTINGS,
+    STORAGE_POLICY,
+    kafka_engine,
+    trim_quotes_expr,
+)
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL, KAFKA_ENGINE_DLQ_MV_BASE_SQL
@@ -95,7 +101,7 @@ KAFKA_EVENTS_TABLE_JSON_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
     extra_fields="",
     materialized_columns="",
-    settings="SETTINGS kafka_handle_error_mode='stream'",
+    settings=KAFKA_ENGINE_DEFAULT_SETTINGS,
 )
 
 

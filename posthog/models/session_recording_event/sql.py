@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, KAFKA_ENGINE_DEFAULT_SETTINGS, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL, KAFKA_ENGINE_DLQ_MV_BASE_SQL
@@ -109,7 +109,7 @@ KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_TABL
     order_by="",
     partition_by="",
     ttl_period="",
-    settings="SETTINGS kafka_handle_error_mode='stream'",
+    settings=KAFKA_ENGINE_DEFAULT_SETTINGS,
 )
 
 KAFKA_SESSION_RECORDING_EVENTS_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(

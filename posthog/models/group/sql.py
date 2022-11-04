@@ -1,5 +1,5 @@
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, KAFKA_ENGINE_DEFAULT_SETTINGS, STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_GROUPS
 from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL, KAFKA_ENGINE_DLQ_MV_BASE_SQL
@@ -44,7 +44,7 @@ KAFKA_GROUPS_TABLE_SQL = lambda: GROUPS_TABLE_BASE_SQL.format(
     cluster=CLICKHOUSE_CLUSTER,
     engine=kafka_engine(KAFKA_GROUPS),
     extra_fields="",
-    settings="SETTINGS kafka_handle_error_mode='stream'",
+    settings=KAFKA_ENGINE_DEFAULT_SETTINGS,
 )
 
 

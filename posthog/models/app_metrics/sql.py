@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, KAFKA_ENGINE_DEFAULT_SETTINGS, kafka_engine
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_APP_METRICS
 from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL, KAFKA_ENGINE_DLQ_MV_BASE_SQL
@@ -65,7 +65,7 @@ CREATE TABLE kafka_app_metrics ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
     error_details String CODEC(ZSTD(3))
 )
 ENGINE={kafka_engine(topic=KAFKA_APP_METRICS)}
-SETTINGS kafka_handle_error_mode='stream'
+{KAFKA_ENGINE_DEFAULT_SETTINGS}
 """
 )
 

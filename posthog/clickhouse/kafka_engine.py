@@ -24,6 +24,8 @@ KAFKA_COLUMNS_WITH_PARTITION = """
 , _partition UInt64
 """
 
+KAFKA_ENGINE_DEFAULT_SETTINGS = "SETTINGS kafka_handle_error_mode='stream'"
+
 
 def kafka_engine(topic: str, kafka_host=None, group="group1"):
     if kafka_host is None:

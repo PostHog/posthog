@@ -542,6 +542,7 @@
   
   CREATE TABLE IF NOT EXISTS kafka_dlq_app_metrics ON CLUSTER 'posthog'
   (
+      timestamp DateTime,
       topic VARCHAR,
       partition Int64,
       offset Int64,
@@ -549,7 +550,8 @@
       error VARCHAR
   )
   ENGINE = MergeTree()
-  ORDER BY (topic, partition, offset)
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (topic, partition, offset, toStartOfHour(timestamp))
   
   '
 ---
@@ -559,6 +561,7 @@
   CREATE MATERIALIZED VIEW kafka_dlq_app_metrics_mv ON CLUSTER 'posthog'
   TO posthog_test.kafka_dlq_app_metrics
   AS SELECT
+      _timestamp AS timestamp,
       _topic AS topic,
       _partition AS partition,
       _offset AS offset,
@@ -574,6 +577,7 @@
   
   CREATE TABLE IF NOT EXISTS kafka_dlq_events_json ON CLUSTER 'posthog'
   (
+      timestamp DateTime,
       topic VARCHAR,
       partition Int64,
       offset Int64,
@@ -581,7 +585,8 @@
       error VARCHAR
   )
   ENGINE = MergeTree()
-  ORDER BY (topic, partition, offset)
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (topic, partition, offset, toStartOfHour(timestamp))
   
   '
 ---
@@ -591,6 +596,7 @@
   CREATE MATERIALIZED VIEW kafka_dlq_events_json_mv ON CLUSTER 'posthog'
   TO posthog_test.kafka_dlq_events_json
   AS SELECT
+      _timestamp AS timestamp,
       _topic AS topic,
       _partition AS partition,
       _offset AS offset,
@@ -606,6 +612,7 @@
   
   CREATE TABLE IF NOT EXISTS kafka_dlq_groups ON CLUSTER 'posthog'
   (
+      timestamp DateTime,
       topic VARCHAR,
       partition Int64,
       offset Int64,
@@ -613,7 +620,8 @@
       error VARCHAR
   )
   ENGINE = MergeTree()
-  ORDER BY (topic, partition, offset)
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (topic, partition, offset, toStartOfHour(timestamp))
   
   '
 ---
@@ -623,6 +631,7 @@
   CREATE MATERIALIZED VIEW kafka_dlq_groups_mv ON CLUSTER 'posthog'
   TO posthog_test.kafka_dlq_groups
   AS SELECT
+      _timestamp AS timestamp,
       _topic AS topic,
       _partition AS partition,
       _offset AS offset,
@@ -638,6 +647,7 @@
   
   CREATE TABLE IF NOT EXISTS kafka_dlq_ingestion_warnings ON CLUSTER 'posthog'
   (
+      timestamp DateTime,
       topic VARCHAR,
       partition Int64,
       offset Int64,
@@ -645,7 +655,8 @@
       error VARCHAR
   )
   ENGINE = MergeTree()
-  ORDER BY (topic, partition, offset)
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (topic, partition, offset, toStartOfHour(timestamp))
   
   '
 ---
@@ -655,6 +666,7 @@
   CREATE MATERIALIZED VIEW kafka_dlq_ingestion_warnings_mv ON CLUSTER 'posthog'
   TO posthog_test.kafka_dlq_ingestion_warnings
   AS SELECT
+      _timestamp AS timestamp,
       _topic AS topic,
       _partition AS partition,
       _offset AS offset,
@@ -670,6 +682,7 @@
   
   CREATE TABLE IF NOT EXISTS kafka_dlq_person ON CLUSTER 'posthog'
   (
+      timestamp DateTime,
       topic VARCHAR,
       partition Int64,
       offset Int64,
@@ -677,7 +690,8 @@
       error VARCHAR
   )
   ENGINE = MergeTree()
-  ORDER BY (topic, partition, offset)
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (topic, partition, offset, toStartOfHour(timestamp))
   
   '
 ---
@@ -686,6 +700,7 @@
   
   CREATE TABLE IF NOT EXISTS kafka_dlq_person_distinct_id2 ON CLUSTER 'posthog'
   (
+      timestamp DateTime,
       topic VARCHAR,
       partition Int64,
       offset Int64,
@@ -693,7 +708,8 @@
       error VARCHAR
   )
   ENGINE = MergeTree()
-  ORDER BY (topic, partition, offset)
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (topic, partition, offset, toStartOfHour(timestamp))
   
   '
 ---
@@ -703,6 +719,7 @@
   CREATE MATERIALIZED VIEW kafka_dlq_person_distinct_id2_mv ON CLUSTER 'posthog'
   TO posthog_test.kafka_dlq_person_distinct_id2
   AS SELECT
+      _timestamp AS timestamp,
       _topic AS topic,
       _partition AS partition,
       _offset AS offset,
@@ -719,6 +736,7 @@
   CREATE MATERIALIZED VIEW kafka_dlq_person_mv ON CLUSTER 'posthog'
   TO posthog_test.kafka_dlq_person
   AS SELECT
+      _timestamp AS timestamp,
       _topic AS topic,
       _partition AS partition,
       _offset AS offset,
@@ -734,6 +752,7 @@
   
   CREATE TABLE IF NOT EXISTS kafka_dlq_plugin_log_entries ON CLUSTER 'posthog'
   (
+      timestamp DateTime,
       topic VARCHAR,
       partition Int64,
       offset Int64,
@@ -741,7 +760,8 @@
       error VARCHAR
   )
   ENGINE = MergeTree()
-  ORDER BY (topic, partition, offset)
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (topic, partition, offset, toStartOfHour(timestamp))
   
   '
 ---
@@ -751,6 +771,7 @@
   CREATE MATERIALIZED VIEW kafka_dlq_plugin_log_entries_mv ON CLUSTER 'posthog'
   TO posthog_test.kafka_dlq_plugin_log_entries
   AS SELECT
+      _timestamp AS timestamp,
       _topic AS topic,
       _partition AS partition,
       _offset AS offset,
@@ -766,6 +787,7 @@
   
   CREATE TABLE IF NOT EXISTS kafka_dlq_session_recording_events ON CLUSTER 'posthog'
   (
+      timestamp DateTime,
       topic VARCHAR,
       partition Int64,
       offset Int64,
@@ -773,7 +795,8 @@
       error VARCHAR
   )
   ENGINE = MergeTree()
-  ORDER BY (topic, partition, offset)
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (topic, partition, offset, toStartOfHour(timestamp))
   
   '
 ---
@@ -783,6 +806,7 @@
   CREATE MATERIALIZED VIEW kafka_dlq_session_recording_events_mv ON CLUSTER 'posthog'
   TO posthog_test.kafka_dlq_session_recording_events
   AS SELECT
+      _timestamp AS timestamp,
       _topic AS topic,
       _partition AS partition,
       _offset AS offset,

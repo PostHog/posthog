@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, KAFKA_ENGINE_DEFAULT_SETTINGS, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_INGESTION_WARNINGS
 from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL, KAFKA_ENGINE_DLQ_MV_BASE_SQL
@@ -41,7 +41,7 @@ KAFKA_INGESTION_WARNINGS_TABLE_SQL = lambda: INGESTION_WARNINGS_TABLE_BASE_SQL.f
     engine=kafka_engine(topic=KAFKA_INGESTION_WARNINGS),
     materialized_columns="",
     extra_fields="",
-    settings="SETTINGS kafka_handle_error_mode='stream'",
+    settings=KAFKA_ENGINE_DEFAULT_SETTINGS,
 )
 
 KAFKA_INGESTION_WARNINGS_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(

@@ -1,4 +1,4 @@
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, KAFKA_ENGINE_DEFAULT_SETTINGS, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PLUGIN_LOG_ENTRIES
 from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL, KAFKA_ENGINE_DLQ_MV_BASE_SQL
@@ -44,7 +44,7 @@ KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL = lambda: PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL.f
     extra_fields="",
     ttl_period="",
     partition_by="",
-    settings="SETTINGS kafka_handle_error_mode='stream'",
+    settings=KAFKA_ENGINE_DEFAULT_SETTINGS,
 )
 
 KAFKA_PLUGIN_LOG_ENTRIES_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(

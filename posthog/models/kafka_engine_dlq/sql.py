@@ -1,3 +1,5 @@
+from posthog.clickhouse.kafka_engine import ttl_period
+
 # Every table using the Kafka Engine should have this corresponding
 # dead letter queue (DLQ) table. This table will host all messages
 # that couldn't be consumed by the ClickHouse consumer for the topic
@@ -9,9 +11,13 @@
 # to make sure we're not silently dropping events and so we
 # can have full oversight over the end-to-end ingestion pipeline.
 
-KAFKA_ENGINE_DLQ_BASE_SQL = """
+TTL_POLICY = ttl_period("timestamp", 8)  # 8 weeks
+
+KAFKA_ENGINE_DLQ_BASE_SQL = (
+    """
 CREATE TABLE IF NOT EXISTS {table} ON CLUSTER '{cluster}'
 (
+    timestamp DateTime,
     topic VARCHAR,
     partition Int64,
     offset Int64,
@@ -19,13 +25,17 @@ CREATE TABLE IF NOT EXISTS {table} ON CLUSTER '{cluster}'
     error VARCHAR
 )
 ENGINE = {engine}
-ORDER BY (topic, partition, offset)
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (topic, partition, offset, toStartOfHour(timestamp))
 """
+    + TTL_POLICY
+)
 
 KAFKA_ENGINE_DLQ_MV_BASE_SQL = """
 CREATE MATERIALIZED VIEW {view_name} ON CLUSTER '{cluster}'
 TO {target_table}
 AS SELECT
+    _timestamp AS timestamp,
     _topic AS topic,
     _partition AS partition,
     _offset AS offset,
