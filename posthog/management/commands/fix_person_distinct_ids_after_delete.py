@@ -42,7 +42,7 @@ def run(options):
         update_distinct_id(distinct_id, version, team_id, live_run)
 
 
-def get_distinct_ids_tied_to_deleted_persons(team_id: int) -> List[int]:
+def get_distinct_ids_tied_to_deleted_persons(team_id: int) -> List[str]:
     # find distinct_ids where the person is set to be deleted
     rows = sync_execute(
         """
