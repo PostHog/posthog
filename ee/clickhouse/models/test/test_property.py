@@ -11,7 +11,7 @@ from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models.element import Element
 from posthog.models.filters import Filter
-from posthog.models.instance_setting import get_instance_setting
+from posthog.models.instance_setting import get_instance_setting, override_instance_config
 from posthog.models.property import Property, TableWithProperties
 from posthog.models.property.util import (
     PropertyGroup,
@@ -733,19 +733,24 @@ def test_breakdown_query_expression_materialised(
     expected_with: str,
     expected_without: str,
 ):
-    materialize(table, breakdown[0], table_column="properties")
-    actual = get_single_or_multi_property_string_expr(
-        breakdown, table, query_alias, column, materialised_table_column=materialise_column
-    )
+    with override_instance_config("GROUPS_ON_EVENTS_ENABLED", True):
+        from posthog.models.team import util
 
-    assert actual == expected_with
+        util.can_enable_person_on_events = True
 
-    materialize(table, breakdown[0], table_column=materialise_column)  # type: ignore
-    actual = get_single_or_multi_property_string_expr(
-        breakdown, table, query_alias, column, materialised_table_column=materialise_column
-    )
+        materialize(table, breakdown[0], table_column="properties")
+        actual = get_single_or_multi_property_string_expr(
+            breakdown, table, query_alias, column, materialised_table_column=materialise_column
+        )
 
-    assert actual == expected_without
+        assert actual == expected_with
+
+        materialize(table, breakdown[0], table_column=materialise_column)  # type: ignore
+        actual = get_single_or_multi_property_string_expr(
+            breakdown, table, query_alias, column, materialised_table_column=materialise_column
+        )
+
+        assert actual == expected_without
 
 
 @pytest.fixture
