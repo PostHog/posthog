@@ -71,6 +71,7 @@ export function SessionRecordingPlayer({
             </div>
         )
     }
+    console.log('ID', sessionRecordingId, playerKey)
 
     return (
         <div

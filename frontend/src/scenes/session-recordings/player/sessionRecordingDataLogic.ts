@@ -265,13 +265,19 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 if (!props.sessionRecordingId) {
                     return values.sessionPlayerMetaData
                 }
+                console.log('META', props)
                 const params = toParams({
                     save_view: true,
                     recording_start_time: props.recordingStartTime,
                 })
+                console.log(
+                    'RIGHT BEFORE META',
+                    `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}?${params}`
+                )
                 const response = await api.get(
                     `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}?${params}`
                 )
+                console.log('META RES', response)
 
                 const unparsedMetadata: UnparsedMetadata | undefined = response.result?.session_recording
                 const metadata = parseMetadataResponse(unparsedMetadata)
@@ -288,14 +294,17 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 if (!props.sessionRecordingId) {
                     return values.sessionPlayerSnapshotData
                 }
+                console.log('SNAPSHOT', props)
                 const params = toParams({
                     recording_start_time: props.recordingStartTime,
                 })
                 const apiUrl =
                     nextUrl ||
                     `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshots?${params}`
+                console.log('RIGT BEFORE', apiUrl)
                 const response = await api.get(apiUrl)
                 breakpoint()
+                console.log('SNAPSHOT RES', response)
                 // If we have a next url, we need to append the new snapshots to the existing ones
                 const snapshotsByWindowId = {
                     ...(nextUrl ? values.sessionPlayerSnapshotData.snapshotsByWindowId ?? {} : {}),

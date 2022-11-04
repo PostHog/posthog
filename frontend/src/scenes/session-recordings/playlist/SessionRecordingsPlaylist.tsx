@@ -86,6 +86,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
         </div>
     ) : null
 
+    console.log('activeSessionRecording', activeSessionRecording)
     return (
         <div ref={playlistRef} className="SessionRecordingsPlaylist" data-attr="session-recordings-playlist">
             <div className="SessionRecordingsPlaylist__left-column space-y-4">

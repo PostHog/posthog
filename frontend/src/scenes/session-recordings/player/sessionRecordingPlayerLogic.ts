@@ -211,6 +211,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (values.rootFrame) {
                 values.rootFrame.innerHTML = '' // Clear the previously drawn frames
             }
+            console.log('HELLO', values.sessionPlayerData, values.rootFrame)
             if (
                 !values.rootFrame ||
                 windowId === null ||

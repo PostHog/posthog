@@ -29,5 +29,6 @@ export const mocksToHandlers = (mocks: Mocks): ReturnType<typeof rest['get']>[] 
             )
         })
     })
+    console.log('METHOD', response)
     return response
 }

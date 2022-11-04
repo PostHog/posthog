@@ -32,6 +32,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             "id",
             "dashboard",
             "insight",
+            "recording",
             "export_format",
             "created_at",
             "has_content",
@@ -52,6 +53,9 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
+
+        if attrs.get("recording") and attrs["recording"].team.id != self.context["team_id"]:
+            raise ValidationError({"recording": ["This recording does not belong to your team."]})
 
         return attrs
 

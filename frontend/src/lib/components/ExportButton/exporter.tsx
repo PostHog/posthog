@@ -26,7 +26,10 @@ async function downloadExportedAsset(asset: ExportedAssetType): Promise<void> {
     window.URL.revokeObjectURL(blob)
 }
 
-export type TriggerExportProps = Pick<ExportedAssetType, 'export_format' | 'dashboard' | 'insight' | 'export_context'>
+export type TriggerExportProps = Pick<
+    ExportedAssetType,
+    'export_format' | 'dashboard' | 'insight' | 'recording' | 'export_context'
+>
 
 export async function triggerExport(asset: TriggerExportProps): Promise<void> {
     const poller = new Promise(async (resolve, reject) => {
@@ -34,6 +37,7 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
             export_format: asset.export_format,
             dashboard: asset.dashboard,
             insight: asset.insight,
+            recording: asset.recording,
             export_context: asset.export_context,
             total_time_ms: 0,
         }
@@ -44,6 +48,7 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
                 export_format: asset.export_format,
                 dashboard: asset.dashboard,
                 insight: asset.insight,
+                recording: asset.recording,
                 export_context: asset.export_context,
             })
 

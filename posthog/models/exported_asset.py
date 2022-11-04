@@ -32,6 +32,7 @@ class ExportedAsset(models.Model):
         PNG = "image/png", "image/png"
         PDF = "application/pdf", "application/pdf"
         CSV = "text/csv", "text/csv"
+        MP4 = "video/mp4", "video/mp4"
 
     # Relations
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)

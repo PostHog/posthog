@@ -1,4 +1,4 @@
-import { DashboardType, InsightModel, TeamType } from '~/types'
+import { DashboardType, InsightModel, SessionRecordingType, TeamType } from '~/types'
 
 export enum ExportType {
     Image = 'image',
@@ -16,5 +16,6 @@ export interface ExportedData extends ExportOptions {
     type: ExportType
     dashboard?: DashboardType
     insight?: InsightModel
+    recording?: SessionRecordingType
     team?: Partial<TeamType>
 }

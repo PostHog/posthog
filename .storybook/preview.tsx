@@ -30,7 +30,7 @@ setupPosthogJs()
 // Setup storybook global parameters. See https://storybook.js.org/docs/react/writing-stories/parameters#global-parameters
 export const parameters = {
     chromatic: { disableSnapshot: true },
-    actions: { argTypesRegex: '^on[A-Z].*', disabled: true },
+    actions: { argTypesRegex: '^on[A-Z].*', disable: true },
     controls: {
         matchers: {
             color: /(background|color)$/i,

@@ -765,7 +765,7 @@ export interface SessionRecordingType {
     /** Whether this recording has been viewed already. */
     viewed: boolean
     /** Length of recording in seconds. */
-    recording_duration: number
+    recording_duration: number | string
     /** When the recording starts in ISO format. */
     start_time: string
     /** When the recording ends in ISO format. */
@@ -2159,6 +2159,7 @@ export enum ExporterFormat {
     PNG = 'image/png',
     CSV = 'text/csv',
     PDF = 'application/pdf',
+    MP4 = 'video/mp4',
 }
 
 export interface ExportedAssetType {
@@ -2166,6 +2167,7 @@ export interface ExportedAssetType {
     export_format: ExporterFormat
     dashboard?: number
     insight?: number
+    recording?: string
     export_context?: {
         method?: string
         path: string

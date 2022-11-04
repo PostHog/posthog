@@ -8,9 +8,10 @@ import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import clsx from 'clsx'
+import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 
 export function Exporter(props: ExportedData): JSX.Element {
-    const { type, dashboard, insight, team, ...exportOptions } = props
+    const { type, dashboard, insight, team, recording, ...exportOptions } = props
     const { whitelabel } = exportOptions
 
     const { ref: elementRef, height, width } = useResizeObserver()
@@ -21,11 +22,14 @@ export function Exporter(props: ExportedData): JSX.Element {
         window.parent?.postMessage({ event: 'posthog:dimensions', name: window.name, height, width }, '*')
     }, [height, width])
 
+    console.log('recording', recording)
+
     return (
         <div
             className={clsx('Exporter', {
                 'Export--insight': !!insight,
                 'Export--dashboard': !!dashboard,
+                'Export--recording': !!recording,
             })}
             ref={elementRef}
         >
@@ -63,6 +67,8 @@ export function Exporter(props: ExportedData): JSX.Element {
                     dashboard={dashboard}
                     placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
                 />
+            ) : recording ? (
+                <SessionRecordingPlayer sessionRecordingId={recording.id} playerKey={`exported-${recording.id}`} />
             ) : (
                 <h1 className="text-center p-4">Something went wrong...</h1>
             )}
