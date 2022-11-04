@@ -1,9 +1,19 @@
 from django.db import models
 
 from posthog.models.utils import UUIDModel
+import pdb
 
 
-class Role(models.Model):
+class RoleManager(models.Manager):
+    def create(self, *args, **kwargs):
+        # if kwargs.get
+        # role = super().create(*args, )
+        pdb.set_trace()
+        role = super().create(*args, **kwargs)
+        return role
+
+
+class Role(UUIDModel):
     name: models.CharField = models.CharField(max_length=200)
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="roles", related_query_name="role"
