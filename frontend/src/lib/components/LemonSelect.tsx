@@ -65,16 +65,14 @@ export const isLemonSelectSection = <T extends any>(
     candidate: LemonSelectSection<T> | LemonSelectOption<T>
 ): candidate is LemonSelectSection<T> => candidate && 'options' in candidate && !('label' in candidate)
 
-function extractLeafOptions<T>(options: LemonSelectOption<T>[]): LemonSelectOptionLeaf<T>[] {
-    const leafOptions: LemonSelectOptionLeaf<T>[] = []
+function extractLeafOptions<T>(targetArray: LemonSelectOptionLeaf<T>[], options: LemonSelectOption<T>[]): void {
     for (const option of options) {
         if ('options' in option) {
-            leafOptions.push(...extractLeafOptions(option.options))
+            extractLeafOptions(targetArray, option.options)
         } else {
-            leafOptions.push(option)
+            targetArray.push(option)
         }
     }
-    return leafOptions
 }
 
 /**
@@ -96,9 +94,9 @@ export const boxToSections = <T,>(
                 implicitSection = { options: [] }
             }
             sections.push(sectionOrOption)
-            allOptions.push(...extractLeafOptions(sectionOrOption.options))
+            extractLeafOptions(allOptions, sectionOrOption.options)
         } else {
-            allOptions.push(...extractLeafOptions([sectionOrOption]))
+            extractLeafOptions(allOptions, [sectionOrOption])
             implicitSection.options.push(sectionOrOption)
         }
     }
