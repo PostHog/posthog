@@ -16,7 +16,7 @@ export function InviteTeamPanel(): JSX.Element {
     return (
         <div>
             <h1 className="ingestion-title">Welcome to PostHog</h1>
-            <p className="mt-4">
+            <p className="prompt-text">
                 PostHog enables you to <b>understand your customers, answer product questions, and test new features</b>{' '}
                 - all in our comprehensive product suite. To get started, we'll need to add a code snippet to your
                 product.

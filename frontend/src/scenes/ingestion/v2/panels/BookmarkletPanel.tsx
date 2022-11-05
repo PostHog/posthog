@@ -13,11 +13,11 @@ export function BookmarkletPanel(): JSX.Element {
         <CardContainer showFooter>
             {currentTeam && (
                 <div style={{ padding: '0px 16px' }}>
-                    <h1 className="ingestion-title mb-2">Just exploring?</h1>
-                    <h2 style={{ fontSize: 20, fontWeight: 800 }}>
+                    <h1 className="ingestion-title">Just exploring?</h1>
+                    <h2 className="IngestionSubtitle">
                         Immediately run PostHog on your website for some initial exploring
                     </h2>
-                    <p>
+                    <p className="prompt-text">
                         If you want to quickly test PostHog in your website without changing any code, try out our
                         bookmarklet.
                     </p>

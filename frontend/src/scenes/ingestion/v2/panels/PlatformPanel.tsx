@@ -12,7 +12,7 @@ export function PlatformPanel(): JSX.Element {
     return (
         <div>
             <h1 className="ingestion-title">Where do you want to send events from?</h1>
-            <p>
+            <p className="prompt-text">
                 With PostHog, you can collect events from nearly anywhere. Select one to start, and you can always add
                 more sources later.
             </p>
