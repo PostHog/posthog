@@ -1,22 +1,15 @@
 from django.db import models
 
 from posthog.models.utils import UUIDModel
-import pdb
-
-
-class RoleManager(models.Manager):
-    def create(self, *args, **kwargs):
-        # if kwargs.get
-        # role = super().create(*args, )
-        pdb.set_trace()
-        role = super().create(*args, **kwargs)
-        return role
 
 
 class Role(UUIDModel):
     name: models.CharField = models.CharField(max_length=200)
     organization: models.ForeignKey = models.ForeignKey(
-        "posthog.Organization", on_delete=models.CASCADE, related_name="roles", related_query_name="role"
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        related_name="roles",
+        related_query_name="role",
     )
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     created_by: models.ForeignKey = models.ForeignKey(
@@ -33,10 +26,16 @@ class Role(UUIDModel):
 
 class RoleMembership(UUIDModel):
     role: models.ForeignKey = models.ForeignKey(
-        "Role", on_delete=models.CASCADE, related_name="roles", related_query_name="role"
+        "Role",
+        on_delete=models.CASCADE,
+        related_name="roles",
+        related_query_name="role",
     )
     user: models.ForeignKey = models.ForeignKey(
-        "posthog.User", on_delete=models.CASCADE, related_name="role_memberships", related_query_name="role_membership"
+        "posthog.User",
+        on_delete=models.CASCADE,
+        related_name="role_memberships",
+        related_query_name="role_membership",
     )
     joined_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
