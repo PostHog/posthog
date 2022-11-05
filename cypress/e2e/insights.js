@@ -237,11 +237,11 @@ describe('Insights', () => {
         it('can duplicate insights from the insights card view', () => {
             cy.visit(urls.savedInsights())
             cy.contains('.saved-insights .ant-radio-button-wrapper', 'Cards').click()
-            cy.contains('.InsightMeta', insightName).within(() => {
+            cy.contains('.CardMeta', insightName).within(() => {
                 cy.get('[data-attr="more-button"]').click()
             })
             cy.get('[data-attr="duplicate-insight-from-card-list-view"]').click()
-            cy.contains('.InsightMeta', `${insightName} (copy)`).should('exist')
+            cy.contains('.CardMeta', `${insightName} (copy)`).should('exist')
         })
 
         it('can duplicate from insight view', () => {
