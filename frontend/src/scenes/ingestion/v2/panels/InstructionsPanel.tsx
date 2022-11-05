@@ -17,6 +17,7 @@ import { API, MOBILE, BACKEND, WEB } from '../constants'
 import { useValues } from 'kea'
 import { ingestionLogic } from '../ingestionLogic'
 import { WebInstructions } from '../frameworks/WebInstructions'
+import { Link } from '@posthog/lemon-ui'
 
 const frameworksSnippet: Record<string, React.ComponentType> = {
     NODEJS: NodeInstructions,
@@ -51,9 +52,9 @@ export function InstructionsPanel(): JSX.Element {
                 <CardContainer showFooter>
                     <h2>{frameworkString}</h2>
                     <p className="prompt-text">
-                        {
-                            "Below is an easy format for capturing events using the API we've provided. Use this endpoint to send your first event!"
-                        }
+                        Need a different framework? Our HTTP API is a flexible way to use PostHog anywhere. Try the
+                        endpoint below to send your first event, and view our API docs{' '}
+                        <Link to="https://posthog.com/docs/api">here</Link>.
                     </p>
                     <FrameworkSnippet />
                 </CardContainer>
@@ -64,7 +65,7 @@ export function InstructionsPanel(): JSX.Element {
                     {platform === BACKEND ? (
                         <>
                             <p className="prompt-text">
-                                {`Follow the instructions below to send custom events from your ${frameworkString} backend.`}
+                                Follow the instructions below to send custom events from your {frameworkString} backend.
                             </p>
                             <FrameworkSnippet />
                         </>
