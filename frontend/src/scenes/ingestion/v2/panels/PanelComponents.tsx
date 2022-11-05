@@ -6,6 +6,7 @@ import { BOOKMARKLET } from '../constants'
 import { ingestionLogic, INGESTION_STEPS } from '../ingestionLogic'
 import './Panels.scss'
 import { IconArrowLeft } from 'lib/components/icons'
+import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
 
 export function PanelFooter(): JSX.Element {
     const { platform } = useValues(ingestionLogic)
@@ -52,16 +53,7 @@ export function PanelFooter(): JSX.Element {
                     >
                         Continue
                     </LemonButton>
-                    <LemonButton
-                        className="mt-2"
-                        size="large"
-                        fullWidth
-                        center
-                        type="secondary"
-                        onClick={() => setVerify(true)}
-                    >
-                        Skip for now
-                    </LemonButton>
+                    <IngestionInviteMembersButton />
                 </div>
             )}
         </div>

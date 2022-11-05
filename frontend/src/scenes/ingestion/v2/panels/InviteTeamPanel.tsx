@@ -64,7 +64,6 @@ export function InviteTeamPanel(): JSX.Element {
                     center
                     fullWidth
                     size="large"
-                    className="mb-4"
                     type="tertiary"
                     sideIcon={<IconArrowRight />}
                 >

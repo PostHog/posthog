@@ -4,6 +4,7 @@ import { ingestionLogic } from '../ingestionLogic'
 import { API, mobileFrameworks, BACKEND, webFrameworks } from 'scenes/ingestion/constants'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
+import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
 
 export function FrameworkPanel(): JSX.Element {
     const { setFramework } = useActions(ingestionLogic)
@@ -34,14 +35,18 @@ export function FrameworkPanel(): JSX.Element {
                             {frameworks[item]}
                         </LemonButton>
                     ))}
-                    <div className="justify-center mt-4 pb-4">
-                        <p className="text-center mb-0 text-muted text-base">
-                            Don't see your framework here?{' '}
-                            <a onClick={() => setFramework(API)}>
-                                <b>Continue with our HTTP API</b>
-                            </a>
-                        </p>
-                    </div>
+                    <LemonButton
+                        type="primary"
+                        data-attr={`select-framework-api`}
+                        fullWidth
+                        size="large"
+                        center
+                        className="mb-2"
+                        onClick={() => setFramework(API)}
+                    >
+                        Other
+                    </LemonButton>
+                    <IngestionInviteMembersButton />
                 </div>
             </div>
         </CardContainer>
