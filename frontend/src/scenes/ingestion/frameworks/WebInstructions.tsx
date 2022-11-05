@@ -8,7 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 function JSInstallSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.Bash}>
-            {['npm install posthog-js', '# OR', 'yarn add posthog-js'].join('\n')}
+            {['npm install posthog-js', '# OR', 'yarn add posthog-js', '# OR', 'pnpm add posthog-js'].join('\n')}
         </CodeSnippet>
     )
 }

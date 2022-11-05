@@ -11,7 +11,7 @@ export function writeSourceCodeEditorTypes() {
         } catch (e) {
             if (isDev) {
                 console.warn(
-                    `🙈 Didn't find "${p}" for the app source editor. Build it with: yarn build:packages:types`
+                    `🙈 Didn't find "${p}" for the app source editor. Build it with: pnpm build:packages:types`
                 )
             } else {
                 throw e

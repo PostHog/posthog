@@ -11,15 +11,15 @@ Let's get you developing the plugin server in no time:
 
 1. Have virtual environment from the main PostHog repo active.
 
-1. Install dependencies and prepare for takeoff by running command `yarn`.
+1. Install dependencies and prepare for takeoff by running command `pnpm i`.
 
 1. Start a development instance of [PostHog](/PostHog/posthog) - [instructions here](https://posthog.com/docs/developing-locally). After all, this is the _PostHog_ Plugin Server, and it works in conjuction with the main server.
 
 1. Make sure that the plugin server is configured correctly (see [Configuration](#Configuration)). The following settings need to be the same for the plugin server and the main server: `DATABASE_URL`, `REDIS_URL`, `KAFKA_HOSTS`, `CLICKHOUSE_HOST`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USER`, and `CLICKHOUSE_PASSWORD`. Their default values should work just fine in local development though.
 
-1. Start the plugin server in autoreload mode with `yarn start:dev`, or in compiled mode with `yarn build && yarn start:dist`, and develop away!
+1. Start the plugin server in autoreload mode with `pnpm start:dev`, or in compiled mode with `pnpm build && pnpm start:dist`, and develop away!
 
-1. Prepare for running tests with `yarn setup:test`, which will run the necessary migrations. Run the tests themselves with `yarn test:{1,2}`.
+1. Prepare for running tests with `pnpm setup:test`, which will run the necessary migrations. Run the tests themselves with `pnpm test:{1,2}`.
 
 ## CLI flags
 

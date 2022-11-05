@@ -2,7 +2,7 @@
 
 # Script for running the functional tests in CI, outputting an Istambul coverage
 # report. When running the intetgration tests locally, it's probably better to
-# simply run `yarn functional_tests` directly which will allow e.g. to watch for
+# simply run `pnpm functional_tests` directly which will allow e.g. to watch for
 # changes. This script is intended to handle the complexities of spinning up the
 # plugin server with the appropriate environment vars setup, and ensuring we
 # bring down the server such that c8 produces the coverage report.
@@ -27,7 +27,7 @@ until curl http://localhost:6738/_ready; do
 done
 
 set +e
-yarn functional_tests --maxConcurrency=10
+pnpm functional_tests --maxConcurrency=10
 exit_code=$?
 set -e
 
