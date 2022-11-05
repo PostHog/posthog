@@ -300,7 +300,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
         self.assertEqual(any_on_dashboard_one.status_code, status.HTTP_200_OK)
         matched_insights = [insight["id"] for insight in any_on_dashboard_one.json()["results"]]
-        assert matched_insights == [insight_one_id, insight_two_id]
+        assert sorted(matched_insights) == [insight_one_id, insight_two_id]
 
         # match is AND, not OR
         any_on_dashboard_one_and_two = self.client.get(
