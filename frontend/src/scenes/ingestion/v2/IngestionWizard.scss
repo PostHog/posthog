@@ -8,6 +8,12 @@
     width: 100%;
 }
 
+.IngestionContent {
+    .BridgePage__content {
+        max-width: 700px;
+    }
+}
+
 .IngestionTopbar {
     border-bottom: 1px solid var(--border);
     padding: 0.25rem 1rem;
