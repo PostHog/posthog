@@ -16,9 +16,10 @@ export function InviteTeamPanel(): JSX.Element {
     return (
         <div>
             <h1 className="ingestion-title">Welcome to PostHog</h1>
-            <p>
-                PostHog collects events from your website, mobile apps, backend, and more. To get started, we'll need to
-                add a code snippet to your product.
+            <p className="mt-4">
+                PostHog enables you to <b>understand your customers, answer product questions, and test new features</b>{' '}
+                - all in our comprehensive product suite. To get started, we'll need to add a code snippet to your
+                product.
             </p>
             <LemonDivider thick dashed className="my-6" />
             <div className="flex flex-col mb-6">
