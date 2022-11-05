@@ -552,7 +552,7 @@ function InsightCardInternal(
                     invalidFunnelExclusion={invalidFunnelExclusion}
                     style={
                         metaPrimaryHeight
-                            ? { height: `calc(100% - ${metaPrimaryHeight}px - 1rem /* margins */ - 1px /* border */)` }
+                            ? { height: `calc(100% - ${metaPrimaryHeight}px - 2rem /* margins */ - 1px /* border */)` }
                             : undefined
                     }
                     setAreDetailsShown={setAreDetailsShown}

@@ -49,10 +49,10 @@ export function CardMeta({
         setPrimaryHeight?.(primaryHeight)
     }, [primaryHeight])
 
-    const foldedHeight = `calc(${primaryHeight}px + 1rem /* margins */ + 1px /* border */)`
+    const foldedHeight = `calc(${primaryHeight}px + 2rem /* margins */ + 1px /* border */)`
     const unfoldedHeight = `calc(${primaryHeight}px + ${
         detailsHeight || 0
-    }px + 2.5rem /* margins */ + 3px /* border and spacer */)`
+    }px + 3.5rem /* margins */ + 3px /* border and spacer */)`
     const transitionStyles = primaryHeight
         ? {
               entering: {
