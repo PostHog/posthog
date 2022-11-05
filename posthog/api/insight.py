@@ -495,6 +495,11 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
                 queryset = queryset.filter(
                     Q(name__icontains=request.GET["search"]) | Q(derived_name__icontains=request.GET["search"])
                 )
+            elif key == "dashboards":
+                dashboards_filter = request.GET["dashboards"]
+                if dashboards_filter:
+                    dashboards_ids = json.loads(request.GET["dashboards"])
+                    queryset = queryset.filter(dashboard_tiles__dashboard_id__in=dashboards_ids)
         return queryset
 
     def retrieve(self, request, *args, **kwargs):
