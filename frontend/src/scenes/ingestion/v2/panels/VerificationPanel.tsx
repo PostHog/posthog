@@ -8,6 +8,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
+import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
 
 export function VerificationPanel(): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
@@ -25,7 +26,7 @@ export function VerificationPanel(): JSX.Element {
     return (
         <CardContainer>
             <div className="text-center">
-                {!currentTeam?.ingested_event ? (
+                {currentTeam?.ingested_event ? (
                     <>
                         <div className="ingestion-listening-for-events">
                             <Spinner className="text-4xl" />
@@ -35,10 +36,11 @@ export function VerificationPanel(): JSX.Element {
                                 received and continue.
                             </p>
                             <EventBufferNotice className="mb-4" />
+                            <IngestionInviteMembersButton />
                             <LemonButton
                                 fullWidth
                                 center
-                                type="secondary"
+                                type="tertiary"
                                 onClick={() => {
                                     if (showBillingStep) {
                                         setAddBilling(true)
@@ -48,7 +50,7 @@ export function VerificationPanel(): JSX.Element {
                                     reportIngestionContinueWithoutVerifying()
                                 }}
                             >
-                                Continue without verifying
+                                or continue without verifying
                             </LemonButton>
                         </div>
                     </>
