@@ -302,13 +302,13 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         matched_insights = [insight["id"] for insight in any_on_dashboard_one.json()["results"]]
         assert matched_insights == [insight_one_id, insight_two_id]
 
-        # match is OR, not AND
+        # match is AND, not OR
         any_on_dashboard_one_and_two = self.client.get(
             f"/api/projects/{self.team.id}/insights/?dashboards=[{dashboard_one_id}, {dashboard_two_id}]"
         )
         self.assertEqual(any_on_dashboard_one_and_two.status_code, status.HTTP_200_OK)
         matched_insights = [insight["id"] for insight in any_on_dashboard_one_and_two.json()["results"]]
-        assert matched_insights == [insight_one_id, insight_two_id]
+        assert matched_insights == [insight_two_id]
 
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_items(self):
