@@ -236,6 +236,17 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v3
 
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2.2.4
+              with:
+                  version: 7.x.x
+
+            - name: Set up Node 18
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 18
+                  cache: pnpm
+
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker-compose -f docker-compose.dev.yml down
