@@ -221,6 +221,9 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         instance = super().update(instance, validated_data)
 
         if validated_data.get("deleted", False):
+            if self.initial_data.get("deleteInsights", False):
+                Insight.objects.filter(dashboard_tiles__dashboard=instance.id).update(deleted=True)
+
             DashboardTile.objects.filter(dashboard__id=instance.id).delete()
 
         tile = initial_data.pop("tiles", [])

@@ -255,6 +255,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
         },
         [dashboardsModel.actionTypes.updateDashboardInsight]: () => actions.loadInsights(),
         [dashboardsModel.actionTypes.duplicateDashboardSuccess]: () => actions.loadInsights(),
+        [insightsModel.actionTypes.insightsDeletedWithDashboard]: () => actions.loadInsights(),
     }),
     actionToUrl: ({ values }) => {
         const changeUrl = ():

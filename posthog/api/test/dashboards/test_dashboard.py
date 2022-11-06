@@ -340,6 +340,34 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/").json()
         self.assertEqual(len(response["results"]), 1)
 
+    def test_delete_does_not_delete_tiles_by_default(self):
+        dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
+        insight_id, _ = self._create_insight(
+            {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard_id], "name": "some_item"}
+        )
+
+        dashboard_before_delete = self.dashboard_api.get_dashboard(dashboard_id)
+        assert len(dashboard_before_delete["tiles"]) == 1
+
+        self.client.patch(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/", {"deleted": True})
+
+        self.dashboard_api.get_insight(insight_id, self.team.id, expected_status=status.HTTP_200_OK)
+
+    def test_delete_dashboard_can_delete_tiles(self):
+        dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
+        insight_id, _ = self._create_insight(
+            {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard_id], "name": "some_item"}
+        )
+
+        dashboard_before_delete = self.dashboard_api.get_dashboard(dashboard_id)
+        assert len(dashboard_before_delete["tiles"]) == 1
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/", {"deleted": True, "deleteInsights": True}
+        )
+
+        self.dashboard_api.get_insight(insight_id, self.team.id, expected_status=status.HTTP_404_NOT_FOUND)
+
     def test_dashboard_items(self):
         dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
         insight_id, _ = self._create_insight(

@@ -275,7 +275,7 @@ class InsightSerializer(InsightBasicSerializer):
             dashboards = validated_data.pop("dashboards", None)
             if dashboards is not None:
                 old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
-                new_dashboard_ids = [d.id for d in dashboards]
+                new_dashboard_ids = [d.id for d in dashboards if not d.deleted]
 
                 ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
                 ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
@@ -435,7 +435,10 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.prefetch_related(
-            "dashboards", "dashboards__created_by", "dashboards__team", "dashboards__team__organization"
+            "dashboards",
+            "dashboards__created_by",
+            "dashboards__team",
+            "dashboards__team__organization",
         )
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":

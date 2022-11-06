@@ -126,9 +126,10 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 }
                 return response
             },
-            deleteDashboard: async ({ id }) =>
+            deleteDashboard: async ({ id, deleteInsights }) =>
                 (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                     deleted: true,
+                    ...(deleteInsights ? { deleteInsights: true } : {}),
                 })) as DashboardType,
             restoreDashboard: async ({ id }) =>
                 (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
