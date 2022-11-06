@@ -287,7 +287,7 @@ jobs:
                   $DOCKER_RUN ./bin/docker-server &> /tmp/logs/server.txt &
 
             - name: Cypress run
-              uses: cypress-io/github-action@v2
+              uses: cypress-io/github-action@v4
               with:
                   config-file: cypress.e2e.config.ts
                   config: retries=2
