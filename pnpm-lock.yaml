@@ -133,8 +133,10 @@ specifiers:
   prop-types: ^15.7.2
   query-selector-shadow-dom: ^1.0.0
   raw-loader: ^4.0.2
-  rc-picker: ^2.6.11
-  rc-select: ^14.1.13
+  rc-field-form: ~1.21.0
+  rc-picker: ~2.5.17
+  rc-select: ~13.1.0-alpha.0
+  rc-table: ~7.19.0
   rc-trigger: ^5.2.5
   react: ^16.14.0
   react-dom: ^16.14.0
@@ -219,8 +221,10 @@ dependencies:
   posthog-js-lite: 2.0.0-alpha5
   prop-types: 15.8.1
   query-selector-shadow-dom: 1.0.0
-  rc-picker: 2.6.11_wcqkhtmu7mswc6yz4uyexck3ty
-  rc-select: 14.1.13_wcqkhtmu7mswc6yz4uyexck3ty
+  rc-field-form: 1.21.2_wcqkhtmu7mswc6yz4uyexck3ty
+  rc-picker: 2.5.19_wcqkhtmu7mswc6yz4uyexck3ty
+  rc-select: 13.1.1_wcqkhtmu7mswc6yz4uyexck3ty
+  rc-table: 7.19.2_wcqkhtmu7mswc6yz4uyexck3ty
   rc-trigger: 5.3.3_wcqkhtmu7mswc6yz4uyexck3ty
   react: 16.14.0
   react-dom: 16.14.0_react@16.14.0
@@ -5445,8 +5449,8 @@ packages:
     dev: true
     optional: true
 
-  /async-validator/4.0.7:
-    resolution: {integrity: sha512-Pj2IR7u8hmUEDOwB++su6baaRi+QvsgajuFB9j95foM1N2gy5HM4z60hfusIO0fBPG5uLAEl6yCJr1jNSVugEQ==}
+  /async-validator/4.2.5:
+    resolution: {integrity: sha512-7HhHjtERjqlNbZtqNqy2rckN/SpOOlmDliet+lP7k+eKZEjPk3DgyeU9lIXLdeLz0uBbbVp+9Qdow9wJWgwwfg==}
     dev: false
 
   /async/3.2.4:
@@ -14046,7 +14050,7 @@ packages:
       react-dom: '>= 16.9.0'
     dependencies:
       '@babel/runtime': 7.20.1
-      async-validator: 4.0.7
+      async-validator: 4.2.5
       rc-util: 5.24.4_wcqkhtmu7mswc6yz4uyexck3ty
       react: 16.14.0
       react-dom: 16.14.0_react@16.14.0
@@ -14185,25 +14189,6 @@ packages:
       shallowequal: 1.1.0
     dev: false
 
-  /rc-picker/2.6.11_wcqkhtmu7mswc6yz4uyexck3ty:
-    resolution: {integrity: sha512-INJ7ULu+Kj4UgqbcqE8Q+QpMw55xFf9kkyLBHJFk0ihjJpAV4glialRfqHE7k4KX2BWYPQfpILwhwR14x2EiRQ==}
-    engines: {node: '>=8.x'}
-    peerDependencies:
-      react: '>=16.9.0'
-      react-dom: '>=16.9.0'
-    dependencies:
-      '@babel/runtime': 7.20.1
-      classnames: 2.3.2
-      date-fns: 2.29.3
-      dayjs: 1.11.6
-      moment: 2.29.4
-      rc-trigger: 5.3.3_wcqkhtmu7mswc6yz4uyexck3ty
-      rc-util: 5.24.4_wcqkhtmu7mswc6yz4uyexck3ty
-      react: 16.14.0
-      react-dom: 16.14.0_react@16.14.0
-      shallowequal: 1.1.0
-    dev: false
-
   /rc-progress/3.1.3_wcqkhtmu7mswc6yz4uyexck3ty:
     resolution: {integrity: sha512-Jl4fzbBExHYMoC6HBPzel0a9VmhcSXx24LVt/mdhDM90MuzoMCJjXZAlhA0V0CJi+SKjMhfBoIQ6Lla1nD4QNw==}
     peerDependencies:
@@ -14260,24 +14245,6 @@ packages:
 
   /rc-select/13.1.1_wcqkhtmu7mswc6yz4uyexck3ty:
     resolution: {integrity: sha512-Oy4L27x5QgGR8902pw0bJVjrTWFnKPKvdLHzJl5pjiA+jM1hpzDfLGg/bY2ntk5ElxxQKZUwbFKUeqfCQU7SrQ==}
-    engines: {node: '>=8.x'}
-    peerDependencies:
-      react: '*'
-      react-dom: '*'
-    dependencies:
-      '@babel/runtime': 7.20.1
-      classnames: 2.3.2
-      rc-motion: 2.6.2_wcqkhtmu7mswc6yz4uyexck3ty
-      rc-overflow: 1.2.8_wcqkhtmu7mswc6yz4uyexck3ty
-      rc-trigger: 5.3.3_wcqkhtmu7mswc6yz4uyexck3ty
-      rc-util: 5.24.4_wcqkhtmu7mswc6yz4uyexck3ty
-      rc-virtual-list: 3.4.11_wcqkhtmu7mswc6yz4uyexck3ty
-      react: 16.14.0
-      react-dom: 16.14.0_react@16.14.0
-    dev: false
-
-  /rc-select/14.1.13_wcqkhtmu7mswc6yz4uyexck3ty:
-    resolution: {integrity: sha512-WMEsC3gTwA1dbzWOdVIXDmWyidYNLq68AwvvUlRROw790uGUly0/vmqDozXrIr0QvN/A3CEULx12o+WtLCAefg==}
     engines: {node: '>=8.x'}
     peerDependencies:
       react: '*'
