@@ -363,7 +363,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert len(dashboard_before_delete["tiles"]) == 1
 
         self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/", {"deleted": True, "deleteInsights": True}
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/", {"deleted": True, "delete_insights": True}
         )
 
         self.dashboard_api.get_insight(insight_id, self.team.id, expected_status=status.HTTP_404_NOT_FOUND)

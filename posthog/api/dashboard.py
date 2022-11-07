@@ -78,6 +78,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
+    delete_insights = serializers.BooleanField(write_only=True, required=False, default=False)
     effective_privilege_level = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
 
@@ -96,6 +97,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             "creation_mode",
             "use_template",
             "use_dashboard",
+            "delete_insights",
             "filters",
             "tags",
             "tiles",
@@ -129,6 +131,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         team = Team.objects.get(id=self.context["team_id"])
         use_template: str = validated_data.pop("use_template", None)
         use_dashboard: int = validated_data.pop("use_dashboard", None)
+        validated_data.pop("delete_insights", None)  # not used during creation
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
         dashboard = Dashboard.objects.create(team=team, **validated_data)
@@ -221,7 +224,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         instance = super().update(instance, validated_data)
 
         if validated_data.get("deleted", False):
-            if self.initial_data.get("deleteInsights", False):
+            if self.validated_data.get("delete_insights", False):
                 Insight.objects.filter(dashboard_tiles__dashboard=instance.id).update(deleted=True)
 
             DashboardTile.objects.filter(dashboard__id=instance.id).delete()
