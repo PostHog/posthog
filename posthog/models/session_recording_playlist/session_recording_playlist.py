@@ -8,14 +8,22 @@ class SessionRecordingPlaylist(models.Model):
 
     short_id: models.CharField = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    derived_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     description: models.TextField = models.TextField(blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     pinned: models.BooleanField = models.BooleanField(default=False)
     deleted: models.BooleanField = models.BooleanField(default=False)
+    saved: models.BooleanField = models.BooleanField(default=False)
     filters: models.JSONField = models.JSONField(default=dict)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     last_modified_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
+    last_modified_by: models.ForeignKey = models.ForeignKey(
+        "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_recordings"
+    )
+
+    # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
+    MATERIAL_PLAYLIST_FIELDS = {"name", "description", "filters"}
 
     class Meta:
         unique_together = ("team", "short_id")

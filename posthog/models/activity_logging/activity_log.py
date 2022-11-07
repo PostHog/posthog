@@ -130,6 +130,7 @@ field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] =
         "insightviewed",
         "dashboardtile",
     ],
+    "SessionRecordingPlaylist": ["id", "short_id", "created_at", "created_by", "last_modified_at", "last_modified_by"],
 }
 
 
@@ -158,7 +159,7 @@ def _read_through_relation(relation: models.Manager) -> List[Union[Dict, str]]:
 
 
 def changes_between(
-    model_type: Literal["FeatureFlag", "Person", "Insight"],
+    model_type: Literal["FeatureFlag", "Person", "Insight", "SessionRecordingPlaylist"],
     previous: Optional[models.Model],
     current: Optional[models.Model],
 ) -> List[Change]:
