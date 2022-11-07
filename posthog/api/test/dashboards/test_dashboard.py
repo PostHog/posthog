@@ -95,6 +95,19 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.name, "dashboard new name")
 
+    def test_cannot_update_dashboard_with_invalid_filters(self):
+        dashboard = Dashboard.objects.create(
+            team=self.team, name="private dashboard", created_by=self.user, creation_mode="template"
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
+            {"filters": [{"key": "brand", "value": ["1"], "operator": "exact", "type": "event"}]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.filters, {})
+
     def test_create_dashboard_item(self):
         dashboard = Dashboard.objects.create(team=self.team, name="public dashboard")
         self._create_insight(
