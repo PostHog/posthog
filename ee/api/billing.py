@@ -166,7 +166,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
             for product in response["products"] + response["products_enterprise"]:
                 if calculated_usage and product["type"] in calculated_usage:
-                    product["current_usage"] = calculated_usage[product["type"]] + 2000000  # TODO Remove this
+                    product["current_usage"] = calculated_usage[product["type"]]
                 else:
                     product["current_usage"] = 0
 
@@ -226,7 +226,7 @@ class BillingViewset(viewsets.GenericViewSet):
             redirect_path = redirect_path[1:]
 
         redirect_uri = f"{settings.SITE_URL or request.headers.get('Host')}/{redirect_path}"
-        url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}&plan={request.GET.get('plan', 'standard')}"
+        url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}&plan={request.GET.get('plan', self._default_plan_for_organization(organization))}"
 
         if license:
             billing_service_token = build_billing_token(license, organization)
@@ -281,18 +281,16 @@ class BillingViewset(viewsets.GenericViewSet):
 
     def _get_products(self, license: Optional[License], organization: Optional[Organization]):
         headers = {}
+        params = {}
 
         if license and organization:
             billing_service_token = build_billing_token(license, organization)
             headers = {"Authorization": f"Bearer {billing_service_token}"}
+            params = {"plan": self._default_plan_for_organization(organization)}
 
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/products",
-            params={
-                "plan": "earlybird"
-                if organization and organization.created_at > datetime(2022, 11, 1, tzinfo=timezone.utc)
-                else "standard"
-            },
+            params=params,
             headers=headers,
         )
 
@@ -336,6 +334,13 @@ class BillingViewset(viewsets.GenericViewSet):
             license.save()
 
         return license
+
+    def _default_plan_for_organization(self, organization: Organization) -> str:
+        return (
+            "standard"
+            if organization and organization.created_at > datetime(2022, 11, 1, tzinfo=timezone.utc)
+            else "earlybird"
+        )
 
     def _update_org_details(self, organization: Organization, data: Dict[str, Any]) -> Organization:
         """

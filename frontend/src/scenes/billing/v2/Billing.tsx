@@ -324,7 +324,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                             {showFreeAllocationLimit ? <div>(Subscribed)</div> : null}
                         </>
                     ),
-                    color: billing?.has_active_subscription ? 'success-light' : 'success-highlight',
+                    color: !showFreeAllocationLimit ? 'success-light' : 'success-highlight',
                     value: product.tiers?.[0]?.up_to || 0,
                     top: true,
                 },
