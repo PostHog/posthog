@@ -6,6 +6,7 @@ from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property.util import get_property_string_expr
+from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
@@ -65,6 +66,7 @@ class TrendsEventQuery(EventQuery):
             for column_name in sorted(self._column_optimizer.person_on_event_columns_to_query):
                 _fields += f', {self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
 
+        if self._using_person_on_events and groups_on_events_querying_enabled():
             for column_name in sorted(self._column_optimizer.group_on_event_columns_to_query):
                 _fields += f', {self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
 

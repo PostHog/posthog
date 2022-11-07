@@ -37,6 +37,7 @@ from posthog.models.property import (
     PropertyIdentifier,
     PropertyName,
 )
+from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.session_query import SessionQuery
@@ -258,7 +259,11 @@ def parse_prop_clauses(
             if query:
                 final.append(f"{property_operator} {query}")
                 params.update(filter_params)
-        elif prop.type == "group" and person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+        elif (
+            prop.type == "group"
+            and person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS
+            and groups_on_events_querying_enabled()
+        ):
             group_column = f"group{prop.group_type_index}_properties"
             filter_query, filter_params = prop_filter_json_extract(
                 prop,
@@ -614,7 +619,11 @@ def get_property_string_expr(
 
     table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
 
-    if allow_denormalized_props and (property_name, materialised_table_column) in materialized_columns:
+    if (
+        allow_denormalized_props
+        and (property_name, materialised_table_column) in materialized_columns
+        and ("group" not in materialised_table_column or groups_on_events_querying_enabled())
+    ):
         return f'{table_string}"{materialized_columns[(property_name, materialised_table_column)]}"', True
 
     return trim_quotes_expr(f"JSONExtractRaw({table_string}{column}, {var})"), False
