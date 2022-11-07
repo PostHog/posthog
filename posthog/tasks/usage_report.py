@@ -370,6 +370,7 @@ def send_all_org_usage_reports(
     at: Optional[str] = None,
     capture_event_name: Optional[str] = None,
     skip_capture_event: bool = False,
+    only_organization_id: str = None,
 ) -> List[dict]:  # Dict[str, OrgReport]:
     pha_client = Client("sTMFPsFhdP1Ssg")
     capture_event_name = capture_event_name or "organization usage report"
@@ -487,6 +488,11 @@ def send_all_org_usage_reports(
     all_reports = []
 
     for org_report in org_reports.values():
+        org_id = org_report.organization_id
+
+        if only_organization_id and only_organization_id != org_id:
+            continue
+
         full_report = FullUsageReport(
             **dataclasses.asdict(org_report),
             **dataclasses.asdict(instance_metadata),
@@ -496,8 +502,6 @@ def send_all_org_usage_reports(
 
         if dry_run:
             continue
-
-        org_id = org_report.organization_id
 
         # First capture the events to PostHog
         try:
