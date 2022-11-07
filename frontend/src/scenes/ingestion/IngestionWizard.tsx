@@ -4,7 +4,7 @@ import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IngestionWizardV2 } from './v2/IngestionWizard'
-import { IngestionWizardV1 } from './IngestionWizardV1'
+import { IngestionWizardV1 } from './v1/IngestionWizard'
 import { SceneExport } from 'scenes/sceneTypes'
 
 export const scene: SceneExport = {

@@ -1,5 +1,5 @@
 import './InstructionsPanel.scss'
-import { CardContainer } from 'scenes/ingestion/CardContainer'
+import { CardContainer } from 'scenes/ingestion/v1/CardContainer'
 import {
     AndroidInstructions,
     APIInstructions,
@@ -12,10 +12,10 @@ import {
     PythonInstructions,
     RNInstructions,
     RubyInstructions,
-} from 'scenes/ingestion/frameworks'
-import { API, MOBILE, BACKEND, WEB } from 'scenes/ingestion/constants'
+} from 'scenes/ingestion/v1/frameworks'
+import { API, MOBILE, BACKEND, WEB } from 'scenes/ingestion/v1/constants'
 import { useValues } from 'kea'
-import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
+import { ingestionLogic } from 'scenes/ingestion/v1/ingestionLogic'
 import { WebInstructions } from '../frameworks/WebInstructions'
 
 const frameworksSnippet: Record<string, React.ComponentType> = {

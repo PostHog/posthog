@@ -7,4 +7,4 @@ export default {
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
 } as Meta
 
-export const Ingestion = (): JSX.Element => <IngestionWizardV2 />
+export const IngestionV2 = (): JSX.Element => <IngestionWizardV2 />

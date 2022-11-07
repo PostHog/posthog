@@ -1,5 +1,5 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { Framework, PlatformType } from 'scenes/ingestion/types'
+import { Framework, PlatformType } from 'scenes/ingestion/v1/types'
 import {
     API,
     MOBILE,
@@ -9,7 +9,7 @@ import {
     thirdPartySources,
     THIRD_PARTY,
     ThirdPartySource,
-} from 'scenes/ingestion/constants'
+} from 'scenes/ingestion/v1/constants'
 import type { ingestionLogicType } from './ingestionLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
