@@ -452,7 +452,7 @@ def send_all_org_usage_reports(
         )
 
         if team.organization.id not in org_reports:
-            orgs_by_id[team.organization.id] = team.organization
+            orgs_by_id[str(team.organization.id)] = team.organization
 
             org_report = OrgReport(
                 date=period_start.strftime("%Y-%m-%d"),
@@ -491,7 +491,7 @@ def send_all_org_usage_reports(
         if dry_run:
             continue
 
-        org_id = str(org_report.organization_id)
+        org_id = org_report.organization_id
 
         # First capture the events to PostHog
         try:
@@ -506,10 +506,10 @@ def send_all_org_usage_reports(
 
         # Then capture the events to Billing
         try:
-            send_report_to_billing_service(orgs_by_id[team.organization.id], full_report_dict)
+            send_report_to_billing_service(orgs_by_id[org_id], full_report_dict)
             logger.info(f"UsageReport sent to Billing for organization {org_id}")
         except Exception as err:
-            logger.error(f"UsageReport sent to Billing for organization {org_id} failed: {err}")
+            logger.error(f"UsageReport failed sending to Billing for organization {org_id}: {err}")
             capture_exception(err)
             capture_event(pha_client, f"{capture_event_name} to billing service failure", org_id, {"err": str(err)})
 

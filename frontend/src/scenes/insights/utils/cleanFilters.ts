@@ -134,6 +134,7 @@ export function cleanFilters(
             ...(filters.funnel_step ? { funnel_step: filters.funnel_step } : {}),
             ...(filters.funnel_from_step ? { funnel_from_step: filters.funnel_from_step } : {}),
             ...(filters.funnel_to_step ? { funnel_to_step: filters.funnel_to_step } : {}),
+            ...(filters.funnel_step_reference ? { funnel_step_reference: filters.funnel_step_reference } : {}),
             ...(filters.funnel_viz_type
                 ? { funnel_viz_type: filters.funnel_viz_type }
                 : { funnel_viz_type: FunnelVizType.Steps }),

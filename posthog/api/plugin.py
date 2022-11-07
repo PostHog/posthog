@@ -261,6 +261,8 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        queryset = queryset.select_related("organization")
+
         if self.action == "get" or self.action == "list":
             if can_install_plugins(self.organization) or can_configure_plugins(self.organization):
                 return queryset

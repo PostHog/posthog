@@ -41,6 +41,7 @@ import { allOperatorsToHumanName } from 'lib/components/DefinitionPopup/utils'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
 import { cohortsModel } from '~/models/cohortsModel'
+import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagRecordings } from './FeatureFlagRecordingsCard'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { EventsTable } from 'scenes/events'
@@ -229,6 +230,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         <FeatureFlagRollout />
                         <Divider />
                         <FeatureFlagReleaseConditions />
+                        <Divider />
+                        {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && <FeatureFlagAutoRollback />}
                         <LemonDivider className="mt-8" />
                         <div className="flex items-center gap-2 justify-end">
                             <LemonButton
@@ -329,6 +332,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <Col span={13}>
                                                 <FeatureFlagRollout readOnly />
                                                 <FeatureFlagReleaseConditions readOnly />
+                                                {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
+                                                    <FeatureFlagAutoRollback readOnly />
+                                                )}
                                             </Col>
                                             <Col span={11} className="pl-4">
                                                 <RecentFeatureFlagInsights />

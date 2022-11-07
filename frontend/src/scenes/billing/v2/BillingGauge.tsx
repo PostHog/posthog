@@ -47,7 +47,7 @@ export type BillingGaugeProps = {
 export function BillingGauge({ items }: BillingGaugeProps): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const maxScale = useMemo(() => {
-        return Math.max(100, ...items.map((item) => item.value)) * 1.2
+        return Math.max(100, ...items.map((item) => item.value)) * 1.3
     }, [items])
 
     useEffect(() => {

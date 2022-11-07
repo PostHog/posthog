@@ -24,7 +24,12 @@ export function Billing(): JSX.Element {
     }
 
     if (billingVersion === 'v2') {
-        return <BillingV2 />
+        return (
+            <div>
+                <PageHeader title="Billing &amp; usage" />
+                <BillingV2 />
+            </div>
+        )
     }
 
     return (

@@ -1,5 +1,6 @@
 import json
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, Literal, Optional, Tuple
+from unittest.mock import MagicMock
 
 from dateutil import parser
 from django.utils import timezone
@@ -7,13 +8,13 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.api.dashboard import DashboardSerializer
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-from posthog.test.db_context_capturing import capture_db_queries
 from posthog.utils import generate_cache_key
 
 
@@ -94,6 +95,19 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.name, "dashboard new name")
 
+    def test_cannot_update_dashboard_with_invalid_filters(self):
+        dashboard = Dashboard.objects.create(
+            team=self.team, name="private dashboard", created_by=self.user, creation_mode="template"
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
+            {"filters": [{"key": "brand", "value": ["1"], "operator": "exact", "type": "event"}]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.filters, {})
+
     def test_create_dashboard_item(self):
         dashboard = Dashboard.objects.create(team=self.team, name="public dashboard")
         self._create_insight(
@@ -148,34 +162,26 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     @snapshot_postgres_queries
     def test_adding_insights_is_not_nplus1_for_gets(self):
         dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
-        dashboard_two_id, _ = self._create_dashboard({"name": "dashboard two"})
         filter_dict = {
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
             "insight": "TRENDS",
         }
 
-        query_counts: List[int] = []
-        queries: List[List[Dict[str, str]]] = []
+        with self.assertNumQueries(11):
+            self._get_dashboard(dashboard_id)
 
-        count, qs = self._get_dashboard_counting_queries(dashboard_id)
-        query_counts.append(count)
-        queries.append(qs)
+        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+        with self.assertNumQueries(19):
+            self._get_dashboard(dashboard_id)
 
-        # add insights to the dashboard and count how many queries to read the dashboard afterwards
-        for _ in range(5):
-            self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            count, qs = self._get_dashboard_counting_queries(dashboard_id)
-            query_counts.append(count)
-            queries.append(qs)
+        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+        with self.assertNumQueries(20):
+            self._get_dashboard(dashboard_id)
 
-        # fewer queries when loading dashboard with no insights
-        self.assertLess(query_counts[0], query_counts[1])
-        # then only climbs by three queries for each additional insight
-        self.assertTrue(
-            all(j - i == 3 for i, j in zip(query_counts[2:], query_counts[3:])),
-            f"received: {query_counts}",
-        )
+        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+        with self.assertNumQueries(21):
+            self._get_dashboard(dashboard_id)
 
     @snapshot_postgres_queries
     def test_listing_dashboards_is_not_nplus1(self) -> None:
@@ -361,6 +367,37 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         ).json()
         self.assertEqual(len(excludes_deleted_insights_response["tiles"]), 0)
         self.assertEqual(len(excludes_deleted_insights_response["tiles"]), 0)
+
+    def test_dashboard_insights_out_of_synch_with_tiles_are_not_shown(self):
+        """
+        regression test reported by customer, insight was deleted without deleting its tiles and was still shown
+        """
+        dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
+        insight_id, _ = self._create_insight(
+            {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard_id], "name": "some_item"}
+        )
+        out_of_synch_insight_id, _ = self._create_insight(
+            {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard_id], "name": "out of synch"}
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/").json()
+        self.assertEqual(len(response["tiles"]), 2)
+
+        Insight.objects.filter(id=out_of_synch_insight_id).update(deleted=True)
+        assert DashboardTile.objects.get(insight_id=out_of_synch_insight_id).deleted is None
+
+        excludes_deleted_insights_response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/"
+        ).json()
+        self.assertEqual(len(excludes_deleted_insights_response["tiles"]), 1)
+
+        # if loaded directly e.g. when shared/exported it doesn't use the ViewSet's queryset...
+        # so delete filtering needs to be in more places
+        dashboard = Dashboard.objects.get(id=dashboard_id)
+        mock_view = MagicMock()
+        mock_view.action = "retrieve"
+        dashboard_data = DashboardSerializer(dashboard, context={"view": mock_view, "request": MagicMock()}).data
+        assert len(dashboard_data["tiles"]) == 1
 
     def test_dashboard_insight_tiles_can_be_loaded_correct_context(self):
         dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
@@ -864,10 +901,3 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()
-
-    def _get_dashboard_counting_queries(self, dashboard_id: int) -> Tuple[int, List[Dict[str, str]]]:
-        with capture_db_queries() as capture_query_context:
-            self._get_dashboard(dashboard_id)
-
-            query_count = len(capture_query_context.captured_queries)
-            return query_count, capture_query_context.captured_queries

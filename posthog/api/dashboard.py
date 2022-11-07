@@ -2,7 +2,8 @@ import datetime
 import json
 from typing import Any, Dict, List, Optional, cast
 
-from django.db.models import Prefetch, Q, QuerySet
+import structlog
+from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from drf_spectacular.utils import extend_schema
@@ -25,6 +26,8 @@ from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import should_refresh
+
+logger = structlog.get_logger(__name__)
 
 
 class CanEditDashboard(BasePermission):
@@ -114,6 +117,12 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         return value
 
+    def validate_filters(self, value) -> Dict:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Filters must be a dictionary")
+
+        return value
+
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
@@ -127,7 +136,14 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         if use_template:
             try:
                 create_dashboard_from_template(use_template, dashboard)
-            except AttributeError:
+            except AttributeError as error:
+                logger.error(
+                    "dashboard_create.create_from_template_failed",
+                    team_id=team.id,
+                    template=use_template,
+                    error=error,
+                    exc_info=True,
+                )
                 raise serializers.ValidationError({"use_template": "Invalid value provided."})
 
         elif use_dashboard:
@@ -252,7 +268,9 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         serialized_tiles = []
 
-        for tile in dashboard.tiles.exclude(deleted=True).all():
+        for tile in DashboardTile.dashboard_queryset(dashboard.tiles):
+            self.context.update({"dashboard_tile": tile})
+
             if isinstance(tile.layouts, str):
                 tile.layouts = json.loads(tile.layouts)
             self.context.update({"filters_hash": tile.filters_hash})
@@ -271,6 +289,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         insights = []
         for tile in dashboard.tiles.all():
+            self.context.update({"dashboard_tile": tile})
             if tile.insight:
                 insight = tile.insight
                 layouts = tile.layouts
@@ -332,17 +351,8 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
         )
 
         if self.action != "list":
-            tiles_prefetch_queryset = (
-                DashboardTile.objects.select_related(
-                    "insight",
-                    "text",
-                    "insight__created_by",
-                    "insight__last_modified_by",
-                )
-                .exclude(deleted=True)
-                .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
-                .prefetch_related("insight__dashboards__team__organization")
-                .order_by("insight__order")
+            tiles_prefetch_queryset = DashboardTile.dashboard_queryset(
+                DashboardTile.objects.prefetch_related("insight__dashboards__team__organization")
             )
             try:
                 dashboard_id = self.kwargs["pk"]

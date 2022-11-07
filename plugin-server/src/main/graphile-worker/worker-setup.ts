@@ -4,17 +4,22 @@ import { CronItem, TaskList } from 'graphile-worker'
 import { EnqueuedPluginJob, Hub } from '../../types'
 import { status } from '../../utils/status'
 import { pauseQueueIfWorkerFull } from '../ingestion-queues/queue'
+import { GraphileWorker } from './graphile-worker'
 import { loadPluginSchedule, runScheduledTasks } from './schedule'
 
-export async function startGraphileWorker(hub: Hub, piscina: Piscina): Promise<Error | undefined> {
+export async function startGraphileWorker(hub: Hub, graphileWorker: GraphileWorker, piscina: Piscina) {
     status.info('🔄', 'Starting Graphile Worker...')
+
+    piscina.on('drain', () => {
+        void graphileWorker.resumeConsumer()
+    })
 
     let jobHandlers: TaskList = {}
 
     const crontab: CronItem[] = []
 
     if (hub.capabilities.processPluginJobs) {
-        jobHandlers = { ...jobHandlers, ...getPluginJobHandlers(hub, piscina) }
+        jobHandlers = { ...jobHandlers, ...getPluginJobHandlers(hub, graphileWorker, piscina) }
         status.info('🔄', 'Graphile Worker: set up plugin job handlers ...')
     }
 
@@ -53,17 +58,14 @@ export async function startGraphileWorker(hub: Hub, piscina: Piscina): Promise<E
         status.info('🔄', 'Graphile Worker: set up scheduled task handlers...')
     }
 
-    try {
-        await hub.graphileWorker.start(jobHandlers, crontab)
-    } catch (error) {
-        return error
-    }
+    await graphileWorker.start(jobHandlers, crontab)
+    return graphileWorker
 }
 
-export function getPluginJobHandlers(hub: Hub, piscina: Piscina): TaskList {
+export function getPluginJobHandlers(hub: Hub, graphileWorker: GraphileWorker, piscina: Piscina): TaskList {
     const pluginJobHandlers: TaskList = {
         pluginJob: async (job) => {
-            pauseQueueIfWorkerFull(() => hub.graphileWorker.pause(), hub, piscina)
+            pauseQueueIfWorkerFull(() => graphileWorker.pause(), hub, piscina)
             hub.statsd?.increment('triggered_job', {
                 instanceId: hub.instanceId.toString(),
             })

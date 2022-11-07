@@ -4,7 +4,6 @@ import { DateTime } from 'luxon'
 
 import { KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import {
-    ClickHouseTimestamp,
     Element,
     GroupTypeIndex,
     Hub,
@@ -214,18 +213,15 @@ export class EventsProcessor {
             uuid,
             event: safeClickhouseString(event),
             properties: JSON.stringify(properties ?? {}),
-            timestamp: castTimestampOrNow(timestamp, TimestampFormat.ClickHouse) as ClickHouseTimestamp,
+            timestamp: castTimestampOrNow(timestamp, TimestampFormat.ClickHouse),
             team_id: teamId,
             distinct_id: safeClickhouseString(distinctId),
             elements_chain: safeClickhouseString(elementsChain),
-            created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse) as ClickHouseTimestamp,
+            created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
             person_id: personInfo?.uuid,
             person_properties: eventPersonProperties ?? undefined,
             person_created_at: personInfo
-                ? (castTimestampOrNow(
-                      personInfo?.created_at,
-                      TimestampFormat.ClickHouseSecondPrecision
-                  ) as ClickHouseTimestamp)
+                ? castTimestampOrNow(personInfo?.created_at, TimestampFormat.ClickHouseSecondPrecision)
                 : undefined,
             ...groupsColumns,
         }
@@ -254,10 +250,7 @@ export class EventsProcessor {
         properties: Properties,
         ip: string | null
     ): Promise<PostIngestionEvent> {
-        const timestampString = castTimestampOrNow(
-            timestamp,
-            this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
-        )
+        const timestampString = castTimestampOrNow(timestamp, TimestampFormat.ClickHouse)
 
         const data: RawSessionRecordingEvent = {
             uuid,

@@ -19,6 +19,7 @@ export enum Scene {
     EventPropertyDefinition = 'EventPropertyDefinition',
     IngestionWarnings = 'IngestionWarnings',
     SessionRecordings = 'SessionsRecordings',
+    SessionRecording = 'SessionRecording',
     Person = 'Person',
     Persons = 'Persons',
     Groups = 'Groups',

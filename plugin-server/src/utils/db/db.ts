@@ -1713,7 +1713,7 @@ export class DB {
         if (options?.cache) {
             await this.updateGroupCache(teamId, groupTypeIndex, groupKey, {
                 properties: groupProperties,
-                created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse) as ClickHouseTimestamp,
+                created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse),
             })
         }
     }
@@ -1755,7 +1755,7 @@ export class DB {
 
         await this.updateGroupCache(teamId, groupTypeIndex, groupKey, {
             properties: groupProperties,
-            created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse) as ClickHouseTimestamp,
+            created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse),
         })
     }
 
