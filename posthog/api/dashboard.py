@@ -219,6 +219,15 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         validated_data.pop("use_template", None)  # Remove attribute if present
 
+        if instance.deleted and "deleted" in validated_data and not validated_data["deleted"]:
+            DashboardTile.objects.filter(dashboard__id=instance.id).update(deleted=False)
+            insights_to_undelete = []
+            for tile in DashboardTile.objects.filter(dashboard__id=instance.id):
+                if tile.insight and tile.insight.deleted:
+                    tile.insight.deleted = False
+                    insights_to_undelete.append(tile.insight)
+            Insight.objects.bulk_update(insights_to_undelete, ["deleted"])
+
         initial_data = dict(self.initial_data)
 
         instance = super().update(instance, validated_data)
@@ -233,10 +242,10 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
                 Insight.objects.bulk_update(insights_to_update, ["deleted"])
 
-            DashboardTile.objects.filter(dashboard__id=instance.id).delete()
+            DashboardTile.objects.filter(dashboard__id=instance.id).update(deleted=True)
 
-        tile = initial_data.pop("tiles", [])
-        for tile_data in tile:
+        tiles = initial_data.pop("tiles", [])
+        for tile_data in tiles:
             if tile_data.get("text", None):
                 text_json = tile_data.get("text")
                 created_by_json = text_json.get("created_by", None)
@@ -364,7 +373,16 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
 
         if self.action != "list":
             tiles_prefetch_queryset = DashboardTile.dashboard_queryset(
-                DashboardTile.objects.prefetch_related("insight__dashboards__team__organization")
+                DashboardTile.objects.prefetch_related(
+                    Prefetch(
+                        "insight__dashboards",
+                        queryset=Dashboard.objects.exclude(deleted=True)
+                        .filter(
+                            id__in=DashboardTile.objects.exclude(deleted=True).values_list("dashboard_id", flat=True)
+                        )
+                        .select_related("team__organization"),
+                    ),
+                )
             )
             try:
                 dashboard_id = self.kwargs["pk"]
@@ -378,7 +396,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
                 Prefetch(
                     "tiles",
                     queryset=tiles_prefetch_queryset,
-                )
+                ),
             )
 
         return queryset

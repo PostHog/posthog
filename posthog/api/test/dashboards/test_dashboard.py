@@ -172,15 +172,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             self._get_dashboard(dashboard_id)
 
         self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(19):
+        with self.assertNumQueries(15):
             self._get_dashboard(dashboard_id)
 
         self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(20):
+        with self.assertNumQueries(16):
             self._get_dashboard(dashboard_id)
 
         self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(17):
             self._get_dashboard(dashboard_id)
 
     @snapshot_postgres_queries
@@ -813,6 +813,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_soft_delete_can_be_reversed_with_patch(self) -> None:
         dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+        self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
+        self.dashboard_api.create_text_tile(dashboard_id)
+
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, expected_status=status.HTTP_200_OK)
+        self.assertEqual(len(dashboard_json["tiles"]), 2, dashboard_json["tiles"])
 
         self._soft_delete(dashboard_id, "dashboards")
 
@@ -821,9 +826,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
-        self.assertEqual(
-            self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").status_code, status.HTTP_200_OK
-        )
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, expected_status=status.HTTP_200_OK)
+        self.assertEqual(len(dashboard_json["tiles"]), 2, dashboard_json["tiles"])
 
     def test_soft_delete_does_not_delete_tiles(self) -> None:
         dashboard_id, _ = self._create_dashboard({"name": "to delete"})
@@ -883,11 +887,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self._soft_delete(dashboard_one_id, "dashboards")
 
-        dashboard_two_json = self._get_dashboard(dashboard_two_id)
-        assert dashboard_two_json["tiles"][0]["insight"]["dashboards"] == [dashboard_two_id]
-
         insight_after_dashboard_deletion = self._get_insight(insight_id)
         assert insight_after_dashboard_deletion["dashboards"] == [dashboard_two_id]
+
+        dashboard_two_json = self._get_dashboard(dashboard_two_id)
+        expected_dashboards_on_insight = dashboard_two_json["tiles"][0]["insight"]["dashboards"]
+        assert expected_dashboards_on_insight == [dashboard_two_id]
 
     def _soft_delete(
         self,

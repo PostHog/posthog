@@ -3,7 +3,7 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional, Type
 
 import structlog
-from django.db.models import Count, OuterRef, QuerySet, Subquery
+from django.db.models import Count, OuterRef, Prefetch, QuerySet, Subquery
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
@@ -215,6 +215,11 @@ class InsightSerializer(InsightBasicSerializer):
     @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:
         dashboard_tile: Optional[DashboardTile] = self.context.get("dashboard_tile", None)
+
+        if dashboard_tile and dashboard_tile.deleted:
+            self.context.update({"dashboard_tile": None})
+            dashboard_tile = None
+
         if not dashboard_tile and dashboard:
             dashboard_tile = DashboardTile.dashboard_queryset(
                 DashboardTile.objects.filter(insight=insight, dashboard=dashboard)
@@ -435,11 +440,17 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.prefetch_related(
-            "dashboards",
+            Prefetch(
+                "dashboards",
+                queryset=Dashboard.objects.exclude(deleted=True).filter(
+                    id__in=DashboardTile.objects.exclude(deleted=True).values_list("dashboard_id", flat=True)
+                ),
+            ),
             "dashboards__created_by",
             "dashboards__team",
             "dashboards__team__organization",
         )
+
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
