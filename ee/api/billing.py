@@ -226,8 +226,13 @@ class BillingViewset(viewsets.GenericViewSet):
         if redirect_path.startswith("/"):
             redirect_path = redirect_path[1:]
 
+        plan = request.GET.get("plan", "standard")
+
+        if plan == "standard":
+            plan = self._default_plan_for_organization(organization)
+
         redirect_uri = f"{settings.SITE_URL or request.headers.get('Host')}/{redirect_path}"
-        url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}&plan={request.GET.get('plan', self._default_plan_for_organization(organization))}"
+        url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}&plan={plan}"
 
         if license:
             billing_service_token = build_billing_token(license, organization)
