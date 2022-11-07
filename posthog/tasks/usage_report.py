@@ -507,7 +507,7 @@ def send_all_org_usage_reports(
         try:
             if not skip_capture_event:
                 capture_event(pha_client, capture_event_name, org_id, full_report_dict, timestamp=at_date)
-            logger.info(f"UsageReport sent to PostHog for organization {org_id}")
+                logger.info(f"UsageReport sent to PostHog for organization {org_id}")
         except Exception as err:
             logger.error(
                 f"UsageReport sent to PostHog for organization {org_id} failed: {str(err)}",

@@ -231,6 +231,7 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
 
 const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { billing, billingLoading } = useValues(billingLogic)
+    const { preflight } = useValues(preflightLogic)
     const { updateBillingLimits } = useActions(billingLogic)
     const [tierAmountType, setTierAmountType] = useState<'individual' | 'total'>('individual')
 
@@ -387,6 +388,8 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
         tierDisplayOptions.push({ label: `Current bill`, value: 'total' })
     }
 
+    const showBillingLimits = product.tiered && preflight?.cloud
+
     return (
         <div
             className={clsx('flex flex-wrap', {
@@ -430,84 +433,86 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                             : '0.00'}
                                     </div>
                                 </div>
-                                <div className="space-y-2">
-                                    <LemonLabel
-                                        info={
-                                            <>
-                                                Set a billing limit to control your recurring costs.{' '}
-                                                <b>
-                                                    Your critical data will still be ingested and available in the
-                                                    product
-                                                </b>
-                                                . Some features may stop working if your usage greatly exceeds your
-                                                billing cap.
-                                            </>
-                                        }
-                                    >
-                                        Billing limit
-                                    </LemonLabel>
-                                    <div className="flex items-center gap-1">
-                                        {!isEditingBillingLimit ? (
-                                            <>
-                                                <div
-                                                    className={clsx(
-                                                        'text-muted font-semibold mr-2',
-                                                        customLimitUsd && 'text-2xl'
-                                                    )}
-                                                >
-                                                    {customLimitUsd ? `$${customLimitUsd}` : 'No limit'}
-                                                </div>
-                                                <LemonButton
-                                                    icon={<IconEdit />}
-                                                    status="primary-alt"
-                                                    size="small"
-                                                    tooltip="Edit billing limit"
-                                                    onClick={() => setIsEditingBillingLimit(true)}
-                                                />
-                                                {customLimitUsd ? (
+                                {showBillingLimits ? (
+                                    <div className="space-y-2">
+                                        <LemonLabel
+                                            info={
+                                                <>
+                                                    Set a billing limit to control your recurring costs.{' '}
+                                                    <b>
+                                                        Your critical data will still be ingested and available in the
+                                                        product
+                                                    </b>
+                                                    . Some features may stop working if your usage greatly exceeds your
+                                                    billing cap.
+                                                </>
+                                            }
+                                        >
+                                            Billing limit
+                                        </LemonLabel>
+                                        <div className="flex items-center gap-1">
+                                            {!isEditingBillingLimit ? (
+                                                <>
+                                                    <div
+                                                        className={clsx(
+                                                            'text-muted font-semibold mr-2',
+                                                            customLimitUsd && 'text-2xl'
+                                                        )}
+                                                    >
+                                                        {customLimitUsd ? `$${customLimitUsd}` : 'No limit'}
+                                                    </div>
                                                     <LemonButton
-                                                        icon={<IconDelete />}
+                                                        icon={<IconEdit />}
                                                         status="primary-alt"
                                                         size="small"
-                                                        tooltip="Remove billing limit"
-                                                        onClick={() => updateBillingLimit(undefined)}
+                                                        tooltip="Edit billing limit"
+                                                        onClick={() => setIsEditingBillingLimit(true)}
                                                     />
-                                                ) : null}
-                                            </>
-                                        ) : (
-                                            <>
-                                                <div style={{ maxWidth: 180 }}>
-                                                    <LemonInput
-                                                        type="number"
-                                                        fullWidth={false}
-                                                        value={billingLimitInput}
-                                                        onChange={setBillingLimitInput}
-                                                        prefix={<b>$</b>}
-                                                        disabled={billingLoading}
-                                                        min={0}
-                                                        step={10}
-                                                        suffix={<>/month</>}
-                                                    />
-                                                </div>
+                                                    {customLimitUsd ? (
+                                                        <LemonButton
+                                                            icon={<IconDelete />}
+                                                            status="primary-alt"
+                                                            size="small"
+                                                            tooltip="Remove billing limit"
+                                                            onClick={() => updateBillingLimit(undefined)}
+                                                        />
+                                                    ) : null}
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <div style={{ maxWidth: 180 }}>
+                                                        <LemonInput
+                                                            type="number"
+                                                            fullWidth={false}
+                                                            value={billingLimitInput}
+                                                            onChange={setBillingLimitInput}
+                                                            prefix={<b>$</b>}
+                                                            disabled={billingLoading}
+                                                            min={0}
+                                                            step={10}
+                                                            suffix={<>/month</>}
+                                                        />
+                                                    </div>
 
-                                                <LemonButton
-                                                    onClick={() => setIsEditingBillingLimit(false)}
-                                                    disabled={billingLoading}
-                                                    type="secondary"
-                                                >
-                                                    Cancel
-                                                </LemonButton>
-                                                <LemonButton
-                                                    onClick={() => updateBillingLimit(billingLimitInput)}
-                                                    loading={billingLoading}
-                                                    type="primary"
-                                                >
-                                                    Save
-                                                </LemonButton>
-                                            </>
-                                        )}
+                                                    <LemonButton
+                                                        onClick={() => setIsEditingBillingLimit(false)}
+                                                        disabled={billingLoading}
+                                                        type="secondary"
+                                                    >
+                                                        Cancel
+                                                    </LemonButton>
+                                                    <LemonButton
+                                                        onClick={() => updateBillingLimit(billingLimitInput)}
+                                                        loading={billingLoading}
+                                                        type="primary"
+                                                    >
+                                                        Save
+                                                    </LemonButton>
+                                                </>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
+                                ) : null}
                                 <div className="flex-1" />
                             </>
                         )}
