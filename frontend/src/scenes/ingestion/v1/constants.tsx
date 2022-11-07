@@ -1,4 +1,4 @@
-import { PlatformType } from 'scenes/ingestion/v1/types'
+import { PlatformType } from 'scenes/ingestion/types'
 import { Segment } from './panels/ThirdPartyIcons'
 
 export const PLATFORM_TYPE = 'PLATFORM_TYPE'
