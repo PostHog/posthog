@@ -279,36 +279,7 @@ class InsightSerializer(InsightBasicSerializer):
         else:
             dashboards = validated_data.pop("dashboards", None)
             if dashboards is not None:
-                old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboard_tiles.exclude(deleted=True).all()]
-                new_dashboard_ids = [d.id for d in dashboards if not d.deleted]
-
-                ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
-                ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
-
-                # does this user have permission on dashboards to add... if they are restricted
-                # it will mean this dashboard becomes restricted because of the patch
-                candidate_dashboards = Dashboard.objects.filter(id__in=ids_to_add).exclude(deleted=True)
-                dashboard: Dashboard
-                for dashboard in candidate_dashboards:
-                    if (
-                        dashboard.get_effective_privilege_level(self.context["request"].user.id)
-                        == Dashboard.PrivilegeLevel.CAN_VIEW
-                    ):
-                        raise PermissionDenied(
-                            f"You don't have permission to add insights to dashboard: {dashboard.id}"
-                        )
-
-                for dashboard in candidate_dashboards:
-                    if dashboard.team != instance.team:
-                        raise serializers.ValidationError("Dashboard not found")
-                    DashboardTile.objects.create(insight=instance, dashboard=dashboard)
-
-                if ids_to_remove:
-                    DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).update(deleted=True)
-
-                # also update dashboards set so activity log can detect the change
-                changes_to_apply = [d for d in dashboards if not d.deleted]
-                instance.dashboards.set(changes_to_apply, clear=True)
+                self._update_insight_dashboards(dashboards, instance)
 
         updated_insight = super().update(instance, validated_data)
 
@@ -326,6 +297,31 @@ class InsightSerializer(InsightBasicSerializer):
         )
 
         return updated_insight
+
+    def _update_insight_dashboards(self, dashboards: List[Dashboard], instance: Insight) -> None:
+        old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboard_tiles.exclude(deleted=True).all()]
+        new_dashboard_ids = [d.id for d in dashboards if not d.deleted]
+        ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
+        ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
+        # does this user have permission on dashboards to add... if they are restricted
+        # it will mean this dashboard becomes restricted because of the patch
+        candidate_dashboards = Dashboard.objects.filter(id__in=ids_to_add).exclude(deleted=True)
+        dashboard: Dashboard
+        for dashboard in candidate_dashboards:
+            if (
+                dashboard.get_effective_privilege_level(self.context["request"].user.id)
+                == Dashboard.PrivilegeLevel.CAN_VIEW
+            ):
+                raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
+        for dashboard in candidate_dashboards:
+            if dashboard.team != instance.team:
+                raise serializers.ValidationError("Dashboard not found")
+            DashboardTile.objects.create(insight=instance, dashboard=dashboard)
+        if ids_to_remove:
+            DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).update(deleted=True)
+        # also update dashboards set so activity log can detect the change
+        changes_to_apply = [d for d in dashboards if not d.deleted]
+        instance.dashboards.set(changes_to_apply, clear=True)
 
     def get_result(self, insight: Insight):
         if not insight.filters:
