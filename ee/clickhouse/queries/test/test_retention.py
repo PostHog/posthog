@@ -150,12 +150,9 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(actor_result[1]["person"]["id"], "org:6")
         self.assertEqual(actor_result[1]["appearances"], [1, 1, 0, 1, 1, 0, 1])
 
-    @test_with_materialized_columns(group_properties=[(0, "industry")])
+    @test_with_materialized_columns(group_properties=[(0, "industry")], materialize_only_with_person_on_events=True)
     @snapshot_clickhouse_queries
     def test_groups_filtering_person_on_events(self):
-        from posthog.models.team import util
-
-        util.can_enable_person_on_events = True
         self._create_groups_and_events()
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):

@@ -2766,14 +2766,12 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
     @test_with_materialized_columns(
-        ["$current_url", "$screen_name"], group_properties=[(0, "industry"), (1, "industry")]
+        ["$current_url", "$screen_name"],
+        group_properties=[(0, "industry"), (1, "industry")],
+        materialize_only_with_person_on_events=True,
     )
     @snapshot_clickhouse_queries
     def test_path_groups_filtering_person_on_events(self):
-        from posthog.models.team import util
-
-        util.can_enable_person_on_events = True
-
         self._create_groups()
         # P1 for pageview event, org:5
         _create_person(team_id=self.team.pk, distinct_ids=["p1"])
