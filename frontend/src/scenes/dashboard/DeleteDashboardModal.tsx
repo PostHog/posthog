@@ -51,12 +51,7 @@ export function DeleteDashboardModal(): JSX.Element {
             >
                 <Field name="deleteInsights" help="This will remove them from all dashboards they are on.">
                     {({ value, onChange }) => (
-                        <LemonCheckbox
-                            checked={value}
-                            bordered
-                            label="Delete this dashboard's insights"
-                            onChange={onChange}
-                        />
+                        <LemonCheckbox checked={value} label="Delete this dashboard's insights" onChange={onChange} />
                     )}
                 </Field>
             </Form>
