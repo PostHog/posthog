@@ -79,7 +79,7 @@ export function DashboardHeader(): JSX.Element | null {
                             textTileId={textTileId}
                         />
                     )}
-                    {canEditDashboard && <DeleteDashboardModal dashboard={dashboard} />}
+                    {canEditDashboard && <DeleteDashboardModal />}
                 </>
             )}
 

@@ -5,17 +5,16 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { LemonModal } from 'lib/components/LemonModal'
 import { Form } from 'kea-forms'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
-import { DashboardType } from '~/types'
 import { Field } from 'lib/forms/Field'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 
-export function DeleteDashboardModal({ dashboard }: { dashboard?: DashboardType }): JSX.Element {
+export function DeleteDashboardModal(): JSX.Element {
     const { hideDeleteDashboardModal } = useActions(deleteDashboardLogic)
     const { isDeleteDashboardSubmitting, deleteDashboardModalVisible } = useValues(deleteDashboardLogic)
 
     return (
         <LemonModal
-            title={`Delete dashboard${dashboard && ` "${dashboard?.name}"`}`}
+            title={'Delete dashboard'}
             onClose={hideDeleteDashboardModal}
             isOpen={deleteDashboardModalVisible}
             footer={
