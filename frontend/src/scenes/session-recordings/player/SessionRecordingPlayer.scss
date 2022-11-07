@@ -20,7 +20,7 @@
         }
     }
 
-    &.SessionRecordingPlayer--fullscreen {
+    &--fullscreen {
         position: fixed;
         left: 0px;
         top: 0px;
@@ -38,6 +38,24 @@
             .PlayerFrame {
                 border-radius: 0px;
             }
+        }
+    }
+
+    .SessionRecordingPlayer__main,
+    .SessionRecordingPlayer__inspector {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    &--widescreen {
+        flex-direction: row;
+        overflow: hidden;
+
+        .SessionRecordingPlayer__inspector {
+            width: 450px;
+            flex-shrink: 0;
+            border-left: 1px solid var(--border);
         }
     }
 }
