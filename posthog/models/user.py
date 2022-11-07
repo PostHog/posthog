@@ -217,9 +217,9 @@ class User(AbstractUser, UUIDClassicModel):
                 from ee.api.role import DEFAULT_ROLE_NAME
                 from ee.models.role import Role, RoleMembership
 
-                default_role = Role.objects.filter(name=DEFAULT_ROLE_NAME, organization=organization)
+                default_role = Role.objects.filter(organization=organization, name=DEFAULT_ROLE_NAME)
                 if default_role.exists():
-                    RoleMembership.objects.create(role=default_role, user=self)
+                    RoleMembership.objects.create(role=default_role.first(), user=self)
 
             self.save()
 

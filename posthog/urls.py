@@ -41,7 +41,12 @@ try:
 except ImportError:
     pass
 else:
-    extend_api_router(router, projects_router=projects_router, project_dashboards_router=project_dashboards_router)
+    extend_api_router(
+        router,
+        projects_router=projects_router,
+        organizations_router=organizations_router,
+        project_dashboards_router=project_dashboards_router,
+    )
 
 
 try:

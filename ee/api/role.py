@@ -1,5 +1,6 @@
 from typing import cast
 
+from django.db import IntegrityError
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 
@@ -8,7 +9,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
-from posthog.permissions import extract_organization
+from posthog.permissions import OrganizationMemberPermissions, extract_organization
 
 DEFAULT_ROLE_NAME = "Write"
 
@@ -55,12 +56,14 @@ class RoleViewSet(
     StructuredViewSetMixin,
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
     permission_classes = [
         IsAuthenticated,
+        OrganizationMemberPermissions,
         RolePermissions,
     ]
     serializer_class = RoleSerializer
@@ -68,11 +71,27 @@ class RoleViewSet(
 
 
 class RoleMembershipSerializer(serializers.ModelSerializer):
-    # user = UserBasicSerializer(read_only=True)
+    user = UserBasicSerializer(read_only=True)
+    role_id = serializers.UUIDField(read_only=True)
+
+    user_uuid = serializers.UUIDField(required=True, write_only=True)
 
     class Meta:
         model = RoleMembership
-        fields = ["role", "user", "joined_at", "updated_at"]
+        fields = ["role_id", "user", "joined_at", "updated_at", "user_uuid"]
+        read_only_fields = ["id", "role_id", "user"]
+
+    def create(self, validated_data):
+        user_uuid = validated_data.pop("user_uuid")
+        try:
+            validated_data["user"] = User.objects.filter(is_active=True).get(uuid=user_uuid)
+        except User.DoesNotExist:
+            raise serializers.ValidationError("User does not exist.")
+        validated_data["role_id"] = self.context["role_id"]
+        try:
+            return super().create(validated_data)
+        except IntegrityError:
+            raise serializers.ValidationError("User is already part of the role.")
 
 
 class RoleMembershipViewSet(
@@ -87,4 +106,5 @@ class RoleMembershipViewSet(
         RolePermissions,
     ]
     serializer_class = RoleMembershipSerializer
-    queryset = RoleMembership.objects.all()
+    queryset = RoleMembership.objects.select_related("role")
+    filter_rewrite_rules = {"organization_id": "role__organization_id"}

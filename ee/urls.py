@@ -24,15 +24,25 @@ def extend_api_router(
     root_router: DefaultRouterPlusPlus,
     *,
     projects_router: NestedRegistryItem,
+    organizations_router: NestedRegistryItem,
     project_dashboards_router: NestedRegistryItem,
 ) -> None:
     root_router.register(r"billing-v2", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
     root_router.register(r"debug_ch_queries", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
-    root_router.register(r"roles", role.RoleViewSet)
-    root_router.register(r"role_memberships", role.RoleMembershipViewSet)
-
+    organization_roles_router = organizations_router.register(
+        r"roles",
+        role.RoleViewSet,
+        "organization_roles",
+        ["organization_id"],
+    )
+    organization_roles_router.register(
+        r"role_memberships",
+        role.RoleMembershipViewSet,
+        "organization_role_memberships",
+        ["organization_id", "role_id"],
+    )
     projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
     projects_router.register(
         r"explicit_members", explicit_team_member.ExplicitTeamMemberViewSet, "project_explicit_members", ["team_id"]

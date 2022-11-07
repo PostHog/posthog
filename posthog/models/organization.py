@@ -1,5 +1,4 @@
 import json
-from posthog.settings.ee import EE_AVAILABLE
 import sys
 from typing import (
     TYPE_CHECKING,
@@ -27,6 +26,7 @@ from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
 from posthog.models.utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
 from posthog.redis import get_client
+from posthog.settings.ee import EE_AVAILABLE
 from posthog.utils import absolute_uri, mask_email_address
 
 if TYPE_CHECKING:

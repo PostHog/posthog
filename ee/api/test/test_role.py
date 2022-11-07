@@ -12,11 +12,11 @@ class TestRoleAPI(APILicensedTest):
     def setUp(self):
         super().setUp()
 
-    def test_only_org_admins_and_owner_can_create(self):
+    def test_only_organization_admins_and_higher_can_create(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         admin_create_res = self.client.post(
-            "/api/roles",
+            "/api/organizations/@current/roles",
             {
                 "name": "Product",
             },
@@ -25,7 +25,7 @@ class TestRoleAPI(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         member_create_res = self.client.post(
-            "/api/roles",
+            "/api/organizations/@current/roles",
             {
                 "name": "Product 2",
             },
@@ -33,7 +33,7 @@ class TestRoleAPI(APILicensedTest):
         self.assertEqual(admin_create_res.status_code, status.HTTP_201_CREATED)
         self.assertEqual(member_create_res.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_only_org_admins_and_owner_can_update(self):
+    def test_only_organization_admins_and_higher_can_update(self):
         existing_eng_role = Role.objects.create(
             name="Engineering",
             organization=self.organization,
@@ -41,11 +41,17 @@ class TestRoleAPI(APILicensedTest):
         )
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        admin_update_res = self.client.patch(f"/api/roles/{existing_eng_role.id}", {"name": "on call support"})
+        admin_update_res = self.client.patch(
+            f"/api/organizations/@current/roles/{existing_eng_role.id}",
+            {"name": "on call support"},
+        )
 
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        member_update_res = self.client.patch(f"/api/roles/{existing_eng_role.id}", {"name": "member eng"})
+        member_update_res = self.client.patch(
+            f"/api/organizations/@current/roles/{existing_eng_role.id}",
+            {"name": "member eng"},
+        )
 
         self.assertEqual(admin_update_res.status_code, status.HTTP_200_OK)
         self.assertEqual(member_update_res.status_code, status.HTTP_403_FORBIDDEN)
@@ -56,7 +62,7 @@ class TestRoleAPI(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         res = self.client.post(
-            "/api/roles",
+            "/api/organizations/@current/roles",
             {
                 "name": "marketing",
             },
