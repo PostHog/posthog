@@ -456,7 +456,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         loadAllInsightsForFlag: () => {
-            values.featureFlag.rollback_conditions.forEach((condition, index) => {
+            values.featureFlag.rollback_conditions?.forEach((condition, index) => {
                 if (condition.threshold_metric) {
                     actions.loadInsightAtIndex(index, condition.threshold_metric)
                 }
