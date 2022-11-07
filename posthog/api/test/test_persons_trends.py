@@ -493,7 +493,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
 
     def test_people_csv_returns_400_on_no_entity_id_provided(self):
         response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people.csv",
+            f"/api/projects/{self.team.id}/actions/people",
             data={
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-07",
@@ -502,6 +502,15 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            json.loads(response.content),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "An entity id and the entity type must be provided to determine an entity",
+                "attr": None,
+            },
+        )
 
     def test_breakdown_by_cohort_people_endpoint(self):
         person1, _, _, _ = self._create_multiple_people()
