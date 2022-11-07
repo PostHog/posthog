@@ -1,0 +1,37 @@
+diff --git a/lib/types.d.ts b/lib/types.d.ts
+index 9fb7102b5d36e812b8618b22e00d1720c612caa0..d93a300a227ca1194e59ab5d89a6f3634b35113f 100644
+--- a/lib/types.d.ts
++++ b/lib/types.d.ts
+@@ -1,10 +1,10 @@
+-import { BreakPointFunction, Logic, SelectorDefinition } from 'kea';
++import { BreakPointFunction, Logic, LogicPropSelectors, SelectorDefinition } from 'kea';
+ export interface FormOptions {
+     showErrorsOnTouch: boolean;
+ }
+ export interface FormInput<L extends Logic, T extends Record<string, any> = Record<string, any>> {
+     defaults?: T;
+-    errors?: ((formValues: T) => DeepPartialMap<T, ValidationErrorType>) | SelectorDefinition<L['selectors'], any>;
++    errors?: ((formValues: T) => DeepPartialMap<T, ValidationErrorType>) | SelectorDefinition<L['selectors'], LogicPropSelectors<L>, any>;
+     preSubmit?: (formValues: T, breakpoint: BreakPointFunction) => void | Promise<void> | T | Promise<T>;
+     submit?: (formValues: T, breakpoint: BreakPointFunction) => void | Promise<void> | T | Promise<T>;
+     options?: Partial<FormOptions>;
+diff --git a/src/types.ts b/src/types.ts
+index 0f5af23dacc27965082430b046764263b5e4e4b2..b8aa918d0a1a74ff63df140dcbebba9d99264711 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -1,5 +1,5 @@
+ // TDDO: use the one from Kea directly
+-import { BreakPointFunction, Logic, SelectorDefinition } from 'kea'
++import { BreakPointFunction, Logic, LogicPropSelectors, SelectorDefinition } from 'kea'
+ 
+ export interface FormOptions {
+   showErrorsOnTouch: boolean
+@@ -7,7 +7,7 @@ export interface FormOptions {
+ 
+ export interface FormInput<L extends Logic, T extends Record<string, any> = Record<string, any>> {
+   defaults?: T
+-  errors?: ((formValues: T) => DeepPartialMap<T, ValidationErrorType>) | SelectorDefinition<L['selectors'], any>
++  errors?: ((formValues: T) => DeepPartialMap<T, ValidationErrorType>) | SelectorDefinition<L['selectors'], LogicPropSelectors<L>, any>
+   preSubmit?: (formValues: T, breakpoint: BreakPointFunction) => void | Promise<void> | T | Promise<T>
+   submit?: (formValues: T, breakpoint: BreakPointFunction) => void | Promise<void> | T | Promise<T>
+   options?: Partial<FormOptions>
