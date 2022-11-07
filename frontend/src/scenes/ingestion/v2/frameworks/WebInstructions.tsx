@@ -1,7 +1,7 @@
 import { Link } from 'lib/components/Link'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { CodeSnippet, Language } from './CodeSnippet'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 
