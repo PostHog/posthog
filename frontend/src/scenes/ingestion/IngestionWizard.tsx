@@ -1,5 +1,3 @@
-import './IngestionWizard.scss'
-
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'

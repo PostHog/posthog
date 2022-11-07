@@ -7,7 +7,7 @@ import {
     webFrameworks,
     THIRD_PARTY,
     BOOKMARKLET,
-} from 'scenes/ingestion/constants'
+} from 'scenes/ingestion/v1/constants'
 
 export type Framework = keyof typeof webFrameworks | keyof typeof mobileFrameworks | typeof API | null
 
