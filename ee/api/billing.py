@@ -22,7 +22,6 @@ from rest_framework.response import Response
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.auth import PersonalAPIKeyAuthentication
-from posthog.cloud_utils import is_cloud
 from posthog.models import Organization
 from posthog.models.event.util import get_event_count_for_team_and_period
 from posthog.models.organization import OrganizationUsageInfo
@@ -32,7 +31,6 @@ from posthog.models.team.team import Team
 logger = structlog.get_logger(__name__)
 
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
-BILLING_V2_START_DATE = datetime(2022, 11, 1, tzinfo=timezone.utc)
 
 
 class BillingSerializer(serializers.Serializer):
