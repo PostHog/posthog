@@ -111,7 +111,7 @@ class TestBillingAPI(APILicensedTest):
     @freeze_time("2022-01-01")
     def test_billing_v2_calls_the_service_with_appropriate_token(self, mock_request):
         mock_request.return_value.status_code = 200
-        mock_request.return_value.json.return_value = create_billing_response()
+        mock_request.return_value.json.return_value = create_billing_response(customer=create_billing_customer())
 
         self.client.get("/api/billing-v2")
         assert mock_request.call_args.args[0] == "http://localhost:8100/api/billing"
@@ -130,14 +130,6 @@ class TestBillingAPI(APILicensedTest):
             "organization_id": str(self.organization.id),
             "organization_name": "Test",
         }
-
-    @patch("ee.api.billing.requests.get")
-    def test_billing_v2_returns_404_by_default(self, mock_request):
-        mock_request.return_value.status_code = 200
-        mock_request.return_value.json.return_value = create_billing_response()
-
-        response = self.client.get("/api/billing-v2")
-        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @patch("ee.api.billing.requests.get")
     def test_billing_v2_returns_if_billing_exists(self, mock_request):
@@ -178,8 +170,8 @@ class TestBillingAPI(APILicensedTest):
         }
 
     @patch("ee.api.billing.requests.get")
-    def test_billing_v2_returns_if_doesnt_exist_but_enabled_for_instance(self, mock_request):
-        def mock_implementation(url: str, headers: Any = None) -> MagicMock:
+    def test_billing_v2_returns_if_doesnt_exist(self, mock_request):
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
 
@@ -194,52 +186,51 @@ class TestBillingAPI(APILicensedTest):
 
         mock_request.side_effect = mock_implementation
 
-        with self.settings(BILLING_V2_ENABLED=True):
-            response = self.client.get("/api/billing-v2")
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json() == {
-                "license": {"plan": "enterprise"},
-                "custom_limits_usd": {},
-                "has_active_subscription": False,
-                "available_features": [],
-                "products": [
-                    {
-                        "name": "Product OS",
-                        "description": "Product Analytics, event pipelines, data warehousing",
-                        "price_description": None,
-                        "type": "events",
-                        "free_allocation": 10000,
-                        "tiers": [
-                            {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
-                            {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
-                        ],
-                        "current_usage": 0,
-                        "percentage_usage": 0.0,
-                    }
-                ],
-                "products_enterprise": [
-                    {
-                        "current_usage": 0,
-                        "description": "Product Analytics, event pipelines, data warehousing",
-                        "free_allocation": 10000,
-                        "name": "Product OS Enterprise",
-                        "price_description": None,
-                        "tiers": [
-                            {
-                                "current_amount_usd": "0.00",
-                                "unit_amount_usd": "0.00",
-                                "up_to": 1000000,
-                            },
-                            {
-                                "current_amount_usd": None,
-                                "unit_amount_usd": "0.00045",
-                                "up_to": 2000000,
-                            },
-                        ],
-                        "type": "events",
-                    },
-                ],
-            }
+        response = self.client.get("/api/billing-v2")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "license": {"plan": "enterprise"},
+            "custom_limits_usd": {},
+            "has_active_subscription": False,
+            "available_features": [],
+            "products": [
+                {
+                    "name": "Product OS",
+                    "description": "Product Analytics, event pipelines, data warehousing",
+                    "price_description": None,
+                    "type": "events",
+                    "free_allocation": 10000,
+                    "tiers": [
+                        {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
+                        {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
+                    ],
+                    "current_usage": 0,
+                    "percentage_usage": 0.0,
+                }
+            ],
+            "products_enterprise": [
+                {
+                    "current_usage": 0,
+                    "description": "Product Analytics, event pipelines, data warehousing",
+                    "free_allocation": 10000,
+                    "name": "Product OS Enterprise",
+                    "price_description": None,
+                    "tiers": [
+                        {
+                            "current_amount_usd": "0.00",
+                            "unit_amount_usd": "0.00",
+                            "up_to": 1000000,
+                        },
+                        {
+                            "current_amount_usd": None,
+                            "unit_amount_usd": "0.00045",
+                            "up_to": 2000000,
+                        },
+                    ],
+                    "type": "events",
+                },
+            ],
+        }
 
     @patch("ee.api.billing.requests.get")
     def test_billing_stores_valid_license(self, mock_request):
@@ -334,21 +325,6 @@ class TestBillingAPI(APILicensedTest):
         assert self.organization.available_features == ["feature1", "feature2"]
 
     @patch("ee.api.billing.requests.get")
-    def test_organization_available_features_does_not_update_if_not_enabled(self, mock_request):
-        self.organization.available_features = []
-        self.organization.save()
-
-        mock_request.return_value.status_code = 200
-        mock_request.return_value.json.return_value = create_billing_response(
-            customer=create_billing_customer(available_features=["feature1", "feature2"], has_active_subscription=False)
-        )
-
-        assert self.organization.available_features == []
-        self.client.get("/api/billing-v2")
-        self.organization.refresh_from_db()
-        assert self.organization.available_features == []
-
-    @patch("ee.api.billing.requests.get")
     def test_organization_usage_update(self, mock_request):
         self.organization.usage = None
         self.organization.save()
@@ -375,7 +351,7 @@ class TestBillingAPI(APILicensedTest):
             },
         }
 
-        def mock_implementation(url: str, headers: Any = None) -> MagicMock:
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
 
@@ -391,16 +367,15 @@ class TestBillingAPI(APILicensedTest):
         mock_request.side_effect = mock_implementation
 
         # Test unsubscribed config
-        with self.settings(BILLING_V2_ENABLED=True):
-            res = self.client.get("/api/billing-v2")
-            self.organization.refresh_from_db()
-            assert self.organization.usage == {
-                "events": {
-                    "limit": 10000,
-                    "usage": 0,
-                },
-                "recordings": {
-                    "limit": None,
-                    "usage": 0,
-                },
-            }
+        res = self.client.get("/api/billing-v2")
+        self.organization.refresh_from_db()
+        assert self.organization.usage == {
+            "events": {
+                "limit": 10000,
+                "usage": 0,
+            },
+            "recordings": {
+                "limit": None,
+                "usage": 0,
+            },
+        }

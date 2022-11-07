@@ -32,6 +32,7 @@ from posthog.models.team.team import Team
 logger = structlog.get_logger(__name__)
 
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
+BILLING_V2_START_DATE = datetime(2022, 11, 1, tzinfo=timezone.utc)
 
 
 class BillingSerializer(serializers.Serializer):
@@ -281,7 +282,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
     def _get_products(self, license: Optional[License], organization: Optional[Organization]):
         headers = {}
-        params = {}
+        params = {"plan": "standard"}
 
         if license and organization:
             billing_service_token = build_billing_token(license, organization)
@@ -336,11 +337,7 @@ class BillingViewset(viewsets.GenericViewSet):
         return license
 
     def _default_plan_for_organization(self, organization: Organization) -> str:
-        return (
-            "standard"
-            if organization and organization.created_at > datetime(2022, 11, 1, tzinfo=timezone.utc)
-            else "earlybird"
-        )
+        return "standard" if organization and organization.created_at > BILLING_V2_START_DATE else "earlybird"
 
     def _update_org_details(self, organization: Organization, data: Dict[str, Any]) -> Organization:
         """
