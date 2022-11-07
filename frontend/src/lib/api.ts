@@ -28,6 +28,7 @@ import {
     MediaUploadResponse,
     SessionRecordingsResponse,
     SessionRecordingPropertiesType,
+    SessionRecordingPlaylistType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -38,6 +39,7 @@ import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventD
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
+import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -234,6 +236,14 @@ class ApiRequest {
     // Recordings
     public recordings(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('session_recordings')
+    }
+    public recordingPlaylists(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('session_recording_playlists')
+    }
+    public recordingPlaylist(playlistId?: SessionRecordingPlaylistType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('session_recording_playlists')
+            .addPathComponent(String(playlistId))
     }
 
     // # Dashboards
@@ -810,6 +820,12 @@ const api = {
         },
         async listProperties(params: string): Promise<PaginatedResponse<SessionRecordingPropertiesType>> {
             return await new ApiRequest().recordings().withAction('properties').withQueryString(params).get()
+        },
+        async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {
+            return await new ApiRequest().recordingPlaylists().withQueryString(params).get()
+        },
+        async getPlaylist(playlistId: SessionRecordingPlaylistType['id']): Promise<SessionRecordingPlaylistType> {
+            return await new ApiRequest().recordingPlaylist(playlistId).get()
         },
     },
 
