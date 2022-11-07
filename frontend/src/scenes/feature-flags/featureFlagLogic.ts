@@ -12,6 +12,7 @@ import {
     PropertyFilter,
     PropertyOperator,
     RolloutConditionType,
+    FeatureFlagRollbackConditions,
 } from '~/types'
 import api from 'lib/api'
 import { router } from 'kea-router'
@@ -30,7 +31,7 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dayjs } from 'lib/dayjs'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 
-const DEFAULT_ROLLBACK_CONDITION = {
+const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
     threshold_type: RolloutConditionType.Sentry,
     threshold: 50,
@@ -41,7 +42,7 @@ const DEFAULT_ROLLBACK_CONDITION = {
             date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
         }),
     },
-}
+})
 
 const NEW_FLAG: FeatureFlagType = {
     id: null,
@@ -205,7 +206,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (!state) {
                         return state
                     }
-                    return { ...state, rollback_conditions: [...state.rollback_conditions, DEFAULT_ROLLBACK_CONDITION] }
+                    return {
+                        ...state,
+                        rollback_conditions: [...state.rollback_conditions, getDefaultRollbackCondition()],
+                    }
                 },
                 removeRollbackCondition: (state, { index }) => {
                     if (!state) {
