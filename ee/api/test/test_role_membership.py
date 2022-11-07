@@ -28,7 +28,6 @@ class TestRoleMembershipAPI(APILicensedTest):
             f"/api/organizations/@current/roles/{self.eng_role.id}/role_memberships",
             {"user_uuid": user_a.uuid},
         )
-        # pdb.set_trace()
         self.assertEqual(add_user_a_res.status_code, status.HTTP_201_CREATED)
 
     def test_users_joining_have_default_write_role(self):
