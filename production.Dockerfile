@@ -12,6 +12,7 @@ FROM node:18.8-alpine3.16 AS frontend
 WORKDIR /code
 
 COPY package.json pnpm-lock.yaml ./
+COPY patches patches
 RUN corepack enable
 RUN pnpm install --frozen-lockfile
 

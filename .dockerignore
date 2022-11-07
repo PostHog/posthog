@@ -22,6 +22,7 @@
 !frontend/*.*
 !ee
 !.devcontainer
+!patches
 !plugin-server/package.json
 !plugin-server/pnpm-lock.yaml
 !plugin-server/tsconfig.json
