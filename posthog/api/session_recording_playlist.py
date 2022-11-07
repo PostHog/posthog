@@ -103,7 +103,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         except SessionRecordingPlaylist.DoesNotExist:
             before_update = None
 
-        if validated_data.keys() & SessionRecordingPlaylist.MATERIAL_INSIGHT_FIELDS:
+        if validated_data.keys() & SessionRecordingPlaylist.MATERIAL_PLAYLIST_FIELDS:
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
 
