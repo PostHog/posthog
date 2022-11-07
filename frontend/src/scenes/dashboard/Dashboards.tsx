@@ -43,7 +43,7 @@ export function Dashboards(): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { closePrompts } = useActions(inAppPromptLogic)
-    const { showDeleteDashboardModal, setDeleteDashboardValue } = useActions(deleteDashboardLogic)
+    const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -173,8 +173,7 @@ export function Dashboards(): JSX.Element {
                                 <LemonDivider />
                                 <LemonButton
                                     onClick={() => {
-                                        setDeleteDashboardValue('dashboardId', id)
-                                        showDeleteDashboardModal()
+                                        showDeleteDashboardModal(id)
                                     }}
                                     fullWidth
                                     status="danger"

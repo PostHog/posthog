@@ -49,7 +49,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
 
     const { push } = useActions(router)
-    const { showDeleteDashboardModal, setDeleteDashboardValue } = useActions(deleteDashboardLogic)
+    const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const showTextCards = featureFlags[FEATURE_FLAGS.TEXT_CARDS]
 
@@ -235,8 +235,7 @@ export function DashboardHeader(): JSX.Element | null {
                                             {canEditDashboard && (
                                                 <LemonButton
                                                     onClick={() => {
-                                                        setDeleteDashboardValue('dashboardId', dashboard.id)
-                                                        showDeleteDashboardModal()
+                                                        showDeleteDashboardModal(dashboard.id)
                                                     }}
                                                     status="danger"
                                                     fullWidth

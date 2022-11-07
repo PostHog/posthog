@@ -5,7 +5,6 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { forms } from 'kea-forms'
 
 import type { deleteDashboardLogicType } from './deleteDashboardLogicType'
-import { insightsModel } from '~/models/insightsModel'
 
 export interface DeleteDashboardForm {
     dashboardId: number | null
@@ -21,7 +20,7 @@ export const deleteDashboardLogic = kea<deleteDashboardLogicType>([
     path(['scenes', 'dashboard', 'deleteDashboardLogic']),
     connect(dashboardsModel),
     actions({
-        showDeleteDashboardModal: true,
+        showDeleteDashboardModal: (id: number) => ({ id }),
         hideDeleteDashboardModal: true,
     }),
     reducers({
@@ -39,20 +38,21 @@ export const deleteDashboardLogic = kea<deleteDashboardLogicType>([
             errors: () => ({}),
             submit: async ({ dashboardId, deleteInsights }) => {
                 dashboardsModel.actions.deleteDashboard({ id: dashboardId, deleteInsights })
-                if (deleteInsights) {
-                    insightsModel.actions.insightsDeletedWithDashboard()
-                }
             },
         },
     })),
     listeners(({ actions }) => ({
+        showDeleteDashboardModal: ({ id }) => {
+            actions.setDeleteDashboardValues({ dashboardId: id })
+        },
         hideDeleteDashboardModal: () => {
             actions.resetDeleteDashboard()
         },
         [dashboardsModel.actionTypes.deleteDashboardSuccess]: () => {
             actions.hideDeleteDashboardModal()
-            actions.resetDeleteDashboard()
-            router.actions.push(urls.dashboards())
+            if (router.values.currentLocation.pathname !== urls.dashboards()) {
+                router.actions.push(urls.dashboards())
+            }
         },
     })),
 ])

@@ -354,19 +354,30 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.get_insight(insight_id, self.team.id, expected_status=status.HTTP_200_OK)
 
     def test_delete_dashboard_can_delete_tiles(self):
-        dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
-        insight_id, _ = self._create_insight(
-            {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard_id], "name": "some_item"}
-        )
+        dashboard_one_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
+        dashboard_two_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
 
-        dashboard_before_delete = self.dashboard_api.get_dashboard(dashboard_id)
-        assert len(dashboard_before_delete["tiles"]) == 1
+        insight_on_one_dashboard_id, _ = self._create_insight({"dashboards": [dashboard_one_id]})
+
+        insight_on_two_dashboards_id, _ = self._create_insight({"dashboards": [dashboard_one_id, dashboard_two_id]})
+
+        dashboard_one_before_delete = self.dashboard_api.get_dashboard(dashboard_one_id)
+        assert len(dashboard_one_before_delete["tiles"]) == 2
+
+        dashboard_two_before_delete = self.dashboard_api.get_dashboard(dashboard_two_id)
+        assert len(dashboard_two_before_delete["tiles"]) == 1
 
         self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/", {"deleted": True, "delete_insights": True}
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_one_id}/", {"deleted": True, "delete_insights": True}
         )
 
-        self.dashboard_api.get_insight(insight_id, self.team.id, expected_status=status.HTTP_404_NOT_FOUND)
+        self.dashboard_api.get_insight(
+            insight_on_one_dashboard_id, self.team.id, expected_status=status.HTTP_404_NOT_FOUND
+        )
+        self.dashboard_api.get_insight(insight_on_two_dashboards_id, self.team.id, expected_status=status.HTTP_200_OK)
+
+        dashboard_two_after_delete = self.dashboard_api.get_dashboard(dashboard_two_id)
+        assert len(dashboard_two_after_delete["tiles"]) == 1
 
     def test_dashboard_items(self):
         dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})

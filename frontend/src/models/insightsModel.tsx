@@ -18,7 +18,6 @@ export const insightsModel = kea<insightsModelType>({
             dashboardId,
         }),
         duplicateInsightSuccess: (item: InsightModel) => ({ item }),
-        insightsDeletedWithDashboard: true,
     }),
     listeners: ({ actions }) => ({
         renameInsight: async ({ item }) => {

@@ -225,7 +225,13 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         if validated_data.get("deleted", False):
             if self.validated_data.get("delete_insights", False):
-                Insight.objects.filter(dashboard_tiles__dashboard=instance.id).update(deleted=True)
+                insights_to_update = []
+                for insight in Insight.objects.filter(dashboard_tiles__dashboard=instance.id):
+                    if insight.dashboard_tiles.exclude(deleted=True).count() == 1:
+                        insight.deleted = True
+                        insights_to_update.append(insight)
+
+                Insight.objects.bulk_update(insights_to_update, ["deleted"])
 
             DashboardTile.objects.filter(dashboard__id=instance.id).delete()
 
