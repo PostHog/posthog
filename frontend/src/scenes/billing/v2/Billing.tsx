@@ -107,7 +107,7 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
                                 >
                                     Current bill total
                                 </LemonLabel>
-                                <div className="font-bold text-4xl">${billing.current_total_amount_usd}</div>
+                                <div className="font-bold text-6xl">${billing.current_total_amount_usd}</div>
 
                                 <p>
                                     <b>{billing.billing_period.current_period_end.diff(dayjs(), 'days')} days</b>{' '}
