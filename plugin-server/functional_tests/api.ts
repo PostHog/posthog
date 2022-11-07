@@ -211,3 +211,8 @@ export const createUser = async (pgClient: Pool, teamId: number, email: string) 
         uuid: new UUIDT().toString(),
     })
 }
+
+export const getPropertyDefinitions = async (pgClient: Pool, teamId: number) => {
+    const { rows } = await pgClient.query(`SELECT * FROM posthog_propertydefinition WHERE team_id = $1`, [teamId])
+    return rows
+}
