@@ -370,7 +370,7 @@ def send_all_org_usage_reports(
     at: Optional[str] = None,
     capture_event_name: Optional[str] = None,
     skip_capture_event: bool = False,
-    only_organization_id: str = None,
+    only_organization_id: Optional[str] = None,
 ) -> List[dict]:  # Dict[str, OrgReport]:
     pha_client = Client("sTMFPsFhdP1Ssg")
     capture_event_name = capture_event_name or "organization usage report"
