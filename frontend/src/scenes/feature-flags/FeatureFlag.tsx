@@ -203,7 +203,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 If your feature flag is applied prior to an identify or authentication
                                                 event, use this to ensure that feature flags are not reset after a
                                                 person is identified. This ensures the experience for the anonymous
-                                                person is carried forward to the authenticated person.
+                                                person is carried forward to the authenticated person.{' '}
+                                                <Link
+                                                    to="https://posthog.com/manual/feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                    target="_blank"
+                                                >
+                                                    Learn more <IconOpenInNew />
+                                                </Link>
                                             </div>
                                         </div>
                                     )}
