@@ -27,6 +27,8 @@ import { isLemonSelectSection } from 'lib/components/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
+import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
+import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 
 export function DashboardHeader(): JSX.Element | null {
     const {
@@ -42,10 +44,11 @@ export function DashboardHeader(): JSX.Element | null {
     } = useValues(dashboardLogic)
     const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
-    const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } =
-        useActions(dashboardsModel)
+    const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
 
     const { hasAvailableFeature } = useValues(userLogic)
+
+    const { showDuplicateDashboardModal, setDuplicateDashboardValue } = useActions(duplicateDashboardLogic)
 
     const { push } = useActions(router)
 
@@ -78,6 +81,7 @@ export function DashboardHeader(): JSX.Element | null {
                             textTileId={textTileId}
                         />
                     )}
+                    {canEditDashboard && <DuplicateDashboardModal />}
                 </>
             )}
 
@@ -218,13 +222,11 @@ export function DashboardHeader(): JSX.Element | null {
                                             />
                                             <LemonDivider />
                                             <LemonButton
-                                                onClick={() =>
-                                                    duplicateDashboard({
-                                                        id: dashboard.id,
-                                                        name: dashboard.name,
-                                                        show: true,
-                                                    })
-                                                }
+                                                onClick={() => {
+                                                    setDuplicateDashboardValue('dashboardId', dashboard.id)
+                                                    setDuplicateDashboardValue('dashboardName', dashboard.name)
+                                                    showDuplicateDashboardModal()
+                                                }}
                                                 status="stealth"
                                                 fullWidth
                                             >

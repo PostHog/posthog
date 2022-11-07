@@ -440,6 +440,14 @@ export const insightLogic = kea<insightLogicType>([
                 }
                 return state
             },
+            [insightsModel.actionTypes.insightsAddedToDashboard]: (state, { dashboardId, insightIds }) => {
+                console.log('insightsAddedToDashboard', dashboardId, insightIds, state.id)
+                if (insightIds.includes(state.id)) {
+                    return { ...state, dashboards: [...(state.dashboards || []), dashboardId] }
+                } else {
+                    return state
+                }
+            },
             [dashboardsModel.actionTypes.tileRemovedFromDashboard]: (state, { tile, dashboardId }) => {
                 if (tile.insight?.id === state.id) {
                     return { ...state, dashboards: state.dashboards?.filter((d) => d !== dashboardId) }

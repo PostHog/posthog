@@ -1168,6 +1168,26 @@ describe('insightLogic', () => {
                     insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
+
+        it('reacts to duplication of dashboard attaching it to new dashboard', async () => {
+            await expectLogic(logic, () => {
+                insightsModel.actions.insightsAddedToDashboard({ dashboardId: 1234, insightIds: [0, 1, 42] })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
+                })
+        })
+
+        it('does not react to duplication of dashboard that did not include this insight', async () => {
+            await expectLogic(logic, () => {
+                insightsModel.actions.insightsAddedToDashboard({ dashboardId: 1234, insightIds: [0, 1, 2] })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                })
+        })
     })
 
     it('will not save with empty filters', async () => {
