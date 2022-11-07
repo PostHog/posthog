@@ -383,6 +383,14 @@ export enum SavedInsightsTabs {
     History = 'history',
 }
 
+export enum SessionRecordingPlaylistsTabs {
+    Recent = 'recent',
+    All = 'all',
+    Yours = 'yours',
+    Pinned = 'pinned',
+    History = 'history',
+}
+
 export enum ExperimentsTabs {
     All = 'all',
     Yours = 'yours',
@@ -535,6 +543,7 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
+    tab?: SessionRecordingPlaylistsTabs
 }
 export interface SessionRecordingsResponse {
     results: SessionRecordingType[]

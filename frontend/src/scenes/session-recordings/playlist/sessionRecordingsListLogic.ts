@@ -10,6 +10,7 @@ import {
     RecordingDurationFilter,
     RecordingFilters,
     SessionRecordingId,
+    SessionRecordingPlaylistsTabs,
     SessionRecordingPropertiesType,
     SessionRecordingsResponse,
     SessionRecordingType,
@@ -168,6 +169,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             incomingToDate,
         }),
         setDurationFilter: (durationFilter: RecordingDurationFilter) => ({ durationFilter }),
+        setTab: (tab: SessionRecordingPlaylistsTabs | undefined = SessionRecordingPlaylistsTabs.Recent) => ({ tab }),
     },
     loaders: ({ props, values, actions }) => ({
         sessionRecordingsResponse: [
@@ -287,6 +289,12 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
                 setDurationFilter: (_, { durationFilter }) => durationFilter,
             },
         ],
+        tab: [
+            SessionRecordingPlaylistsTabs.Recent as SessionRecordingPlaylistsTabs,
+            {
+                setTab: (_, { tab }) => tab,
+            },
+        ],
         offset: [
             0,
             {
@@ -319,6 +327,9 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             actions.getSessionRecordings()
         },
         setDurationFilter: () => {
+            actions.getSessionRecordings()
+        },
+        setTab: () => {
             actions.getSessionRecordings()
         },
         loadNext: () => {
@@ -356,16 +367,17 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             (sessionRecordingsResponse) => sessionRecordingsResponse.has_next,
         ],
         filterQueryParams: [
-            (s) => [s.entityFilters, s.fromDate, s.toDate, s.offset, s.durationFilter, s.propertyFilters],
-            (entityFilters, fromDate, toDate, offset, durationFilter, propertyFilters) => {
+            (s) => [s.entityFilters, s.fromDate, s.toDate, s.offset, s.durationFilter, s.propertyFilters, s.tab],
+            (entityFilters, fromDate, toDate, offset, durationFilter, propertyFilters, tab) => {
                 return {
                     actions: entityFilters.actions,
                     events: entityFilters.events,
                     properties: propertyFilters,
                     date_from: fromDate,
                     date_to: toDate,
-                    offset: offset,
+                    offset,
                     session_recording_duration: durationFilter,
+                    tab,
                 }
             },
         ],
@@ -403,6 +415,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             setPropertyFilters: () => buildURL(true),
             setDateRange: () => buildURL(true),
             setDurationFilter: () => buildURL(true),
+            setTab: () => buildURL(true),
             loadNext: () => buildURL(true),
             loadPrev: () => buildURL(true),
         }
@@ -437,6 +450,9 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
                 }
                 if (!equal(filters.session_recording_duration, values.durationFilter)) {
                     actions.setDurationFilter(filters.session_recording_duration ?? DEFAULT_DURATION_FILTER)
+                }
+                if (!equal(filters.tab, values.tab)) {
+                    actions.setTab(filters.tab)
                 }
             }
         }
