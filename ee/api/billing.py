@@ -22,6 +22,7 @@ from rest_framework.response import Response
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.cloud_utils import is_cloud
 from posthog.models import Organization
 from posthog.models.event.util import get_event_count_for_team_and_period
 from posthog.models.organization import OrganizationUsageInfo
@@ -148,24 +149,6 @@ class BillingViewset(viewsets.GenericViewSet):
             response["license"] = {"plan": license.plan}
             billing_service_response = self._get_billing(license, org)
 
-        # If there isn't a valid v2 subscription then we only return sucessfully if BILLING_V2_ENABLED
-        if (
-            not billing_service_response.get("customer", {}).get("has_active_subscription")
-            and not settings.BILLING_V2_ENABLED
-        ):
-            if not (
-                distinct_id
-                and org
-                and posthoganalytics.get_feature_flag(
-                    "billing-v2-enabled",
-                    distinct_id,
-                    groups={
-                        "organization": str(org.id),
-                    },
-                )
-            ):
-                raise NotFound("Billing V2 is not enabled for this organization")
-
         # Sync the License and Org if we have a valid response
         if license and billing_service_response.get("license"):
             self._update_license_details(license, billing_service_response["license"])
@@ -183,7 +166,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
             for product in response["products"] + response["products_enterprise"]:
                 if calculated_usage and product["type"] in calculated_usage:
-                    product["current_usage"] = calculated_usage[product["type"]]
+                    product["current_usage"] = calculated_usage[product["type"]] + 2000000  # TODO Remove this
                 else:
                     product["current_usage"] = 0
 
@@ -209,10 +192,9 @@ class BillingViewset(viewsets.GenericViewSet):
         license = License.objects.first_valid()
         if not license:
             raise Exception("There is no license configured for this instance yet.")
+
         org = self._get_org_required()
-
         billing_service_token = build_billing_token(license, org)
-
         custom_limits_usd = request.data.get("custom_limits_usd")
 
         if custom_limits_usd:
@@ -304,7 +286,15 @@ class BillingViewset(viewsets.GenericViewSet):
             billing_service_token = build_billing_token(license, organization)
             headers = {"Authorization": f"Bearer {billing_service_token}"}
 
-        res = requests.get(f"{BILLING_SERVICE_URL}/api/products", headers=headers)
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/products",
+            params={
+                "plan": "earlybird"
+                if organization and organization.created_at > datetime(2022, 11, 1, tzinfo=timezone.utc)
+                else "standard"
+            },
+            headers=headers,
+        )
 
         handle_billing_service_error(res)
 

@@ -312,6 +312,8 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
         700: 'medium',
     })
 
+    const showFreeAllocationLimit = !billing?.has_active_subscription && product.free_allocation !== null
+
     const billingGaugeItems: BillingGaugeProps['items'] = useMemo(
         () =>
             [
@@ -319,14 +321,14 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                     tooltip: (
                         <>
                             <b>Free tier limit</b>
-                            {!billing?.has_active_subscription ? <div>(Subscribed)</div> : null}
+                            {showFreeAllocationLimit ? <div>(Subscribed)</div> : null}
                         </>
                     ),
                     color: billing?.has_active_subscription ? 'success-light' : 'success-highlight',
                     value: product.tiers?.[0]?.up_to || 0,
                     top: true,
                 },
-                !billing?.has_active_subscription
+                showFreeAllocationLimit
                     ? {
                           tooltip: (
                               <>
