@@ -107,6 +107,14 @@ def create_billing_license_response(**kwargs) -> Dict[str, Any]:
 
 
 class TestBillingAPI(APILicensedTest):
+    def test_billing_v2_fails_for_old_license_type(self):
+        self.license.key = "test_key"
+        self.license.save()
+
+        res = self.client.get("/api/billing-v2")
+        assert res.status_code == 404
+        assert res.json()["detail"] == "Billing V2 is not supported for this license type"
+
     @patch("ee.api.billing.requests.get")
     @freeze_time("2022-01-01")
     def test_billing_v2_calls_the_service_with_appropriate_token(self, mock_request):

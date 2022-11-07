@@ -132,6 +132,9 @@ class BillingViewset(viewsets.GenericViewSet):
 
     def list(self, request: HttpRequest, *args: Any, **kwargs: Any) -> Response:
         license = License.objects.first_valid()
+        if license and not license.is_v2_license:
+            raise NotFound("Billing V2 is not supported for this license type")
+
         org = self._get_org()
         distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
 
