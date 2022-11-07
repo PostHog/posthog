@@ -228,9 +228,6 @@ class BillingViewset(viewsets.GenericViewSet):
 
         plan = request.GET.get("plan", "standard")
 
-        if plan == "standard":
-            plan = self._default_plan_for_organization(organization)
-
         redirect_uri = f"{settings.SITE_URL or request.headers.get('Host')}/{redirect_path}"
         url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}&plan={plan}"
 
@@ -292,7 +289,7 @@ class BillingViewset(viewsets.GenericViewSet):
         if license and organization:
             billing_service_token = build_billing_token(license, organization)
             headers = {"Authorization": f"Bearer {billing_service_token}"}
-            params = {"plan": self._default_plan_for_organization(organization)}
+            params = {"plan": "standard"}
 
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/products",
@@ -340,12 +337,6 @@ class BillingViewset(viewsets.GenericViewSet):
             license.save()
 
         return license
-
-    def _default_plan_for_organization(self, organization: Organization) -> str:
-        if is_cloud():
-            return "standard" if organization and organization.created_at > BILLING_V2_START_DATE else "earlybird"
-        else:
-            return "standard"
 
     def _update_org_details(self, organization: Organization, data: Dict[str, Any]) -> Organization:
         """
