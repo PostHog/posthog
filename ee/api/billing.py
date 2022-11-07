@@ -342,7 +342,10 @@ class BillingViewset(viewsets.GenericViewSet):
         return license
 
     def _default_plan_for_organization(self, organization: Organization) -> str:
-        return "standard" if organization and organization.created_at > BILLING_V2_START_DATE else "earlybird"
+        if is_cloud():
+            return "standard" if organization and organization.created_at > BILLING_V2_START_DATE else "earlybird"
+        else:
+            return "standard"
 
     def _update_org_details(self, organization: Organization, data: Dict[str, Any]) -> Organization:
         """
