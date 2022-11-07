@@ -94,6 +94,12 @@ export const defaultPropertyOnFlag = (flagKey: string): AnyPropertyFilter[] => [
         operator: PropertyOperator.IsNot,
     },
     {
+        key: '$feature/' + flagKey,
+        type: 'event',
+        value: 'is_set',
+        operator: PropertyOperator.IsSet,
+    },
+    {
         key: '$feature_flag',
         type: 'event',
         value: flagKey,
