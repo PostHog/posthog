@@ -15,7 +15,7 @@ from posthog.models.utils import UUIDT, UUIDModel
 
 logger = structlog.get_logger(__name__)
 
-ActivityScope = Literal["FeatureFlag", "Person", "Insight", "Plugin", "PluginConfig"]
+ActivityScope = Literal["FeatureFlag", "Person", "Insight", "Plugin", "PluginConfig", "SessionRecordingPlaylist"]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
 
@@ -87,7 +87,7 @@ class ActivityLog(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
 
 
-field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] = {
+field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight", "SessionRecordingPlaylist"], List[str]] = {
     "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag", "experiment", "team", "featureflagoverride"],
     "Person": [
         "id",
