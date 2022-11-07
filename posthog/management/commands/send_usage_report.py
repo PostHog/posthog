@@ -13,6 +13,9 @@ class Command(BaseCommand):
         parser.add_argument("--print-reports", type=bool, help="Print the reports in full")
         parser.add_argument("--date", type=str, help="The date to be ran in format YYYY-MM-DD")
         parser.add_argument("--event-name", type=str, help="Override the event name to be sent - for testing")
+        parser.add_argument(
+            "--skip-capture-event", type=str, help="Skip the posthog capture events - for retrying to billing service"
+        )
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]

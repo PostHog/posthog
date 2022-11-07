@@ -366,7 +366,10 @@ def find_count_for_team_in_rows(team_id: int, rows: list) -> int:
 
 @app.task(ignore_result=True, retries=3)
 def send_all_org_usage_reports(
-    dry_run: bool = False, at: Optional[str] = None, capture_event_name: Optional[str] = None
+    dry_run: bool = False,
+    at: Optional[str] = None,
+    capture_event_name: Optional[str] = None,
+    skip_capture_event: bool = False,
 ) -> List[dict]:  # Dict[str, OrgReport]:
     pha_client = Client("sTMFPsFhdP1Ssg")
     capture_event_name = capture_event_name or "organization usage report"
@@ -451,23 +454,26 @@ def send_all_org_usage_reports(
             ff_active_count=find_count_for_team_in_rows(team.id, all_data["teams_with_ff_active_count"]),
         )
 
-        if team.organization.id not in org_reports:
-            orgs_by_id[str(team.organization.id)] = team.organization
+        org_id = str(team.organization.id)
+
+        if org_id not in org_reports:
+            orgs_by_id[org_id] = team.organization
 
             org_report = OrgReport(
                 date=period_start.strftime("%Y-%m-%d"),
-                organization_id=str(team.organization.id),
+                organization_id=org_id,
                 organization_name=team.organization.name,
                 organization_created_at=team.organization.created_at.isoformat(),
-                organization_user_count=get_org_user_count(team.organization.id),
+                organization_user_count=get_org_user_count(org_id),
                 team_count=1,
                 teams={team.id: team_report},
                 **dataclasses.asdict(team_report),  # Clone the team report as the basis
             )
-            org_reports[team.organization.id] = org_report
+            org_reports[org_id] = org_report
         else:
-            org_report = org_reports[team.organization.id]
+            org_report = org_reports[org_id]
             org_report.teams[team.id] = team_report
+            org_report.team_count += 1
 
             # Iterate on all fields of the UsageReportCounters and add the values from the team report to the org report
             for field in dataclasses.fields(UsageReportCounters):
@@ -495,13 +501,15 @@ def send_all_org_usage_reports(
 
         # First capture the events to PostHog
         try:
-            capture_event(pha_client, capture_event_name, org_id, full_report_dict, timestamp=at_date)
+            if not skip_capture_event:
+                capture_event(pha_client, capture_event_name, org_id, full_report_dict, timestamp=at_date)
             logger.info(f"UsageReport sent to PostHog for organization {org_id}")
         except Exception as err:
             logger.error(
                 f"UsageReport sent to PostHog for organization {org_id} failed: {str(err)}",
             )
-            capture_exception(err)
+            if not skip_capture_event:
+                capture_exception(err)
             capture_event(pha_client, f"{capture_event_name} failure", org_id, {"error": str(err)})
 
         # Then capture the events to Billing
