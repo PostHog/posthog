@@ -767,6 +767,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["name"], "replaced")
 
+    def test_dashboard_does_not_load_insight_that_was_deleted(self) -> None:
+        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+        insight_id, _ = self._create_insight({"dashboards": [dashboard_id]})
+
+        self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}/", {"deleted": True})
+
+        dashboard = self.dashboard_api.get_dashboard(dashboard_id)
+        self.assertEqual(dashboard["tiles"], [])
+
     def test_can_soft_delete_insight_after_soft_deleting_dashboard(self) -> None:
         filter_dict = {
             "events": [{"id": "$pageview"}],

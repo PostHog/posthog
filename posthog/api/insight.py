@@ -275,11 +275,11 @@ class InsightSerializer(InsightBasicSerializer):
             instance.last_modified_by = self.context["request"].user
 
         if validated_data.get("deleted", False):
-            DashboardTile.objects.filter(insight__id=instance.id).delete()
+            DashboardTile.objects.filter(insight__id=instance.id).update(deleted=True)
         else:
             dashboards = validated_data.pop("dashboards", None)
             if dashboards is not None:
-                old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
+                old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboard_tiles.exclude(deleted=True).all()]
                 new_dashboard_ids = [d.id for d in dashboards if not d.deleted]
 
                 ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
@@ -304,11 +304,11 @@ class InsightSerializer(InsightBasicSerializer):
                     DashboardTile.objects.create(insight=instance, dashboard=dashboard)
 
                 if ids_to_remove:
-                    DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).delete()
+                    DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).update(deleted=True)
 
-                # also update in-model dashboards set so activity log can detect the change
-                # ignoring any deleted dashboards
-                instance.dashboards.set([d for d in dashboards if not d.deleted])
+                # also update dashboards set so activity log can detect the change
+                changes_to_apply = [d for d in dashboards if not d.deleted]
+                instance.dashboards.set(changes_to_apply, clear=True)
 
         updated_insight = super().update(instance, validated_data)
 
