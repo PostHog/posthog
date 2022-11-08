@@ -60,7 +60,7 @@ export function SessionsRecordings(): JSX.Element {
                     onChange={(t) => router.actions.push(urls.sessionRecordings(t as SessionRecordingsTabs))}
                 >
                     <Tabs.TabPane tab="Recent" key={SessionRecordingsTabs.Recent} />
-                    <Tabs.TabPane tab="All Playlists" key={SessionRecordingsTabs.All} />
+                    <Tabs.TabPane tab="Saved Playlists" key={SessionRecordingsTabs.All} />
                     <Tabs.TabPane tab="Your Playlists" key={SessionRecordingsTabs.Yours} />
                     <Tabs.TabPane tab="Pinned" key={SessionRecordingsTabs.Pinned} />
                     <Tabs.TabPane tab="History" key={SessionRecordingsTabs.History} />
