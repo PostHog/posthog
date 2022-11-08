@@ -172,3 +172,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
         assert len(response_json) == 1  # there is now 1 events
         assert [e["count"] for e in response_json] == [1]  # of 1 click
         assert [len(e["elements"]) for e in response_json] == [2]  # with a chain of 2 selectors
+
+    def test_element_stats_does_not_allow_non_numeric_limit(self) -> None:
+        response = self.client.get(f"/api/element/stats/?limit=not-a-number")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
