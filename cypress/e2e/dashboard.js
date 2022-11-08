@@ -1,6 +1,6 @@
 import { randomString } from 'cypress/support/random'
 import { urls } from 'scenes/urls'
-import { insight, savedInsights, dashboards, dashboard } from 'cypress/productAnalytics'
+import { insight, savedInsights, dashboards, dashboard, duplicateDashboardFromMenu } from 'cypress/productAnalytics'
 
 describe('Dashboard', () => {
     beforeEach(() => {
@@ -164,16 +164,18 @@ describe('Dashboard', () => {
 
             insightName = randomString('insight-')
             expectedCopiedInsightName = `${insightName} (Copy)`
+
+            cy.visit(urls.savedInsights()) // get insights list into turbo mode
+            cy.clickNavMenu('dashboards')
+
+            dashboards.createAndGoToEmptyDashboard(dashboardName)
+            dashboard.addInsightToEmptyDashboard(insightName)
+
+            cy.contains('h4', insightName).click() // get insight into turbo mode
         })
+
         describe('from the dashboard list', () => {
             it('can duplicate a dashboard without duplicating insights', () => {
-                cy.visit(urls.savedInsights()) // get insights list into turbo mode
-                cy.clickNavMenu('dashboards')
-
-                dashboards.createAndGoToEmptyDashboard(dashboardName)
-                dashboard.addInsightToEmptyDashboard(insightName)
-
-                cy.contains('h4', insightName).click() // get insight into turbo mode
                 cy.wait('@getInsight').then(() => {
                     cy.clickNavMenu('dashboards')
                     cy.get('[placeholder="Search for dashboards"]').type(dashboardName)
@@ -181,9 +183,9 @@ describe('Dashboard', () => {
                     cy.contains('[data-attr="dashboards-table"] tr', dashboardName).within(() => {
                         cy.get('[data-attr="more-button"]').click()
                     })
-                    cy.contains('.LemonButton', 'Duplicate').click()
-                    cy.get('[data-attr="dashboard-submit-and-go"]').click()
+                    duplicateDashboardFromMenu()
                     cy.get('h1.page-title').should('have.text', expectedCopiedDashboardName)
+
                     cy.wait('@createDashboard').then(() => {
                         cy.get('.InsightMeta h4').should('have.text', insightName).should('not.have.text', '(Copy)')
                         cy.contains('h4', insightName).click()
@@ -194,13 +196,6 @@ describe('Dashboard', () => {
             })
 
             it('can duplicate a dashboard and duplicate insights', () => {
-                cy.visit(urls.savedInsights()) // get insights list into turbo mode
-                cy.clickNavMenu('dashboards')
-
-                dashboards.createAndGoToEmptyDashboard(dashboardName)
-                dashboard.addInsightToEmptyDashboard(insightName)
-
-                cy.contains('h4', insightName).click() // get insight into turbo mode
                 cy.wait('@getInsight').then(() => {
                     cy.clickNavMenu('dashboards')
                     cy.get('[placeholder="Search for dashboards"]').type(dashboardName)
@@ -208,9 +203,8 @@ describe('Dashboard', () => {
                     cy.contains('[data-attr="dashboards-table"] tr', dashboardName).within(() => {
                         cy.get('[data-attr="more-button"]').click()
                     })
-                    cy.contains('.LemonButton', 'Duplicate').click()
-                    cy.contains('.LemonCheckbox', "Duplicate this dashboard's tiles").click()
-                    cy.get('[data-attr="dashboard-submit-and-go"]').click()
+                    duplicateDashboardFromMenu(true)
+                    cy.get('h1.page-title').should('have.text', expectedCopiedDashboardName)
 
                     cy.wait('@createDashboard').then(() => {
                         cy.contains('h4', expectedCopiedInsightName).click()
@@ -225,24 +219,14 @@ describe('Dashboard', () => {
 
         describe('from the dashboard', () => {
             it('can duplicate a dashboard without duplicating insights', () => {
-                cy.visit(urls.savedInsights()) // get insights list into turbo mode
-                cy.clickNavMenu('dashboards')
-
-                dashboards.createAndGoToEmptyDashboard(dashboardName)
-                dashboard.addInsightToEmptyDashboard(insightName)
-
-                cy.contains('h4', insightName).click() // get insight into turbo mode
                 cy.wait('@getInsight').then(() => {
                     cy.clickNavMenu('dashboards')
-                    cy.get('[placeholder="Search for dashboards"]').type(dashboardName)
+                    dashboards.visitDashboard(dashboardName)
 
-                    cy.contains('[data-attr="dashboards-table"] tr', dashboardName).within(() => {
-                        cy.get('a').click()
-                    })
                     cy.get('[data-attr="dashboard-three-dots-options-menu"]').click()
-                    cy.contains('.LemonButton', 'Duplicate').click()
-                    cy.get('[data-attr="dashboard-submit-and-go"]').click()
+                    duplicateDashboardFromMenu()
                     cy.get('h1.page-title').should('have.text', expectedCopiedDashboardName)
+
                     cy.wait('@createDashboard').then(() => {
                         cy.get('.InsightMeta h4').should('have.text', insightName).should('not.have.text', '(Copy)')
                         cy.contains('h4', insightName).click()
@@ -253,24 +237,13 @@ describe('Dashboard', () => {
                 })
             })
             it('can duplicate a dashboard and duplicate insights', () => {
-                cy.visit(urls.savedInsights()) // get insights list into turbo mode
-                cy.clickNavMenu('dashboards')
-
-                dashboards.createAndGoToEmptyDashboard(dashboardName)
-                dashboard.addInsightToEmptyDashboard(insightName)
-
-                cy.contains('h4', insightName).click() // get insight into turbo mode
                 cy.wait('@getInsight').then(() => {
                     cy.clickNavMenu('dashboards')
-                    cy.get('[placeholder="Search for dashboards"]').type(dashboardName)
+                    dashboards.visitDashboard(dashboardName)
 
-                    cy.contains('[data-attr="dashboards-table"] tr', dashboardName).within(() => {
-                        cy.get('a').click()
-                    })
                     cy.get('[data-attr="dashboard-three-dots-options-menu"]').click()
-                    cy.contains('.LemonButton', 'Duplicate').click()
-                    cy.contains('.LemonCheckbox', "Duplicate this dashboard's tiles").click()
-                    cy.get('[data-attr="dashboard-submit-and-go"]').click()
+                    duplicateDashboardFromMenu(true)
+                    cy.get('h1.page-title').should('have.text', expectedCopiedDashboardName)
 
                     cy.wait('@createDashboard').then(() => {
                         cy.contains('h4', expectedCopiedInsightName).click()
