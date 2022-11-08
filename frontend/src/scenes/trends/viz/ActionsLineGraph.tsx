@@ -9,12 +9,15 @@ import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { isLifecycleFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { filters, indexedResults, incompletenessOffsetFromEnd, hiddenLegendKeys, labelGroupType } = useValues(
         trendsLogic(insightProps)
     )
+    const compare = isTrendsFilter(filters) && !!filters.compare
+    const formula = isTrendsFilter(filters) ? filters.formula : undefined
 
     return indexedResults &&
         indexedResults[0]?.data &&
@@ -22,7 +25,7 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
         <LineGraph
             data-attr="trend-line-graph"
             type={
-                filters.insight === InsightType.LIFECYCLE || filters.display === ChartDisplayType.ActionsBar
+                isLifecycleFilter(filters) || filters.display === ChartDisplayType.ActionsBar
                     ? GraphType.Bar
                     : GraphType.Line
             }
@@ -46,11 +49,11 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
                       }
                     : undefined
             }
-            isCompare={!!filters.compare}
+            isCompare={compare}
             isInProgress={filters.insight !== InsightType.STICKINESS && incompletenessOffsetFromEnd < 0}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
-                !showPersonsModal || isMultiSeriesFormula(filters.formula)
+                !showPersonsModal || isMultiSeriesFormula(formula)
                     ? undefined
                     : (payload) => {
                           const { index, points, crossDataset } = payload

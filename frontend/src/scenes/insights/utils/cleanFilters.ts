@@ -235,7 +235,11 @@ export function cleanFilters(
         return cleanFilters
     } else if (isTrendsFilter(filters) || isLifecycleFilter(filters) || isStickinessFilter(filters)) {
         const cleanSearchParams: Partial<TrendsFilterType> = {
-            insight: InsightType.TRENDS,
+            insight: isLifecycleFilter(filters)
+                ? InsightType.LIFECYCLE
+                : isStickinessFilter(filters)
+                ? InsightType.STICKINESS
+                : InsightType.TRENDS,
             ...filters,
             interval: autocorrectInterval(filters),
             ...(isTrendsFilter(filters) ? { display: filters.display || ChartDisplayType.ActionsLineGraph } : {}),
@@ -255,15 +259,13 @@ export function cleanFilters(
         }
 
         // TODO: Deprecated; should be removed once backend is updated
-        if (filters.insight === InsightType.STICKINESS) {
-            cleanSearchParams['shown_as'] = ShownAsValue.STICKINESS
-        } else if (filters.insight === InsightType.LIFECYCLE) {
-            cleanSearchParams['shown_as'] = ShownAsValue.LIFECYCLE
-        } else {
-            cleanSearchParams['shown_as'] = undefined
-        }
+        cleanSearchParams['shown_as'] = isStickinessFilter(filters)
+            ? ShownAsValue.STICKINESS
+            : isLifecycleFilter(filters)
+            ? ShownAsValue.LIFECYCLE
+            : undefined
 
-        if (filters.date_from === 'all' || filters.insight === InsightType.LIFECYCLE) {
+        if (filters.date_from === 'all' || isLifecycleFilter(filters)) {
             cleanSearchParams['compare'] = false
         }
 

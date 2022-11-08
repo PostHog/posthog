@@ -5,15 +5,21 @@ import { insightLogic } from '../insights/insightLogic'
 import {
     InsightLogicProps,
     FilterType,
-    InsightType,
     TrendResult,
     ActionFilter,
     ChartDisplayType,
     TrendsFilterType,
+    LifecycleFilterType,
+    StickinessFilterType,
 } from '~/types'
 import type { trendsLogicType } from './trendsLogicType'
 import { IndexedTrendResult } from 'scenes/trends/types'
-import { isTrendsInsight, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import {
+    isLifecycleFilter,
+    isStickinessFilter,
+    isTrendsInsight,
+    keyForInsightLogicProps,
+} from 'scenes/insights/sharedUtils'
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { subscriptions } from 'kea-subscriptions'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
@@ -78,12 +84,22 @@ export const trendsLogic = kea<trendsLogicType>([
     selectors({
         filters: [
             (s) => [s.inflightFilters],
-            (inflightFilters): Partial<TrendsFilterType> =>
-                inflightFilters && isTrendsFilter(inflightFilters) ? inflightFilters : {},
+            (
+                inflightFilters
+            ): Partial<TrendsFilterType> | Partial<StickinessFilterType> | Partial<LifecycleFilterType> =>
+                inflightFilters &&
+                (isTrendsFilter(inflightFilters) ||
+                    isStickinessFilter(inflightFilters) ||
+                    isLifecycleFilter(inflightFilters))
+                    ? inflightFilters
+                    : {},
         ],
         loadedFilters: [
             (s) => [s.insight],
-            ({ filters }): Partial<TrendsFilterType> => (filters && isTrendsFilter(filters) ? filters : {}),
+            ({ filters }): Partial<TrendsFilterType> =>
+                filters && (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters))
+                    ? filters
+                    : {},
         ],
         results: [
             (s) => [s.insight],
@@ -103,10 +119,9 @@ export const trendsLogic = kea<trendsLogicType>([
             (s) => [s.filters, s.results, s.toggledLifecycles],
             (filters, _results, toggledLifecycles): IndexedTrendResult[] => {
                 let results = _results || []
-                if (filters.insight === InsightType.LIFECYCLE) {
+                if (isLifecycleFilter(filters)) {
                     results = results.filter((result) => toggledLifecycles.includes(String(result.status)))
-                }
-                if (
+                } else if (
                     filters.display === ChartDisplayType.ActionsBarValue ||
                     filters.display === ChartDisplayType.ActionsPie
                 ) {

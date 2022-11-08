@@ -674,32 +674,27 @@ export const insightLogic = kea<insightLogicType>([
                 currentTeamId: number,
                 insight: Partial<InsightModel>
             ): TriggerExportProps['export_context'] | null => {
-                const insightType = (filters.insight as InsightType | undefined) || InsightType.TRENDS
                 const params = { ...filters }
 
                 const filename = ['export', insight.name || insight.derived_name].join('-')
 
-                if (
-                    insightType === InsightType.TRENDS ||
-                    insightType === InsightType.STICKINESS ||
-                    insightType === InsightType.LIFECYCLE
-                ) {
+                if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
                     return {
                         path: `api/projects/${currentTeamId}/insights/trend/?${toParams(
                             filterTrendsClientSideParams(params)
                         )}`,
                         filename,
                     }
-                } else if (insightType === InsightType.RETENTION) {
+                } else if (isRetentionFilter(filters)) {
                     return { filename, path: `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}` }
-                } else if (insightType === InsightType.FUNNELS) {
+                } else if (isFunnelsFilter(filters)) {
                     return {
                         filename,
                         method: 'POST',
                         path: `api/projects/${currentTeamId}/insights/funnel`,
                         body: params,
                     }
-                } else if (insightType === InsightType.PATHS) {
+                } else if (isPathsFilter(filters)) {
                     return {
                         filename,
                         method: 'POST',

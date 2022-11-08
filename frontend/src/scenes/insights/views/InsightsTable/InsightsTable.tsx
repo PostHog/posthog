@@ -28,7 +28,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatAggregationValue, formatBreakdownLabel } from 'scenes/insights/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -103,7 +103,9 @@ export function InsightsTable({
     }
 
     const isDisplayModeNonTimeSeries: boolean =
-        !!filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)
+        (isTrendsFilter(filters) || isStickinessFilter(filters)) &&
+        !!filters.display &&
+        NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)
 
     const calcColumnMenu = isDisplayModeNonTimeSeries ? null : (
         <Menu>
@@ -124,6 +126,7 @@ export function InsightsTable({
 
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
+    const compare = isTrendsFilter(filters) && !!filters.compare
 
     if (isLegend) {
         const isAnySeriesChecked = indexedResults.some((series) => !hiddenLegendKeys[series.id])
@@ -147,7 +150,7 @@ export function InsightsTable({
             render: function RenderCheckbox(_, item: IndexedTrendResult) {
                 return (
                     <LemonCheckbox
-                        color={getSeriesColor(item.id, !!filters.compare)}
+                        color={getSeriesColor(item.id, compare)}
                         checked={!hiddenLegendKeys[item.id]}
                         onChange={() => toggleVisibility(item.id)}
                         disabled={!canCheckUncheckSeries}
@@ -164,7 +167,7 @@ export function InsightsTable({
             return (
                 <div className="series-name-wrapper-col">
                     <InsightLabel
-                        seriesColor={getSeriesColor(item.id, !!filters.compare)}
+                        seriesColor={getSeriesColor(item.id, compare)}
                         action={item.action}
                         fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                         hasMultipleSeries={indexedResults.length > 1}
@@ -176,7 +179,7 @@ export function InsightsTable({
                             editable: canEditSeriesNameInline,
                         })}
                         pillMaxWidth={165}
-                        compareValue={filters.compare ? formatCompareLabel(item) : undefined}
+                        compareValue={compare ? formatCompareLabel(item) : undefined}
                         onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
                     />
                     {canEditSeriesNameInline && (
@@ -243,7 +246,7 @@ export function InsightsTable({
                 return labelA.localeCompare(labelB)
             },
         })
-        if (filters.display === ChartDisplayType.WorldMap) {
+        if (isTrendsFilter(filters) && filters.display === ChartDisplayType.WorldMap) {
             columns.push({
                 title: <PropertyKeyInfo disableIcon disablePopover value="$geoip_country_name" />,
                 render: (_, item: IndexedTrendResult) => countryCodeToName[item.breakdown_value as string],
@@ -296,9 +299,7 @@ export function InsightsTable({
     }
 
     if (indexedResults?.length > 0 && indexedResults[0].data) {
-        const previousResult = !!filters.compare
-            ? indexedResults.find((r) => r.compare_label === 'previous')
-            : undefined
+        const previousResult = compare ? indexedResults.find((r) => r.compare_label === 'previous') : undefined
         const valueColumns: LemonTableColumn<IndexedTrendResult, any>[] = indexedResults[0].data.map(
             (__, index: number) => ({
                 title: (
