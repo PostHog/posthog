@@ -1,46 +1,69 @@
 import { PageHeader } from 'lib/components/PageHeader'
 import { teamLogic } from 'scenes/teamLogic'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
-import { SessionRecordingsTopBar } from './filters/SessionRecordingsTopBar'
 import { AlertMessage } from 'lib/components/AlertMessage'
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tabs } from 'antd'
-import { SessionRecordingPlaylistsTabs } from '~/types'
+import { SessionRecordingsTabs } from '~/types'
+import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
+import { Tooltip } from 'lib/components/Tooltip'
+import { router } from 'kea-router'
+import { sessionRecordingsLogic } from './sessionRecordingsLogic'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { tab } = useValues(sessionRecordingsListLogic)
-    const { setTab } = useActions(sessionRecordingsListLogic)
+    const { tab } = useValues(sessionRecordingsLogic)
     const showRecordingPlaylists = !!featureFlags[FEATURE_FLAGS.RECORDING_PLAYLISTS]
+    const logic = sessionRecordingsListLogic({ key: 'recents' })
+
+    const { filterQueryParams } = useValues(logic)
 
     const recentRecordings = (
         <>
-            <SessionRecordingsTopBar />
-            <SessionRecordingsPlaylist key="global" />
+            <SessionRecordingsPlaylist key="recents" />
         </>
     )
 
     return (
         <div>
-            <PageHeader title={<div>Recordings</div>} />
+            <PageHeader
+                title={<div>Session Recordings</div>}
+                buttons={
+                    tab === SessionRecordingsTabs.Recent ? (
+                        <>
+                            <Tooltip title="Save the currently filters as a dynamic playlist" placement="left">
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() =>
+                                        router.actions.push(urls.sessionRecordingPlaylist('new', filterQueryParams))
+                                    }
+                                >
+                                    Save as playlist
+                                </LemonButton>
+                            </Tooltip>
+                        </>
+                    ) : undefined
+                }
+            />
             {showRecordingPlaylists && (
                 <Tabs
                     activeKey={tab}
                     style={{ borderColor: '#D9D9D9' }}
-                    onChange={(t) => setTab(t as SessionRecordingPlaylistsTabs)}
+                    onChange={(t) => router.actions.push(urls.sessionRecordings(t as SessionRecordingsTabs))}
                 >
-                    <Tabs.TabPane tab="Recent recordings" key={SessionRecordingPlaylistsTabs.Recent} />
-                    <Tabs.TabPane tab="All Playlists" key={SessionRecordingPlaylistsTabs.All} />
-                    <Tabs.TabPane tab="Your Playlists" key={SessionRecordingPlaylistsTabs.Yours} />
-                    <Tabs.TabPane tab="Pinned" key={SessionRecordingPlaylistsTabs.Pinned} />
-                    <Tabs.TabPane tab="History" key={SessionRecordingPlaylistsTabs.History} />
+                    <Tabs.TabPane tab="Recent" key={SessionRecordingsTabs.Recent} />
+                    <Tabs.TabPane tab="All Playlists" key={SessionRecordingsTabs.All} />
+                    <Tabs.TabPane tab="Your Playlists" key={SessionRecordingsTabs.Yours} />
+                    <Tabs.TabPane tab="Pinned" key={SessionRecordingsTabs.Pinned} />
+                    <Tabs.TabPane tab="History" key={SessionRecordingsTabs.History} />
                 </Tabs>
             )}
             {currentTeam && !currentTeam?.session_recording_opt_in ? (
@@ -52,10 +75,14 @@ export function SessionsRecordings(): JSX.Element {
                 </div>
             ) : null}
             {showRecordingPlaylists ? (
-                tab === SessionRecordingPlaylistsTabs.Recent ? (
+                !tab ? (
+                    <Spinner />
+                ) : tab === SessionRecordingsTabs.Recent ? (
                     recentRecordings
+                ) : tab === SessionRecordingsTabs.History ? (
+                    <p>WIP</p>
                 ) : (
-                    <div>WIP</div>
+                    <SavedSessionRecordingPlaylists tab={tab} />
                 )
             ) : (
                 recentRecordings
@@ -66,5 +93,5 @@ export function SessionsRecordings(): JSX.Element {
 
 export const scene: SceneExport = {
     component: SessionsRecordings,
-    logic: sessionRecordingsListLogic,
+    logic: sessionRecordingsLogic,
 }

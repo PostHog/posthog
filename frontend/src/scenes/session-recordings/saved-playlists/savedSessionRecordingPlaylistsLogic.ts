@@ -1,8 +1,8 @@
-import { actions, kea, reducers, path, selectors } from 'kea'
+import { actions, kea, reducers, path, selectors, key, props } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
 import { toParams } from 'lib/utils'
-import { SessionRecordingPlaylistsTabs, SessionRecordingPlaylistType } from '~/types'
+import { SessionRecordingsTabs, SessionRecordingPlaylistType } from '~/types'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { dayjs } from 'lib/dayjs'
@@ -18,7 +18,7 @@ export interface SavedSessionRecordingPlaylistsResult extends PaginatedResponse<
 
 export interface SavedSessionRecordingPlaylistsFilters {
     order: string
-    tab: SessionRecordingPlaylistsTabs
+    tab: SessionRecordingsTabs
     search: string
     createdBy: number | 'All users'
     dateFrom: string | dayjs.Dayjs | undefined | 'all' | null
@@ -26,12 +26,16 @@ export interface SavedSessionRecordingPlaylistsFilters {
     page: number
 }
 
+export interface SavedSessionRecordingPlaylistsLogicProps {
+    tab: SessionRecordingsTabs
+}
+
 function cleanFilters(values: Partial<SavedSessionRecordingPlaylistsFilters>): SavedSessionRecordingPlaylistsFilters {
     return {
         order: values.order || '-last_modified_at', // Sync with `sorting` selector
-        tab: values.tab || SessionRecordingPlaylistsTabs.Recent,
+        tab: values.tab || SessionRecordingsTabs.Recent,
         search: String(values.search || ''),
-        createdBy: (values.tab !== SessionRecordingPlaylistsTabs.Yours && values.createdBy) || 'All users',
+        createdBy: (values.tab !== SessionRecordingsTabs.Yours && values.createdBy) || 'All users',
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
         page: parseInt(String(values.page)) || 1,
@@ -40,6 +44,8 @@ function cleanFilters(values: Partial<SavedSessionRecordingPlaylistsFilters>): S
 
 export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlaylistsLogicType>([
     path(['scenes', 'session-recordings', 'saved-playlists', 'savedSessionRecordingPlaylistsLogic']),
+    props({} as SavedSessionRecordingPlaylistsLogicProps),
+    key((props) => props.tab),
     actions(() => ({
         setSavedPlaylistsFilters: (filters: Partial<SavedSessionRecordingPlaylistsFilters>, merge = true) => ({
             filters,
@@ -107,8 +113,8 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 limit: PLAYLISTS_PER_PAGE,
                 offset: Math.max(0, (filters.page - 1) * PLAYLISTS_PER_PAGE),
                 saved: true,
-                ...(filters.tab === SessionRecordingPlaylistsTabs.Yours && { user: true }),
-                ...(filters.tab === SessionRecordingPlaylistsTabs.Pinned && { pinned: true }),
+                ...(filters.tab === SessionRecordingsTabs.Yours && { user: true }),
+                ...(filters.tab === SessionRecordingsTabs.Pinned && { pinned: true }),
                 ...(filters.search && { search: filters.search }),
                 ...(filters.createdBy !== 'All users' && { created_by: filters.createdBy }),
                 ...(filters.dateFrom &&

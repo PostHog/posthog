@@ -12,13 +12,9 @@ import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 
 interface SessionRecordingsFiltersProps {
     personUUID?: string
-    isPersonPage?: boolean
 }
 
-export function SessionRecordingsFilters({
-    personUUID,
-    isPersonPage = false,
-}: SessionRecordingsFiltersProps): JSX.Element {
+export function SessionRecordingsFilters({ personUUID }: SessionRecordingsFiltersProps): JSX.Element {
     const sessionRecordingsListLogicInstance = sessionRecordingsListLogic({ personUUID })
     const { entityFilters, propertyFilters, filtersEnabled } = useValues(sessionRecordingsListLogicInstance)
 
@@ -41,7 +37,7 @@ export function SessionRecordingsFilters({
                                 reportRecordingsListFilterAdded(SessionRecordingFilterType.EventAndAction)
                                 setEntityFilters(payload)
                             }}
-                            typeKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
+                            typeKey={personUUID ? `person-${personUUID}` : 'session-recordings'}
                             mathAvailability={MathAvailability.None}
                             buttonCopy="Add filter"
                             hideRename
@@ -59,14 +55,14 @@ export function SessionRecordingsFilters({
                             propertyFiltersPopover
                         />
                     </div>
-                    {!isPersonPage && (
+                    {!personUUID && (
                         <div className="mt-4 space-y-2">
                             <LemonLabel info="Show recordings by persons who match the set criteria">
                                 Filter by persons and cohorts
                             </LemonLabel>
 
                             <PropertyFilters
-                                pageKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
+                                pageKey={personUUID ? `person-${personUUID}` : 'session-recordings'}
                                 taxonomicGroupTypes={[
                                     TaxonomicFilterGroupType.PersonProperties,
                                     TaxonomicFilterGroupType.Cohorts,
@@ -85,10 +81,7 @@ export function SessionRecordingsFilters({
     )
 }
 
-export function SessionRecordingsFiltersToggle({
-    personUUID,
-    isPersonPage,
-}: SessionRecordingsFiltersProps): JSX.Element {
+export function SessionRecordingsFiltersToggle({ personUUID }: SessionRecordingsFiltersProps): JSX.Element {
     const sessionRecordingsListLogicInstance = sessionRecordingsListLogic({ personUUID })
     const { entityFilters, propertyFilters, filtersEnabled } = useValues(sessionRecordingsListLogicInstance)
     const { setFiltersEnabled } = useActions(sessionRecordingsListLogicInstance)
@@ -107,7 +100,7 @@ export function SessionRecordingsFiltersToggle({
             }
             onClick={() => {
                 setFiltersEnabled(!filtersEnabled)
-                if (isPersonPage) {
+                if (personUUID) {
                     const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
                     if (entityFilterButtons.length > 0) {
                         ;(entityFilterButtons[0] as HTMLElement).click()

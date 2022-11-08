@@ -383,7 +383,7 @@ export enum SavedInsightsTabs {
     History = 'history',
 }
 
-export enum SessionRecordingPlaylistsTabs {
+export enum SessionRecordingsTabs {
     Recent = 'recent',
     All = 'all',
     Yours = 'yours',
@@ -507,7 +507,7 @@ export enum SessionRecordingUsageType {
     LOADED = 'loaded',
 }
 
-export enum SessionRecordingTab {
+export enum SessionRecordingPlayerTab {
     EVENTS = 'events',
     CONSOLE = 'console',
 }
@@ -543,7 +543,6 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
-    tab?: SessionRecordingPlaylistsTabs
 }
 export interface SessionRecordingsResponse {
     results: SessionRecordingType[]
@@ -770,10 +769,9 @@ export interface EventsTableRowItem {
 }
 
 export interface SessionRecordingPlaylistType {
-    /** The unique key we use when communicating with the user, e.g. in URLs */
-    short_id: InsightShortId
     /** The primary key in the database, used as well in API endpoints */
     id: number
+    short_id: string
     name: string
     derived_name?: string | null
     description?: string

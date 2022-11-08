@@ -174,7 +174,6 @@ export function Person(): JSX.Element | null {
                     <SessionRecordingsPlaylist
                         key={person.uuid} // force refresh if user changes
                         personUUID={person.uuid}
-                        isPersonPage
                     />
                 </TabPane>
 

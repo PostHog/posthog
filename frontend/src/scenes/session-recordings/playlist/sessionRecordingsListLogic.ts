@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import api, { PaginatedResponse } from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
@@ -10,17 +10,17 @@ import {
     RecordingDurationFilter,
     RecordingFilters,
     SessionRecordingId,
-    SessionRecordingPlaylistsTabs,
     SessionRecordingPropertiesType,
     SessionRecordingsResponse,
     SessionRecordingType,
 } from '~/types'
 import type { sessionRecordingsListLogicType } from './sessionRecordingsListLogicType'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
 import { teamLogic } from '../../teamLogic'
 import { dayjs } from 'lib/dayjs'
+import { loaders } from 'kea-loaders'
 
 export type PersonUUID = string
 interface Params {
@@ -133,24 +133,24 @@ export const defaultPageviewPropertyEntityFilter = (
     }
 }
 
-export interface SessionRecordingTableLogicProps {
+export interface SessionRecordingPlayerTableLogicProps {
     personUUID?: PersonUUID
     key?: string
     flagKey?: string
 }
 
-export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
-    path: (key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsListLogic', key],
-    props: {} as SessionRecordingTableLogicProps,
-    key: (props) => `${props.key || props.personUUID || 'global'}`,
-    connect: {
+export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
+    path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsListLogic', key || '']),
+    props({} as SessionRecordingPlayerTableLogicProps),
+    key((props) => `${props.key || props.personUUID || 'global'}`),
+    connect({
         values: [teamLogic, ['currentTeamId']],
         actions: [
             eventUsageLogic,
             ['reportRecordingsListFetched', 'reportRecordingsListPropertiesFetched', 'reportRecordingsListFilterAdded'],
         ],
-    },
-    actions: {
+    }),
+    actions({
         getSessionRecordings: true,
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
@@ -169,9 +169,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             incomingToDate,
         }),
         setDurationFilter: (durationFilter: RecordingDurationFilter) => ({ durationFilter }),
-        setTab: (tab: SessionRecordingPlaylistsTabs | undefined = SessionRecordingPlaylistsTabs.Recent) => ({ tab }),
-    },
-    loaders: ({ props, values, actions }) => ({
+    }),
+    loaders(({ props, values, actions }) => ({
         sessionRecordingsResponse: [
             {
                 results: [],
@@ -226,16 +225,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
                 },
             },
         ],
-    }),
-    events: ({ actions, props }) => ({
-        afterMount: () => {
-            if (props.flagKey) {
-                actions.setEntityFiltersNoRefresh(defaultEntityFilterOnFlag(props.flagKey))
-            }
-            actions.getSessionRecordings()
-        },
-    }),
-    reducers: ({}) => ({
+    })),
+    reducers(({}) => ({
         filtersEnabled: [
             false,
             {
@@ -289,12 +280,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
                 setDurationFilter: (_, { durationFilter }) => durationFilter,
             },
         ],
-        tab: [
-            SessionRecordingPlaylistsTabs.Recent as SessionRecordingPlaylistsTabs,
-            {
-                setTab: (_, { tab }) => tab,
-            },
-        ],
         offset: [
             0,
             {
@@ -315,8 +300,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
                 setDateRange: (_, { incomingToDate }) => incomingToDate ?? null,
             },
         ],
-    }),
-    listeners: ({ actions }) => ({
+    })),
+    listeners(({ actions }) => ({
         setEntityFilters: () => {
             actions.getSessionRecordings()
         },
@@ -329,9 +314,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
         setDurationFilter: () => {
             actions.getSessionRecordings()
         },
-        setTab: () => {
-            actions.getSessionRecordings()
-        },
         loadNext: () => {
             actions.getSessionRecordings()
         },
@@ -341,8 +323,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
         getSessionRecordingsSuccess: () => {
             actions.getSessionRecordingsProperties({})
         },
-    }),
-    selectors: {
+    })),
+    selectors({
         sessionRecordingIdToProperties: [
             (s) => [s.sessionRecordingsPropertiesResponse],
             (propertiesResponse: PaginatedResponse<SessionRecordingPropertiesType>) => {
@@ -367,8 +349,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             (sessionRecordingsResponse) => sessionRecordingsResponse.has_next,
         ],
         filterQueryParams: [
-            (s) => [s.entityFilters, s.fromDate, s.toDate, s.offset, s.durationFilter, s.propertyFilters, s.tab],
-            (entityFilters, fromDate, toDate, offset, durationFilter, propertyFilters, tab) => {
+            (s) => [s.entityFilters, s.fromDate, s.toDate, s.offset, s.durationFilter, s.propertyFilters],
+            (entityFilters, fromDate, toDate, offset, durationFilter, propertyFilters) => {
                 return {
                     actions: entityFilters.actions,
                     events: entityFilters.events,
@@ -377,12 +359,19 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
                     date_to: toDate,
                     offset,
                     session_recording_duration: durationFilter,
-                    tab,
                 }
             },
         ],
-    },
-    actionToUrl: ({ values }) => {
+    }),
+
+    afterMount(({ actions, props }) => {
+        if (props.flagKey) {
+            actions.setEntityFiltersNoRefresh(defaultEntityFilterOnFlag(props.flagKey))
+        }
+        actions.getSessionRecordings()
+    }),
+
+    actionToUrl(({ values }) => {
         const buildURL = (
             replace: boolean
         ): [
@@ -415,13 +404,12 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
             setPropertyFilters: () => buildURL(true),
             setDateRange: () => buildURL(true),
             setDurationFilter: () => buildURL(true),
-            setTab: () => buildURL(true),
             loadNext: () => buildURL(true),
             loadPrev: () => buildURL(true),
         }
-    },
+    }),
 
-    urlToAction: ({ actions, values, props }) => {
+    urlToAction(({ actions, values, props }) => {
         const urlToAction = (_: any, params: Params, hashParams: HashParams): void => {
             const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
             if (nulledSessionRecordingId !== values.selectedRecordingId) {
@@ -451,14 +439,11 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>({
                 if (!equal(filters.session_recording_duration, values.durationFilter)) {
                     actions.setDurationFilter(filters.session_recording_duration ?? DEFAULT_DURATION_FILTER)
                 }
-                if (!equal(filters.tab, values.tab)) {
-                    actions.setTab(filters.tab)
-                }
             }
         }
         const urlPattern = props.personUUID ? '/person/*' : '/recordings'
         return {
             [urlPattern]: urlToAction,
         }
-    },
-})
+    }),
+])
