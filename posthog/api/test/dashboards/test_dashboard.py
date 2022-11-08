@@ -620,7 +620,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_dashboard_duplication_does_not_duplicate_tiles_by_default(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
-        insight_one_id, _ = self._create_insight({"dashboards": [existing_dashboard.pk]})
+        insight_one_id, _ = self._create_insight({"dashboards": [existing_dashboard.pk], "name": "the insight"})
         _, dashboard_with_tiles = self.dashboard_api.create_text_tile(existing_dashboard.id)
 
         duplicate_response = self.client.post(
@@ -630,13 +630,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         after_duplication_insight_id = duplicate_response.json()["tiles"][0]["insight"]["id"]
         assert after_duplication_insight_id == insight_one_id
+        assert duplicate_response.json()["tiles"][0]["insight"]["name"] == "the insight"
 
         after_duplication_tile_id = duplicate_response.json()["tiles"][1]["text"]["id"]
         assert after_duplication_tile_id == dashboard_with_tiles["tiles"][1]["text"]["id"]
 
     def test_dashboard_duplication_can_duplicate_tiles(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
-        insight_one_id, _ = self._create_insight({"dashboards": [existing_dashboard.pk]})
+        insight_one_id, _ = self._create_insight({"dashboards": [existing_dashboard.pk], "name": "the insight"})
         _, dashboard_with_tiles = self.dashboard_api.create_text_tile(existing_dashboard.id)
 
         duplicate_response = self.client.post(
@@ -647,6 +648,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         after_duplication_insight_id = duplicate_response.json()["tiles"][0]["insight"]["id"]
         assert after_duplication_insight_id != insight_one_id
+        assert duplicate_response.json()["tiles"][0]["insight"]["name"] == "the insight (Copy)"
 
         after_duplication_tile_id = duplicate_response.json()["tiles"][1]["text"]["id"]
         assert after_duplication_tile_id != dashboard_with_tiles["tiles"][1]["text"]["id"]

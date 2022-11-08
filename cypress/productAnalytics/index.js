@@ -81,6 +81,7 @@ export const dashboard = {
             cy.get('[data-attr="insight-name"] [data-attr="edit-prop-name"]').click()
             cy.get('[data-attr="insight-name"] input').type(insightName)
             cy.get('[data-attr="insight-name"] [title="Save"]').click()
+            cy.get('h1.page-title').should('have.text', insightName)
         }
 
         cy.get('[data-attr=insight-save-button]').contains('Save & add to dashboard').click()

@@ -200,6 +200,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                 **InsightSerializer(existing_tile.insight, context=self.context).data,
                 "id": None,  # to create a new Insight
                 "last_refresh": now(),
+                "name": existing_tile.insight.display_name + " (Copy)",
             }
             new_data.pop("dashboards", None)
             new_tags = new_data.pop("tags", None)

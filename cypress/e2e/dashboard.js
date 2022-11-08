@@ -6,6 +6,8 @@ describe('Dashboard', () => {
     beforeEach(() => {
         cy.intercept('GET', /api\/projects\/\d+\/insights\/\?.*/).as('loadInsightList')
         cy.intercept(/api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
+        cy.intercept('GET', /\/api\/projects\/\d+\/insights\/?\?short/).as('getInsight')
+        cy.intercept('POST', /\/api\/projects\/\d+\/dashboards/).as('createDashboard')
 
         cy.clickNavMenu('dashboards')
         cy.location('pathname').should('include', '/dashboard')
@@ -151,6 +153,68 @@ describe('Dashboard', () => {
 
         cy.wait(200)
         cy.get('.page-title').contains(dashboardName).should('exist')
+    })
+
+    describe('duplicating dashboards', () => {
+        describe('from the dashboard list', () => {
+            it('can duplicate a dashboard without duplicating insights', () => {
+                cy.visit(urls.savedInsights()) // get insights list into turbo mode
+                cy.clickNavMenu('dashboards')
+
+                const dashboardName = randomString('dashboard-')
+                const expectedCopiedDashboardName = `${dashboardName} (Copy)`
+                const insightName = randomString('insight-')
+
+                dashboards.createAndGoToEmptyDashboard(dashboardName)
+                dashboard.addInsightToEmptyDashboard(insightName)
+
+                cy.contains('h4', insightName).click() // get insight into turbo mode
+                cy.wait('@getInsight').then(() => {
+                    cy.clickNavMenu('dashboards')
+                    cy.contains('[data-attr="dashboards-table"] tr', dashboardName).within(() => {
+                        cy.get('[data-attr="more-button"]').click()
+                    })
+                    cy.contains('.LemonButton', 'Duplicate').click()
+                    cy.get('[data-attr="dashboard-submit-and-go"]').click()
+                    cy.get('h1.page-title').should('have.text', expectedCopiedDashboardName)
+                    cy.wait('@createDashboard').then(() => {
+                        cy.get('.InsightMeta h4').should('have.text', insightName).should('not.have.text', '(Copy)')
+                        cy.contains('h4', insightName).click()
+                        cy.get('[data-attr="save-to-dashboard-button"] .LemonBadge').should('have.text', '2')
+                    })
+                })
+            })
+            it('can duplicate a dashboard and duplicate insights', () => {
+                cy.visit(urls.savedInsights()) // get insights list into turbo mode
+                cy.clickNavMenu('dashboards')
+
+                const dashboardName = randomString('dashboard-')
+                const insightName = randomString('insight-')
+                const expectedCopiedInsightName = `${insightName} (Copy)`
+
+                dashboards.createAndGoToEmptyDashboard(dashboardName)
+                dashboard.addInsightToEmptyDashboard(insightName)
+
+                cy.contains('h4', insightName).click() // get insight into turbo mode
+                cy.wait('@getInsight').then(() => {
+                    cy.clickNavMenu('dashboards')
+                    cy.contains('[data-attr="dashboards-table"] tr', dashboardName).within(() => {
+                        cy.get('[data-attr="more-button"]').click()
+                    })
+                    cy.contains('.LemonButton', 'Duplicate').click()
+                    cy.contains('.LemonCheckbox', "Duplicate this dashboard's tiles").click()
+                    cy.get('[data-attr="dashboard-submit-and-go"]').click()
+
+                    cy.wait('@createDashboard').then(() => {
+                        cy.contains('h4', expectedCopiedInsightName).click()
+                        cy.get('[data-attr="save-to-dashboard-button"] .LemonBadge').should('have.text', '1')
+                    })
+
+                    savedInsights.checkInsightIsInListView(insightName)
+                    savedInsights.checkInsightIsInListView(expectedCopiedInsightName)
+                })
+            })
+        })
     })
 
     describe('deleting dashboards', () => {
