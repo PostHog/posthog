@@ -109,6 +109,7 @@
     overflow: auto;
     width: 100%;
     height: fit-content;
+    min-height: 2rem;
     > * {
         max-width: 100%; // Make sure that horizontal overflow is capped, so that ellipsis on insight name works
     }
@@ -119,9 +120,10 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    height: 2rem;
-    button {
-        height: 1.5rem;
+    height: 1.5rem;
+
+    .LemonButton {
+        height: 1.75rem;
     }
 }
 

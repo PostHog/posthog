@@ -166,7 +166,7 @@ export function TextCardInternal(
                 closeDetails={() => setAreDetailsShown(false)}
                 style={
                     metaPrimaryHeight
-                        ? { height: `calc(100% - ${metaPrimaryHeight}px - 1rem /* margins */ - 1px /* border */)` }
+                        ? { height: `calc(100% - ${metaPrimaryHeight}px - 2rem /* margins */ - 1px /* border */)` }
                         : undefined
                 }
             />
