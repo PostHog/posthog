@@ -67,7 +67,8 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
         _create_event(event="$pageview", team=team2, distinct_id=1, timestamp="2021-10-09T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
         flush_persons_and_events()
-        send_license_usage()
+        with self.assertRaises(Exception):
+            send_license_usage()
         mock_capture.assert_called_once_with(
             self.user.distinct_id,
             "send license usage data error",
