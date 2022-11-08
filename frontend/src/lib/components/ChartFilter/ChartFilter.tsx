@@ -15,6 +15,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { Tooltip } from '../Tooltip'
 import { LemonTag } from '../LemonTag/LemonTag'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { isRetentionFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 interface ChartFilterProps {
     filters: FilterType
@@ -30,13 +31,13 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     const cumulativeDisabled = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
     const pieDisabled: boolean = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
     const worldMapDisabled: boolean =
-        filters.insight === InsightType.STICKINESS ||
-        (filters.insight === InsightType.RETENTION &&
+        isStickinessFilter(filters) ||
+        (isRetentionFilter(filters) &&
             !!filters.breakdown &&
             filters.breakdown !== '$geoip_country_code' &&
             filters.breakdown !== '$geoip_country_name') ||
         !isSingleSeries || // World map only works with one series
-        !!filters.formula // Breakdowns currently don't work with formulas
+        (isTrendsFilter(filters) && !!filters.formula) // Breakdowns currently don't work with formulas
     const boldNumberDisabled: boolean =
         filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION || !isSingleSeries // Bold number only works with one series
     const barDisabled: boolean = filters.insight === InsightType.RETENTION

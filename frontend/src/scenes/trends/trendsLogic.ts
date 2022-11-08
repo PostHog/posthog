@@ -68,7 +68,7 @@ export const trendsLogic = kea<trendsLogicType>([
             },
         ],
         isFormulaOn: [
-            () => !!props.cachedInsight?.filters?.formula,
+            () => isTrendsFilter(props.cachedInsight?.filters) && !!props.cachedInsight?.filters?.formula,
             {
                 setIsFormulaOn: (_, { enabled }) => enabled,
             },
@@ -182,7 +182,7 @@ export const trendsLogic = kea<trendsLogicType>([
     })),
     subscriptions(({ values, actions }) => ({
         filters: (filters: Partial<FilterType>) => {
-            const shouldFormulaBeOn = !!filters.formula
+            const shouldFormulaBeOn = isTrendsFilter(filters) && !!filters.formula
             // Prevent too many renders by only firing the action if needed
             if (values.isFormulaOn !== shouldFormulaBeOn) {
                 actions.setIsFormulaOn(shouldFormulaBeOn)

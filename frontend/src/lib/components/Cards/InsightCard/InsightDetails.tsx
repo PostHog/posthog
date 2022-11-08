@@ -26,7 +26,7 @@ import { TZLabel } from '../../TimezoneAware'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import React from 'react'
-import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
+import { isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 function CompactPropertyFiltersDisplay({
     groupFilter,
@@ -207,7 +207,7 @@ export function QuerySummary({ filters }: { filters: Partial<FilterType> }): JSX
         <>
             <h5>Query summary</h5>
             <section className="InsightDetails__query">
-                {filters.formula && (
+                {isTrendsFilter(filters) && filters.formula && (
                     <>
                         <LemonRow className="InsightDetails__formula" icon={<IconCalculate />} fullWidth>
                             <span>

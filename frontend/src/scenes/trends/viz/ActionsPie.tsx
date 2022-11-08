@@ -12,6 +12,7 @@ import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import clsx from 'clsx'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
@@ -62,7 +63,7 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
                             showPersonsModal={showPersonsModal}
                             filters={insight.filters}
                             onClick={
-                                !showPersonsModal || insight.filters?.formula
+                                !showPersonsModal || (isTrendsFilter(insight.filters) && insight.filters?.formula)
                                     ? undefined
                                     : (payload) => {
                                           const { points, index, crossDataset } = payload

@@ -661,8 +661,8 @@ export const insightLogic = kea<insightLogicType>([
         ],
         isSingleSeries: [
             (s) => [s.filters, s.localFilters],
-            (filters, localFilters): number => {
-                return filters.formula || localFilters.length <= 1
+            (filters, localFilters): boolean => {
+                return (isTrendsFilter(filters) && !!filters.formula) || localFilters.length <= 1
             },
         ],
         intervalUnit: [(s) => [s.filters], (filters) => filters?.interval || 'day'],

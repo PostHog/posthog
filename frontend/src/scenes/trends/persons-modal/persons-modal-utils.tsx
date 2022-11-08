@@ -10,7 +10,6 @@ import {
     FilterType,
     FunnelVizType,
     GraphDataset,
-    InsightType,
     StepOrderValue,
 } from '~/types'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
@@ -138,7 +137,7 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     })
 
     // casting here is not the best
-    if (filters.insight === InsightType.STICKINESS) {
+    if (isStickinessFilter(filters)) {
         params.stickiness_days = date_from as number
     } else if (params.display === ChartDisplayType.ActionsLineGraphCumulative) {
         params.date_to = date_from as string

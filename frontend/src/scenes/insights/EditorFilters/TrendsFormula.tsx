@@ -7,8 +7,8 @@ import { LemonInput } from '@posthog/lemon-ui'
 // When updating this regex, remember to update the regex with the same name in mixins/common.py
 const ALLOWED_FORMULA_CHARACTERS = /^[a-zA-Z\ \-\*\^0-9\+\/\(\)\.]+$/
 
-export function TrendsFormula({ filters, insightProps }: EditorFilterProps): JSX.Element | null {
-    const { isFormulaOn } = useValues(trendsLogic(insightProps))
+export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element | null {
+    const { isFormulaOn, filters } = useValues(trendsLogic(insightProps))
     const { setFilters } = useActions(trendsLogic(insightProps))
     const [value, setValue] = useState(filters.formula)
 

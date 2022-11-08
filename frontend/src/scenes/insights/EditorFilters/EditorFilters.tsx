@@ -79,7 +79,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isFunnels && filters.funnel_viz_type === FunnelVizType.Steps
 
-    const advancedOptionsCount = advancedOptionsUsedCount + (filters.formula ? 1 : 0)
+    const advancedOptionsCount = advancedOptionsUsedCount + (isTrends && filters.formula ? 1 : 0)
     const advancedOptionsExpanded = !!advancedOptionsCount
 
     const editorFilters: InsightEditorFilterGroup[] = [

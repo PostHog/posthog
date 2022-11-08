@@ -55,8 +55,8 @@ export const getDisplayNameFromEntityFilter = (
 }
 
 export function extractObjectDiffKeys(
-    oldObj: Partial<FilterType>,
-    newObj: Partial<FilterType>,
+    oldObj: AnyPartialFilterType,
+    newObj: AnyPartialFilterType,
     prefix: string = ''
 ): Record<string, any> {
     if (Object.keys(oldObj).length === 0) {

@@ -30,7 +30,9 @@ export const keyForInsightLogicProps =
             : defaultKey
     }
 
-export function filterTrendsClientSideParams(filters: Partial<TrendsFilterType>): Partial<TrendsFilterType> {
+export function filterTrendsClientSideParams(
+    filters: Partial<TrendsFilterType & StickinessFilterType>
+): Partial<TrendsFilterType & StickinessFilterType> {
     const { people_day: _discard, people_action: __discard, stickiness_days: ___discard, ...newFilters } = filters
 
     return newFilters
@@ -40,23 +42,23 @@ export function isTrendsInsight(insight?: InsightType | InsightType): boolean {
     return insight === InsightType.TRENDS || insight === InsightType.LIFECYCLE || insight === InsightType.STICKINESS
 }
 
+export function isTrendsFilter(filters?: Partial<FilterType>): filters is Partial<TrendsFilterType> {
+    return filters?.insight === InsightType.TRENDS || (!!filters && !filters.insight)
+}
+export function isFunnelsFilter(filters?: Partial<FilterType>): filters is Partial<FunnelsFilterType> {
+    return filters?.insight === InsightType.FUNNELS
+}
 export function isRetentionFilter(filters: Partial<FilterType>): filters is Partial<RetentionFilterType> {
-    return filters.insight === InsightType.RETENTION
+    return filters?.insight === InsightType.RETENTION
 }
-export function isTrendsFilter(filters: Partial<FilterType>): filters is Partial<TrendsFilterType> {
-    return filters.insight === InsightType.TRENDS || !filters.insight
+export function isStickinessFilter(filters?: Partial<FilterType>): filters is Partial<StickinessFilterType> {
+    return filters?.insight === InsightType.STICKINESS
 }
-export function isFunnelsFilter(filters: Partial<FilterType>): filters is Partial<FunnelsFilterType> {
-    return filters.insight === InsightType.FUNNELS
+export function isLifecycleFilter(filters?: Partial<FilterType>): filters is Partial<LifecycleFilterType> {
+    return filters?.insight === InsightType.LIFECYCLE
 }
-export function isStickinessFilter(filters: Partial<FilterType>): filters is Partial<StickinessFilterType> {
-    return filters.insight === InsightType.STICKINESS
-}
-export function isLifecycleFilter(filters: Partial<FilterType>): filters is Partial<LifecycleFilterType> {
-    return filters.insight === InsightType.LIFECYCLE
-}
-export function isPathsFilter(filters: Partial<FilterType>): filters is Partial<PathsFilterType> {
-    return filters.insight === InsightType.PATHS
+export function isPathsFilter(filters?: Partial<FilterType>): filters is Partial<PathsFilterType> {
+    return filters?.insight === InsightType.PATHS
 }
 export function isFilterWithHiddenLegendKeys(
     filters: Partial<FilterType>

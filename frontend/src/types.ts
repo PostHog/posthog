@@ -1187,6 +1187,12 @@ export interface FilterType {
     session?: string
     period?: string
     aggregation_group_type_index?: number | undefined // Groups aggregation
+
+    // persons modal
+    // type?: EntityType
+    entity_id?: string | number
+    entity_type?: EntityType
+    entity_math?: string
 }
 
 export interface TrendsFilterType extends FilterType {
@@ -1203,13 +1209,13 @@ export interface TrendsFilterType extends FilterType {
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
     people_day?: any
     people_action?: any
-    stickiness_days?: number
     formula?: any
 }
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
     show_legend?: boolean // used to show/hide legend next to insights graph
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
+    stickiness_days?: number
 }
 export interface FunnelsFilterType extends FilterType {
     funnel_viz_type?: FunnelVizType // parameter sent to funnels API for time conversion code path
