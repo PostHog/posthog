@@ -10,7 +10,9 @@ import {
     MultivariateFlagOptions,
     MultivariateFlagVariant,
     PropertyFilter,
+    PropertyOperator,
     RolloutConditionType,
+    FeatureFlagRollbackConditions,
 } from '~/types'
 import api from 'lib/api'
 import { router } from 'kea-router'
@@ -29,7 +31,7 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dayjs } from 'lib/dayjs'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 
-const DEFAULT_ROLLBACK_CONDITION = {
+const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
     threshold_type: RolloutConditionType.Sentry,
     threshold: 50,
@@ -40,7 +42,7 @@ const DEFAULT_ROLLBACK_CONDITION = {
             date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
         }),
     },
-}
+})
 
 const NEW_FLAG: FeatureFlagType = {
     id: null,
@@ -72,6 +74,32 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
         },
     ],
 }
+
+export const defaultEntityFilterOnFlag = (flagKey: string): Partial<FilterType> => ({
+    events: [
+        {
+            id: '$feature_flag_called',
+            name: '$feature_flag_called',
+            type: 'events',
+            properties: defaultPropertyOnFlag(flagKey),
+        },
+    ],
+})
+
+export const defaultPropertyOnFlag = (flagKey: string): AnyPropertyFilter[] => [
+    {
+        key: '$feature/' + flagKey,
+        type: 'event',
+        value: ['false'],
+        operator: PropertyOperator.IsNot,
+    },
+    {
+        key: '$feature_flag',
+        type: 'event',
+        value: flagKey,
+        operator: PropertyOperator.Exact,
+    },
+]
 
 export interface FeatureFlagLogicProps {
     id: number | 'new'
@@ -180,7 +208,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (!state) {
                         return state
                     }
-                    return { ...state, rollback_conditions: [...state.rollback_conditions, DEFAULT_ROLLBACK_CONDITION] }
+                    return {
+                        ...state,
+                        rollback_conditions: [...state.rollback_conditions, getDefaultRollbackCondition()],
+                    }
                 },
                 removeRollbackCondition: (state, { index }) => {
                     if (!state) {
@@ -431,7 +462,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         loadAllInsightsForFlag: () => {
-            values.featureFlag.rollback_conditions.forEach((condition, index) => {
+            values.featureFlag.rollback_conditions?.forEach((condition, index) => {
                 if (condition.threshold_metric) {
                     actions.loadInsightAtIndex(index, condition.threshold_metric)
                 }

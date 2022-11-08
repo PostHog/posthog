@@ -42,7 +42,7 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
-from posthog.models.person.util import delete_ch_distinct_ids, delete_person
+from posthog.models.person.util import delete_person
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.actor_base_query import ActorBaseQuery, get_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
@@ -212,7 +212,6 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             person_id = person.id
 
             delete_person(person=person)
-            delete_ch_distinct_ids(person=person)
             if "delete_events" in request.GET:
                 AsyncDeletion.objects.create(
                     deletion_type=DeletionType.Person,

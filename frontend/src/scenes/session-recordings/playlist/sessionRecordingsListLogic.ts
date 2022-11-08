@@ -20,6 +20,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
 import { teamLogic } from '../../teamLogic'
 import { dayjs } from 'lib/dayjs'
+import { defaultEntityFilterOnFlag } from 'scenes/feature-flags/featureFlagLogic'
 
 export type PersonUUID = string
 interface Params {
@@ -53,30 +54,6 @@ export const DEFAULT_ENTITY_FILTERS = {
         },
     ],
 }
-
-export const defaultEntityFilterOnFlag = (flagKey: string): Partial<FilterType> => ({
-    events: [
-        {
-            id: '$feature_flag_called',
-            name: '$feature_flag_called',
-            type: 'events',
-            properties: [
-                {
-                    key: '$feature/' + flagKey,
-                    type: 'event',
-                    value: ['true'],
-                    operator: 'exact',
-                },
-                {
-                    key: '$feature_flag',
-                    type: 'event',
-                    value: flagKey,
-                    operator: 'exact',
-                },
-            ],
-        },
-    ],
-})
 
 export const defaultPageviewPropertyEntityFilter = (
     oldEntityFilters: FilterType,
