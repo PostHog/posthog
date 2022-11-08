@@ -20,8 +20,8 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
 import { filterTrendsClientSideParams, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import {
-    cleanFilters,
     isFilterWithHiddenLegendKeys,
     isFunnelsFilter,
     isLifecycleFilter,
@@ -29,7 +29,7 @@ import {
     isRetentionFilter,
     isStickinessFilter,
     isTrendsFilter,
-} from 'scenes/insights/utils/cleanFilters'
+} from 'scenes/insights/sharedUtils.ts'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId, summarizeInsightFilters } from './utils'
 import { teamLogic } from '../teamLogic'

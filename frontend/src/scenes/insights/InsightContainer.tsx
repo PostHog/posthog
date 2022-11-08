@@ -30,7 +30,7 @@ import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
 import { FunnelInsight } from './views/Funnels/FunnelInsight'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { AlertMessage } from 'lib/components/AlertMessage'
-import { isFunnelsFilter, isPathsFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/utils/cleanFilters'
+import { isFunnelsFilter, isPathsFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils.ts'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,

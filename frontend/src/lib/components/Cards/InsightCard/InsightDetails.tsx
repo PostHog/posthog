@@ -26,7 +26,7 @@ import { TZLabel } from '../../TimezoneAware'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import React from 'react'
-import { isFunnelsFilter } from 'scenes/insights/utils/cleanFilters'
+import { isFunnelsFilter } from 'scenes/insights/sharedUtils.ts'
 
 function CompactPropertyFiltersDisplay({
     groupFilter,

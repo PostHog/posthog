@@ -1183,13 +1183,10 @@ export interface FilterType {
     session?: string
     period?: string
 
-    stickiness_days?: number
-    type?: EntityType
-    entity_id?: string | number
-    entity_type?: EntityType
-    entity_math?: string
-    people_day?: any
-    people_action?: any
+    // type?: EntityType
+    // entity_id?: string | number
+    // entity_type?: EntityType
+    // entity_math?: string
     formula?: any
     filter_test_accounts?: boolean
     from_dashboard?: boolean | number
@@ -1208,6 +1205,9 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
+    people_day?: any
+    people_action?: any
+    stickiness_days?: number
 }
 export interface StickinessFilterType extends FilterType {
     compare?: boolean

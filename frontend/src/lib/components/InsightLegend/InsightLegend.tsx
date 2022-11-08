@@ -13,7 +13,7 @@ import clsx from 'clsx'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { useEffect, useRef } from 'react'
-import { isStickinessFilter, isTrendsFilter } from 'scenes/insights/utils/cleanFilters'
+import { isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils.ts'
 
 export interface InsightLegendProps {
     readOnly?: boolean

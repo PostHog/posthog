@@ -28,7 +28,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatAggregationValue, formatBreakdownLabel } from 'scenes/insights/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { isTrendsFilter } from 'scenes/insights/utils/cleanFilters'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils.ts'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */

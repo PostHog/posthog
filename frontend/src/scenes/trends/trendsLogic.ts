@@ -16,7 +16,7 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 import { isTrendsInsight, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { subscriptions } from 'kea-subscriptions'
-import { isTrendsFilter } from 'scenes/insights/utils/cleanFilters'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils.ts'
 
 export const trendsLogic = kea<trendsLogicType>([
     props({} as InsightLogicProps),

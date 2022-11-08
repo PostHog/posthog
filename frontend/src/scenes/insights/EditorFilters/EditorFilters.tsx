@@ -41,7 +41,7 @@ import {
     isRetentionFilter,
     isStickinessFilter,
     isTrendsFilter,
-} from 'scenes/insights/utils/cleanFilters'
+} from 'scenes/insights/sharedUtils.ts'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps

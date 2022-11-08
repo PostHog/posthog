@@ -2,7 +2,7 @@ import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { FilterType, TrendsFilterType } from '~/types'
 
 import type { breakdownTagLogicType } from './breakdownTagLogicType'
-import { isTrendsFilter } from 'scenes/insights/utils/cleanFilters'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils.ts'
 
 export interface BreakdownTagLogicProps {
     setFilters?: (filters: Partial<FilterType>) => void

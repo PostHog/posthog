@@ -1,7 +1,8 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, convertPropertiesToPropertyGroup, pluralize, toParams } from 'lib/utils'
-import { cleanFilters, isFunnelsFilter, isPathsFilter, isStickinessFilter } from 'scenes/insights/utils/cleanFilters'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { isFunnelsFilter, isPathsFilter, isStickinessFilter } from 'scenes/insights/sharedUtils.ts'
 import {
     ActionFilter,
     ChartDisplayType,

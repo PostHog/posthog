@@ -4,7 +4,7 @@ import type { chartFilterLogicType } from './chartFilterLogicType'
 import { ChartDisplayType, FunnelsFilterType, FunnelVizType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { isFunnelsFilter } from 'scenes/insights/utils/cleanFilters'
+import { isFunnelsFilter } from 'scenes/insights/sharedUtils.ts'
 
 function isFunnelVizType(filter: FunnelVizType | ChartDisplayType): filter is FunnelVizType {
     return Object.values(FunnelVizType).includes(filter as FunnelVizType)

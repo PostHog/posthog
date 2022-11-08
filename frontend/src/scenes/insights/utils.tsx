@@ -37,7 +37,7 @@ import {
     isRetentionFilter,
     isStickinessFilter,
     isTrendsFilter,
-} from 'scenes/insights/utils/cleanFilters'
+} from 'scenes/insights/sharedUtils.ts'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,

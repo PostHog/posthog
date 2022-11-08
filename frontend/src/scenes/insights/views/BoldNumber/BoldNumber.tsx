@@ -20,7 +20,7 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import './BoldNumber.scss'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { isTrendsFilter } from 'scenes/insights/utils/cleanFilters'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils.ts'
 
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const BOLD_NUMBER_TOOLTIP_OFFSET_PX = 8

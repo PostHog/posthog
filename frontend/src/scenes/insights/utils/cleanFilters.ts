@@ -7,11 +7,9 @@ import {
     FunnelsFilterType,
     FunnelVizType,
     InsightType,
-    LifecycleFilterType,
     PathsFilterType,
     PathType,
     RetentionFilterType,
-    StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
 import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
@@ -23,6 +21,14 @@ import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/entityFilterLogic'
+import {
+    isFunnelsFilter,
+    isLifecycleFilter,
+    isPathsFilter,
+    isRetentionFilter,
+    isStickinessFilter,
+    isTrendsFilter,
+} from 'scenes/insights/sharedUtils'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()
@@ -98,30 +104,6 @@ const cleanBreakdownParams = (
             cleanedParams['breakdown_group_type_index'] = filters.breakdown_group_type_index
         }
     }
-}
-
-export function isRetentionFilter(filters: Partial<FilterType>): filters is Partial<RetentionFilterType> {
-    return filters.insight === InsightType.RETENTION
-}
-export function isTrendsFilter(filters: Partial<FilterType>): filters is Partial<TrendsFilterType> {
-    return filters.insight === InsightType.TRENDS || !filters.insight
-}
-export function isFunnelsFilter(filters: Partial<FilterType>): filters is Partial<FunnelsFilterType> {
-    return filters.insight === InsightType.FUNNELS
-}
-export function isStickinessFilter(filters: Partial<FilterType>): filters is Partial<StickinessFilterType> {
-    return filters.insight === InsightType.STICKINESS
-}
-export function isLifecycleFilter(filters: Partial<FilterType>): filters is Partial<LifecycleFilterType> {
-    return filters.insight === InsightType.LIFECYCLE
-}
-export function isPathsFilter(filters: Partial<FilterType>): filters is Partial<PathsFilterType> {
-    return filters.insight === InsightType.PATHS
-}
-export function isFilterWithHiddenLegendKeys(
-    filters: Partial<FilterType>
-): filters is Partial<TrendsFilterType> | Partial<StickinessFilterType> | Partial<FunnelsFilterType> {
-    return isTrendsFilter(filters) || isFunnelsFilter(filters) || isStickinessFilter(filters)
 }
 
 export function cleanFilters(
