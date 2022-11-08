@@ -1,6 +1,6 @@
 import { urls } from 'scenes/urls'
 import { randomString } from '../support/random'
-import { checkInsightIsInListView, createANewInsight } from 'cypress/productAnalytics'
+import { savedInsights, createANewInsight } from 'cypress/productAnalytics'
 
 // For tests related to trends please check trendsElements.js
 describe('Insights', () => {
@@ -29,7 +29,7 @@ describe('Insights', () => {
 
         cy.get('[data-attr="insight-name"]').should('contain', editedName)
 
-        checkInsightIsInListView(editedName)
+        savedInsights.checkInsightIsInListView(editedName)
     })
 
     it('Can undo a change of insight name', () => {
@@ -48,7 +48,7 @@ describe('Insights', () => {
         cy.get('[data-attr="insight-name"]').should('not.contain', 'edited value')
         cy.get('[data-attr="insight-name"]').should('contain', 'starting value')
 
-        checkInsightIsInListView('starting value')
+        savedInsights.checkInsightIsInListView('starting value')
     })
 
     it('Create new insight and save and continue editing', () => {
@@ -74,7 +74,7 @@ describe('Insights', () => {
             cy.get('[data-attr="insight-save-button"]').should('exist')
         })
 
-        checkInsightIsInListView(insightName)
+        savedInsights.checkInsightIsInListView(insightName)
     })
 
     describe('unsaved insights confirmation', () => {
@@ -217,7 +217,7 @@ describe('Insights', () => {
             cy.get('[data-attr="duplicate-insight-from-insight-view"]').click()
             cy.get('[data-attr="insight-name"]').should('contain', `${insightName} (copy)`)
 
-            checkInsightIsInListView(`${insightName} (copy)`)
+            savedInsights.checkInsightIsInListView(`${insightName} (copy)`)
         })
 
         it('can save insight as a copy', () => {
@@ -228,7 +228,7 @@ describe('Insights', () => {
             cy.get('.ant-modal-content .ant-btn-primary').click()
             cy.get('[data-attr="insight-name"]').should('contain', `${insightName} (copy)`)
 
-            checkInsightIsInListView(`${insightName} (copy)`)
+            savedInsights.checkInsightIsInListView(`${insightName} (copy)`)
         })
     })
 })

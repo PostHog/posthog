@@ -1,12 +1,6 @@
 import { randomString } from 'cypress/support/random'
 import { urls } from 'scenes/urls'
-import {
-    addInsightToEmptyDashboard,
-    checkInsightIsInListView,
-    checkInsightIsNotInListView,
-    createAndGoToEmptyDashboard,
-    createDashboardFromTemplate,
-} from 'cypress/productAnalytics'
+import { insight, savedInsights, dashboards, dashboard } from 'cypress/productAnalytics'
 
 describe('Dashboard', () => {
     beforeEach(() => {
@@ -60,7 +54,7 @@ describe('Dashboard', () => {
     })
 
     it('Share dashboard', () => {
-        createDashboardFromTemplate('to be shared')
+        dashboards.createDashboardFromDefaultTemplate('to be shared')
 
         cy.get('.InsightCard').should('exist')
 
@@ -93,7 +87,7 @@ describe('Dashboard', () => {
     it('Create dashboard from a template', () => {
         const TEST_DASHBOARD_NAME = 'XDefault'
 
-        createDashboardFromTemplate(TEST_DASHBOARD_NAME)
+        dashboards.createDashboardFromDefaultTemplate(TEST_DASHBOARD_NAME)
 
         cy.get('.InsightCard').its('length').should('be.gte', 2)
         // Breadcrumbs work
@@ -152,8 +146,8 @@ describe('Dashboard', () => {
 
     it('Add insight from empty dashboard', () => {
         const dashboardName = randomString('dashboard-')
-        createAndGoToEmptyDashboard(dashboardName)
-        addInsightToEmptyDashboard(randomString('insight-'))
+        dashboards.createAndGoToEmptyDashboard(dashboardName)
+        dashboard.addInsightToEmptyDashboard(randomString('insight-'))
 
         cy.wait(200)
         cy.get('.page-title').contains(dashboardName).should('exist')
@@ -167,14 +161,14 @@ describe('Dashboard', () => {
             const dashboardName = randomString('dashboard-')
             const insightName = randomString('insight-')
 
-            createAndGoToEmptyDashboard(dashboardName)
-            addInsightToEmptyDashboard(insightName)
+            dashboards.createAndGoToEmptyDashboard(dashboardName)
+            dashboard.addInsightToEmptyDashboard(insightName)
 
             cy.get('[data-attr="dashboard-three-dots-options-menu"]').click()
             cy.get('button').contains('Delete dashboard').click()
             cy.get('[data-attr="dashboard-delete-submit"]').click()
 
-            checkInsightIsInListView(insightName)
+            savedInsights.checkInsightIsInListView(insightName)
         })
 
         it('can delete dashboard and delete the insights', () => {
@@ -186,13 +180,13 @@ describe('Dashboard', () => {
             const insightName = randomString('insight-')
             const insightToKeepName = randomString('insight-to-keep-')
 
-            createAndGoToEmptyDashboard(dashboardName)
-            addInsightToEmptyDashboard(insightName)
+            dashboards.createAndGoToEmptyDashboard(dashboardName)
+            dashboard.addInsightToEmptyDashboard(insightName)
 
             cy.clickNavMenu('dashboards')
 
-            createAndGoToEmptyDashboard(dashboardToKeepName)
-            addInsightToEmptyDashboard(insightToKeepName)
+            dashboards.createAndGoToEmptyDashboard(dashboardToKeepName)
+            dashboard.addInsightToEmptyDashboard(insightToKeepName)
 
             cy.visit(urls.savedInsights())
             cy.wait('@loadInsightList').then(() => {
@@ -203,22 +197,15 @@ describe('Dashboard', () => {
                     cy.get('a.row-name').click()
                 })
 
-                // add it to the named dashboard
-                cy.get('[data-attr="save-to-dashboard-button"]').click()
-                cy.get('[data-attr="dashboard-searchfield"]').type(dashboardName)
-                cy.contains('[data-attr="dashboard-list-item"]', dashboardName).within(() => {
-                    // force clicks rather than mess around scrolling rows that exist into view
-                    cy.contains('button', 'Add to dashboard').click({ force: true })
-                    cy.contains('a', dashboardName).click({ force: true })
-                })
+                insight.addInsightToDashboard(dashboardName)
 
                 cy.get('[data-attr="dashboard-three-dots-options-menu"]').click()
                 cy.get('button').contains('Delete dashboard').click()
                 cy.contains('span.LemonCheckbox', "Delete this dashboard's insights").click()
                 cy.get('[data-attr="dashboard-delete-submit"]').click()
 
-                checkInsightIsInListView(insightToKeepName)
-                checkInsightIsNotInListView(insightName)
+                savedInsights.checkInsightIsInListView(insightToKeepName)
+                savedInsights.checkInsightIsNotInListView(insightName)
             })
         })
     })
