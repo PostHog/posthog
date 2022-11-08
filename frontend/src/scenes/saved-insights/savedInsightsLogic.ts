@@ -256,14 +256,13 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
             actions.setInsight(item)
         },
         [dashboardsModel.actionTypes.updateDashboardInsight]: () => actions.loadInsights(),
-        [dashboardsModel.actionTypes.duplicateDashboardSuccess]: () => actions.loadInsights(),
         [deleteDashboardLogic.actionTypes.submitDeleteDashboardSuccess]: ({ deleteDashboard }) => {
             if (deleteDashboard.deleteInsights) {
                 actions.loadInsights()
             }
         },
-        [duplicateDashboardLogic.actionTypes.submitDuplicateDashboardSuccess]: ({ duplicateTiles }) => {
-            if (duplicateTiles) {
+        [duplicateDashboardLogic.actionTypes.submitDuplicateDashboardSuccess]: ({ duplicateDashboard }) => {
+            if (duplicateDashboard.duplicateTiles) {
                 actions.loadInsights()
             }
         },
