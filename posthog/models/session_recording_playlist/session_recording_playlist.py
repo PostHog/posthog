@@ -13,7 +13,6 @@ class SessionRecordingPlaylist(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     pinned: models.BooleanField = models.BooleanField(default=False)
     deleted: models.BooleanField = models.BooleanField(default=False)
-    saved: models.BooleanField = models.BooleanField(default=False)
     filters: models.JSONField = models.JSONField(default=dict)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
@@ -22,7 +21,7 @@ class SessionRecordingPlaylist(models.Model):
         "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_recordings"
     )
 
-    # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
+    # Changing these fields materially alters the Playlist, so these count for the "last_modified_*" fields
     MATERIAL_PLAYLIST_FIELDS = {"name", "description", "filters"}
 
     class Meta:

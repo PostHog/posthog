@@ -25,7 +25,6 @@ class Migration(migrations.Migration):
                 ("description", models.TextField(blank=True)),
                 ("pinned", models.BooleanField(default=False)),
                 ("deleted", models.BooleanField(default=False)),
-                ("saved", models.BooleanField(default=False)),
                 ("filters", models.JSONField(default=dict)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("last_modified_at", models.DateTimeField(default=django.utils.timezone.now)),

@@ -1,11 +1,13 @@
-import { actions, connect, kea, path, reducers } from 'kea'
-import { SessionRecordingsTabs } from '~/types'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { SessionRecordingPlaylistType, SessionRecordingsTabs } from '~/types'
 import { urls } from 'scenes/urls'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import type { sessionRecordingsLogicType } from './sessionRecordingsLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
 
 export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
     path(() => ['scenes', 'session-recordings', 'root']),
@@ -14,6 +16,7 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
     }),
     actions({
         setTab: (tab: SessionRecordingsTabs = SessionRecordingsTabs.Recent) => ({ tab }),
+        saveNewPlaylist: (playlist: Partial<SessionRecordingPlaylistType>) => ({ playlist }),
     }),
     reducers(({}) => ({
         tab: [
@@ -22,6 +25,23 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
                 setTab: (_, { tab }) => tab,
             },
         ],
+    })),
+    loaders(({}) => ({
+        newPlaylist: [
+            null as SessionRecordingPlaylistType | null,
+            {
+                saveNewPlaylist: async ({ playlist }) => {
+                    const response = await api.recordings.createPlaylist(playlist)
+
+                    return response
+                },
+            },
+        ],
+    })),
+    listeners(({}) => ({
+        saveNewPlaylistSuccess: async ({ newPlaylist }) => {
+            router.actions.push(urls.sessionRecordingPlaylist(newPlaylist.short_id))
+        },
     })),
     actionToUrl(({ values }) => {
         return {

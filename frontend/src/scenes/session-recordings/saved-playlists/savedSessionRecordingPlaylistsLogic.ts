@@ -1,4 +1,4 @@
-import { actions, kea, reducers, path, selectors, key, props } from 'kea'
+import { actions, kea, reducers, path, selectors, key, props, afterMount, listeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
 import { toParams } from 'lib/utils'
@@ -47,21 +47,21 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
     props({} as SavedSessionRecordingPlaylistsLogicProps),
     key((props) => props.tab),
     actions(() => ({
-        setSavedPlaylistsFilters: (filters: Partial<SavedSessionRecordingPlaylistsFilters>, merge = true) => ({
+        setSavedPlaylistsFilters: (filters: Partial<SavedSessionRecordingPlaylistsFilters>) => ({
             filters,
-            merge,
         }),
+        loadPlaylists: true,
     })),
     reducers(() => ({
         filters: [
             {} as SavedSessionRecordingPlaylistsFilters | Record<string, any>,
             {
-                setSavedPlaylistsFilters: (state, { filters, merge }) =>
+                setSavedPlaylistsFilters: (state, { filters }) =>
                     cleanFilters({
-                        ...(merge ? state || {} : {}),
+                        ...(state || {}),
                         ...filters,
-                        // Reset page on filter change EXCEPT if it's page or view that's being updated
-                        ...('page' in filters || 'layoutView' in filters ? {} : { page: 1 }),
+                        // Reset page on filter change EXCEPT if it's page that's being updated
+                        ...('page' in filters ? {} : { page: 1 }),
                     }),
             },
         ],
@@ -69,7 +69,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
     loaders(({ values }) => ({
         playlists: {
             __default: { results: [], count: 0, filters: null } as SavedSessionRecordingPlaylistsResult,
-            loadInsights: async (_, breakpoint) => {
+            loadPlaylists: async (_, breakpoint) => {
                 if (values.playlists.filters !== null) {
                     await breakpoint(300)
                 }
@@ -105,6 +105,11 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             },
         },
     })),
+    listeners(({ actions }) => ({
+        setSavedPlaylistsFilters: async () => {
+            actions.loadPlaylists()
+        },
+    })),
     selectors(() => ({
         paramsFromFilters: [
             (s) => [s.filters],
@@ -125,4 +130,8 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             }),
         ],
     })),
+
+    afterMount(async ({ actions }) => {
+        actions.loadPlaylists()
+    }),
 ])

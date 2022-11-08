@@ -240,7 +240,10 @@ class ApiRequest {
     public recordingPlaylists(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('session_recording_playlists')
     }
-    public recordingPlaylist(playlistId?: SessionRecordingPlaylistType['id'], teamId?: TeamType['id']): ApiRequest {
+    public recordingPlaylist(
+        playlistId?: SessionRecordingPlaylistType['short_id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
         return this.projectsDetail(teamId)
             .addPathComponent('session_recording_playlists')
             .addPathComponent(String(playlistId))
@@ -824,8 +827,17 @@ const api = {
         async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {
             return await new ApiRequest().recordingPlaylists().withQueryString(params).get()
         },
-        async getPlaylist(playlistId: SessionRecordingPlaylistType['id']): Promise<SessionRecordingPlaylistType> {
+        async getPlaylist(playlistId: SessionRecordingPlaylistType['short_id']): Promise<SessionRecordingPlaylistType> {
             return await new ApiRequest().recordingPlaylist(playlistId).get()
+        },
+        async createPlaylist(playlist: Partial<SessionRecordingPlaylistType>): Promise<SessionRecordingPlaylistType> {
+            return await new ApiRequest().recordingPlaylists().create({ data: playlist })
+        },
+        async updatePlaylist(
+            playlistId: SessionRecordingPlaylistType['short_id'],
+            playlist: Partial<SessionRecordingPlaylistType>
+        ): Promise<SessionRecordingPlaylistType> {
+            return await new ApiRequest().recordingPlaylist(playlistId).update({ data: playlist })
         },
     },
 

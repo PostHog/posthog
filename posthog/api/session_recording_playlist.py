@@ -60,17 +60,24 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             "name",
             "derived_name",
             "description",
-            "team",
             "pinned",
             "created_at",
             "created_by",
             "deleted",
-            "saved",
             "filters",
             "last_modified_at",
             "last_modified_by",
         ]
-        read_only_fields = "short_id"
+        read_only_fields = [
+            "id",
+            "short_id",
+            "derived_name",
+            "team",
+            "created_at",
+            "created_by",
+            "last_modified_at",
+            "last_modified_by",
+        ]
 
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
@@ -129,10 +136,10 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
     serializer_class = SessionRecordingPlaylistSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     throttle_classes = [PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle]
-    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.CSVRenderer,)
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     include_in_docs = True
+    lookup_field = "short_id"
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
@@ -150,7 +157,7 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
         if order:
             queryset = queryset.order_by(order)
         else:
-            queryset = queryset.order_by("order")
+            queryset = queryset.order_by("last_modified_at")
 
         return queryset
 
@@ -158,9 +165,7 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
         filters = request.GET.dict()
 
         for key in filters:
-            if key == "saved":
-                queryset = queryset.filter(saved=str_to_bool(request.GET["saved"]))
-            elif key == "user":
+            if key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "date_from":
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(request.GET["date_from"]))

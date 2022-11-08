@@ -1,6 +1,6 @@
 import { PageHeader } from 'lib/components/PageHeader'
 import { teamLogic } from 'scenes/teamLogic'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
@@ -20,7 +20,8 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { tab } = useValues(sessionRecordingsLogic)
+    const { tab, newPlaylistLoading } = useValues(sessionRecordingsLogic)
+    const { saveNewPlaylist } = useActions(sessionRecordingsLogic)
     const showRecordingPlaylists = !!featureFlags[FEATURE_FLAGS.RECORDING_PLAYLISTS]
     const logic = sessionRecordingsListLogic({ key: 'recents' })
 
@@ -42,9 +43,8 @@ export function SessionsRecordings(): JSX.Element {
                             <Tooltip title="Save the currently filters as a dynamic playlist" placement="left">
                                 <LemonButton
                                     type="primary"
-                                    onClick={() =>
-                                        router.actions.push(urls.sessionRecordingPlaylist('new', filterQueryParams))
-                                    }
+                                    onClick={() => saveNewPlaylist({ filters: filterQueryParams })}
+                                    disabled={newPlaylistLoading}
                                 >
                                     Save as playlist
                                 </LemonButton>

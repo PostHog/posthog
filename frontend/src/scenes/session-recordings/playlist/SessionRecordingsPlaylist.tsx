@@ -25,6 +25,12 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { DurationFilter } from '../filters/DurationFilter'
+import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+import { sessionRecordingPlayerLogic } from '../player/sessionRecordingPlayerLogic'
+import { Spinner } from 'lib/components/Spinner/Spinner'
+import { NotFound } from 'lib/components/NotFound'
+import { summarizeInsightFilters } from 'scenes/insights/utils'
+import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -32,20 +38,24 @@ interface SessionRecordingsTableProps {
 
 export const scene: SceneExport = {
     component: SessionRecordingsPlaylistScene,
+    logic: sessionRecordingsPlaylistLogic,
+    paramsToProps: ({ params: { id } }) => {
+        return { shortId: id as string }
+    },
 }
 
 export function SessionRecordingsPlaylistScene(): JSX.Element {
-    const playlist = {
-        name: 'Untitled',
-        description: '',
-        id: 1,
-        pinned: false,
-        created_by: { id: 1, first_name: 'John' },
+    const { playlist, playlistLoading } = useValues(sessionRecordingsPlaylistLogic)
+    const { updatePlaylist } = useActions(sessionRecordingsPlaylistLogic)
+
+    if (!playlist && playlistLoading) {
+        return <Spinner />
     }
 
-    const updatePlaylist = (props: any) => {
-        alert('TODO')
+    if (!playlist) {
+        return <NotFound object={'Recording Playlist'} />
     }
+
     return (
         <div>
             <PageHeader
@@ -53,7 +63,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     <EditableField
                         name="name"
                         value={playlist.name || ''}
-                        // placeholder={summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)}
+                        placeholder={'Untitled Playlist'}
                         onSave={(value) => updatePlaylist({ name: value })}
                         saveOnBlur={true}
                         maxLength={400}
@@ -139,15 +149,15 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                             data-attr="playlist-description"
                             compactButtons
                         />
-                        {/* <UserActivityIndicator
+                        <UserActivityIndicator
                             at={playlist.last_modified_at}
                             by={playlist.last_modified_by}
                             className="mt-2"
-                        /> */}
+                        />
                     </>
                 }
             />
-            <SessionRecordingsPlaylist />
+            {/* <SessionRecordingsPlaylist /> */}
         </div>
     )
 }
