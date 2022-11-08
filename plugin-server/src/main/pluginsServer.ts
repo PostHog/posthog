@@ -107,43 +107,35 @@ export async function startPluginsServer(
         // ensure that e.g. if something goes wrong and we deadlock, then if
         // we're running in k8s, the liveness check will fail, and thus k8s will
         // kill the pod.
-        //
-        // Note also that we give the shutdown process 10 seconds to complete,
-        // otherwise we exit uncleanly.
-        await Promise.race([
-            (async () => {
-                cancelAllScheduledJobs()
-                stopEventLoopMetrics?.()
-                await Promise.allSettled([
-                    queue?.stop(),
-                    pubSub?.stop(),
-                    graphileWorker?.stop(),
-                    bufferConsumer?.disconnect(),
-                    jobsConsumer?.disconnect(),
-                    httpServer?.close(),
-                ])
-
-                await new Promise<void>((resolve, reject) =>
-                    !mmdbServer
-                        ? resolve()
-                        : mmdbServer.close((error) => {
-                              if (error) {
-                                  reject(error)
-                              } else {
-                                  status.info('🛑', 'Closed internal MMDB server!')
-                                  resolve()
-                              }
-                          })
-                )
-
-                if (piscina) {
-                    await stopPiscina(piscina)
-                }
-
-                await closeHub?.()
-            })(),
-            new Promise(() => setTimeout(() => process.exit(1), 10000)),
+        cancelAllScheduledJobs()
+        stopEventLoopMetrics?.()
+        await Promise.allSettled([
+            queue?.stop(),
+            pubSub?.stop(),
+            graphileWorker?.stop(),
+            bufferConsumer?.disconnect(),
+            jobsConsumer?.disconnect(),
+            httpServer?.close(),
         ])
+
+        await new Promise<void>((resolve, reject) =>
+            !mmdbServer
+                ? resolve()
+                : mmdbServer.close((error) => {
+                      if (error) {
+                          reject(error)
+                      } else {
+                          status.info('🛑', 'Closed internal MMDB server!')
+                          resolve()
+                      }
+                  })
+        )
+
+        if (piscina) {
+            await stopPiscina(piscina)
+        }
+
+        await closeHub?.()
 
         status.info('👋', 'Over and out!')
     }
