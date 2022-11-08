@@ -219,6 +219,7 @@ function InsightMeta({
             showDetailsControls={showDetailsControls}
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
+            className={'border-b'}
             topHeading={
                 <>
                     <span title={INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS]?.description}>
