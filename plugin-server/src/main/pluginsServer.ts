@@ -103,10 +103,11 @@ export async function startPluginsServer(
         lastActivityCheck && clearInterval(lastActivityCheck)
 
         // Stop all consumers and the graphile worker, as well as the http
-        // server. Note that we close the http server along with the others to
+        // server. Note that we close the http server before the others to
         // ensure that e.g. if something goes wrong and we deadlock, then if
         // we're running in k8s, the liveness check will fail, and thus k8s will
         // kill the pod.
+        httpServer?.close()
         cancelAllScheduledJobs()
         stopEventLoopMetrics?.()
         await Promise.allSettled([
@@ -115,7 +116,6 @@ export async function startPluginsServer(
             graphileWorker?.stop(),
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
-            httpServer?.close(),
         ])
 
         await new Promise<void>((resolve, reject) =>
