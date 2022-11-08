@@ -26,8 +26,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         playlist: [
             null as SessionRecordingPlaylistType | null,
             {
-                loadPlaylist: async (_, breakpoint) => {
-                    breakpoint(100)
+                loadPlaylist: async () => {
                     return api.recordings.getPlaylist(props.shortId)
                 },
 
