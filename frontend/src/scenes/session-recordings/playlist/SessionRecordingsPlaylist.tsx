@@ -191,16 +191,10 @@ export function SessionRecordingsPlaylist({
         activeSessionRecording,
         filters,
         totalFiltersCount,
-        filtersEnabled,
+        showFilters,
     } = useValues(logic)
-    const {
-        setSelectedRecordingId,
-        loadNext,
-        loadPrev,
-        setFilters,
-        reportRecordingsListFilterAdded,
-        setFiltersEnabled,
-    } = useActions(logic)
+    const { setSelectedRecordingId, loadNext, loadPrev, setFilters, reportRecordingsListFilterAdded, setShowFilters } =
+        useActions(logic)
     const playlistRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -268,7 +262,7 @@ export function SessionRecordingsPlaylist({
                         </IconWithCount>
                     }
                     onClick={() => {
-                        setFiltersEnabled(!filtersEnabled)
+                        setShowFilters(!showFilters)
                         if (personUUID) {
                             const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
                             if (entityFilterButtons.length > 0) {
@@ -277,7 +271,7 @@ export function SessionRecordingsPlaylist({
                         }
                     }}
                 >
-                    {filtersEnabled ? 'Hide filters' : 'Filter recordings'}
+                    {showFilters ? 'Hide filters' : 'Filter recordings'}
                 </LemonButton>
 
                 <div className="flex items-center gap-4">
@@ -313,7 +307,7 @@ export function SessionRecordingsPlaylist({
             </div>
             <div ref={playlistRef} className="SessionRecordingsPlaylist" data-attr="session-recordings-playlist">
                 <div className="SessionRecordingsPlaylist__left-column space-y-4">
-                    {filtersEnabled ? (
+                    {showFilters ? (
                         <SessionRecordingsFilters
                             filters={filters}
                             setFilters={setFilters}
