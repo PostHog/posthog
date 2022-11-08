@@ -1,38 +1,6 @@
 import { urls } from 'scenes/urls'
 import { randomString } from '../support/random'
-
-function applyFilter() {
-    cy.get('[data-attr=insight-filters-add-filter-group]').click()
-    cy.get('[data-attr=property-select-toggle-0]').click()
-    cy.get('[data-attr=taxonomic-filter-searchfield]').click()
-    cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
-    cy.get('[data-attr=prop-val]').click()
-    cy.get('[data-attr=prop-val-0]').click({ force: true })
-}
-
-function createANewInsight(insightName) {
-    cy.visit('/saved_insights/') // Should work with trailing slash just like without it
-    cy.get('[data-attr=saved-insights-new-insight-dropdown]').click()
-    cy.get('[data-attr-insight-type="TRENDS"').click()
-
-    applyFilter()
-
-    if (insightName) {
-        cy.get('[data-attr="insight-name"] [data-attr="edit-prop-name"]').click()
-        cy.get('[data-attr="insight-name"] input').type(insightName)
-        cy.get('[data-attr="insight-name"] [title="Save"]').click()
-    }
-
-    cy.get('[data-attr="insight-save-button"]').click()
-    // wait for save to complete and URL to change and include short id
-    cy.url().should('not.include', '/new')
-}
-
-function checkInsightIsInListView(insightName) {
-    // turbo mode updated the insights list
-    cy.visit(urls.savedInsights())
-    cy.contains('.saved-insights table tr', insightName).should('exist')
-}
+import { checkInsightIsInListView, createANewInsight } from 'cypress/productAnalytics'
 
 // For tests related to trends please check trendsElements.js
 describe('Insights', () => {
