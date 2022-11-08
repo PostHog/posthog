@@ -1,6 +1,6 @@
 import { urls } from 'scenes/urls'
 import { randomString } from '../support/random'
-import { savedInsights, createANewInsight } from 'cypress/productAnalytics'
+import { savedInsights, createInsight } from 'cypress/productAnalytics'
 
 // For tests related to trends please check trendsElements.js
 describe('Insights', () => {
@@ -9,7 +9,7 @@ describe('Insights', () => {
     })
 
     it('Saving an insight sets breadcrumbs', () => {
-        createANewInsight()
+        createInsight()
 
         cy.get('[data-attr=breadcrumb-0]').should('contain', 'Hogflix')
         cy.get('[data-attr=breadcrumb-1]').should('contain', 'Hogflix Demo App')
@@ -20,7 +20,7 @@ describe('Insights', () => {
     it('Can change insight name', () => {
         const startingName = randomString('starting-value-')
         const editedName = randomString('edited-value-')
-        createANewInsight(startingName)
+        createInsight(startingName)
         cy.get('[data-attr="insight-name"]').should('contain', startingName)
 
         cy.get('[data-attr="insight-name"] [data-attr="edit-prop-name"]').click()
@@ -33,7 +33,7 @@ describe('Insights', () => {
     })
 
     it('Can undo a change of insight name', () => {
-        createANewInsight('starting value')
+        createInsight('starting value')
         cy.get('[data-attr="insight-name"]').should('contain', 'starting value')
 
         cy.get('[data-attr="insight-name"]').scrollIntoView()
@@ -55,7 +55,7 @@ describe('Insights', () => {
         cy.intercept('PATCH', /\/api\/projects\/\d+\/insights\/\d+\/?/).as('patchInsight')
 
         const insightName = randomString('insight-name-')
-        createANewInsight(insightName)
+        createInsight(insightName)
 
         cy.get('[data-attr="insight-edit-button"]').click()
 
@@ -191,7 +191,7 @@ describe('Insights', () => {
         beforeEach(() => {
             cy.visit(urls.savedInsights()) // make sure turbo mode has cached this page
             insightName = randomString('insight-name-')
-            createANewInsight(insightName)
+            createInsight(insightName)
         })
         it('can duplicate insights from the insights list view', () => {
             cy.visit(urls.savedInsights())

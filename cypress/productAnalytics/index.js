@@ -88,7 +88,7 @@ export const dashboard = {
     },
 }
 
-export function createANewInsight(insightName) {
+export function createInsight(insightName) {
     savedInsights.createNewInsightOfType('TRENDS')
     insight.applyFilter()
     insight.editName(insightName)
