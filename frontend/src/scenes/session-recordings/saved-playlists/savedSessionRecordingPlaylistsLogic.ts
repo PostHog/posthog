@@ -23,6 +23,7 @@ export interface SavedSessionRecordingPlaylistsFilters {
     dateFrom: string | dayjs.Dayjs | undefined | 'all' | null
     dateTo: string | dayjs.Dayjs | undefined | null
     page: number
+    pinned: boolean
 }
 
 export interface SavedSessionRecordingPlaylistsLogicProps {
@@ -55,7 +56,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             },
         ],
     })),
-    loaders(({ props, values }) => ({
+    loaders(({ values }) => ({
         playlists: {
             __default: { results: [], count: 0, filters: null } as SavedSessionRecordingPlaylistsResult,
             loadPlaylists: async (_, breakpoint) => {
@@ -70,12 +71,11 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                     limit: PLAYLISTS_PER_PAGE,
                     offset: Math.max(0, (filters.page - 1) * PLAYLISTS_PER_PAGE),
                     order: filters.order || '-last_modified_at', // Sync with `sorting` selector
-                    created_by: (props.tab !== SessionRecordingsTabs.Yours && createdBy) || undefined,
+                    created_by: createdBy || undefined,
                     search: filters.search || undefined,
                     date_from: filters.dateFrom || 'all',
                     date_to: filters.dateTo || undefined,
-                    pinned: props.tab === SessionRecordingsTabs.Pinned ? true : undefined,
-                    user: props.tab === SessionRecordingsTabs.Yours ? true : undefined,
+                    pinned: filters.pinned ? true : undefined,
                 }
 
                 const response = await api.recordings.listPlaylists(toParams(params))

@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { cloneElement } from 'react'
 import { SessionRecordingsTabs, SessionRecordingPlaylistType } from '~/types'
 import { PLAYLISTS_PER_PAGE, savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
-import { LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
 import { LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { CalendarOutlined, PushpinFilled, PushpinOutlined } from '@ant-design/icons'
 import { urls } from 'scenes/urls'
@@ -11,7 +12,7 @@ import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { TZLabel } from '@posthog/apps-common'
 
 export type SavedSessionRecordingPlaylistsProps = {
-    tab: SessionRecordingsTabs.All | SessionRecordingsTabs.Yours | SessionRecordingsTabs.Pinned
+    tab: SessionRecordingsTabs.All
 }
 
 export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPlaylistsProps): JSX.Element {
@@ -76,7 +77,23 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     onChange={(value) => setSavedPlaylistsFilters({ search: value })}
                     value={filters.search || ''}
                 />
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-4 flex-wrap">
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            data-attr="session-recording-playlist-pinned-filter"
+                            active={filters.pinned}
+                            size="small"
+                            type="secondary"
+                            status="stealth"
+                            center
+                            onClick={() => setSavedPlaylistsFilters({ pinned: !filters.pinned })}
+                            icon={cloneElement(filters.pinned ? <PushpinFilled /> : <PushpinOutlined />, {
+                                className: 'text-base flex items-center',
+                            })}
+                        >
+                            Pinned
+                        </LemonButton>
+                    </div>
                     <div className="flex items-center gap-2">
                         <span>Last modified:</span>
                         <DateFilter
@@ -94,26 +111,24 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                             )}
                         />
                     </div>
-                    {tab !== SessionRecordingsTabs.Yours ? (
-                        <div className="flex items-center gap-2">
-                            <span>Created by:</span>
-                            <LemonSelect
-                                size="small"
-                                options={[
-                                    { value: 'All users' as number | 'All users', label: 'All Users' },
-                                    ...meFirstMembers.map((x) => ({
-                                        value: x.user.id,
-                                        label: x.user.first_name,
-                                    })),
-                                ]}
-                                value={filters.createdBy}
-                                onChange={(v: any): void => {
-                                    setSavedPlaylistsFilters({ createdBy: v })
-                                }}
-                                dropdownMatchSelectWidth={false}
-                            />
-                        </div>
-                    ) : null}
+                    <div className="flex items-center gap-2">
+                        <span>Created by:</span>
+                        <LemonSelect
+                            size="small"
+                            options={[
+                                { value: 'All users' as number | 'All users', label: 'All Users' },
+                                ...meFirstMembers.map((x) => ({
+                                    value: x.user.id,
+                                    label: x.user.first_name,
+                                })),
+                            ]}
+                            value={filters.createdBy}
+                            onChange={(v: any): void => {
+                                setSavedPlaylistsFilters({ createdBy: v })
+                            }}
+                            dropdownMatchSelectWidth={false}
+                        />
+                    </div>
                 </div>
             </div>
 

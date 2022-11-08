@@ -386,8 +386,6 @@ export enum SavedInsightsTabs {
 export enum SessionRecordingsTabs {
     Recent = 'recent',
     All = 'all',
-    Yours = 'yours',
-    Pinned = 'pinned',
     History = 'history',
 }
 
