@@ -65,16 +65,12 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     },
                 ],
             }
-            await expectLogic(logic, () => {
-                logic.actions.setFilters(newFilter)
+            await expectLogic(logic, async () => {
+                await logic.actions.setFilters(newFilter)
+                await logic.actions.saveChanges()
             })
                 .toDispatchActions(['setFilters'])
                 .toMatchValues({ filters: expect.objectContaining(newFilter), hasChanges: true })
-                .toFinishAllListeners()
-
-            await expectLogic(logic, () => {
-                logic.actions.saveChanges()
-            })
                 .toDispatchActions(['saveChanges', 'updatePlaylist', 'updatePlaylistSuccess'])
                 .toMatchValues({
                     playlist: {
