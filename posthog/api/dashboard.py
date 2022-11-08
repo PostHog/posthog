@@ -219,7 +219,8 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         validated_data.pop("use_template", None)  # Remove attribute if present
 
-        if instance.deleted and "deleted" in validated_data and not validated_data["deleted"]:
+        being_undeleted = instance.deleted and "deleted" in validated_data and not validated_data["deleted"]
+        if being_undeleted:
             DashboardTile.objects.filter(dashboard__id=instance.id).update(deleted=False)
             insights_to_undelete = []
             for tile in DashboardTile.objects.filter(dashboard__id=instance.id):
