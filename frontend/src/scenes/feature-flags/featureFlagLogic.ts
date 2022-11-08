@@ -101,11 +101,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         updateConditionSet: (
             index: number,
             newRolloutPercentage?: number | null,
-            newProperties?: AnyPropertyFilter[]
+            newProperties?: AnyPropertyFilter[],
+            newVariant?: string
         ) => ({
             index,
             newRolloutPercentage,
             newProperties,
+            newVariant,
         }),
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
@@ -188,7 +190,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     rollback_conditions.splice(index, 1)
                     return { ...state, rollback_conditions: rollback_conditions }
                 },
-                updateConditionSet: (state, { index, newRolloutPercentage, newProperties }) => {
+                updateConditionSet: (state, { index, newRolloutPercentage, newProperties, newVariant }) => {
                     if (!state) {
                         return state
                     }
@@ -200,6 +202,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
                     if (newProperties !== undefined) {
                         groups[index] = { ...groups[index], properties: newProperties }
+                    }
+
+                    if (newVariant !== undefined) {
+                        groups[index] = { ...groups[index], variant: newVariant }
                     }
 
                     return { ...state, filters: { ...state.filters, groups } }
