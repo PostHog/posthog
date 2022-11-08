@@ -8,11 +8,16 @@ import {
     PLAYLISTS_PER_PAGE,
     savedSessionRecordingPlaylistsLogic,
 } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import mockPlaylistsResponse from '../__mocks__/saved_recording_playlists.json'
 import { urls } from 'scenes/urls'
 
 describe('savedSessionRecordingPlaylistsLogic', () => {
     let logic: ReturnType<typeof savedSessionRecordingPlaylistsLogic.build>
+    const mockPlaylistsResponse = {
+        count: 1,
+        next: null,
+        previous: null,
+        results: ['List of playlists'],
+    }
 
     beforeEach(() => {
         useMocks({
