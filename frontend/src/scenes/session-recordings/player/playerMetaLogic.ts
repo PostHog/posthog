@@ -28,7 +28,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>({
             },
         ],
     },
-    selectors: ({}) => ({
+    selectors: () => ({
         sessionPerson: [
             (selectors) => [selectors.sessionPlayerData],
             (playerData): PersonType | null => {
