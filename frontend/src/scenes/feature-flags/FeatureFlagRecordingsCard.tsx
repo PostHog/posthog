@@ -6,33 +6,14 @@ import { urls } from 'scenes/urls'
 import { RecordingFilters, SessionRecordingsTabs, SessionRecordingType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { defaultEntityFilterOnFlag } from './featureFlagLogic'
 
 interface FeatureFlagRecordingsProps {
     flagKey: string
 }
 
 export const filtersForFlag = (flagKey: string): Partial<RecordingFilters> => ({
-    events: [
-        {
-            id: '$feature_flag_called',
-            name: '$feature_flag_called',
-            type: 'events',
-            properties: [
-                {
-                    key: '$feature/' + flagKey,
-                    type: 'event',
-                    value: ['true'],
-                    operator: 'exact',
-                },
-                {
-                    key: '$feature_flag',
-                    type: 'event',
-                    value: flagKey,
-                    operator: 'exact',
-                },
-            ],
-        },
-    ],
+    events: defaultEntityFilterOnFlag(flagKey).events,
 })
 
 export function FeatureFlagRecordings({ flagKey }: FeatureFlagRecordingsProps): JSX.Element {
