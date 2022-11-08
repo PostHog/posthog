@@ -1,4 +1,4 @@
-import { DashboardType, FilterType, InsightShortId } from '~/types'
+import { AnyPartialFilterType, DashboardType, FilterType, InsightShortId } from '~/types'
 import { combineUrl } from 'kea-router'
 import { ExportOptions } from '~/exporter/types'
 import { AppMetricsUrlParams } from './apps/appMetricsSceneLogic'
@@ -35,7 +35,7 @@ export const urls = {
     eventPropertyDefinition: (id: string | number): string => `/data-management/event-properties/${id}`,
     events: (): string => '/events',
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
-    insightNew: (filters?: Partial<FilterType>, dashboardId?: DashboardType['id'] | null): string =>
+    insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, filters ? { filters } : {}).url,
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
     insightView: (id: InsightShortId): string => `/insights/${id}`,

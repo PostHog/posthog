@@ -9,6 +9,7 @@ import {
     DashboardType,
     FilterLogicalOperator,
     FilterType,
+    FunnelsFilterType,
     InsightModel,
     InsightShortId,
     InsightType,
@@ -941,7 +942,7 @@ describe('insightLogic', () => {
             logic.mount()
 
             await expectLogic(logic, () => {
-                logic.actions.setFilters({ new_entity: [] })
+                logic.actions.setFilters({ new_entity: [] } as FunnelsFilterType)
             }).toNotHaveDispatchedActions(['loadResults'])
         })
     })

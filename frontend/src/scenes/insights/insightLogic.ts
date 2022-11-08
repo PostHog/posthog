@@ -13,13 +13,23 @@ import {
     InsightType,
     ItemMode,
     SetInsightOptions,
+    TrendsFilterType,
 } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
 import { filterTrendsClientSideParams, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import {
+    cleanFilters,
+    isFilterWithHiddenLegendKeys,
+    isFunnelsFilter,
+    isLifecycleFilter,
+    isPathsFilter,
+    isRetentionFilter,
+    isStickinessFilter,
+    isTrendsFilter,
+} from 'scenes/insights/utils/cleanFilters'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId, summarizeInsightFilters } from './utils'
 import { teamLogic } from '../teamLogic'
@@ -311,9 +321,9 @@ export const insightLogic = kea<insightLogicType>([
                                 cache.abortController.signal
                             )
                         } else if (
-                            insight === InsightType.TRENDS ||
-                            insight === InsightType.STICKINESS ||
-                            insight === InsightType.LIFECYCLE
+                            isTrendsFilter(filters) ||
+                            isStickinessFilter(filters) ||
+                            isLifecycleFilter(filters)
                         ) {
                             response = await api.get(
                                 `api/projects/${currentTeamId}/insights/trend/?${toParams(
@@ -321,19 +331,19 @@ export const insightLogic = kea<insightLogicType>([
                                 )}`,
                                 cache.abortController.signal
                             )
-                        } else if (insight === InsightType.RETENTION) {
+                        } else if (isRetentionFilter(filters)) {
                             response = await api.get(
                                 `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`,
                                 cache.abortController.signal
                             )
-                        } else if (insight === InsightType.FUNNELS) {
+                        } else if (isFunnelsFilter(filters)) {
                             const { refresh, ...bodyParams } = params
                             response = await api.create(
                                 `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`,
                                 bodyParams,
                                 cache.abortController.signal
                             )
-                        } else if (insight === InsightType.PATHS) {
+                        } else if (isPathsFilter(filters)) {
                             response = await api.create(
                                 `api/projects/${currentTeamId}/insights/path`,
                                 params,
@@ -352,7 +362,7 @@ export const insightLogic = kea<insightLogicType>([
                         if (dashboardItemId && dashboardsModel.isMounted()) {
                             dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
                         }
-                        if (filters.insight === InsightType.FUNNELS) {
+                        if (isFunnelsFilter(filters)) {
                             eventUsageLogic.actions.reportFunnelCalculated(
                                 filters.events?.length || 0,
                                 filters.actions?.length || 0,
@@ -378,7 +388,7 @@ export const insightLogic = kea<insightLogicType>([
                             response.last_refresh
                         )
                     }
-                    if (filters.insight === InsightType.FUNNELS) {
+                    if (isFunnelsFilter(filters)) {
                         eventUsageLogic.actions.reportFunnelCalculated(
                             filters.events?.length || 0,
                             filters.actions?.length || 0,
@@ -605,8 +615,8 @@ export const insightLogic = kea<insightLogicType>([
         hiddenLegendKeys: [
             (s) => [s.filters],
             (filters) => {
-                const hiddenLegendKeys: FilterType['hidden_legend_keys'] = {}
-                if (filters.hidden_legend_keys) {
+                const hiddenLegendKeys: TrendsFilterType['hidden_legend_keys'] = {}
+                if (isFilterWithHiddenLegendKeys(filters) && filters.hidden_legend_keys) {
                     for (const [key, value] of Object.entries(filters.hidden_legend_keys)) {
                         // Transform pre-#12113 funnel series keys to the current more reliable format.
                         // Old: `${step.type}/${step.action_id}/${step.order}/${breakdownValues.join('_')}`
@@ -735,9 +745,12 @@ export const insightLogic = kea<insightLogicType>([
             }
             const dupeFilters = { ...filters }
             const dupePrevFilters = { ...selectors.filters(previousState) }
-            delete dupeFilters.new_entity
-            delete dupePrevFilters.new_entity
-
+            if ('new_entity' in dupeFilters) {
+                delete (dupeFilters as any).new_entity
+            }
+            if ('new_entity' in dupePrevFilters) {
+                delete (dupePrevFilters as any).new_entity
+            }
             if (objectsEqual(dupePrevFilters, dupeFilters)) {
                 return
             }
@@ -985,30 +998,35 @@ export const insightLogic = kea<insightLogicType>([
             }
         },
         toggleInsightLegend: () => {
-            actions.setFilters({ ...values.filters, show_legend: !values.filters.show_legend })
+            const newFilters: Partial<TrendsFilterType> = {
+                ...values.filters,
+                show_legend: !(values.filters as Partial<TrendsFilterType>).show_legend,
+            }
+            actions.setFilters(newFilters)
         },
         toggleVisibility: ({ index }) => {
             const currentIsHidden = !!values.hiddenLegendKeys?.[index]
-            actions.setFilters({
+            const newFilters: Partial<TrendsFilterType> = {
                 ...values.filters,
                 hidden_legend_keys: {
                     ...values.hiddenLegendKeys,
                     [`${index}`]: currentIsHidden ? undefined : true,
                 },
-            })
+            }
+            actions.setFilters(newFilters)
         },
         setHiddenById: ({ entry }) => {
             const nextEntries = Object.fromEntries(
                 Object.entries(entry).map(([index, hiddenState]) => [index, hiddenState ? true : undefined])
             )
-
-            actions.setFilters({
+            const newFilters: Partial<TrendsFilterType> = {
                 ...values.filters,
                 hidden_legend_keys: {
                     ...values.hiddenLegendKeys,
                     ...nextEntries,
                 },
-            })
+            }
+            actions.setFilters(newFilters)
         },
         cancelChanges: ({ goToViewMode }) => {
             actions.setFilters(values.savedInsight.filters || {})

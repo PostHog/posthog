@@ -1,11 +1,25 @@
-import { ChartDisplayType, Entity, EntityTypes, FilterType, FunnelVizType, InsightType, PathType } from '~/types'
+import {
+    AnyFilterType,
+    ChartDisplayType,
+    Entity,
+    EntityTypes,
+    FilterType,
+    FunnelsFilterType,
+    FunnelVizType,
+    InsightType,
+    LifecycleFilterType,
+    PathsFilterType,
+    PathType,
+    RetentionFilterType,
+    StickinessFilterType,
+    TrendsFilterType,
+} from '~/types'
 import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { defaultFilterTestAccounts } from 'scenes/insights/insightLogic'
 import { BIN_COUNT_AUTO, FEATURE_FLAGS, RETENTION_FIRST_TIME, ShownAsValue } from 'lib/constants'
 import { autocorrectInterval } from 'lib/utils'
 import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
-import { isTrendsInsight } from 'scenes/insights/sharedUtils'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/entityFilterLogic'
@@ -39,8 +53,8 @@ const cleanBreakdownParams = (
     filters: Partial<FilterType>,
     featureFlags: Record<string, any>
 ): void => {
-    const isStepsFunnel = filters.insight === InsightType.FUNNELS && filters.funnel_viz_type === FunnelVizType.Steps
-    const isTrends = !filters.insight || filters.insight === InsightType.TRENDS
+    const isStepsFunnel = isFunnelsFilter(filters) && filters.funnel_viz_type === FunnelVizType.Steps
+    const isTrends = isTrendsFilter(filters)
     const canBreakdown = isStepsFunnel || isTrends
 
     const canMultiPropertyBreakdown = isStepsFunnel
@@ -86,15 +100,39 @@ const cleanBreakdownParams = (
     }
 }
 
+export function isRetentionFilter(filters: Partial<FilterType>): filters is Partial<RetentionFilterType> {
+    return filters.insight === InsightType.RETENTION
+}
+export function isTrendsFilter(filters: Partial<FilterType>): filters is Partial<TrendsFilterType> {
+    return filters.insight === InsightType.TRENDS || !filters.insight
+}
+export function isFunnelsFilter(filters: Partial<FilterType>): filters is Partial<FunnelsFilterType> {
+    return filters.insight === InsightType.FUNNELS
+}
+export function isStickinessFilter(filters: Partial<FilterType>): filters is Partial<StickinessFilterType> {
+    return filters.insight === InsightType.STICKINESS
+}
+export function isLifecycleFilter(filters: Partial<FilterType>): filters is Partial<LifecycleFilterType> {
+    return filters.insight === InsightType.LIFECYCLE
+}
+export function isPathsFilter(filters: Partial<FilterType>): filters is Partial<PathsFilterType> {
+    return filters.insight === InsightType.PATHS
+}
+export function isFilterWithHiddenLegendKeys(
+    filters: Partial<FilterType>
+): filters is Partial<TrendsFilterType> | Partial<StickinessFilterType> | Partial<FunnelsFilterType> {
+    return isTrendsFilter(filters) || isFunnelsFilter(filters) || isStickinessFilter(filters)
+}
+
 export function cleanFilters(
-    filters: Partial<FilterType>,
-    oldFilters?: Partial<FilterType>,
+    filters: Partial<AnyFilterType>,
+    oldFilters?: Partial<AnyFilterType>,
     featureFlags?: FeatureFlagsSet
 ): Partial<FilterType> {
     const insightChanged = oldFilters?.insight && filters.insight !== oldFilters?.insight
 
-    if (filters.insight === InsightType.RETENTION) {
-        return {
+    if (isRetentionFilter(filters)) {
+        const cleanedParams: Partial<RetentionFilterType> = {
             insight: InsightType.RETENTION,
             target_entity: filters.target_entity || {
                 id: '$pageview',
@@ -116,8 +154,9 @@ export function cleanFilters(
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
                 : {}),
         }
-    } else if (filters.insight === InsightType.FUNNELS) {
-        const cleanedParams: Partial<FilterType> = {
+        return cleanedParams
+    } else if (isFunnelsFilter(filters)) {
+        const cleanedParams: Partial<FunnelsFilterType> = {
             insight: InsightType.FUNNELS,
             ...(filters.date_from ? { date_from: filters.date_from } : {}),
             ...(filters.date_to ? { date_to: filters.date_to } : {}),
@@ -176,7 +215,7 @@ export function cleanFilters(
         }
 
         // make sure exclusion steps are clamped within new step range
-        return {
+        const returnedParams: Partial<FunnelsFilterType> = {
             ...cleanedParams,
             ...getClampedStepRangeFilter({ filters: cleanedParams }),
             exclusions: (cleanedParams.exclusions || []).map((e) =>
@@ -186,8 +225,9 @@ export function cleanFilters(
                 })
             ),
         }
-    } else if (filters.insight === InsightType.PATHS) {
-        return {
+        return returnedParams
+    } else if (isPathsFilter(filters)) {
+        const cleanFilters: Partial<PathsFilterType> = {
             insight: InsightType.PATHS,
             properties: filters.properties || [],
             start_point: filters.start_point || undefined,
@@ -213,8 +253,9 @@ export function cleanFilters(
             min_edge_weight: filters.min_edge_weight || undefined,
             max_edge_weight: filters.max_edge_weight || undefined,
         }
-    } else if (isTrendsInsight(filters.insight) || !filters.insight) {
-        const cleanSearchParams: Partial<FilterType> = {
+        return cleanFilters
+    } else if (isTrendsFilter(filters) || isLifecycleFilter(filters) || isStickinessFilter(filters)) {
+        const cleanSearchParams: Partial<TrendsFilterType> = {
             insight: InsightType.TRENDS,
             ...filters,
             interval: autocorrectInterval(filters),
@@ -224,7 +265,9 @@ export function cleanFilters(
             actions: Array.isArray(filters.actions) ? filters.actions : undefined,
             events: Array.isArray(filters.events) ? filters.events : undefined,
             properties: filters.properties || [],
-            ...(filters.hidden_legend_keys ? { hidden_legend_keys: filters.hidden_legend_keys } : {}),
+            ...(isTrendsFilter(filters) && isStickinessFilter(filters) && filters.hidden_legend_keys
+                ? { hidden_legend_keys: filters.hidden_legend_keys }
+                : {}),
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
         }
 
@@ -285,10 +328,10 @@ export function cleanFilters(
         }
 
         return cleanSearchParams
-    } else if ((filters.insight as string) === 'SESSIONS') {
+    } else if ((filters as any).insight === 'SESSIONS') {
         // DEPRECATED: Used to show deprecation warning for dashboard items
         return cleanFilters({ insight: InsightType.TRENDS })
     }
 
-    throw new Error(`Unknown insight type "${filters.insight}" given to cleanFilters`)
+    throw new Error(`Unknown insight type "${(filters as any).insight}" given to cleanFilters`)
 }

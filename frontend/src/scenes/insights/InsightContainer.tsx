@@ -30,6 +30,7 @@ import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
 import { FunnelInsight } from './views/Funnels/FunnelInsight'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { AlertMessage } from 'lib/components/AlertMessage'
+import { isFunnelsFilter, isPathsFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/utils/cleanFilters'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -110,7 +111,7 @@ export function InsightContainer(
 
     function renderTable(): JSX.Element | null {
         if (
-            activeView === InsightType.FUNNELS &&
+            isFunnelsFilter(filters) &&
             !showErrorMessage &&
             !showTimeoutMessage &&
             areFiltersValid &&
@@ -134,7 +135,7 @@ export function InsightContainer(
             (!filters.display ||
                 (filters?.display !== ChartDisplayType.ActionsTable &&
                     filters?.display !== ChartDisplayType.ActionsBarValue)) &&
-            activeView === InsightType.TRENDS &&
+            isTrendsFilter(filters) &&
             !disableTable
         ) {
             return (
@@ -159,8 +160,8 @@ export function InsightContainer(
                     <BindLogic logic={trendsLogic} props={insightProps}>
                         <InsightsTable
                             isLegend
-                            filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
-                            canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
+                            filterKey={isTrendsFilter(filters) ? `trends_${activeView}` : ''}
+                            canEditSeriesNameInline={isTrendsFilter(filters) && insightMode === ItemMode.Edit}
                             canCheckUncheckSeries={canEditInsight}
                         />
                     </BindLogic>
@@ -200,7 +201,7 @@ export function InsightContainer(
                 <div>
                     <Row
                         className={clsx('insights-graph-header', {
-                            funnels: activeView === InsightType.FUNNELS,
+                            funnels: isFunnelsFilter(filters),
                         })}
                         align="middle"
                         justify="space-between"
@@ -212,15 +213,14 @@ export function InsightContainer(
                             </Col>
                         )}
                         <Col>
-                            {activeView === InsightType.FUNNELS ? <FunnelCanvasLabel /> : null}
-                            {activeView === InsightType.PATHS ? <PathCanvasLabel /> : null}
+                            {isFunnelsFilter(filters) ? <FunnelCanvasLabel /> : null}
+                            {isPathsFilter(filters) ? <PathCanvasLabel /> : null}
                             <InsightLegendButton />
                         </Col>
                     </Row>
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
-                    ) : (activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
-                      filters.show_legend ? (
+                    ) : (isTrendsFilter(filters) || isStickinessFilter(filters)) && filters.show_legend ? (
                         <Row className="insights-graph-container-row" wrap={false}>
                             <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
                             <Col className="insights-graph-container-row-right">

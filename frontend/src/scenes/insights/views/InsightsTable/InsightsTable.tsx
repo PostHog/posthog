@@ -28,6 +28,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatAggregationValue, formatBreakdownLabel } from 'scenes/insights/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { isTrendsFilter } from 'scenes/insights/utils/cleanFilters'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -208,7 +209,9 @@ export function InsightsTable({
                     item.breakdown_value,
                     item.filter?.breakdown,
                     item.filter?.breakdown_type,
-                    item.filter?.breakdown_histogram_bin_count !== undefined
+                    item.filter &&
+                        isTrendsFilter(item.filter) &&
+                        item.filter?.breakdown_histogram_bin_count !== undefined
                 )
                 return (
                     <SeriesToggleWrapper
@@ -227,7 +230,7 @@ export function InsightsTable({
                     a.breakdown_value,
                     a.filter?.breakdown,
                     a.filter?.breakdown_type,
-                    a.filter?.breakdown_histogram_bin_count !== undefined
+                    a.filter && isTrendsFilter(a.filter) && a.filter?.breakdown_histogram_bin_count !== undefined
                 )
                 const labelB = formatBreakdownLabel(
                     cohorts,
@@ -235,7 +238,7 @@ export function InsightsTable({
                     b.breakdown_value,
                     b.filter?.breakdown,
                     b.filter?.breakdown_type,
-                    a.filter?.breakdown_histogram_bin_count !== undefined
+                    a.filter && isTrendsFilter(a.filter) && a.filter?.breakdown_histogram_bin_count !== undefined
                 )
                 return labelA.localeCompare(labelB)
             },

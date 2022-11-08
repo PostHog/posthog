@@ -1,7 +1,7 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, convertPropertiesToPropertyGroup, pluralize, toParams } from 'lib/utils'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { cleanFilters, isFunnelsFilter, isPathsFilter, isStickinessFilter } from 'scenes/insights/utils/cleanFilters'
 import {
     ActionFilter,
     ChartDisplayType,
@@ -169,13 +169,13 @@ export const buildPeopleUrl = ({
     breakdown_value,
     funnelStep,
 }: PeopleUrlBuilderParams): string | undefined => {
-    if (filters.funnel_correlation_person_entity) {
+    if (isFunnelsFilter(filters) && filters.funnel_correlation_person_entity) {
         const cleanedParams = cleanFilters(filters)
         return `api/person/funnel/correlation/?${cleanedParams}`
-    } else if (filters.insight === InsightType.STICKINESS) {
+    } else if (isStickinessFilter(filters)) {
         const filterParams = parsePeopleParams({ action, date_from, date_to, breakdown_value }, filters)
         return `api/person/stickiness/?${filterParams}`
-    } else if (funnelStep || filters.funnel_viz_type === FunnelVizType.Trends) {
+    } else if (isFunnelsFilter(filters) && (funnelStep || filters.funnel_viz_type === FunnelVizType.Trends)) {
         let params
         if (filters.funnel_viz_type === FunnelVizType.Trends) {
             // funnel trends
@@ -192,7 +192,7 @@ export const buildPeopleUrl = ({
         const cleanedParams = cleanFilters(params)
         const funnelParams = toParams(cleanedParams)
         return `api/person/funnel/?${funnelParams}`
-    } else if (filters.insight === InsightType.PATHS) {
+    } else if (isPathsFilter(filters)) {
         const cleanedParams = cleanFilters(filters)
         const pathParams = toParams(cleanedParams)
 

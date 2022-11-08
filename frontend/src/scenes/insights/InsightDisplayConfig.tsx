@@ -3,22 +3,27 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
-import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { FilterType, FunnelVizType, ItemMode, InsightType, ChartDisplayType } from '~/types'
-import { CalendarOutlined } from '@ant-design/icons'
+import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { ChartDisplayType, FilterType, FunnelVizType, InsightType, ItemMode } from '~/types'
+import { CalendarOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from './filters/InsightDateFilter'
 import { RetentionDatePicker } from './RetentionDatePicker'
 import { FunnelDisplayLayoutPicker } from './views/Funnels/FunnelDisplayLayoutPicker'
 import { PathStepPicker } from './views/Paths/PathStepPicker'
 import { ReferencePicker as RetentionReferencePicker } from './filters/ReferencePicker'
 import { Tooltip } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { FunnelBinsPicker } from './views/Funnels/FunnelBinsPicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
+import {
+    isFunnelsFilter,
+    isPathsFilter,
+    isRetentionFilter,
+    isStickinessFilter,
+    isTrendsFilter,
+} from 'scenes/insights/utils/cleanFilters'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -27,35 +32,18 @@ interface InsightDisplayConfigProps {
     disableTable: boolean
 }
 
-const showIntervalFilter = function (activeView: InsightType, filter: FilterType): boolean {
-    switch (activeView) {
-        case InsightType.FUNNELS:
-            return filter.funnel_viz_type === FunnelVizType.Trends
-        case InsightType.RETENTION:
-        case InsightType.PATHS:
-            return false
-        case InsightType.TRENDS:
-        case InsightType.STICKINESS:
-        case InsightType.LIFECYCLE:
-        default:
-            return !filter.display || !NON_TIME_SERIES_DISPLAY_TYPES.includes(filter.display)
+const showIntervalFilter = function (filter: Partial<FilterType>): boolean {
+    if (isFunnelsFilter(filter)) {
+        return filter.funnel_viz_type === FunnelVizType.Trends
     }
+    if (isRetentionFilter(filter) || isPathsFilter(filter)) {
+        return false
+    }
+    return !filter.display || !NON_TIME_SERIES_DISPLAY_TYPES.includes(filter.display)
 }
 
-const showChartFilter = function (activeView: InsightType): boolean {
-    switch (activeView) {
-        case InsightType.TRENDS:
-        case InsightType.STICKINESS:
-            return true
-        case InsightType.RETENTION:
-        case InsightType.FUNNELS:
-            return false
-        case InsightType.LIFECYCLE:
-        case InsightType.PATHS:
-            return false
-        default:
-            return true // sometimes insights aren't set for trends
-    }
+const showChartFilter = function (filters: Partial<FilterType>): boolean {
+    return isTrendsFilter(filters) || isStickinessFilter(filters)
 }
 
 const showDateFilter = {
@@ -84,9 +72,9 @@ function ConfigFilter(props: PropsWithChildren<ReactNode>): JSX.Element {
     return <span className="space-x-2 flex items-center text-sm">{props.children}</span>
 }
 
-export function InsightDisplayConfig({ filters, activeView, disableTable }: InsightDisplayConfigProps): JSX.Element {
-    const showFunnelBarOptions = activeView === InsightType.FUNNELS
-    const showPathOptions = activeView === InsightType.PATHS
+export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayConfigProps): JSX.Element {
+    const showFunnelBarOptions = isFunnelsFilter(filters)
+    const showPathOptions = isPathsFilter(filters)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { setFilters } = useActions(insightLogic)
@@ -94,7 +82,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
             <div className="flex items-center space-x-2 flex-wrap my-2">
-                {showDateFilter[activeView] && !disableTable && (
+                {filters.insight && showDateFilter[filters.insight] && !disableTable && (
                     <ConfigFilter>
                         <span>Date range</span>
                         <InsightDateFilter
@@ -113,16 +101,16 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                     </ConfigFilter>
                 )}
 
-                {showIntervalFilter(activeView, filters) && (
+                {showIntervalFilter(filters) && (
                     <ConfigFilter>
                         <span>
                             <span className="hide-lte-md">grouped </span>by
                         </span>
-                        <IntervalFilter view={activeView} />
+                        <IntervalFilter view={filters.insight || InsightType.TRENDS} />
                     </ConfigFilter>
                 )}
 
-                {activeView === InsightType.TRENDS &&
+                {isTrendsFilter(filters) &&
                 !filters.breakdown_type &&
                 !filters.compare &&
                 (!filters.display || filters.display === ChartDisplayType.ActionsLineGraph) &&
@@ -132,7 +120,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                     </ConfigFilter>
                 ) : null}
 
-                {activeView === InsightType.RETENTION && (
+                {isRetentionFilter(filters) && (
                     <ConfigFilter>
                         <RetentionDatePicker />
                         <RetentionReferencePicker />
@@ -145,16 +133,16 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                     </ConfigFilter>
                 )}
 
-                {showComparePrevious[activeView] && (
+                {filters.insight && showComparePrevious[filters.insight] && (
                     <ConfigFilter>
                         <CompareFilter />
                     </ConfigFilter>
                 )}
             </div>
             <div className="flex items-center space-x-4 flex-wrap my-2">
-                {showChartFilter(activeView) && (
+                {showChartFilter(filters) && (
                     <>
-                        {activeView === InsightType.TRENDS && (
+                        {isTrendsFilter(filters) && (
                             <ConfigFilter>
                                 <UnitPicker filters={filters} setFilters={setFilters} />
                             </ConfigFilter>

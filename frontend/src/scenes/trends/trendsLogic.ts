@@ -2,12 +2,21 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { dayjs } from 'lib/dayjs'
 import api from 'lib/api'
 import { insightLogic } from '../insights/insightLogic'
-import { InsightLogicProps, FilterType, InsightType, TrendResult, ActionFilter, ChartDisplayType } from '~/types'
+import {
+    InsightLogicProps,
+    FilterType,
+    InsightType,
+    TrendResult,
+    ActionFilter,
+    ChartDisplayType,
+    TrendsFilterType,
+} from '~/types'
 import type { trendsLogicType } from './trendsLogicType'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { isTrendsInsight, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { subscriptions } from 'kea-subscriptions'
+import { isTrendsFilter } from 'scenes/insights/utils/cleanFilters'
 
 export const trendsLogic = kea<trendsLogicType>([
     props({} as InsightLogicProps),
@@ -17,7 +26,7 @@ export const trendsLogic = kea<trendsLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters', 'insight', 'insightLoading', 'hiddenLegendKeys', 'localFilters'],
+            ['filters as inflightFilters', 'insight', 'insightLoading', 'hiddenLegendKeys', 'localFilters'],
             groupsModel,
             ['aggregationLabel'],
         ],
@@ -25,7 +34,7 @@ export const trendsLogic = kea<trendsLogicType>([
     })),
 
     actions(() => ({
-        setFilters: (filters: Partial<FilterType>, mergeFilters = true) => ({ filters, mergeFilters }),
+        setFilters: (filters: Partial<TrendsFilterType>, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
@@ -67,9 +76,14 @@ export const trendsLogic = kea<trendsLogicType>([
     })),
 
     selectors({
+        filters: [
+            (s) => [s.inflightFilters],
+            (inflightFilters): Partial<TrendsFilterType> =>
+                inflightFilters && isTrendsFilter(inflightFilters) ? inflightFilters : {},
+        ],
         loadedFilters: [
             (s) => [s.insight],
-            ({ filters }): Partial<FilterType> => (isTrendsInsight(filters?.insight) ? filters ?? {} : {}),
+            ({ filters }): Partial<TrendsFilterType> => (filters && isTrendsFilter(filters) ? filters : {}),
         ],
         results: [
             (s) => [s.insight],

@@ -1,6 +1,14 @@
 import { Meta, Story } from '@storybook/react'
 import { useState } from 'react'
-import { ChartDisplayType, FunnelVizType, InsightColor, InsightModel, InsightShortId, InsightType } from '~/types'
+import {
+    ChartDisplayType,
+    FunnelsFilterType,
+    FunnelVizType,
+    InsightColor,
+    InsightModel,
+    InsightShortId,
+    InsightType,
+} from '~/types'
 import { InsightCard as InsightCardComponent } from './index'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import { uuid } from 'lib/utils'
@@ -212,7 +220,7 @@ const EXAMPLE_FUNNEL: InsightModel = {
         exclusions: [],
         properties: [],
         funnel_viz_type: FunnelVizType.Steps,
-    },
+    } as FunnelsFilterType,
     filters_hash: 'cache_efe341a46f090f397007fe97d8faf263',
     order: 1,
     deleted: false,

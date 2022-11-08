@@ -3,10 +3,12 @@ import { FundOutlined } from '@ant-design/icons'
 import { smoothingOptions } from './smoothings'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 export function SmoothingFilter(): JSX.Element | null {
-    const { filters } = useValues(insightLogic)
-    const { setFilters } = useActions(insightLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { filters } = useValues(trendsLogic(insightProps))
+    const { setFilters } = useActions(trendsLogic(insightProps))
     const { interval, smoothing_intervals } = filters
 
     if (!interval) {

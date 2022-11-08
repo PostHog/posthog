@@ -5,7 +5,6 @@ import {
     InsightEditorFilter,
     InsightEditorFilterGroup,
     InsightLogicProps,
-    InsightType,
 } from '~/types'
 import { CSSTransition } from 'react-transition-group'
 import { TrendsSeries, TrendsSeriesLabel } from 'scenes/insights/EditorFilters/TrendsSeries'
@@ -35,6 +34,14 @@ import { InsightTypeSelector } from './InsightTypeSelector'
 import './EditorFilters.scss'
 import clsx from 'clsx'
 import { Attribution } from './AttributionFilter'
+import {
+    isFunnelsFilter,
+    isLifecycleFilter,
+    isPathsFilter,
+    isRetentionFilter,
+    isStickinessFilter,
+    isTrendsFilter,
+} from 'scenes/insights/utils/cleanFilters'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
@@ -54,12 +61,12 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
     const { featureFlags } = useValues(featureFlagLogic)
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
 
-    const isTrends = !filters.insight || filters.insight === InsightType.TRENDS
-    const isLifecycle = filters.insight === InsightType.LIFECYCLE
-    const isStickiness = filters.insight === InsightType.STICKINESS
-    const isRetention = filters.insight === InsightType.RETENTION
-    const isPaths = filters.insight === InsightType.PATHS
-    const isFunnels = filters.insight === InsightType.FUNNELS
+    const isTrends = isTrendsFilter(filters)
+    const isLifecycle = isLifecycleFilter(filters)
+    const isStickiness = isStickinessFilter(filters)
+    const isRetention = isRetentionFilter(filters)
+    const isPaths = isPathsFilter(filters)
+    const isFunnels = isFunnelsFilter(filters)
     const isTrendsLike = isTrends || isLifecycle || isStickiness
 
     const hasBreakdown =

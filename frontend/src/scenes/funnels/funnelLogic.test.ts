@@ -11,6 +11,7 @@ import {
     FunnelCorrelation,
     FunnelCorrelationResultsType,
     FunnelCorrelationType,
+    FunnelsFilterType,
     FunnelVizType,
     InsightLogicProps,
     InsightShortId,
@@ -791,7 +792,10 @@ describe('funnelLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.loadResultsSuccess({
-                    filters: { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps },
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                        funnel_viz_type: FunnelVizType.Steps,
+                    } as FunnelsFilterType,
                     result: [{ action_id: 'some event', order: 0 }],
                 })
             })
@@ -810,7 +814,10 @@ describe('funnelLogic', () => {
             await initFunnelLogic(props)
             await expectLogic(logic, () => {
                 logic.actions.loadResultsSuccess({
-                    filters: { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Trends },
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                        funnel_viz_type: FunnelVizType.Trends,
+                    } as FunnelsFilterType,
                 })
             }).toNotHaveDispatchedActions(['loadCorrelations', 'loadPropertyCorrelations'])
         })
