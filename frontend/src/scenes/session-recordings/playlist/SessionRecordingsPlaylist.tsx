@@ -1,11 +1,10 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { range } from '~/lib/utils'
-import { RecordingDurationFilter, SessionRecordingType } from '~/types'
+import { RecordingDurationFilter, RecordingFilters, SessionRecordingType } from '~/types'
 import {
     defaultPageviewPropertyEntityFilter,
     PLAYLIST_LIMIT,
-    SessionRecordingListLogicProps,
     sessionRecordingsListLogic,
 } from './sessionRecordingsListLogic'
 import './SessionRecordingsPlaylist.scss'
@@ -40,8 +39,8 @@ export const scene: SceneExport = {
 }
 
 export function SessionRecordingsPlaylistScene(): JSX.Element {
-    const { playlist, playlistLoading } = useValues(sessionRecordingsPlaylistLogic)
-    const { updatePlaylist } = useActions(sessionRecordingsPlaylistLogic)
+    const { playlist, playlistLoading, hasChanges } = useValues(sessionRecordingsPlaylistLogic)
+    const { updatePlaylist, setFilters, saveChanges } = useActions(sessionRecordingsPlaylistLogic)
 
     if (!playlist && playlistLoading) {
         return <Spinner />
@@ -125,6 +124,9 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                 //         },
                                 //     })
                                 // }
+                                disabled={!hasChanges}
+                                loading={hasChanges && playlistLoading}
+                                onClick={saveChanges}
                             >
                                 Save changes
                             </LemonButton>
@@ -153,10 +155,22 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                 }
             />
             {playlist.short_id ? (
-                <SessionRecordingsPlaylist logicKey={playlist.short_id} filters={playlist.filters} />
+                <SessionRecordingsPlaylist
+                    logicKey={playlist.short_id}
+                    filters={playlist.filters}
+                    onFiltersChange={setFilters}
+                />
             ) : null}
         </div>
     )
+}
+
+export type SessionRecordingsPlaylistProps = {
+    logicKey: string
+    personUUID?: string
+    filters?: RecordingFilters
+    updateSearchParams?: boolean
+    onFiltersChange?: (filters: RecordingFilters) => void
 }
 
 export function SessionRecordingsPlaylist({
@@ -164,7 +178,8 @@ export function SessionRecordingsPlaylist({
     personUUID,
     filters: defaultFilters,
     updateSearchParams,
-}: Partial<SessionRecordingListLogicProps> & { logicKey: string }): JSX.Element {
+    onFiltersChange,
+}: SessionRecordingsPlaylistProps): JSX.Element {
     const logic = sessionRecordingsListLogic({ key: logicKey, personUUID, filters: defaultFilters, updateSearchParams })
     const {
         sessionRecordings,
@@ -188,6 +203,12 @@ export function SessionRecordingsPlaylist({
     } = useActions(logic)
     const playlistRef = useRef<HTMLDivElement>(null)
 
+    useEffect(() => {
+        if (filters !== defaultFilters) {
+            onFiltersChange?.(filters)
+        }
+    }, [filters])
+
     const onRecordingClick = (recording: SessionRecordingType): void => {
         setSelectedRecordingId(recording.id)
 
@@ -203,7 +224,7 @@ export function SessionRecordingsPlaylist({
     }
 
     const onPropertyClick = (property: string, value?: string): void => {
-        setFilters(defaultPageviewPropertyEntityFilter(entityFilters, property, value))
+        setFilters(defaultPageviewPropertyEntityFilter(filters, property, value))
     }
 
     const offset = filters.offset ?? 0

@@ -44,12 +44,12 @@ export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
 }
 
 export const defaultPageviewPropertyEntityFilter = (
-    oldEntityFilters: FilterType,
+    filters: RecordingFilters,
     property: string,
     value?: string
-): FilterType => {
-    const existingPageview = oldEntityFilters.events?.find(({ name }) => name === '$pageview')
-    const eventEntityFilters = oldEntityFilters.events ?? []
+): Partial<RecordingFilters> => {
+    const existingPageview = filters.events?.find(({ name }) => name === '$pageview')
+    const eventEntityFilters = filters.events ?? []
     const propToAdd = value
         ? {
               key: property,
@@ -67,7 +67,6 @@ export const defaultPageviewPropertyEntityFilter = (
     // If pageview exists, add property to the first pageview event
     if (existingPageview) {
         return {
-            ...oldEntityFilters,
             events: eventEntityFilters.map((eventFilter) =>
                 eventFilter.order === existingPageview.order
                     ? {
@@ -82,7 +81,6 @@ export const defaultPageviewPropertyEntityFilter = (
         }
     } else {
         return {
-            ...oldEntityFilters,
             events: [
                 ...eventEntityFilters,
                 {

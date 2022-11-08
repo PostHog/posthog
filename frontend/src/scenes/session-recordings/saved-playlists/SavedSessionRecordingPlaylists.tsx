@@ -23,7 +23,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
         {
             width: 0,
             dataIndex: 'pinned',
-            render: function Render(pinned, { short_id }) {
+            render: function Render(pinned, {}) {
                 return pinned ? (
                     <PushpinFilled onClick={() => alert('Clicked!')} style={{ cursor: 'pointer' }} />
                 ) : (

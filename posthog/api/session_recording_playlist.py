@@ -6,8 +6,6 @@ from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import request, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.settings import api_settings
-from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
@@ -17,7 +15,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, changes
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
-from posthog.utils import relative_date_parse, str_to_bool
+from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
 
