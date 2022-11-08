@@ -38,6 +38,9 @@ def send_license_usage():
             license.valid_until = now() - relativedelta(hours=1)
             license.save()
 
+        if response.status_code == 400 and response.json().get("code") == "already_sent":
+            return
+
         if response.json().get("valid_until"):
             license.valid_until = response.json()["valid_until"]
             license.save()

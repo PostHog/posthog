@@ -78,6 +78,37 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
 
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthoganalytics.capture")
+    @patch("ee.tasks.send_license_usage.sync_execute", side_effect=Exception())
+    def test_send_license_usage_already_sent(self, mock_post, mock_capture):
+        self.license.key = "legacy-key"
+        self.license.save()
+
+        team2 = Team.objects.create(organization=self.organization)
+        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
+        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")
+        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T13:01:01Z")
+        _create_event(
+            event="$$internal_metrics_shouldnt_be_billed",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-09T13:01:01Z",
+        )
+        _create_event(event="$pageview", team=team2, distinct_id=1, timestamp="2021-10-09T14:01:01Z")
+        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
+        mockresponse = Mock()
+        mock_post.return_value = mockresponse
+        mockresponse.ok = False
+        mockresponse.status_code = 400
+        mockresponse.json = lambda: {
+            "code": "already_sent",
+            "error": "Usage data for this period has already been sent.",
+        }
+        flush_persons_and_events()
+        send_license_usage()
+        mock_capture.assert_not_called()
+
+    @freeze_time("2021-10-10T23:01:00Z")
+    @patch("posthoganalytics.capture")
     @patch("requests.post")
     def test_send_license_not_found(self, mock_post, mock_capture):
         self.license.key = "legacy-key"
