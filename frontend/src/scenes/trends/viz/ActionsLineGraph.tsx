@@ -12,8 +12,9 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const logic = trendsLogic(insightProps)
-    const { filters, indexedResults, incompletenessOffsetFromEnd, hiddenLegendKeys, labelGroupType } = useValues(logic)
+    const { filters, indexedResults, incompletenessOffsetFromEnd, hiddenLegendKeys, labelGroupType } = useValues(
+        trendsLogic(insightProps)
+    )
 
     return indexedResults &&
         indexedResults[0]?.data &&

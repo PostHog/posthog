@@ -1177,15 +1177,11 @@ export interface FilterType {
     from_dashboard?: boolean | number
 
     // TODO: move these down into specific filters
-    // event?: string // specify one event
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
     breakdowns?: Breakdown[]
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
-    shown_as?: ShownAsValue
-    session?: string
-    period?: string
     aggregation_group_type_index?: number | undefined // Groups aggregation
 
     // persons modal
@@ -1209,12 +1205,14 @@ export interface TrendsFilterType extends FilterType {
     people_day?: any
     people_action?: any
     formula?: any
+    shown_as?: ShownAsValue
 }
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
     show_legend?: boolean // used to show/hide legend next to insights graph
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
     stickiness_days?: number
+    shown_as?: ShownAsValue
 }
 export interface FunnelsFilterType extends FilterType {
     funnel_viz_type?: FunnelVizType // parameter sent to funnels API for time conversion code path
@@ -1265,9 +1263,11 @@ export interface RetentionFilterType extends FilterType {
     total_intervals?: number // retention total intervals
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>
+    period?: string
 }
 export interface LifecycleFilterType extends FilterType {
     __notSameAsFilterType?: undefined
+    shown_as?: ShownAsValue
 }
 export type AnyFilterType =
     | TrendsFilterType
