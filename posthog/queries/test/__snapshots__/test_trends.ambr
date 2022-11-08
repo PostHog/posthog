@@ -973,7 +973,8 @@
 # name: TestFOSSTrends.test_timezones_hourly.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
@@ -992,6 +993,7 @@
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-05 07:00:00', 'US/Pacific')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 08:00:00', 'US/Pacific') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC
   LIMIT 100
   OFFSET 0
   '
