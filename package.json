@@ -129,7 +129,7 @@
         "@babel/preset-env": "^7.17.10",
         "@babel/preset-react": "^7.17.10",
         "@babel/preset-typescript": "^7.16.7",
-        "@cypress/webpack-preprocessor": "^5.12.2",
+        "@cypress/webpack-preprocessor": "^5.15.4",
         "@hot-loader/react-dom": "^16.14.0",
         "@storybook/addon-a11y": "^6.5.10",
         "@storybook/addon-actions": "^6.5.9",
@@ -168,7 +168,7 @@
         "cors": "^2.8.5",
         "css-loader": "^3.4.2",
         "cssnano": "^4.1.10",
-        "cypress": "^10.9.0",
+        "cypress": "^10.11.0",
         "cypress-axe": "^1.0.0",
         "cypress-terminal-report": "^4.1.2",
         "esbuild": "^0.14.54",
@@ -220,7 +220,7 @@
     },
     "lint-staged": {
         "*.{js,jsx,mjs,ts,tsx,json,yaml,yml,css,scss}": "prettier --write",
-        "(frontend/**).{js,jsx,mjs,ts,tsx}": "eslint -c .eslintrc.js --fix",
+        "((frontend|cypress)/**).{js,jsx,mjs,ts,tsx}": "eslint -c .eslintrc.js --fix",
         "(plugin-server/**).{js,jsx,mjs,ts,tsx}": "eslint -c plugin-server/.eslintrc.js --fix",
         "*.{py,pyi}": [
             "black",

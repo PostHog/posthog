@@ -49,6 +49,7 @@ export const personsLogic = kea<personsLogicType>({
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
         showPersonDeleteModal: (person: PersonType | null) => ({ person }),
         deletePerson: (payload: { person: PersonType; deleteEvents: boolean }) => payload,
+        setDistinctId: (distinctId: string) => ({ distinctId }),
     },
     reducers: {
         listFilters: [
@@ -94,6 +95,12 @@ export const personsLogic = kea<personsLogicType>({
             null as PersonType | null,
             {
                 showPersonDeleteModal: (_, { person }) => person,
+            },
+        ],
+        distinctId: [
+            null as string | null,
+            {
+                setDistinctId: (_, { distinctId }) => distinctId,
             },
         ],
     },

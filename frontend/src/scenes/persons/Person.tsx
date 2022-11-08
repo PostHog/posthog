@@ -19,7 +19,7 @@ import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -85,10 +85,16 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 }
 
 export function Person(): JSX.Element | null {
-    const { person, personLoading, deletedPersonLoading, currentTab, splitMergeModalShown, urlId } =
+    const { person, personLoading, deletedPersonLoading, currentTab, splitMergeModalShown, urlId, distinctId } =
         useValues(personsLogic)
-    const { editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, showPersonDeleteModal } =
-        useActions(personsLogic)
+    const {
+        editProperty,
+        deleteProperty,
+        navigateToTab,
+        setSplitMergeModalShown,
+        showPersonDeleteModal,
+        setDistinctId,
+    } = useActions(personsLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -201,7 +207,25 @@ export function Person(): JSX.Element | null {
                         tab={<span data-attr="persons-related-flags-tab">Feature flags</span>}
                         key={PersonsTabType.FEATURE_FLAGS}
                     >
-                        <RelatedFeatureFlags distinctId={person.distinct_ids[0]} />
+                        <div className="flex space-x-4 items-center mb-2">
+                            <div>
+                                Choose ID:
+                                <Tooltip title="Feature flags can have different values based on the persons IDs. Turn on persistence in feature flag settings if you'd like these to be constant always.">
+                                    <InfoCircleOutlined style={{ marginLeft: 6, marginRight: 0 }} />
+                                </Tooltip>
+                            </div>
+                            <LemonSelect
+                                value={person.distinct_ids[0]}
+                                onChange={(value) => value && setDistinctId(value)}
+                                options={person.distinct_ids.map((distinct_id) => ({
+                                    label: distinct_id,
+                                    value: distinct_id,
+                                }))}
+                                data-attr="person-feature-flags-select"
+                            />
+                        </div>
+                        <LemonDivider className="mb-4" />
+                        <RelatedFeatureFlags distinctId={distinctId || person.distinct_ids[0]} />
                     </TabPane>
                 )}
 

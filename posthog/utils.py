@@ -491,7 +491,7 @@ def get_compare_period_dates(
         if (
             interval == "day"
             and date_from_delta_mapping
-            and date_from_delta_mapping["days"]
+            and date_from_delta_mapping.get("days", None)
             and date_from_delta_mapping["days"] % 7 == 0
             and not date_to_delta_mapping
         ):
