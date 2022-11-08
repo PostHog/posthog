@@ -64,20 +64,19 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 }
 
                 const filters = values.filters
+                const createdBy = filters.createdBy === 'All users' ? undefined : filters.createdBy
 
-                console.log('foo', filters)
                 const params = {
                     limit: PLAYLISTS_PER_PAGE,
                     offset: Math.max(0, (filters.page - 1) * PLAYLISTS_PER_PAGE),
                     order: filters.order || '-last_modified_at', // Sync with `sorting` selector
-                    createdBy: (props.tab !== SessionRecordingsTabs.Yours && filters.createdBy) || 'All users',
+                    created_by: (props.tab !== SessionRecordingsTabs.Yours && createdBy) || undefined,
                     search: filters.search || undefined,
-                    dateFrom: filters.dateFrom || 'all',
-                    dateTo: filters.dateTo || undefined,
+                    date_from: filters.dateFrom || 'all',
+                    date_to: filters.dateTo || undefined,
                     pinned: props.tab === SessionRecordingsTabs.Pinned ? true : undefined,
                     user: props.tab === SessionRecordingsTabs.Yours ? true : undefined,
                 }
-                console.log('foo', { params, qs: toParams(params) })
 
                 const response = await api.recordings.listPlaylists(toParams(params))
 
@@ -116,7 +115,6 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         pagination: [
             (s) => [s.filters, s.playlists],
             (filters, playlists): PaginationManual => {
-                console.log('foo', filters, playlists)
                 return {
                     controlled: true,
                     pageSize: PLAYLISTS_PER_PAGE,

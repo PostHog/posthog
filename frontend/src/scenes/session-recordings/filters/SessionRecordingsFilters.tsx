@@ -6,6 +6,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { EntityTypes, FilterType, RecordingFilters } from '~/types'
 import { useEffect, useState } from 'react'
+import equal from 'fast-deep-equal'
 
 interface SessionRecordingsFiltersProps {
     filters: RecordingFilters
@@ -42,16 +43,20 @@ export function SessionRecordingsFilters({
 }: SessionRecordingsFiltersProps): JSX.Element {
     const [localFilters, setLocalFilters] = useState<FilterType>(filtersToLocalFilters(filters))
 
-    // TRICKY: We have a copy of the filters as local state as it stores more properties than we want for playlists
+    // We have a copy of the filters as local state as it stores more properties than we want for playlists
     useEffect(() => {
-        setFilters({
-            actions: localFilters.actions,
-            events: localFilters.events,
-        })
+        if (!equal(filters.actions, localFilters.actions) || !equal(filters.events, localFilters.events)) {
+            setFilters({
+                actions: localFilters.actions,
+                events: localFilters.events,
+            })
+        }
     }, [localFilters])
 
     useEffect(() => {
-        if (filters.actions !== localFilters.actions || filters.events !== localFilters.events) {
+        // We have a copy of the filters as local state as it stores more properties than we want for playlists
+        // if (!equal(filters.actions, localFilters.actions) || !equal(filters.events, localFilters.events)) {
+        if (!equal(filters.actions, localFilters.actions) || !equal(filters.events, localFilters.events)) {
             setLocalFilters(filtersToLocalFilters(filters))
         }
     }, [filters])

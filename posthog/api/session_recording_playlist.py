@@ -165,7 +165,7 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
             if key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "pinned":
-                queryset = queryset.filter(pinned=filters["pinned"])
+                queryset = queryset.filter(pinned=True)
             elif key == "date_from":
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(request.GET["date_from"]))
             elif key == "date_to":
