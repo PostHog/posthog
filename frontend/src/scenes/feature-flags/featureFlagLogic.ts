@@ -49,7 +49,7 @@ const NEW_FLAG: FeatureFlagType = {
     created_at: null,
     key: '',
     name: '',
-    filters: { groups: [{ properties: [], rollout_percentage: null }], multivariate: null },
+    filters: { groups: [{ properties: [], rollout_percentage: null, variant: undefined }], multivariate: null },
     deleted: false,
     active: true,
     created_by: null,

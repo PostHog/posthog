@@ -1518,7 +1518,7 @@ export interface SetInsightOptions {
 export interface FeatureFlagGroupType {
     properties: AnyPropertyFilter[]
     rollout_percentage: number | null
-    variant: string
+    variant?: string
 }
 
 export interface MultivariateFlagVariant {
