@@ -232,14 +232,14 @@ def trend_test_factory(trends):
 
                     # pagination works, no matter how few ids in people_response
                     self.assertIsNotNone(people_response["next"])
-                    self.assertTrue(people_response["missing_persons"] >= 4)
+                    self.assertGreaterEqual(people_response["missing_persons"], 4)
 
                     next_url = people_response["next"]
                     second_people_response = self.client.get(f"{next_url}").json()
 
                     self.assertIsNotNone(second_people_response["next"])
-                    self.assertTrue(second_people_response["missing_persons"] >= 4)
-                    self.assertTrue(second_people_response["missing_persons"] + people_response["missing_persons"] == 9)
+                    self.assertGreaterEqual(second_people_response["missing_persons"], 4)
+                    self.assertEqual(second_people_response["missing_persons"] + people_response["missing_persons"], 9)
 
                     first_load_ids = sorted(str(person["id"]) for person in people_response["results"][0]["people"])
                     second_load_ids = sorted(
@@ -3285,7 +3285,7 @@ def trend_test_factory(trends):
                         "distinct_ids": ["person2"],
                         "id": str(person2.uuid),
                         "is_identified": False,
-                        "matched_recordings": None,  # No recordings
+                        "matched_recordings": [],
                         "name": "person2",
                         "properties": {},
                         "type": "person",
@@ -3297,7 +3297,7 @@ def trend_test_factory(trends):
                         "distinct_ids": ["person1"],
                         "id": str(person1.uuid),
                         "is_identified": False,
-                        "matched_recordings": None,  # No recordings
+                        "matched_recordings": [],
                         "name": "person1",
                         "properties": {},
                         "type": "person",
@@ -3309,7 +3309,7 @@ def trend_test_factory(trends):
                         "distinct_ids": ["person3"],
                         "id": str(person3.uuid),
                         "is_identified": False,
-                        "matched_recordings": None,  # No recordings
+                        "matched_recordings": [],
                         "name": "person3",
                         "properties": {},
                         "type": "person",
@@ -3326,7 +3326,7 @@ def trend_test_factory(trends):
                         "distinct_ids": ["person2"],
                         "id": str(person2.uuid),
                         "is_identified": False,
-                        "matched_recordings": None,  # No recordings
+                        "matched_recordings": [],
                         "name": "person2",
                         "properties": {},
                         "type": "person",

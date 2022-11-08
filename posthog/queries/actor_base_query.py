@@ -1,5 +1,4 @@
 import uuid
-from dataclasses import dataclass
 from datetime import datetime
 from typing import (
     Any,
@@ -9,6 +8,7 @@ from typing import (
     Optional,
     Set,
     Tuple,
+    TypedDict,
     Union,
     cast,
 )
@@ -25,34 +25,25 @@ from posthog.models.group import Group
 from posthog.models.person import Person
 
 
-@dataclass
-class EventInfoForRecording:
+class EventInfoForRecording(TypedDict):
     uuid: uuid.UUID
     timestamp: datetime
     window_id: str
 
 
-@dataclass
-class MatchedRecording:
+class MatchedRecording(TypedDict):
     session_id: str
     events: List[EventInfoForRecording]
 
 
-@dataclass
-class CommonAttributes:
+class CommonAttributes(TypedDict):
     id: Union[uuid.UUID, str]
     created_at: Optional[str]
     properties: Dict[str, Any]
-    matched_recordings: Optional[List[MatchedRecording]]
+    matched_recordings: List[MatchedRecording]
     value: Optional[float]
 
-    def __getitem__(self, item):
-        # KLUDGE: We were previously using a TypedDict, which is subscriptable, while dataclasses aren't.
-        # To avoid migrating a bunch of test code from `person["id"]` to `person.id`, we're allowing subscripting.
-        return getattr(self, item)
 
-
-@dataclass
 class SerializedPerson(CommonAttributes):
     type: Literal["person"]
     uuid: Union[uuid.UUID, str]
@@ -61,7 +52,6 @@ class SerializedPerson(CommonAttributes):
     distinct_ids: List[str]
 
 
-@dataclass
 class SerializedGroup(CommonAttributes):
     type: Literal["group"]
     group_key: str
@@ -164,7 +154,7 @@ class ActorBaseQuery:
         serialized_actors = cast(List[SerializedPerson], serialized_actors)
         serialized_actors_with_recordings = []
         for actor in serialized_actors:
-            actor.matched_recordings = matched_recordings_by_actor_id[actor.id]
+            actor["matched_recordings"] = matched_recordings_by_actor_id[actor["id"]]
             serialized_actors_with_recordings.append(actor)
 
         return serialized_actors_with_recordings
@@ -188,7 +178,7 @@ class ActorBaseQuery:
         if self.ACTOR_VALUES_INCLUDED:
             # We fetched actors from Postgres in get_groups/get_people, so `ORDER BY actor_value DESC` no longer holds
             # We need .sort() to restore this order
-            serialized_actors.sort(key=lambda actor: cast(float, actor.value), reverse=True)
+            serialized_actors.sort(key=lambda actor: cast(float, actor["value"]), reverse=True)
 
         return actors, serialized_actors
 
@@ -229,7 +219,7 @@ def serialize_people(data: QuerySet[Person], value_per_actor_id: Optional[Dict[s
             is_identified=person.is_identified,
             name=get_person_name(person),
             distinct_ids=person.distinct_ids,
-            matched_recordings=None,
+            matched_recordings=[],
             value=value_per_actor_id[str(person.uuid)] if value_per_actor_id else None,
         )
         for person in data
@@ -244,8 +234,8 @@ def serialize_groups(data: QuerySet[Group], value_per_actor_id: Optional[Dict[st
             group_type_index=group.group_type_index,
             group_key=group.group_key,
             created_at=group.created_at,
+            matched_recordings=[],
             properties=group.group_properties,
-            matched_recordings=None,
             value=value_per_actor_id[group.group_key] if value_per_actor_id else None,
         )
         for group in data

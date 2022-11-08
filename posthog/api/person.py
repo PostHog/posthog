@@ -1,4 +1,3 @@
-import dataclasses
 import json
 from datetime import datetime
 from typing import (
@@ -431,11 +430,10 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             return response.Response(data=[])
 
         actors, next_url, initial_url, missing_persons = results_package["result"]
-        actor_dicts = [dataclasses.asdict(actor) for actor in actors]  # Prepare actors for JSON serialization
 
         return response.Response(
             data={
-                "results": [{"people": actor_dicts, "count": len(actors)}],
+                "results": [{"people": actors, "count": len(actors)}],
                 "next": next_url,
                 "initial": initial_url,
                 "missing_persons": missing_persons,
