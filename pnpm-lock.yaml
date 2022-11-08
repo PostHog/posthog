@@ -16,7 +16,7 @@ specifiers:
   '@babel/preset-react': ^7.17.10
   '@babel/preset-typescript': ^7.16.7
   '@babel/runtime': ^7.17.9
-  '@cypress/webpack-preprocessor': ^5.12.2
+  '@cypress/webpack-preprocessor': ^5.15.4
   '@floating-ui/react-dom-interactions': ^0.6.6
   '@hot-loader/react-dom': ^16.14.0
   '@lottiefiles/react-lottie-player': ^3.4.7
@@ -82,7 +82,7 @@ specifiers:
   cors: ^2.8.5
   css-loader: ^3.4.2
   cssnano: ^4.1.10
-  cypress: ^10.9.0
+  cypress: ^10.11.0
   cypress-axe: ^1.0.0
   cypress-terminal-report: ^4.1.2
   d3: ^5.15.0
@@ -271,7 +271,7 @@ devDependencies:
   '@babel/preset-env': 7.20.2_@babel+core@7.20.2
   '@babel/preset-react': 7.18.6_@babel+core@7.20.2
   '@babel/preset-typescript': 7.18.6_@babel+core@7.20.2
-  '@cypress/webpack-preprocessor': 5.15.3_5j4ke4o34lz3j3743ikwv5ryvm
+  '@cypress/webpack-preprocessor': 5.15.4_5j4ke4o34lz3j3743ikwv5ryvm
   '@hot-loader/react-dom': 16.14.0_react@16.14.0
   '@sentry/types': 7.17.4
   '@storybook/addon-a11y': 6.5.13_wcqkhtmu7mswc6yz4uyexck3ty
@@ -1912,8 +1912,8 @@ packages:
       uuid: 8.3.2
     dev: true
 
-  /@cypress/webpack-preprocessor/5.15.3_5j4ke4o34lz3j3743ikwv5ryvm:
-    resolution: {integrity: sha512-yFUF1skVRv8blcY9nxrUeYua9MLDci+QInjhBz0Ur9CVlYfk5WBmtHn///BwFDYWnPB0h7gXqWgRoPonJKHO3w==}
+  /@cypress/webpack-preprocessor/5.15.4_5j4ke4o34lz3j3743ikwv5ryvm:
+    resolution: {integrity: sha512-spqrTlso5AC4tGET/bsgpC5aUiyZkPVi+aZnmg0xEvTdD/5QXRe3Tyh8t92en6rcJVzlc4PqLkZqDZEYySYyZQ==}
     peerDependencies:
       '@babel/core': ^7.0.1
       '@babel/preset-env': ^7.0.0
@@ -12865,7 +12865,7 @@ packages:
     engines: {node: '>=10'}
     dependencies:
       bl: 4.1.0
-      chalk: 4.1.1
+      chalk: 4.1.2
       cli-cursor: 3.1.0
       cli-spinners: 2.7.0
       is-interactive: 1.0.0
