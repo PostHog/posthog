@@ -72,7 +72,9 @@ SerializedActor = Union[SerializedGroup, SerializedPerson]
 
 
 class ActorBaseQuery:
-    aggregating_by_groups = False
+    # Whether actor values are included as the second column of the actors query
+    ACTOR_VALUES_INCLUDED = False
+
     entity: Optional[Entity] = None
 
     def __init__(
@@ -130,9 +132,11 @@ class ActorBaseQuery:
         self, serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]], raw_result
     ) -> Union[List[SerializedGroup], List[SerializedPerson]]:
         all_session_ids = set()
+
+        session_events_column_index = 2 if self.ACTOR_VALUES_INCLUDED else 1
         for row in raw_result:
-            if len(row) > 1:
-                for event in row[2]:
+            if len(row) > session_events_column_index - 1:  # Session events are in the last column
+                for event in row[session_events_column_index]:
                     if event[2]:
                         all_session_ids.add(event[2])
 
@@ -141,9 +145,9 @@ class ActorBaseQuery:
         matched_recordings_by_actor_id: Dict[Union[uuid.UUID, str], List[MatchedRecording]] = {}
         for row in raw_result:
             recording_events_by_session_id: Dict[str, List[EventInfoForRecording]] = {}
-            if len(row) > 1:
-                for event in row[2]:
-                    event_session_id = event[2]
+            if len(row) > session_events_column_index - 1:
+                for event in row[session_events_column_index]:
+                    event_session_id = event[session_events_column_index]
                     if event_session_id and event_session_id in session_ids_with_recordings:
                         recording_events_by_session_id.setdefault(event_session_id, []).append(
                             EventInfoForRecording(timestamp=event[0], uuid=event[1], window_id=event[3])
@@ -172,7 +176,7 @@ class ActorBaseQuery:
         serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]]
 
         actor_ids = [row[0] for row in raw_result]
-        value_per_actor_id = {str(row[0]): row[1] for row in raw_result}
+        value_per_actor_id = {str(row[0]): row[1] for row in raw_result} if self.ACTOR_VALUES_INCLUDED else None
 
         if self.is_aggregating_by_groups:
             actors, serialized_actors = get_groups(
@@ -181,9 +185,10 @@ class ActorBaseQuery:
         else:
             actors, serialized_actors = get_people(self._team.pk, actor_ids, value_per_actor_id)
 
-        # We fetched actors from Postgres in get_groups/get_people, so `ORDER BY actor_value DESC` no longer holds
-        # We need .sort() to restore this order
-        serialized_actors.sort(key=lambda actor: cast(float, actor.value), reverse=True)
+        if self.ACTOR_VALUES_INCLUDED:
+            # We fetched actors from Postgres in get_groups/get_people, so `ORDER BY actor_value DESC` no longer holds
+            # We need .sort() to restore this order
+            serialized_actors.sort(key=lambda actor: cast(float, actor.value), reverse=True)
 
         return actors, serialized_actors
 

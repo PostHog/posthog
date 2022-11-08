@@ -34,6 +34,8 @@ def _handle_date_interval(filter: Filter) -> Filter:
 
 
 class TrendsActors(ActorBaseQuery):
+    ACTOR_VALUES_INCLUDED = True
+
     entity: Entity
     _filter: Filter
 
