@@ -1,4 +1,4 @@
-import { PlatformType } from 'scenes/ingestion/types'
+import { PlatformType } from 'scenes/ingestion/v2/types'
 import { Segment } from './panels/ThirdPartyIcons'
 
 export const TECHNICAL = 'TECHNICAL'
