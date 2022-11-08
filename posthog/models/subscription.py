@@ -192,7 +192,7 @@ def subscription_saved(sender, instance, created, raw, using, **kwargs):
 
 
 def to_rrule_weekdays(weekday: Subscription.SubscriptionByWeekDay):
-    return set([RRULE_WEEKDAY_MAP.get(x) for x in weekday])
+    return {RRULE_WEEKDAY_MAP.get(x) for x in weekday}
 
 
 def get_unsubscribe_token(subscription: Subscription, email: str) -> str:
