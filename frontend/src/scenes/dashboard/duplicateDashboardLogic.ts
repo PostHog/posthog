@@ -88,5 +88,8 @@ export const duplicateDashboardLogic = kea<duplicateDashboardLogicType>([
             actions.setDuplicateDashboardValue('show', true)
             actions.submitDuplicateDashboard()
         },
+        showDuplicateDashboardModal: ({ id, name }) => {
+            actions.setDuplicateDashboardValues({ dashboardId: id, dashboardName: name })
+        },
     })),
 ])
