@@ -70,6 +70,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             })
                 .toDispatchActions(['setFilters'])
                 .toMatchValues({ filters: expect.objectContaining(newFilter), hasChanges: true })
+                .toFinishAllListeners()
 
             await expectLogic(logic, () => {
                 logic.actions.saveChanges()
