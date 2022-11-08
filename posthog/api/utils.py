@@ -8,6 +8,7 @@ from uuid import UUID
 import structlog
 from django.db.models import QuerySet
 from rest_framework import request, status
+from rest_framework.exceptions import ValidationError
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
@@ -31,7 +32,7 @@ class PaginationMode(Enum):
 
 def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
     if not filter.target_entity_id:
-        raise ValueError("An entity id and the entity type must be provided to determine an entity")
+        raise ValidationError("An entity id and the entity type must be provided to determine an entity")
 
     entity_math = filter.target_entity_math or "total"  # make math explicit
     possible_entity = entity_from_order(filter.target_entity_order, filter.entities)
@@ -47,7 +48,7 @@ def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
     elif filter.target_entity_type:
         return Entity({"id": filter.target_entity_id, "type": filter.target_entity_type, "math": entity_math})
     else:
-        raise ValueError("An entity must be provided for target entity to be determined")
+        raise ValidationError("An entity must be provided for target entity to be determined")
 
 
 def entity_from_order(order: Optional[str], entities: List[Entity]) -> Optional[Entity]:

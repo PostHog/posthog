@@ -817,7 +817,7 @@ export interface BillingProductV2Type {
     description: string
     price_description: string
     image_url?: string
-    free_allocation: number
+    free_allocation?: number
     tiers: {
         unit_amount_usd: string
         current_amount_usd?: string | null
@@ -2189,6 +2189,7 @@ export interface SessionRecordingPlayerProps {
     includeMeta?: boolean
     recordingStartTime?: string
     matching?: MatchedRecording[]
+    isDetail?: boolean
 }
 
 export enum FeatureFlagReleaseType {

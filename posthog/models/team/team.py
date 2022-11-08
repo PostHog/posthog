@@ -241,3 +241,12 @@ class Team(UUIDClassicModel):
         return str(self.pk)
 
     __repr__ = sane_repr("uuid", "name", "api_token")
+
+
+def groups_on_events_querying_enabled():
+    """
+    Returns whether to allow querying groups columns on events.
+
+    Remove all usages of this when the feature is released to everyone.
+    """
+    return person_on_events_ready() and get_instance_setting("GROUPS_ON_EVENTS_ENABLED")

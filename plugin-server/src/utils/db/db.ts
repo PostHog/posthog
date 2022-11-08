@@ -137,6 +137,7 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'no more connections allowed',
     'server closed the connection unexpectedly',
     'getaddrinfo EAI_AGAIN',
+    'Connection terminated unexpectedly',
 ]
 
 /** The recommended way of accessing the database. */
@@ -1713,7 +1714,7 @@ export class DB {
         if (options?.cache) {
             await this.updateGroupCache(teamId, groupTypeIndex, groupKey, {
                 properties: groupProperties,
-                created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse) as ClickHouseTimestamp,
+                created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse),
             })
         }
     }
@@ -1755,7 +1756,7 @@ export class DB {
 
         await this.updateGroupCache(teamId, groupTypeIndex, groupKey, {
             properties: groupProperties,
-            created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse) as ClickHouseTimestamp,
+            created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse),
         })
     }
 

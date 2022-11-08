@@ -48,6 +48,8 @@ export const urls = {
     webPerformanceWaterfall: (id: string): string => `/web-performance/${id}/waterfall`,
     sessionRecordings: (filters?: Partial<FilterType>): string =>
         combineUrl('/recordings', filters ? { filters } : {}).url,
+    sessionRecording: (id: string, filters?: Partial<FilterType>): string =>
+        combineUrl(`/recordings/${id}`, filters ? { filters } : {}).url,
     person: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     persons: (): string => '/persons',

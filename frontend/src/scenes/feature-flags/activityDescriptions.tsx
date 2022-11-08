@@ -225,12 +225,15 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
                 continue // feature flag updates have to have a "field" to be described
             }
 
-            const { description, suffix } = featureFlagActionsMapping[change.field](change, logItem)
-            if (description) {
-                changes = changes.concat(description)
-            }
-            if (suffix) {
-                changeSuffix = suffix
+            const possibleLogItem = featureFlagActionsMapping[change.field](change, logItem)
+            if (possibleLogItem) {
+                const { description, suffix } = possibleLogItem
+                if (description) {
+                    changes = changes.concat(description)
+                }
+                if (suffix) {
+                    changeSuffix = suffix
+                }
             }
         }
 

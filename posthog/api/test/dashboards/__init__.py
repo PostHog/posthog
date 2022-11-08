@@ -76,7 +76,7 @@ class DashboardAPI:
             f"/api/projects/{team_id}/insights",
             data=data,
         )
-        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(response.status_code, expected_status, response.json())
 
         response_json = response.json()
         return response_json.get("id", None), response_json
