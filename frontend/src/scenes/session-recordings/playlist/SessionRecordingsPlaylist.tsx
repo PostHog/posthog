@@ -10,7 +10,7 @@ import {
 import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft, IconChevronRight, IconFilter, IconWithCount } from 'lib/components/icons'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import clsx from 'clsx'
@@ -20,7 +20,6 @@ import { SessionRecordingPlaylistItem } from 'scenes/session-recordings/playlist
 import { SceneExport } from 'scenes/sceneTypes'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
-import { More } from 'lib/components/LemonButton/More'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
@@ -68,62 +67,8 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                 buttons={
                     <div className="flex justify-between items-center gap-2">
                         <>
-                            <More
-                                overlay={
-                                    <>
-                                        <LemonButton
-                                            status="stealth"
-                                            // onClick={() => duplicateInsight(insight as InsightModel, true)}
-                                            fullWidth
-                                            data-attr="duplicate-playlist"
-                                        >
-                                            Duplicate
-                                        </LemonButton>
-                                        <LemonButton
-                                            status="stealth"
-                                            // onClick={() =>
-                                            //     setInsightMetadata({
-                                            //         favorited: !insight.favorited,
-                                            //     })
-                                            // }
-                                            fullWidth
-                                        >
-                                            {playlist.pinned ? 'Unpin playlist' : 'Pin playlist'}
-                                        </LemonButton>
-                                        <LemonDivider />
-
-                                        <LemonButton
-                                            status="danger"
-                                            // onClick={() =>
-                                            //     deleteWithUndo({
-                                            //         object: insight,
-                                            //         endpoint: `projects/${currentTeamId}/insights`,
-                                            //         callback: () => {
-                                            //             loadInsights()
-                                            //             push(urls.savedInsights())
-                                            //         },
-                                            //     })
-                                            // }
-                                            fullWidth
-                                        >
-                                            Delete playlist
-                                        </LemonButton>
-                                    </>
-                                }
-                            />
-                            <LemonDivider vertical />
                             <LemonButton
                                 type="primary"
-                                // onClick={() =>
-                                //     deleteWithUndo({
-                                //         object: insight,
-                                //         endpoint: `projects/${currentTeamId}/insights`,
-                                //         callback: () => {
-                                //             loadInsights()
-                                //             push(urls.savedInsights())
-                                //         },
-                                //     })
-                                // }
                                 disabled={!hasChanges}
                                 loading={hasChanges && playlistLoading}
                                 onClick={saveChanges}

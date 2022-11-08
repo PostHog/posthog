@@ -339,6 +339,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             }
         }
         return {
+            [urls.sessionRecordings()]: urlToAction,
             [urls.sessionRecordings(SessionRecordingsTabs.Recent)]: urlToAction,
             [urls.person('*')]: urlToAction,
         }

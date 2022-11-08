@@ -23,17 +23,6 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
 
     const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
         {
-            width: 0,
-            dataIndex: 'pinned',
-            render: function Render(pinned, {}) {
-                return pinned ? (
-                    <PushpinFilled onClick={() => alert('Clicked!')} style={{ cursor: 'pointer' }} />
-                ) : (
-                    <PushpinOutlined onClick={() => alert('Clicked!')} style={{ cursor: 'pointer' }} />
-                )
-            },
-        },
-        {
             title: 'Name',
             dataIndex: 'name',
             render: function Render(name, { short_id, description }) {
