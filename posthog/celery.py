@@ -635,7 +635,7 @@ def schedule_all_subscriptions():
         _schedule_all_subscriptions()
 
 
-@app.task(ignore_result=True)
+@app.task(ignore_result=True, retries=3)
 def clickhouse_send_license_usage():
     try:
         if not is_cloud():

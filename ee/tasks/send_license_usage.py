@@ -55,6 +55,7 @@ def send_license_usage():
                 },
                 groups={"organization": str(user.current_organization.id), "instance": SITE_URL},  # type: ignore
             )
+            response.raise_for_status()
             return
         else:
             posthoganalytics.capture(
@@ -69,13 +70,17 @@ def send_license_usage():
                 groups={"organization": str(user.current_organization.id), "instance": SITE_URL},  # type: ignore
             )
     except Exception as err:
-        posthoganalytics.capture(
-            user.distinct_id,  # type: ignore
-            "send license usage data error",
-            {
-                "error": str(err),
-                "date": date_from.strftime("%Y-%m-%d"),
-                "organization_name": user.current_organization.name,  # type: ignore
-            },
-            groups={"organization": str(user.current_organization.id), "instance": SITE_URL},  # type: ignore
-        )
+        try:
+            posthoganalytics.capture(
+                user.distinct_id,  # type: ignore
+                "send license usage data error",
+                {
+                    "error": str(err),
+                    "date": date_from.strftime("%Y-%m-%d"),
+                    "organization_name": user.current_organization.name,  # type: ignore
+                },
+                groups={"organization": str(user.current_organization.id), "instance": SITE_URL},  # type: ignore
+            )
+            raise err
+        except:
+            raise err
