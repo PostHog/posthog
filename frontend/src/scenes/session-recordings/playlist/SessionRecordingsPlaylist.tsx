@@ -26,10 +26,8 @@ import { SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { DurationFilter } from '../filters/DurationFilter'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
-import { sessionRecordingPlayerLogic } from '../player/sessionRecordingPlayerLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { NotFound } from 'lib/components/NotFound'
-import { summarizeInsightFilters } from 'scenes/insights/utils'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 
 interface SessionRecordingsTableProps {

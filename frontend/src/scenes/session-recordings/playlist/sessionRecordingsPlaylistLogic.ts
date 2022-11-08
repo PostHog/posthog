@@ -1,4 +1,4 @@
-import { afterMount, kea, key, path, props } from 'kea'
+import { actions, afterMount, kea, key, path, props } from 'kea'
 import { SessionRecordingPlaylistType } from '~/types'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -13,7 +13,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsPlaylistLogic', key]),
     props({} as SessionRecordingsPlaylistLogicProps),
     key((props) => props.shortId),
-    loaders(({ props, values, actions }) => ({
+    actions({
+        loadPlaylist: true,
+    }),
+    loaders(({ props }) => ({
         playlist: [
             null as SessionRecordingPlaylistType | null,
             {
@@ -22,7 +25,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return api.recordings.getPlaylist(props.shortId)
                 },
 
-                updatePlaylist: async (playlist: SessionRecordingPlaylistType, breakpoint) => {
+                updatePlaylist: async (playlist: Partial<SessionRecordingPlaylistType>, breakpoint) => {
                     breakpoint(100)
                     return api.recordings.updatePlaylist(props.shortId, playlist)
                 },
@@ -30,7 +33,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     })),
 
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions }) => {
         actions.loadPlaylist()
     }),
 ])

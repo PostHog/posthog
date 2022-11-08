@@ -58,7 +58,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
     ]
 
     return (
-        <div>
+        <div className="space-y-4">
             <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
                 <LemonInput
                     type="search"
@@ -106,7 +106,6 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     ) : null}
                 </div>
             </div>
-            <LemonDivider />
 
             <LemonTable
                 loading={playlistsLoading}

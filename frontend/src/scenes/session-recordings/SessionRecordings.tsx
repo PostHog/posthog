@@ -45,6 +45,7 @@ export function SessionsRecordings(): JSX.Element {
                                     type="primary"
                                     onClick={() => saveNewPlaylist({ filters: filterQueryParams })}
                                     disabled={newPlaylistLoading}
+                                    data-attr="save-recordings-playlist-button"
                                 >
                                     Save as playlist
                                 </LemonButton>
@@ -54,17 +55,19 @@ export function SessionsRecordings(): JSX.Element {
                 }
             />
             {showRecordingPlaylists && (
-                <Tabs
-                    activeKey={tab}
-                    style={{ borderColor: '#D9D9D9' }}
-                    onChange={(t) => router.actions.push(urls.sessionRecordings(t as SessionRecordingsTabs))}
-                >
-                    <Tabs.TabPane tab="Recent" key={SessionRecordingsTabs.Recent} />
-                    <Tabs.TabPane tab="Saved Playlists" key={SessionRecordingsTabs.All} />
-                    <Tabs.TabPane tab="Your Playlists" key={SessionRecordingsTabs.Yours} />
-                    <Tabs.TabPane tab="Pinned" key={SessionRecordingsTabs.Pinned} />
-                    <Tabs.TabPane tab="History" key={SessionRecordingsTabs.History} />
-                </Tabs>
+                <>
+                    <Tabs
+                        activeKey={tab}
+                        style={{ borderColor: '#D9D9D9' }}
+                        onChange={(t) => router.actions.push(urls.sessionRecordings(t as SessionRecordingsTabs))}
+                    >
+                        <Tabs.TabPane tab="Recent" key={SessionRecordingsTabs.Recent} />
+                        <Tabs.TabPane tab="Saved Playlists" key={SessionRecordingsTabs.All} />
+                        <Tabs.TabPane tab="Your Playlists" key={SessionRecordingsTabs.Yours} />
+                        <Tabs.TabPane tab="Pinned" key={SessionRecordingsTabs.Pinned} />
+                        <Tabs.TabPane tab="History" key={SessionRecordingsTabs.History} />
+                    </Tabs>
+                </>
             )}
             {currentTeam && !currentTeam?.session_recording_opt_in ? (
                 <div className="mb-4">
