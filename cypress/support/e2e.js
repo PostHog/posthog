@@ -36,12 +36,16 @@ beforeEach(() => {
         })
         cy.visit('/?no-preloaded-app-context=true')
     } else {
+        cy.intercept('GET', /\/api\/projects\/\d+\/insights\/?\?/).as('getInsights')
+
         cy.request('POST', '/api/login/', {
             email: 'test@posthog.com',
             password: '12345678',
         })
         cy.visit('/insights')
-        cy.get('.saved-insights').should('exist')
+        cy.wait('@getInsights').then(() => {
+            cy.get('.saved-insights tr').should('exist')
+        })
     }
 })
 
