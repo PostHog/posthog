@@ -1,12 +1,14 @@
-import { actions, kea, reducers, path, selectors, key, props, afterMount, listeners } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
-import { toParams } from 'lib/utils'
-import { SessionRecordingsTabs, SessionRecordingPlaylistType } from '~/types'
+import { objectClean, objectsEqual, toParams } from 'lib/utils'
+import { SessionRecordingPlaylistType, SessionRecordingsTabs } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import type { savedSessionRecordingPlaylistsLogicType } from './savedSessionRecordingPlaylistsLogicType'
 import { Sorting } from 'lib/components/LemonTable'
 import { PaginationManual } from 'lib/components/PaginationControl'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export const PLAYLISTS_PER_PAGE = 30
 
@@ -30,6 +32,11 @@ export interface SavedSessionRecordingPlaylistsLogicProps {
     tab: SessionRecordingsTabs
 }
 
+export const DEFAULT_PLAYLIST_FILTERS = {
+    createdBy: 'All users',
+    page: 1,
+}
+
 export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlaylistsLogicType>([
     path(['scenes', 'session-recordings', 'saved-playlists', 'savedSessionRecordingPlaylistsLogic']),
     props({} as SavedSessionRecordingPlaylistsLogicProps),
@@ -42,17 +49,15 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
     })),
     reducers(({}) => ({
         filters: [
+            DEFAULT_PLAYLIST_FILTERS as SavedSessionRecordingPlaylistsFilters | Record<string, any>,
             {
-                createdBy: 'All users',
-                page: 1,
-            } as SavedSessionRecordingPlaylistsFilters | Record<string, any>,
-            {
-                setSavedPlaylistsFilters: (state, { filters }) => ({
-                    ...(state || {}),
-                    ...filters,
-                    // Reset page on filter change EXCEPT if it's page that's being updated
-                    ...('page' in filters ? {} : { page: 1 }),
-                }),
+                setSavedPlaylistsFilters: (state, { filters }) =>
+                    objectClean({
+                        ...(state || {}),
+                        ...filters,
+                        // Reset page on filter change EXCEPT if it's page that's being updated
+                        ...('page' in filters ? {} : { page: 1 }),
+                    }),
             },
         ],
     })),
@@ -64,17 +69,17 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                     await breakpoint(300)
                 }
 
-                const filters = values.filters
+                const filters = { ...values.filters }
                 const createdBy = filters.createdBy === 'All users' ? undefined : filters.createdBy
 
                 const params = {
                     limit: PLAYLISTS_PER_PAGE,
                     offset: Math.max(0, (filters.page - 1) * PLAYLISTS_PER_PAGE),
-                    order: filters.order || '-last_modified_at', // Sync with `sorting` selector
-                    created_by: createdBy || undefined,
-                    search: filters.search || undefined,
-                    date_from: filters.dateFrom || 'all',
-                    date_to: filters.dateTo || undefined,
+                    order: filters.order ?? '-last_modified_at', // Sync with `sorting` selector
+                    created_by: createdBy ?? undefined,
+                    search: filters.search ?? undefined,
+                    date_from: filters.dateFrom ?? 'all',
+                    date_to: filters.dateTo ?? undefined,
                     pinned: filters.pinned ? true : undefined,
                 }
 
@@ -85,7 +90,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         },
     })),
     listeners(({ actions }) => ({
-        setSavedPlaylistsFilters: async () => {
+        setSavedPlaylistsFilters: () => {
             actions.loadPlaylists()
         },
     })),
@@ -136,8 +141,40 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             },
         ],
     })),
-
-    afterMount(async ({ actions }) => {
+    actionToUrl(({ values }) => {
+        const changeUrl = ():
+            | [
+                  string,
+                  Record<string, any>,
+                  Record<string, any>,
+                  {
+                      replace: boolean
+                  }
+              ]
+            | void => {
+            if (router.values.location.pathname === urls.sessionRecordings(SessionRecordingsTabs.Playlists)) {
+                const nextValues = values.filters
+                const urlValues = objectClean(router.values.searchParams)
+                if (!objectsEqual(nextValues, urlValues)) {
+                    return [urls.sessionRecordings(SessionRecordingsTabs.Playlists), nextValues, {}, { replace: false }]
+                }
+            }
+        }
+        return {
+            loadPlaylists: changeUrl,
+            setSavedPlaylistsFilters: changeUrl,
+        }
+    }),
+    urlToAction(({ actions, values }) => ({
+        [urls.sessionRecordings(SessionRecordingsTabs.Playlists)]: async (_, searchParams) => {
+            const currentFilters = values.filters
+            const nextFilters = objectClean(searchParams)
+            if (!objectsEqual(currentFilters, nextFilters)) {
+                actions.setSavedPlaylistsFilters(nextFilters)
+            }
+        },
+    })),
+    afterMount(({ actions }) => {
         actions.loadPlaylists()
     }),
 ])

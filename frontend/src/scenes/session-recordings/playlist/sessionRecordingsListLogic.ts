@@ -8,6 +8,7 @@ import {
     SessionRecordingId,
     SessionRecordingPropertiesType,
     SessionRecordingsResponse,
+    SessionRecordingsTabs,
     SessionRecordingType,
 } from '~/types'
 import type { sessionRecordingsListLogicType } from './sessionRecordingsListLogicType'
@@ -17,6 +18,7 @@ import equal from 'fast-deep-equal'
 import { teamLogic } from '../../teamLogic'
 import { dayjs } from 'lib/dayjs'
 import { loaders } from 'kea-loaders'
+import { urls } from 'scenes/urls'
 
 export type PersonUUID = string
 interface Params {
@@ -337,9 +339,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             }
         }
         return {
-            '/recordings': urlToAction,
-            '/recordings/*': urlToAction,
-            '/person/*': urlToAction,
+            [urls.sessionRecordings(SessionRecordingsTabs.Recent)]: urlToAction,
+            [urls.person('*')]: urlToAction,
         }
     }),
 ])

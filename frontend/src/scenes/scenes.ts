@@ -1,4 +1,4 @@
-import { Params, Scene, SceneConfig, LoadedScene } from 'scenes/sceneTypes'
+import { LoadedScene, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
@@ -83,6 +83,14 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         name: 'Web Performance',
     },
     [Scene.SessionRecordings]: {
+        projectBased: true,
+        name: 'Recordings',
+    },
+    [Scene.SessionRecordingPlaylists]: {
+        projectBased: true,
+        name: 'Recordings',
+    },
+    [Scene.SessionRecordingsHistory]: {
         projectBased: true,
         name: 'Recordings',
     },

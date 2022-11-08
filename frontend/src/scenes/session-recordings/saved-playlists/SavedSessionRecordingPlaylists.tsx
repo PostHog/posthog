@@ -12,7 +12,7 @@ import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { TZLabel } from '@posthog/apps-common'
 
 export type SavedSessionRecordingPlaylistsProps = {
-    tab: SessionRecordingsTabs.All
+    tab: SessionRecordingsTabs.Playlists
 }
 
 export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPlaylistsProps): JSX.Element {

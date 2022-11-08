@@ -12,7 +12,9 @@ import { capitalizeFirstLetter } from 'lib/utils'
 
 export const humanFriendlyTabName = (tab: SessionRecordingsTabs): string => {
     switch (tab) {
-        case SessionRecordingsTabs.All:
+        case SessionRecordingsTabs.Recent:
+            return 'Recent Recordings'
+        case SessionRecordingsTabs.Playlists:
             return 'Saved Playlists'
         default:
             return capitalizeFirstLetter(tab)
@@ -55,7 +57,7 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
     })),
     actionToUrl(({ values }) => {
         return {
-            setTab: () => urls.sessionRecordings(values.tab),
+            setTab: () => [urls.sessionRecordings(values.tab), router.values.searchParams],
         }
     }),
 
@@ -72,7 +74,7 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
 
     urlToAction(({ actions, values }) => {
         return {
-            '/recordings': () => {
+            [urls.sessionRecordings()]: () => {
                 if (!values.featureFlags[FEATURE_FLAGS.RECORDING_PLAYLISTS]) {
                     return
                 }

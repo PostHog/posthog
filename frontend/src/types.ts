@@ -385,8 +385,7 @@ export enum SavedInsightsTabs {
 
 export enum SessionRecordingsTabs {
     Recent = 'recent',
-    All = 'all',
-    History = 'history',
+    Playlists = 'playlists',
 }
 
 export enum ExperimentsTabs {
@@ -776,7 +775,6 @@ export interface SessionRecordingPlaylistType {
     description?: string
     pinned?: boolean
     deleted: boolean
-    saved: boolean
     created_at: string
     created_by: UserBasicType | null
     last_modified_at: string

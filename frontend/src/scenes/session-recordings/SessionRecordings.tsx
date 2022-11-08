@@ -13,10 +13,10 @@ import { Tabs } from 'antd'
 import { SessionRecordingsTabs } from '~/types'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { Tooltip } from 'lib/components/Tooltip'
-import { router } from 'kea-router'
 import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecordingsLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { IconPlus } from 'lib/components/icons'
+import { router } from 'kea-router'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -58,6 +58,7 @@ export function SessionsRecordings(): JSX.Element {
                 <>
                     <Tabs
                         activeKey={tab}
+                        animated={false}
                         style={{ borderColor: '#D9D9D9' }}
                         onChange={(t) => router.actions.push(urls.sessionRecordings(t as SessionRecordingsTabs))}
                     >
@@ -80,10 +81,8 @@ export function SessionsRecordings(): JSX.Element {
                     <Spinner />
                 ) : tab === SessionRecordingsTabs.Recent ? (
                     recentRecordings
-                ) : tab === SessionRecordingsTabs.History ? (
-                    <p>WIP</p>
                 ) : (
-                    <SavedSessionRecordingPlaylists tab={tab} />
+                    <SavedSessionRecordingPlaylists tab={SessionRecordingsTabs.Playlists} />
                 )
             ) : (
                 recentRecordings

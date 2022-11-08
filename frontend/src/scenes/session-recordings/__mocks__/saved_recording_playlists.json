@@ -1,0 +1,164 @@
+{
+    "count": 3,
+    "next": null,
+    "previous": null,
+    "results": [
+        {
+            "id": 1,
+            "short_id": "XaP8QtLj",
+            "name": "Pinned playlist",
+            "derived_name": null,
+            "description": "",
+            "pinned": true,
+            "created_at": "2022-11-08T15:28:39.164286Z",
+            "created_by": {
+                "id": 1,
+                "uuid": "018452f5-1354-0000-5a39-a69a57a4a6cc",
+                "distinct_id": "pWQpjqHM1CEV4lgHf0N1QSTT5lYMsZ9xRcMYFDey2Ej",
+                "first_name": "Alex",
+                "email": "alex@posthog.com"
+            },
+            "deleted": false,
+            "filters": {
+                "events": [
+                    {
+                        "id": "$autocapture",
+                        "name": "$autocapture",
+                        "type": "events",
+                        "order": 0
+                    },
+                    {
+                        "id": "$feature_flag_called",
+                        "name": "$feature_flag_called",
+                        "type": "events",
+                        "order": 1
+                    }
+                ],
+                "actions": [],
+                "date_from": "2022-10-18",
+                "new_entity": [
+                    {
+                        "id": "empty",
+                        "name": "empty",
+                        "type": "new_entity",
+                        "order": 2
+                    },
+                    {
+                        "id": "empty",
+                        "name": "empty",
+                        "type": "new_entity",
+                        "order": 3
+                    }
+                ],
+                "properties": [],
+                "session_recording_duration": {
+                    "key": "duration",
+                    "type": "recording",
+                    "value": 60,
+                    "operator": "gt"
+                }
+            },
+            "last_modified_at": "2022-11-08T19:06:24.955672Z",
+            "last_modified_by": {
+                "id": 1,
+                "uuid": "018452f5-1354-0000-5a39-a69a57a4a6cc",
+                "distinct_id": "pWQpjqHM1CEV4lgHf0N1QSTT5lYMsZ9xRcMYFDey2Ej",
+                "first_name": "Alex",
+                "email": "alex@posthog.com"
+            }
+        },
+        {
+            "id": 2,
+            "short_id": "ehLN9qnm",
+            "name": "Nightly",
+            "derived_name": null,
+            "description": "",
+            "pinned": false,
+            "created_at": "2022-11-08T19:02:38.987453Z",
+            "created_by": {
+                "id": 1,
+                "uuid": "018452f5-1354-0000-5a39-a69a57a4a6cc",
+                "distinct_id": "pWQpjqHM1CEV4lgHf0N1QSTT5lYMsZ9xRcMYFDey2Ej",
+                "first_name": "Alex",
+                "email": "alex@posthog.com"
+            },
+            "deleted": false,
+            "filters": {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 0
+                    },
+                    {
+                        "id": "$groupidentify",
+                        "name": "$groupidentify",
+                        "type": "events",
+                        "order": 1
+                    },
+                    {
+                        "id": "$pageleave",
+                        "name": "$pageleave",
+                        "type": "events",
+                        "order": 2
+                    }
+                ],
+                "actions": [],
+                "date_from": "2022-10-18",
+                "properties": [],
+                "session_recording_duration": {
+                    "key": "duration",
+                    "type": "recording",
+                    "value": 60,
+                    "operator": "gt"
+                }
+            },
+            "last_modified_at": "2022-11-08T19:06:20.491772Z",
+            "last_modified_by": {
+                "id": 1,
+                "uuid": "018452f5-1354-0000-5a39-a69a57a4a6cc",
+                "distinct_id": "pWQpjqHM1CEV4lgHf0N1QSTT5lYMsZ9xRcMYFDey2Ej",
+                "first_name": "Alex",
+                "email": "alex@posthog.com"
+            }
+        },
+        {
+            "id": 3,
+            "short_id": "E3RrVWuc",
+            "name": "Test playlist",
+            "derived_name": null,
+            "description": "",
+            "pinned": false,
+            "created_at": "2022-11-08T19:04:31.457885Z",
+            "created_by": {
+                "id": 1,
+                "uuid": "018452f5-1354-0000-5a39-a69a57a4a6cc",
+                "distinct_id": "pWQpjqHM1CEV4lgHf0N1QSTT5lYMsZ9xRcMYFDey2Ej",
+                "first_name": "Alex",
+                "email": "alex@posthog.com"
+            },
+            "deleted": false,
+            "filters": {
+                "events": [],
+                "actions": [],
+                "date_from": "2022-10-18",
+                "properties": [],
+                "session_recording_duration": {
+                    "key": "duration",
+                    "type": "recording",
+                    "value": 60,
+                    "operator": "gt"
+                }
+            },
+            "last_modified_at": "2022-11-08T19:06:14.113112Z",
+            "last_modified_by": {
+                "id": 1,
+                "uuid": "018452f5-1354-0000-5a39-a69a57a4a6cc",
+                "distinct_id": "pWQpjqHM1CEV4lgHf0N1QSTT5lYMsZ9xRcMYFDey2Ej",
+                "first_name": "Alex",
+                "email": "alex@posthog.com"
+            }
+        }
+    ]
+}
