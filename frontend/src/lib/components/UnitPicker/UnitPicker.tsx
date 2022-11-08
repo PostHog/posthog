@@ -1,8 +1,4 @@
-import {
-    AggregationAxisFormat,
-    aggregationAxisFormatSelectOptions,
-    axisLabel,
-} from 'scenes/insights/aggregationAxisFormat'
+import { AggregationAxisFormat, INSIGHT_UNIT_OPTIONS, axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { useMemo, useRef, useState } from 'react'
@@ -17,7 +13,7 @@ interface UnitPickerProps {
     setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode | undefined) => void
 }
 
-const aggregationDisplayMap = aggregationAxisFormatSelectOptions.reduce((acc, option) => {
+const aggregationDisplayMap = INSIGHT_UNIT_OPTIONS.reduce((acc, option) => {
     acc[option.value] = option.label
     return acc
 }, {})
@@ -108,7 +104,7 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
                     visible: isVisible,
                     overlay: (
                         <>
-                            {aggregationAxisFormatSelectOptions.map(({ value, label }, index) => (
+                            {INSIGHT_UNIT_OPTIONS.map(({ value, label }, index) => (
                                 <LemonButton
                                     key={index}
                                     onClick={() => handleChange({ format: value })}

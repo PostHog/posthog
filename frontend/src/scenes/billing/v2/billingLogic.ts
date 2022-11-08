@@ -11,6 +11,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from '@posthog/lemon-ui'
 import { projectUsage } from './billing-utils'
 import posthog from 'posthog-js'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 
@@ -43,7 +44,7 @@ export const billingLogic = kea<billingLogicType>([
         reportBillingV2Shown: true,
     }),
     connect({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
     }),
     reducers({
         showLicenseDirectInput: [
@@ -89,9 +90,9 @@ export const billingLogic = kea<billingLogicType>([
         ],
 
         billingAlert: [
-            (s) => [s.billing],
-            (billing): BillingAlertConfig | undefined => {
-                if (!billing) {
+            (s) => [s.billing, s.preflight],
+            (billing, preflight): BillingAlertConfig | undefined => {
+                if (!billing || !preflight?.cloud) {
                     return
                 }
                 const productOverLimit = billing.products.find((x) => {

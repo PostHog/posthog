@@ -26,6 +26,8 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { LemonInput } from '@posthog/lemon-ui'
+import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
+import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -34,13 +36,14 @@ export const scene: SceneExport = {
 
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { deleteDashboard, unpinDashboard, pinDashboard, duplicateDashboard } = useActions(dashboardsModel)
+    const { unpinDashboard, pinDashboard, duplicateDashboard } = useActions(dashboardsModel)
     const { setSearchTerm, setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, searchTerm, currentTab } = useValues(dashboardsLogic)
     const { showNewDashboardModal, addDashboard } = useActions(newDashboardLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { closePrompts } = useActions(inAppPromptLogic)
+    const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -169,7 +172,9 @@ export function Dashboards(): JSX.Element {
                                 </LemonRow>
                                 <LemonDivider />
                                 <LemonButton
-                                    onClick={() => deleteDashboard({ id, redirect: false })}
+                                    onClick={() => {
+                                        showDeleteDashboardModal(id)
+                                    }}
                                     fullWidth
                                     status="danger"
                                 >
@@ -186,6 +191,7 @@ export function Dashboards(): JSX.Element {
     return (
         <div>
             <NewDashboardModal />
+            <DeleteDashboardModal />
             <PageHeader
                 title="Dashboards"
                 buttons={

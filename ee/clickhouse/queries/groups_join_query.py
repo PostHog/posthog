@@ -5,6 +5,7 @@ from posthog.models import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.team.team import groups_on_events_querying_enabled
 
 
 class GroupsJoinQuery:
@@ -33,7 +34,7 @@ class GroupsJoinQuery:
     def get_join_query(self) -> Tuple[str, Dict]:
         join_queries, params = [], {}
 
-        if self._using_person_on_events:
+        if self._using_person_on_events and groups_on_events_querying_enabled():
             return "", {}
 
         for group_type_index in self._column_optimizer.group_types_to_query:

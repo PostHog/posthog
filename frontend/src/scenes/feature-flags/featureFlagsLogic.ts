@@ -11,6 +11,7 @@ import { LemonSelectOption } from 'lib/components/LemonSelect'
 export enum FeatureFlagsTabs {
     OVERVIEW = 'overview',
     HISTORY = 'history',
+    EXPOSURE = 'exposure',
 }
 
 export interface FeatureFlagsFilters {
