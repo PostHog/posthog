@@ -26,7 +26,10 @@ export const duplicateDashboardLogic = kea<duplicateDashboardLogicType>([
     path(['scenes', 'dashboard', 'duplicateDashboardLogic']),
     connect(dashboardsModel),
     actions({
-        showDuplicateDashboardModal: true,
+        showDuplicateDashboardModal: (id: number, name: string) => ({
+            id,
+            name,
+        }),
         hideDuplicateDashboardModal: true,
         duplicateAndGoToDashboard: true,
     }),
@@ -51,9 +54,6 @@ export const duplicateDashboardLogic = kea<duplicateDashboardLogicType>([
                         show,
                         duplicateTiles,
                     })
-                    if (duplicateTiles) {
-                        insightsModel.actions.insightsDuplicatedWithDashboard()
-                    }
                 }
             },
         },
@@ -64,7 +64,6 @@ export const duplicateDashboardLogic = kea<duplicateDashboardLogicType>([
         },
         [dashboardsModel.actionTypes.duplicateDashboardSuccess]: ({ dashboard, payload }) => {
             actions.hideDuplicateDashboardModal()
-            actions.resetDuplicateDashboard()
 
             if (!payload?.duplicateTiles) {
                 // any existing mounted insight will need to increment its dashboard count to update turbo mode
@@ -80,7 +79,9 @@ export const duplicateDashboardLogic = kea<duplicateDashboardLogicType>([
             if (payload?.show) {
                 router.actions.push(urls.dashboard(dashboard.id))
             } else {
-                router.actions.push(urls.dashboards())
+                if (router.values.currentLocation.pathname !== urls.dashboards()) {
+                    router.actions.push(urls.dashboards())
+                }
             }
         },
         duplicateAndGoToDashboard: () => {

@@ -27,6 +27,8 @@ import { isLemonSelectSection } from 'lib/components/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
+import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
+import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 
@@ -44,14 +46,14 @@ export function DashboardHeader(): JSX.Element | null {
     } = useValues(dashboardLogic)
     const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
-    const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
+    const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
 
     const { hasAvailableFeature } = useValues(userLogic)
 
-    const { showDuplicateDashboardModal, setDuplicateDashboardValue } = useActions(duplicateDashboardLogic)
+    const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
+    const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
     const { push } = useActions(router)
-
     const { featureFlags } = useValues(featureFlagLogic)
     const showTextCards = featureFlags[FEATURE_FLAGS.TEXT_CARDS]
 
@@ -81,6 +83,7 @@ export function DashboardHeader(): JSX.Element | null {
                             textTileId={textTileId}
                         />
                     )}
+                    {canEditDashboard && <DeleteDashboardModal />}
                     {canEditDashboard && <DuplicateDashboardModal />}
                 </>
             )}
@@ -223,9 +226,7 @@ export function DashboardHeader(): JSX.Element | null {
                                             <LemonDivider />
                                             <LemonButton
                                                 onClick={() => {
-                                                    setDuplicateDashboardValue('dashboardId', dashboard.id)
-                                                    setDuplicateDashboardValue('dashboardName', dashboard.name)
-                                                    showDuplicateDashboardModal()
+                                                    showDuplicateDashboardModal(dashboard.id, dashboard.name)
                                                 }}
                                                 status="stealth"
                                                 fullWidth
@@ -234,9 +235,9 @@ export function DashboardHeader(): JSX.Element | null {
                                             </LemonButton>
                                             {canEditDashboard && (
                                                 <LemonButton
-                                                    onClick={() =>
-                                                        deleteDashboard({ id: dashboard.id, redirect: true })
-                                                    }
+                                                    onClick={() => {
+                                                        showDeleteDashboardModal(dashboard.id)
+                                                    }}
                                                     status="danger"
                                                     fullWidth
                                                 >

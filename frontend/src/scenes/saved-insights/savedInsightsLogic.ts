@@ -13,6 +13,8 @@ import { urls } from 'scenes/urls'
 import { lemonToast } from 'lib/components/lemonToast'
 import { PaginationManual } from 'lib/components/PaginationControl'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
+import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 
 export const INSIGHTS_PER_PAGE = 30
 
@@ -255,7 +257,16 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
         },
         [dashboardsModel.actionTypes.updateDashboardInsight]: () => actions.loadInsights(),
         [dashboardsModel.actionTypes.duplicateDashboardSuccess]: () => actions.loadInsights(),
-        [insightsModel.actionTypes.insightsDuplicatedWithDashboard]: () => actions.loadInsights(),
+        [deleteDashboardLogic.actionTypes.submitDeleteDashboardSuccess]: ({ deleteDashboard }) => {
+            if (deleteDashboard.deleteInsights) {
+                actions.loadInsights()
+            }
+        },
+        [duplicateDashboardLogic.actionTypes.submitDuplicateDashboardSuccess]: ({ duplicateTiles }) => {
+            if (duplicateTiles) {
+                actions.loadInsights()
+            }
+        },
     }),
     actionToUrl: ({ values }) => {
         const changeUrl = ():

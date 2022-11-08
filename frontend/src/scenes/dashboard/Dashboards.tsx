@@ -26,6 +26,8 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { LemonInput } from '@posthog/lemon-ui'
+import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
+import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 
@@ -36,14 +38,15 @@ export const scene: SceneExport = {
 
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { deleteDashboard, unpinDashboard, pinDashboard } = useActions(dashboardsModel)
+    const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { setSearchTerm, setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, searchTerm, currentTab } = useValues(dashboardsLogic)
     const { showNewDashboardModal, addDashboard } = useActions(newDashboardLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { closePrompts } = useActions(inAppPromptLogic)
-    const { showDuplicateDashboardModal, setDuplicateDashboardValue } = useActions(duplicateDashboardLogic)
+    const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
+    const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -159,9 +162,7 @@ export function Dashboards(): JSX.Element {
                                 <LemonButton
                                     status="stealth"
                                     onClick={() => {
-                                        setDuplicateDashboardValue('dashboardId', id)
-                                        setDuplicateDashboardValue('dashboardName', name)
-                                        showDuplicateDashboardModal()
+                                        showDuplicateDashboardModal(id, name)
                                     }}
                                     fullWidth
                                 >
@@ -176,7 +177,9 @@ export function Dashboards(): JSX.Element {
                                 </LemonRow>
                                 <LemonDivider />
                                 <LemonButton
-                                    onClick={() => deleteDashboard({ id, redirect: false })}
+                                    onClick={() => {
+                                        showDeleteDashboardModal(id)
+                                    }}
                                     fullWidth
                                     status="danger"
                                 >
@@ -194,6 +197,7 @@ export function Dashboards(): JSX.Element {
         <div>
             <NewDashboardModal />
             <DuplicateDashboardModal />
+            <DeleteDashboardModal />
             <PageHeader
                 title="Dashboards"
                 buttons={
