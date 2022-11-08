@@ -80,6 +80,7 @@ version,
 _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
+WHERE length(_error) = 0
 """.format(
     table_name=PERSONS_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE
 )
@@ -239,6 +240,7 @@ _timestamp,
 _offset,
 _partition
 FROM {database}.kafka_{table_name}
+WHERE length(_error) = 0
 """.format(
     table_name=PERSON_DISTINCT_ID2_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE
 )

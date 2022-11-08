@@ -140,6 +140,7 @@ created_at,
 _timestamp,
 _offset
 FROM {database}.kafka_session_recording_events
+WHERE length(_error) = 0
 """.format(
     target_table=(
         "writable_session_recording_events"

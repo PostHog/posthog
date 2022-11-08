@@ -75,6 +75,7 @@ group_properties,
 _timestamp,
 _offset
 FROM {CLICKHOUSE_DATABASE}.kafka_{GROUPS_TABLE}
+WHERE length(_error) = 0
 """
 
 # { ..., "group_0": 1325 }

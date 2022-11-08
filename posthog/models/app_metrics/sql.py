@@ -100,6 +100,7 @@ error_uuid,
 error_type,
 error_details
 FROM {settings.CLICKHOUSE_DATABASE}.kafka_app_metrics
+WHERE length(_error) = 0
 """
 )
 

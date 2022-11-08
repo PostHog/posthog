@@ -78,9 +78,9 @@ operations = [
     migrations.RunSQL(f"DROP TABLE person_distinct_id2_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
     migrations.RunSQL(f"DROP TABLE kafka_person_distinct_id2 ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
     migrations.RunSQL(KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL()),
+    migrations.RunSQL(PERSON_DISTINCT_ID2_MV_SQL),
     migrations.RunSQL(KAFKA_PERSON_DISTINCT_ID2_DLQ_SQL()),
     migrations.RunSQL(KAFKA_PERSON_DISTINCT_ID2_DLQ_MV_SQL()),
-    migrations.RunSQL(PERSON_DISTINCT_ID2_MV_SQL),
     # plugin_log_entries
     migrations.RunSQL(f"DROP TABLE plugin_log_entries_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
     migrations.RunSQL(f"DROP TABLE kafka_plugin_log_entries ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
@@ -88,7 +88,6 @@ operations = [
     migrations.RunSQL(PLUGIN_LOG_ENTRIES_TABLE_MV_SQL),
     migrations.RunSQL(KAFKA_PLUGIN_LOG_ENTRIES_DLQ_SQL()),
     migrations.RunSQL(KAFKA_PLUGIN_LOG_ENTRIES_DLQ_MV_SQL()),
-    migrations.RunSQL(PLUGIN_LOG_ENTRIES_TABLE_MV_SQL),
     # app_metrics
     migrations.RunSQL(f"DROP TABLE app_metrics_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
     migrations.RunSQL(f"DROP TABLE kafka_app_metrics ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),

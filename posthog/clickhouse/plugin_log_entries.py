@@ -76,6 +76,7 @@ instance_id,
 _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
+WHERE length(_error) = 0
 """.format(
     table_name=PLUGIN_LOG_ENTRIES_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE
 )

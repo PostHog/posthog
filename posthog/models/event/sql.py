@@ -146,6 +146,7 @@ group4_created_at,
 _timestamp,
 _offset
 FROM {database}.kafka_events_json
+WHERE length(_error) = 0
 """.format(
     target_table=WRITABLE_EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,

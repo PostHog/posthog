@@ -70,6 +70,7 @@ _timestamp,
 _offset,
 _partition
 FROM {database}.kafka_ingestion_warnings
+WHERE length(_error) = 0
 """.format(
     target_table="ingestion_warnings",
     cluster=settings.CLICKHOUSE_CLUSTER,
