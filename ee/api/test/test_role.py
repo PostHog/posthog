@@ -83,5 +83,5 @@ class TestRoleAPI(APILicensedTest):
         self.assertEqual(Role.objects.count(), 0)
         new_org = Organization.objects.bootstrap(self.user, name="PostHog A")
         self.assertEqual(Role.objects.count(), 1)
-        self.assertEqual(Role.objects.first().name, DEFAULT_ROLE_NAME)
-        self.assertEqual(Role.objects.first().organization, new_org[0])
+        self.assertEqual(Role.objects.first().name, DEFAULT_ROLE_NAME)  # type: ignore
+        self.assertEqual(Role.objects.first().organization, new_org[0])  # type: ignore

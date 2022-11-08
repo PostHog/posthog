@@ -36,5 +36,5 @@ class TestRoleMembershipAPI(APILicensedTest):
         new_org = Organization.objects.bootstrap(self.user, name="PostHog A")
         user_a = User.objects.create_and_join(new_org[0], "a@x.com", None)
         self.assertEqual(RoleMembership.objects.count(), 1)
-        self.assertEqual(RoleMembership.objects.first().user, user_a)
-        self.assertEqual(RoleMembership.objects.first().role.name, DEFAULT_ROLE_NAME)
+        self.assertEqual(RoleMembership.objects.first().user, user_a)  # type: ignore
+        self.assertEqual(RoleMembership.objects.first().role.name, DEFAULT_ROLE_NAME)  # type: ignore
