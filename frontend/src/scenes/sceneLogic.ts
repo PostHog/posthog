@@ -34,8 +34,6 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.FeatureFlag]: Scene.FeatureFlags,
     [Scene.AppMetrics]: Scene.Plugins,
     [Scene.SessionRecording]: Scene.SessionRecordings,
-    [Scene.SessionRecordingsHistory]: Scene.SessionRecordings,
-    [Scene.SessionRecordingPlaylists]: Scene.SessionRecordingPlaylists,
     [Scene.SessionRecordingPlaylist]: Scene.SessionRecordingPlaylist,
 }
 

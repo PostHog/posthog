@@ -86,14 +86,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Recordings',
     },
-    [Scene.SessionRecordingPlaylists]: {
-        projectBased: true,
-        name: 'Recordings',
-    },
-    [Scene.SessionRecordingsHistory]: {
-        projectBased: true,
-        name: 'Recordings',
-    },
     [Scene.SessionRecording]: {
         projectBased: true,
         name: 'Recordings',
