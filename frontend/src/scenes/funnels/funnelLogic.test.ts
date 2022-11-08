@@ -26,10 +26,9 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { useAvailableFeatures } from '~/mocks/features'
 import api from 'lib/api'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 jest.mock('scenes/trends/persons-modal/PersonsModal')
-
-import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 const Insight12 = '12' as InsightShortId
 const Insight123 = '123' as InsightShortId
@@ -511,7 +510,7 @@ describe('funnelLogic', () => {
 
         it('setFilters calls insightLogic.setFilters', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setFilters({ events: [{ id: 42 }] })
+                logic.actions.setFilters({ insight: InsightType.FUNNELS, events: [{ id: 42 }] })
             })
                 .toDispatchActions([
                     (action) =>
@@ -532,7 +531,7 @@ describe('funnelLogic', () => {
 
         it('insightLogic.setFilters updates filters', async () => {
             await expectLogic(logic, () => {
-                insightLogic(props).actions.setFilters({ events: [{ id: 42 }] })
+                insightLogic(props).actions.setFilters({ insight: InsightType.FUNNELS, events: [{ id: 42 }] })
             })
                 .toMatchValues(logic, {
                     filters: expect.objectContaining({
