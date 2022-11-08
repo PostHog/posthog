@@ -1173,6 +1173,10 @@ export interface FilterType {
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
 
+    filter_test_accounts?: boolean
+    from_dashboard?: boolean | number
+
+    // TODO: move these down into specific filters
     event?: string // specify one event
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
@@ -1182,14 +1186,6 @@ export interface FilterType {
     shown_as?: ShownAsValue
     session?: string
     period?: string
-
-    // type?: EntityType
-    // entity_id?: string | number
-    // entity_type?: EntityType
-    // entity_math?: string
-    formula?: any
-    filter_test_accounts?: boolean
-    from_dashboard?: boolean | number
     aggregation_group_type_index?: number | undefined // Groups aggregation
 }
 
@@ -1208,6 +1204,7 @@ export interface TrendsFilterType extends FilterType {
     people_day?: any
     people_action?: any
     stickiness_days?: number
+    formula?: any
 }
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
