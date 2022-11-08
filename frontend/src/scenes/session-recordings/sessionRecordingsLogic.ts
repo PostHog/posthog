@@ -1,5 +1,5 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
-import { SessionRecordingPlaylistType, SessionRecordingsTabs } from '~/types'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { Breadcrumb, SessionRecordingPlaylistType, SessionRecordingsTabs } from '~/types'
 import { urls } from 'scenes/urls'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -8,6 +8,18 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { capitalizeFirstLetter } from 'lib/utils'
+
+export const humanFriendlyTabName = (tab: SessionRecordingsTabs): string => {
+    switch (tab) {
+        case SessionRecordingsTabs.All:
+            return 'Saved Playlists'
+        case SessionRecordingsTabs.Yours:
+            return 'Your Playlists'
+        default:
+            return capitalizeFirstLetter(tab)
+    }
+}
 
 export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
     path(() => ['scenes', 'session-recordings', 'root']),
@@ -48,6 +60,17 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
             setTab: () => urls.sessionRecordings(values.tab),
         }
     }),
+
+    selectors(({}) => ({
+        breadcrumbs: [
+            (s) => [s.tab],
+            (tab): Breadcrumb[] => [
+                {
+                    name: humanFriendlyTabName(tab),
+                },
+            ],
+        ],
+    })),
 
     urlToAction(({ actions, values }) => {
         return {

@@ -538,12 +538,13 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
 export interface RecordingFilters {
     date_from?: string | null
     date_to?: string | null
-    events?: Record<string, any>[]
-    actions?: Record<string, any>[]
+    events?: FilterType['events']
+    actions?: FilterType['actions']
     properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
 }
+
 export interface SessionRecordingsResponse {
     results: SessionRecordingType[]
     has_next: boolean
@@ -782,7 +783,7 @@ export interface SessionRecordingPlaylistType {
     created_by: UserBasicType | null
     last_modified_at: string
     last_modified_by: UserBasicType | null
-    filters: Partial<FilterType>
+    filters?: RecordingFilters
 }
 
 export interface SessionRecordingType {

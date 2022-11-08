@@ -1,18 +1,19 @@
 import { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { range } from '~/lib/utils'
-import { SessionRecordingType } from '~/types'
+import { RecordingDurationFilter, SessionRecordingType } from '~/types'
 import {
     defaultPageviewPropertyEntityFilter,
     PLAYLIST_LIMIT,
+    SessionRecordingListLogicProps,
     sessionRecordingsListLogic,
 } from './sessionRecordingsListLogic'
 import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { IconChevronLeft, IconChevronRight } from 'lib/components/icons'
-import { SessionRecordingsFilters, SessionRecordingsFiltersToggle } from '../filters/SessionRecordingsFilters'
+import { IconChevronLeft, IconChevronRight, IconFilter, IconWithCount } from 'lib/components/icons'
+import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import clsx from 'clsx'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { LemonTableLoader } from 'lib/components/LemonTable/LemonTableLoader'
@@ -29,10 +30,6 @@ import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { NotFound } from 'lib/components/NotFound'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-
-interface SessionRecordingsTableProps {
-    personUUID?: string
-}
 
 export const scene: SceneExport = {
     component: SessionRecordingsPlaylistScene,
@@ -92,7 +89,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                             // }
                                             fullWidth
                                         >
-                                            {playlist.pinned ? 'Remove from favorites' : 'Add to favorites'}
+                                            {playlist.pinned ? 'Unpin playlist' : 'Pin playlist'}
                                         </LemonButton>
                                         <LemonDivider />
 
@@ -155,14 +152,20 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     </>
                 }
             />
-            {/* <SessionRecordingsPlaylist /> */}
+            {playlist.short_id ? (
+                <SessionRecordingsPlaylist logicKey={playlist.short_id} filters={playlist.filters} />
+            ) : null}
         </div>
     )
 }
 
-export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTableProps): JSX.Element {
-    const logicProps = { personUUID }
-    const logic = sessionRecordingsListLogic(logicProps)
+export function SessionRecordingsPlaylist({
+    logicKey,
+    personUUID,
+    filters: defaultFilters,
+    updateSearchParams,
+}: Partial<SessionRecordingListLogicProps> & { logicKey: string }): JSX.Element {
+    const logic = sessionRecordingsListLogic({ key: logicKey, personUUID, filters: defaultFilters, updateSearchParams })
     const {
         sessionRecordings,
         sessionRecordingIdToProperties,
@@ -171,20 +174,17 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
         hasNext,
         hasPrev,
         activeSessionRecording,
-        offset,
-        entityFilters,
-        fromDate,
-        toDate,
-        durationFilter,
+        filters,
+        totalFiltersCount,
+        filtersEnabled,
     } = useValues(logic)
     const {
         setSelectedRecordingId,
         loadNext,
         loadPrev,
-        setEntityFilters,
+        setFilters,
         reportRecordingsListFilterAdded,
-        setDateRange,
-        setDurationFilter,
+        setFiltersEnabled,
     } = useActions(logic)
     const playlistRef = useRef<HTMLDivElement>(null)
 
@@ -203,9 +203,10 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
     }
 
     const onPropertyClick = (property: string, value?: string): void => {
-        setEntityFilters(defaultPageviewPropertyEntityFilter(entityFilters, property, value))
+        setFilters(defaultPageviewPropertyEntityFilter(entityFilters, property, value))
     }
 
+    const offset = filters.offset ?? 0
     const nextLength = offset + (sessionRecordingsResponseLoading ? PLAYLIST_LIMIT : sessionRecordings.length)
 
     const paginationControls = nextLength ? (
@@ -237,15 +238,37 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
     return (
         <>
             <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
-                <SessionRecordingsFiltersToggle personUUID={personUUID} />
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={
+                        <IconWithCount count={totalFiltersCount}>
+                            <IconFilter />
+                        </IconWithCount>
+                    }
+                    onClick={() => {
+                        setFiltersEnabled(!filtersEnabled)
+                        if (personUUID) {
+                            const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
+                            if (entityFilterButtons.length > 0) {
+                                ;(entityFilterButtons[0] as HTMLElement).click()
+                            }
+                        }
+                    }}
+                >
+                    {filtersEnabled ? 'Hide filters' : 'Filter recordings'}
+                </LemonButton>
 
                 <div className="flex items-center gap-4">
                     <DateFilter
-                        dateFrom={fromDate ?? '-7d'}
-                        dateTo={toDate ?? undefined}
+                        dateFrom={filters.date_from ?? '-7d'}
+                        dateTo={filters.date_to ?? undefined}
                         onChange={(changedDateFrom, changedDateTo) => {
                             reportRecordingsListFilterAdded(SessionRecordingFilterType.DateRange)
-                            setDateRange(changedDateFrom ?? undefined, changedDateTo ?? undefined)
+                            setFilters({
+                                date_from: changedDateFrom,
+                                date_to: changedDateTo,
+                            })
                         }}
                         dateOptions={[
                             { key: 'Custom', values: [] },
@@ -259,9 +282,9 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                         <DurationFilter
                             onChange={(newFilter) => {
                                 reportRecordingsListFilterAdded(SessionRecordingFilterType.Duration)
-                                setDurationFilter(newFilter)
+                                setFilters({ session_recording_duration: newFilter })
                             }}
-                            initialFilter={durationFilter}
+                            initialFilter={filters.session_recording_duration as RecordingDurationFilter}
                             pageKey={!!personUUID ? `person-${personUUID}` : 'session-recordings'}
                         />
                     </div>
@@ -269,7 +292,13 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
             </div>
             <div ref={playlistRef} className="SessionRecordingsPlaylist" data-attr="session-recordings-playlist">
                 <div className="SessionRecordingsPlaylist__left-column space-y-4">
-                    <SessionRecordingsFilters personUUID={personUUID} />
+                    {filtersEnabled ? (
+                        <SessionRecordingsFilters
+                            filters={filters}
+                            setFilters={setFilters}
+                            showPropertyFilters={!personUUID}
+                        />
+                    ) : null}
                     <div className="w-full overflow-hidden border rounded">
                         <div className="relative flex justify-between items-center bg-mid py-3 px-4 border-b">
                             <span className="font-bold uppercase text-xs my-1 tracking-wide">Recent Recordings</span>

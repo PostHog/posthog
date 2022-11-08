@@ -3,7 +3,7 @@ import { CompactList } from 'lib/components/CompactList/CompactList'
 import { RecordingRow } from 'scenes/project-homepage/RecentRecordings'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { urls } from 'scenes/urls'
-import { SessionRecordingsTabs, SessionRecordingType } from '~/types'
+import { RecordingFilters, SessionRecordingsTabs, SessionRecordingType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 
@@ -11,10 +11,37 @@ interface FeatureFlagRecordingsProps {
     flagKey: string
 }
 
+export const filtersForFlag = (flagKey: string): Partial<RecordingFilters> => ({
+    events: [
+        {
+            id: '$feature_flag_called',
+            name: '$feature_flag_called',
+            type: 'events',
+            properties: [
+                {
+                    key: '$feature/' + flagKey,
+                    type: 'event',
+                    value: ['true'],
+                    operator: 'exact',
+                },
+                {
+                    key: '$feature_flag',
+                    type: 'event',
+                    value: flagKey,
+                    operator: 'exact',
+                },
+            ],
+        },
+    ],
+})
+
 export function FeatureFlagRecordings({ flagKey }: FeatureFlagRecordingsProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const sessionRecordingsListLogicInstance = sessionRecordingsListLogic({ key: 'feature-flag', flagKey: flagKey })
-    const { sessionRecordings, sessionRecordingsResponseLoading, entityFilters } = useValues(
+    const sessionRecordingsListLogicInstance = sessionRecordingsListLogic({
+        key: `feature-flag-${flagKey}`,
+        filters: filtersForFlag(flagKey),
+    })
+    const { sessionRecordings, sessionRecordingsResponseLoading, filters } = useValues(
         sessionRecordingsListLogicInstance
     )
 
@@ -23,7 +50,7 @@ export function FeatureFlagRecordings({ flagKey }: FeatureFlagRecordingsProps): 
             <SessionPlayerModal />
             <CompactList
                 title="Recordings with current feature flag"
-                viewAllURL={urls.sessionRecordings(SessionRecordingsTabs.Recent, entityFilters)}
+                viewAllURL={urls.sessionRecordings(SessionRecordingsTabs.Recent, filters)}
                 loading={sessionRecordingsResponseLoading}
                 emptyMessage={
                     currentTeam?.session_recording_opt_in

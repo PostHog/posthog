@@ -76,7 +76,7 @@ describe('sessionRecordingsListLogic', () => {
 
     describe('global logic', () => {
         beforeEach(() => {
-            logic = sessionRecordingsListLogic({})
+            logic = sessionRecordingsListLogic({ key: 'tests' })
             logic.mount()
         })
 
@@ -321,7 +321,7 @@ describe('sessionRecordingsListLogic', () => {
     })
     describe('person specific logic', () => {
         beforeEach(() => {
-            logic = sessionRecordingsListLogic({ personUUID: 'cool_user_99' })
+            logic = sessionRecordingsListLogic({ key: 'cool_user_99' personUUID: 'cool_user_99' })
             logic.mount()
         })
 

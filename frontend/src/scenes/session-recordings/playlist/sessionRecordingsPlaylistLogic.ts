@@ -1,9 +1,10 @@
-import { actions, afterMount, kea, key, path, props } from 'kea'
-import { SessionRecordingPlaylistType } from '~/types'
+import { actions, afterMount, kea, key, path, props, selectors } from 'kea'
+import { Breadcrumb, SessionRecordingPlaylistType, SessionRecordingsTabs } from '~/types'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
+import { urls } from 'scenes/urls'
 
 export interface SessionRecordingsPlaylistLogicProps {
     shortId: string
@@ -30,6 +31,22 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return api.recordings.updatePlaylist(props.shortId, playlist)
                 },
             },
+        ],
+    })),
+
+    selectors(({}) => ({
+        breadcrumbs: [
+            (s) => [s.playlist],
+            (playlist): Breadcrumb[] => [
+                {
+                    name: 'Recording Playlists',
+                    path: urls.sessionRecordings(SessionRecordingsTabs.All),
+                },
+                {
+                    name: playlist?.name || 'Untitled Playlist',
+                    path: urls.sessionRecordingPlaylist(playlist?.short_id || ''),
+                },
+            ],
         ],
     })),
 

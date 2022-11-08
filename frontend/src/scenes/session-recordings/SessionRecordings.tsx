@@ -14,8 +14,9 @@ import { SessionRecordingsTabs } from '~/types'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { Tooltip } from 'lib/components/Tooltip'
 import { router } from 'kea-router'
-import { sessionRecordingsLogic } from './sessionRecordingsLogic'
+import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecordingsLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { IconPlus } from 'lib/components/icons'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -23,13 +24,11 @@ export function SessionsRecordings(): JSX.Element {
     const { tab, newPlaylistLoading } = useValues(sessionRecordingsLogic)
     const { saveNewPlaylist } = useActions(sessionRecordingsLogic)
     const showRecordingPlaylists = !!featureFlags[FEATURE_FLAGS.RECORDING_PLAYLISTS]
-    const logic = sessionRecordingsListLogic({ key: 'recents' })
-
-    const { filterQueryParams } = useValues(logic)
+    const { filters } = useValues(sessionRecordingsListLogic({ key: 'recents', updateSearchParams: true }))
 
     const recentRecordings = (
         <>
-            <SessionRecordingsPlaylist key="recents" />
+            <SessionRecordingsPlaylist logicKey="recents" updateSearchParams />
         </>
     )
 
@@ -43,9 +42,10 @@ export function SessionsRecordings(): JSX.Element {
                             <Tooltip title="Save the currently filters as a dynamic playlist" placement="left">
                                 <LemonButton
                                     type="primary"
-                                    onClick={() => saveNewPlaylist({ filters: filterQueryParams })}
+                                    onClick={() => saveNewPlaylist({ filters: filters })}
                                     disabled={newPlaylistLoading}
                                     data-attr="save-recordings-playlist-button"
+                                    icon={<IconPlus />}
                                 >
                                     Save as playlist
                                 </LemonButton>
@@ -61,11 +61,9 @@ export function SessionsRecordings(): JSX.Element {
                         style={{ borderColor: '#D9D9D9' }}
                         onChange={(t) => router.actions.push(urls.sessionRecordings(t as SessionRecordingsTabs))}
                     >
-                        <Tabs.TabPane tab="Recent" key={SessionRecordingsTabs.Recent} />
-                        <Tabs.TabPane tab="Saved Playlists" key={SessionRecordingsTabs.All} />
-                        <Tabs.TabPane tab="Your Playlists" key={SessionRecordingsTabs.Yours} />
-                        <Tabs.TabPane tab="Pinned" key={SessionRecordingsTabs.Pinned} />
-                        <Tabs.TabPane tab="History" key={SessionRecordingsTabs.History} />
+                        {Object.values(SessionRecordingsTabs).map((value) => (
+                            <Tabs.TabPane tab={humanFriendlyTabName(value)} key={value} />
+                        ))}
                     </Tabs>
                 </>
             )}
