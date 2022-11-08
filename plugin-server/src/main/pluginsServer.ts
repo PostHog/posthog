@@ -111,7 +111,7 @@ export async function startPluginsServer(
         // Note also that we give the shutdown process 10 seconds to complete,
         // otherwise we exit uncleanly.
         await Promise.race([
-            async () => {
+            (async () => {
                 cancelAllScheduledJobs()
                 stopEventLoopMetrics?.()
                 await Promise.allSettled([
@@ -141,7 +141,7 @@ export async function startPluginsServer(
                 }
 
                 await closeHub?.()
-            },
+            })(),
             new Promise(() => setTimeout(() => process.exit(1), 10000)),
         ])
 
