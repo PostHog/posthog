@@ -54,7 +54,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
     })
 
     describe('update playlist', () => {
-        it('set new filter then update playlist', async () => {
+        it('set new filter then update playlist', () => {
             const newFilter = {
                 events: [
                     {
@@ -65,7 +65,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     },
                 ],
             }
-            await expectLogic(logic, async () => {
+            expectLogic(logic, async () => {
                 await logic.actions.setFilters(newFilter)
                 await logic.actions.saveChanges()
             })

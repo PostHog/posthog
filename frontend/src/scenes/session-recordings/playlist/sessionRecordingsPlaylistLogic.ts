@@ -32,8 +32,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 },
 
                 updatePlaylist: async (playlist: Partial<SessionRecordingPlaylistType>, breakpoint) => {
-                    breakpoint(100)
+                    await breakpoint(100)
                     const response = api.recordings.updatePlaylist(props.shortId, playlist)
+                    breakpoint()
 
                     lemonToast.success('Playlist updated successfully')
 
