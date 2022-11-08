@@ -8,6 +8,7 @@ import {
     InsightModel,
     InsightShortId,
     InsightType,
+    TrendsFilterType,
 } from '~/types'
 import { InsightCard as InsightCardComponent } from './index'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
@@ -214,7 +215,6 @@ const EXAMPLE_FUNNEL: InsightModel = {
             },
         ],
         actions: [],
-        display: ChartDisplayType.FunnelViz,
         insight: InsightType.FUNNELS,
         interval: 'day',
         exclusions: [],
@@ -373,7 +373,10 @@ export const InsightCard: Story = (args) => {
             <InsightCardComponent
                 insight={{
                     ...EXAMPLE_TRENDS,
-                    filters: { ...EXAMPLE_TRENDS.filters, display: 'totally_wrong_display_type' as ChartDisplayType },
+                    filters: {
+                        ...EXAMPLE_TRENDS.filters,
+                        display: 'totally_wrong_display_type' as ChartDisplayType,
+                    } as TrendsFilterType,
                 }}
                 rename={() => {}}
                 duplicate={() => {}}

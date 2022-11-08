@@ -7,6 +7,7 @@ import { Breakdown, ChartDisplayType, FilterType, InsightType, TrendsFilterType 
 import { BreakdownTag } from './BreakdownTag'
 import './TaxonomicBreakdownFilter.scss'
 import { onFilterChange } from './taxonomicBreakdownFilterUtils'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
@@ -70,7 +71,10 @@ export function BreakdownFilter({
                               breakdown_type: undefined,
                               breakdown_histogram_bin_count: undefined,
                               // Make sure we are no longer in map view after removing the Country Code breakdown
-                              display: filters.display !== ChartDisplayType.WorldMap ? filters.display : undefined,
+                              display:
+                                  isTrendsFilter(filters) && filters.display !== ChartDisplayType.WorldMap
+                                      ? filters.display
+                                      : undefined,
                           }
                           setFilters(newFilters)
                       }

@@ -1,8 +1,8 @@
 import { kea } from 'kea'
 import { objectsEqual } from 'lib/utils'
 import type { chartFilterLogicType } from './chartFilterLogicType'
-import { ChartDisplayType, FunnelsFilterType, FunnelVizType, InsightLogicProps } from '~/types'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { ChartDisplayType, FunnelsFilterType, FunnelVizType, InsightLogicProps, TrendsFilterType } from '~/types'
+import { isStickinessFilter, isTrendsFilter, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
 
@@ -27,11 +27,12 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
         chartFilter: [
             (s) => [s.filters],
             (filters): ChartDisplayType | FunnelVizType | null => {
-                const { display } = filters
                 return (
-                    (isFunnelsFilter(filters) && display === ChartDisplayType.FunnelViz
+                    (isFunnelsFilter(filters)
                         ? filters.funnel_viz_type
-                        : display) || null
+                        : isTrendsFilter(filters) || isStickinessFilter(filters)
+                        ? filters.display
+                        : null) || null
                 )
             },
         ],
@@ -39,21 +40,19 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
 
     listeners: ({ actions, values }) => ({
         setChartFilter: ({ chartFilter }) => {
-            const { display } = values.filters
-
             if (isFunnelVizType(chartFilter)) {
                 const funnel_viz_type = isFunnelsFilter(values.filters) ? values.filters.funnel_viz_type : null
-                if (funnel_viz_type !== chartFilter || display !== ChartDisplayType.FunnelViz) {
+                if (funnel_viz_type !== chartFilter) {
                     const newFilters: Partial<FunnelsFilterType> = {
                         ...values.filters,
-                        display: ChartDisplayType.FunnelViz,
                         funnel_viz_type: chartFilter,
                     }
                     actions.setFilters(newFilters)
                 }
-            } else {
-                if (!objectsEqual(display, chartFilter)) {
-                    actions.setFilters({ ...values.filters, display: chartFilter })
+            } else if (isTrendsFilter(values.filters) || isStickinessFilter(values.filters)) {
+                if (!objectsEqual(values.filters.display, chartFilter)) {
+                    const newFilteres: Partial<TrendsFilterType> = { ...values.filters, display: chartFilter }
+                    actions.setFilters(newFilteres)
                 }
             }
         },

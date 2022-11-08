@@ -1116,8 +1116,6 @@ export enum ChartDisplayType {
     ActionsPie = 'ActionsPie',
     ActionsBar = 'ActionsBar',
     ActionsBarValue = 'ActionsBarValue',
-    PathsViz = 'PathsViz',
-    FunnelViz = 'FunnelViz',
     WorldMap = 'WorldMap',
     BoldNumber = 'BoldNumber',
 }
@@ -1163,12 +1161,14 @@ export interface Breakdown {
 }
 
 export interface FilterType {
+    // used by all
     insight?: InsightType
-    display?: ChartDisplayType
-    interval?: IntervalType
-
     date_from?: string | null
     date_to?: string | null
+
+    // used by insights and funnels
+    interval?: IntervalType
+
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
@@ -1176,7 +1176,7 @@ export interface FilterType {
     filter_test_accounts?: boolean
     from_dashboard?: boolean | number
 
-    // TODO: move these down into specific filters
+    // shared between trends and funnels
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
     breakdowns?: Breakdown[]
@@ -1206,6 +1206,7 @@ export interface TrendsFilterType extends FilterType {
     people_action?: any
     formula?: any
     shown_as?: ShownAsValue
+    display?: ChartDisplayType
 }
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
@@ -1213,6 +1214,7 @@ export interface StickinessFilterType extends FilterType {
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
     stickiness_days?: number
     shown_as?: ShownAsValue
+    display?: ChartDisplayType
 }
 export interface FunnelsFilterType extends FilterType {
     funnel_viz_type?: FunnelVizType // parameter sent to funnels API for time conversion code path

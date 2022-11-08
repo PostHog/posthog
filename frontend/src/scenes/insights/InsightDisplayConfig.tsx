@@ -39,7 +39,10 @@ const showIntervalFilter = function (filter: Partial<FilterType>): boolean {
     if (isRetentionFilter(filter) || isPathsFilter(filter)) {
         return false
     }
-    return !filter.display || !NON_TIME_SERIES_DISPLAY_TYPES.includes(filter.display)
+    return (
+        (isTrendsFilter(filter) || isStickinessFilter(filter)) &&
+        (!filter.display || !NON_TIME_SERIES_DISPLAY_TYPES.includes(filter.display))
+    )
 }
 
 const showChartFilter = function (filters: Partial<FilterType>): boolean {

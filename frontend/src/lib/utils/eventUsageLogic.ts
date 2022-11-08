@@ -128,7 +128,7 @@ function usedCohortFilterIds(properties: AnyPropertyFilter[] | PropertyGroupFilt
     Takes a full list of filters for an insight and sanitizes any potentially sensitive info to report usage
 */
 function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any> {
-    const { display, interval, date_from, date_to, filter_test_accounts, insight } = filters
+    const { interval, date_from, date_to, filter_test_accounts, insight } = filters
 
     let properties_local: string[] = []
 
@@ -174,7 +174,7 @@ function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any
     const properties_global = flattenProperties(properties)
 
     return {
-        display,
+        display: isTrendsFilter(filters) || isStickinessFilter(filters) ? filters.display : undefined,
         interval,
         date_from,
         date_to,

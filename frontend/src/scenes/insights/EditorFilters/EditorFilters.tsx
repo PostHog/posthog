@@ -73,7 +73,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(filters.display || ChartDisplayType.ActionsLineGraph)) ||
         (isRetention &&
             featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
-            filters.display !== ChartDisplayType.ActionsLineGraph) ||
+            (filters as any).display !== ChartDisplayType.ActionsLineGraph) ||
         (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
     const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)

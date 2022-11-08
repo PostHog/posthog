@@ -56,11 +56,18 @@ import { UserActivityIndicator } from '../../UserActivityIndicator/UserActivityI
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { SpinnerOverlay } from '../../Spinner/Spinner'
+import {
+    isFunnelsFilter,
+    isPathsFilter,
+    isRetentionFilter,
+    isStickinessFilter,
+    isTrendsFilter,
+} from 'scenes/insights/sharedUtils'
 
 // TODO: Add support for Retention to InsightDetails
 export const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
 
-type DisplayedType = ChartDisplayType | 'RetentionContainer'
+type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
 const displayMap: Record<
     DisplayedType,
@@ -93,7 +100,7 @@ const displayMap: Record<
         className: 'pie',
         element: ActionsPie,
     },
-    FunnelViz: {
+    FunnelContainer: {
         className: 'funnel',
         element: Funnel,
     },
@@ -101,7 +108,7 @@ const displayMap: Record<
         className: 'retention',
         element: RetentionContainer,
     },
-    PathsViz: {
+    PathsContainer: {
         className: 'paths-viz',
         element: Paths,
     },
@@ -116,15 +123,16 @@ const displayMap: Record<
 }
 
 function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
-    return (
-        filters.insight === InsightType.RETENTION
-            ? 'RetentionContainer'
-            : filters.insight === InsightType.PATHS
-            ? 'PathsViz'
-            : filters.insight === InsightType.FUNNELS
-            ? 'FunnelViz'
-            : filters.display || 'ActionsLineGraph'
-    ) as DisplayedType
+    const displayedType: DisplayedType = isRetentionFilter(filters)
+        ? 'RetentionContainer'
+        : isPathsFilter(filters)
+        ? 'PathsContainer'
+        : isFunnelsFilter(filters)
+        ? 'FunnelContainer'
+        : isTrendsFilter(filters) || isStickinessFilter(filters)
+        ? filters.display || ChartDisplayType.ActionsLineGraph
+        : ChartDisplayType.ActionsLineGraph
+    return displayedType
 }
 
 export interface Resizeable {
@@ -512,7 +520,7 @@ export function InsightViz({
         // With this, autosizing runs again after `metaPrimaryHeight` is ready
         if (
             // `display` should be ignored in non-Trends insight
-            (!!insight.filters.insight || insight.filters.insight === InsightType.TRENDS) &&
+            isTrendsFilter(insight.filters) &&
             insight.filters.display === ChartDisplayType.BoldNumber
         ) {
             window.dispatchEvent(new Event('resize'))

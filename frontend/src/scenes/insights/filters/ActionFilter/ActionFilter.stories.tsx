@@ -11,6 +11,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { alphabet, uuid } from 'lib/utils'
 import { ComponentStory } from '@storybook/react'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export default {
     title: 'Filters/Action Filter',
@@ -52,8 +53,10 @@ const Template: ComponentStory<typeof ActionFilter> = ({ ...props }: Partial<Act
             buttonCopy="Add graph series"
             showSeriesIndicator
             entitiesLimit={
-                filters.insight === InsightType.LIFECYCLE ||
-                (filters.display && SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display))
+                isLifecycleFilter(filters) ||
+                ((isTrendsFilter(filters) || isStickinessFilter(filters)) &&
+                    filters.display &&
+                    SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display))
                     ? 1
                     : alphabet.length
             }

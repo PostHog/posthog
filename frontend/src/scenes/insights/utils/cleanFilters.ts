@@ -108,10 +108,11 @@ const cleanBreakdownParams = (
 
 export function cleanFilters(
     filters: Partial<AnyFilterType>,
+    // @ts-expect-error
     oldFilters?: Partial<AnyFilterType>,
     featureFlags?: FeatureFlagsSet
 ): Partial<FilterType> {
-    const insightChanged = oldFilters?.insight && filters.insight !== oldFilters?.insight
+    // const insightChanged = oldFilters?.insight && filters.insight !== oldFilters?.insight
 
     if (isRetentionFilter(filters)) {
         const cleanedParams: Partial<RetentionFilterType> = {
@@ -128,7 +129,6 @@ export function cleanFilters(
             breakdowns: filters.breakdowns,
             breakdown_type: filters.breakdown_type,
             retention_reference: filters.retention_reference,
-            display: insightChanged ? ChartDisplayType.ActionsTable : filters.display || ChartDisplayType.ActionsTable,
             properties: filters.properties || [],
             total_intervals: Math.min(Math.max(filters.total_intervals ?? 11, 0), 100),
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
@@ -144,9 +144,6 @@ export function cleanFilters(
             ...(filters.date_to ? { date_to: filters.date_to } : {}),
             ...(filters.actions ? { actions: filters.actions } : {}),
             ...(filters.events ? { events: filters.events } : {}),
-            ...(insightChanged || filters.display
-                ? { display: insightChanged ? ChartDisplayType.FunnelViz : filters.display }
-                : {}),
             ...(filters.layout ? { layout: filters.layout } : {}),
             ...(filters.new_entity ? { new_entity: filters.new_entity } : {}),
             ...(filters.interval ? { interval: filters.interval } : {}),
@@ -241,9 +238,7 @@ export function cleanFilters(
             insight: InsightType.TRENDS,
             ...filters,
             interval: autocorrectInterval(filters),
-            display: insightChanged
-                ? ChartDisplayType.ActionsLineGraph
-                : filters.display || ChartDisplayType.ActionsLineGraph,
+            ...(isTrendsFilter(filters) ? { display: filters.display || ChartDisplayType.ActionsLineGraph } : {}),
             actions: Array.isArray(filters.actions) ? filters.actions : undefined,
             events: Array.isArray(filters.events) ? filters.events : undefined,
             properties: filters.properties || [],

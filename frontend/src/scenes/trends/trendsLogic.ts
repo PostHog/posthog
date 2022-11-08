@@ -156,7 +156,7 @@ export const trendsLogic = kea<trendsLogicType>([
             insightLogic(props).actions.setFilters(mergeFilters ? { ...values.filters, ...filters } : filters)
         },
         setDisplay: async ({ display }) => {
-            insightLogic(props).actions.setFilters({ ...values.filters, display })
+            actions.setFilters({ display }, true)
         },
         loadMoreBreakdownValues: async () => {
             if (!values.loadMoreBreakdownUrl) {

@@ -32,6 +32,7 @@ const insightViewCanShowLegendAllowList = [InsightType.TRENDS, InsightType.STICK
 
 const shouldShowLegend = (filters: Partial<FilterType>, activeView: InsightType): boolean =>
     insightViewCanShowLegendAllowList.includes(activeView) &&
+    (isTrendsFilter(filters) || isStickinessFilter(filters)) &&
     !!filters.display &&
     !trendTypeCanShowLegendDenyList.includes(filters.display)
 
@@ -114,7 +115,7 @@ function InsightLegendRow({
                         />
                     }
                 />
-                {filters.display === ChartDisplayType.ActionsPie && (
+                {isTrendsFilter(filters) && filters.display === ChartDisplayType.ActionsPie && (
                     <div className={'text-muted'}>{formatAggregationAxisValue(filters, item.aggregated_value)}</div>
                 )}
             </div>

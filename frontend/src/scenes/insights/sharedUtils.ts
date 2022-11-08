@@ -48,7 +48,7 @@ export function isTrendsFilter(filters?: Partial<FilterType>): filters is Partia
 export function isFunnelsFilter(filters?: Partial<FilterType>): filters is Partial<FunnelsFilterType> {
     return filters?.insight === InsightType.FUNNELS
 }
-export function isRetentionFilter(filters: Partial<FilterType>): filters is Partial<RetentionFilterType> {
+export function isRetentionFilter(filters?: Partial<FilterType>): filters is Partial<RetentionFilterType> {
     return filters?.insight === InsightType.RETENTION
 }
 export function isStickinessFilter(filters?: Partial<FilterType>): filters is Partial<StickinessFilterType> {

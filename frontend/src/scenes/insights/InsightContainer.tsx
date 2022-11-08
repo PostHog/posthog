@@ -132,10 +132,10 @@ export function InsightContainer(
         // 1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
         // 2. Bar value chart. Because this view displays data in completely different dimensions.
         if (
+            (isTrendsFilter(filters) || isStickinessFilter(filters)) &&
             (!filters.display ||
                 (filters?.display !== ChartDisplayType.ActionsTable &&
                     filters?.display !== ChartDisplayType.ActionsBarValue)) &&
-            isTrendsFilter(filters) &&
             !disableTable
         ) {
             return (

@@ -12,7 +12,7 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
     path: (key) => ['lib', 'components', 'CompareFilter', 'compareFilterLogic', key],
     connect: (props: InsightLogicProps) => ({
         actions: [insightLogic(props), ['setFilters']],
-        values: [insightLogic(props), ['filters', 'canEditInsight']],
+        values: [insightLogic(props), ['filters as inflightFilters', 'canEditInsight']],
     }),
 
     actions: () => ({
@@ -21,6 +21,11 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
     }),
 
     selectors: {
+        filters: [
+            (s) => [s.inflightFilters],
+            (inflightFilters): Partial<TrendsFilterType> =>
+                inflightFilters && isTrendsFilter(inflightFilters) ? inflightFilters : {},
+        ],
         compare: [(s) => [s.filters], (filters) => filters && isTrendsFilter(filters) && !!filters.compare],
         disabled: [
             (s) => [s.filters, s.canEditInsight],

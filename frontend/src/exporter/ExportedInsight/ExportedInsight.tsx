@@ -10,6 +10,7 @@ import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { ExportOptions, ExportType } from '~/exporter/types'
 import clsx from 'clsx'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export function ExportedInsight({
     insight,
@@ -30,7 +31,7 @@ export function ExportedInsight({
 
     const showLegend =
         legend &&
-        filters.insight === InsightType.TRENDS &&
+        (isTrendsFilter(filters) || isStickinessFilter(filters)) &&
         (!filters.display ||
             (!SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) &&
                 filters.display !== ChartDisplayType.ActionsTable))

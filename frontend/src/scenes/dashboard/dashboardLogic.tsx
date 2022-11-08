@@ -19,7 +19,6 @@ import {
     InsightColor,
     InsightModel,
     InsightShortId,
-    InsightType,
     TextModel,
 } from '~/types'
 import type { dashboardLogicType } from './dashboardLogicType'
@@ -31,6 +30,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { Link } from 'lib/components/Link'
+import { isPathsFilter, isRetentionFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -572,13 +572,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     const minH = MIN_ITEM_HEIGHT_UNITS
 
                     const layouts = tiles.map((tile) => {
-                        const isRetention =
-                            !!tile.insight &&
-                            tile.insight.filters.insight === InsightType.RETENTION &&
-                            tile.insight.filters.display === ChartDisplayType.ActionsLineGraph
-                        const isPathsViz = !!tile.insight && tile.insight.filters.display === ChartDisplayType.PathsViz
-                        const isBoldNumber =
-                            !!tile.insight && tile.insight.filters.display === ChartDisplayType.BoldNumber
+                        const filters: Partial<FilterType> | undefined = tile.insight?.filters
+                        const isRetention = isRetentionFilter(filters)
+                        const isPathsViz = isPathsFilter(filters)
+                        const isBoldNumber = isTrendsFilter(filters) && filters.display === ChartDisplayType.BoldNumber
 
                         const defaultWidth = isRetention || isPathsViz ? 8 : 6
                         const defaultHeight = !!tile.text ? minH + 1 : isRetention ? 8 : isPathsViz ? 12.5 : 5

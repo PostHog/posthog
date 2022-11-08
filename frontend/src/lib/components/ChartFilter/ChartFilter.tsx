@@ -28,8 +28,8 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     const { chartFilter } = useValues(chartFilterLogic(insightProps))
     const { setChartFilter } = useActions(chartFilterLogic(insightProps))
 
-    const cumulativeDisabled = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
-    const pieDisabled: boolean = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
+    const cumulativeDisabled = isStickinessFilter(filters) || isRetentionFilter(filters)
+    const pieDisabled: boolean = isStickinessFilter(filters) || isRetentionFilter(filters)
     const worldMapDisabled: boolean =
         isStickinessFilter(filters) ||
         (isRetentionFilter(filters) &&
@@ -38,17 +38,12 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
             filters.breakdown !== '$geoip_country_name') ||
         !isSingleSeries || // World map only works with one series
         (isTrendsFilter(filters) && !!filters.formula) // Breakdowns currently don't work with formulas
-    const boldNumberDisabled: boolean =
-        filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION || !isSingleSeries // Bold number only works with one series
-    const barDisabled: boolean = filters.insight === InsightType.RETENTION
-    const barValueDisabled: boolean =
-        barDisabled || filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
-    const defaultDisplay: ChartDisplayType =
-        filters.insight === InsightType.RETENTION
-            ? ChartDisplayType.ActionsTable
-            : filters.insight === InsightType.FUNNELS
-            ? ChartDisplayType.FunnelViz
-            : ChartDisplayType.ActionsLineGraph
+    const boldNumberDisabled: boolean = isStickinessFilter(filters) || isRetentionFilter(filters) || !isSingleSeries // Bold number only works with one series
+    const barDisabled: boolean = isRetentionFilter(filters)
+    const barValueDisabled: boolean = barDisabled || isStickinessFilter(filters) || isRetentionFilter(filters)
+    const defaultDisplay: ChartDisplayType = isRetentionFilter(filters)
+        ? ChartDisplayType.ActionsTable
+        : ChartDisplayType.ActionsLineGraph
 
     function Label({
         icon,
@@ -159,7 +154,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     return (
         <LemonSelect
             key="2"
-            value={chartFilter || defaultDisplay || filters.display}
+            value={chartFilter || defaultDisplay}
             onChange={(value) => {
                 setChartFilter(value as ChartDisplayType | FunnelVizType)
                 onChange?.(value as ChartDisplayType | FunnelVizType)
