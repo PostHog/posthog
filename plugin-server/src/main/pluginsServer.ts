@@ -107,6 +107,9 @@ export async function startPluginsServer(
         // ensure that e.g. if something goes wrong and we deadlock, then if
         // we're running in k8s, the liveness check will fail, and thus k8s will
         // kill the pod.
+        //
+        // I say hacky because we've got a weak dependency on the liveness check
+        // configuration.
         httpServer?.close()
         cancelAllScheduledJobs()
         stopEventLoopMetrics?.()
