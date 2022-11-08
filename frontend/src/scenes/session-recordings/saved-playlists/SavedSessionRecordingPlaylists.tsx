@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { SessionRecordingsTabs, SessionRecordingPlaylistType } from '~/types'
-import { savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
+import { PLAYLISTS_PER_PAGE, savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
 import { LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
 import { LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { CalendarOutlined, PushpinFilled, PushpinOutlined } from '@ant-design/icons'
 import { urls } from 'scenes/urls'
-import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
+import { createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
+import { TZLabel } from '@posthog/apps-common'
 
 export type SavedSessionRecordingPlaylistsProps = {
     tab: SessionRecordingsTabs.All | SessionRecordingsTabs.Yours | SessionRecordingsTabs.Pinned
@@ -15,7 +16,7 @@ export type SavedSessionRecordingPlaylistsProps = {
 
 export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPlaylistsProps): JSX.Element {
     const logic = savedSessionRecordingPlaylistsLogic({ tab })
-    const { playlists, playlistsLoading, filters } = useValues(logic)
+    const { playlists, playlistsLoading, filters, sorting, pagination } = useValues(logic)
     const { setSavedPlaylistsFilters } = useActions(logic)
     const { meFirstMembers } = useValues(membersLogic)
 
@@ -46,11 +47,21 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
             },
             sorter: (a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'),
         },
+        {
+            title: 'Last modified',
+            sorter: true,
+            dataIndex: 'last_modified_at',
+            render: function Render(last_modified_at) {
+                return (
+                    <div>
+                        {last_modified_at && typeof last_modified_at === 'string' && (
+                            <TZLabel time={last_modified_at} />
+                        )}
+                    </div>
+                )
+            },
+        },
         createdByColumn<SessionRecordingPlaylistType>() as LemonTableColumn<
-            SessionRecordingPlaylistType,
-            keyof SessionRecordingPlaylistType | undefined
-        >,
-        createdAtColumn<SessionRecordingPlaylistType>() as LemonTableColumn<
             SessionRecordingPlaylistType,
             keyof SessionRecordingPlaylistType | undefined
         >,
@@ -110,16 +121,16 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 loading={playlistsLoading}
                 columns={columns}
                 dataSource={playlists.results}
-                // pagination={pagination}
+                pagination={pagination}
                 noSortingCancellation
-                // sorting={sorting}
-                // onSort={(newSorting) =>
-                //     setSavedInsightsFilters({
-                //         order: newSorting ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}` : undefined,
-                //     })
-                // }
+                sorting={sorting}
+                onSort={(newSorting) =>
+                    setSavedPlaylistsFilters({
+                        order: newSorting ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}` : undefined,
+                    })
+                }
                 rowKey="id"
-                loadingSkeletonRows={15}
+                loadingSkeletonRows={PLAYLISTS_PER_PAGE}
                 nouns={['playlist', 'playlists']}
             />
         </div>

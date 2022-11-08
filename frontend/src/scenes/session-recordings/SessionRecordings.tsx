@@ -37,7 +37,7 @@ export function SessionsRecordings(): JSX.Element {
             <PageHeader
                 title={<div>Session Recordings</div>}
                 buttons={
-                    tab === SessionRecordingsTabs.Recent ? (
+                    showRecordingPlaylists && tab === SessionRecordingsTabs.Recent ? (
                         <>
                             <Tooltip title="Save the currently filters as a dynamic playlist" placement="left">
                                 <LemonButton

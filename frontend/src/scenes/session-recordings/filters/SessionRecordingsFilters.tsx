@@ -4,7 +4,8 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
-import { RecordingFilters } from '~/types'
+import { EntityTypes, FilterType, RecordingFilters } from '~/types'
+import { useEffect, useState } from 'react'
 
 interface SessionRecordingsFiltersProps {
     filters: RecordingFilters
@@ -12,11 +13,49 @@ interface SessionRecordingsFiltersProps {
     showPropertyFilters?: boolean
 }
 
+const filtersToLocalFilters = (filters: RecordingFilters): FilterType => {
+    if (filters.actions?.length || filters.events?.length) {
+        return {
+            actions: filters.actions,
+            events: filters.events,
+        }
+    }
+
+    return {
+        actions: [],
+        events: [],
+        new_entity: [
+            {
+                id: 'empty',
+                type: EntityTypes.NEW_ENTITY,
+                order: 0,
+                name: 'empty',
+            },
+        ],
+    }
+}
+
 export function SessionRecordingsFilters({
     filters,
     setFilters,
     showPropertyFilters,
 }: SessionRecordingsFiltersProps): JSX.Element {
+    const [localFilters, setLocalFilters] = useState<FilterType>(filtersToLocalFilters(filters))
+
+    // We have a copy of the filters as local state as it stores more properties than we want for playlists
+    useEffect(() => {
+        setFilters({
+            actions: localFilters.actions,
+            events: localFilters.events,
+        })
+    }, [localFilters])
+
+    useEffect(() => {
+        if (filters.actions !== localFilters.actions || filters.events !== localFilters.events) {
+            setLocalFilters(filtersToLocalFilters(filters))
+        }
+    }, [filters])
+
     return (
         <>
             <div className="flex-1 border rounded p-4">
@@ -26,16 +65,10 @@ export function SessionRecordingsFilters({
                     </LemonLabel>
                     <ActionFilter
                         bordered
-                        filters={{
-                            actions: filters.actions,
-                            events: filters.events,
-                        }}
+                        filters={localFilters}
                         setFilters={(payload) => {
                             // reportRecordingsListFilterAdded(SessionRecordingFilterType.EventAndAction)
-                            setFilters({
-                                events: payload.events,
-                                actions: payload.actions,
-                            })
+                            setLocalFilters(payload)
                         }}
                         typeKey={'session-recordings'}
                         mathAvailability={MathAvailability.None}

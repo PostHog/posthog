@@ -7,6 +7,7 @@ import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlay
 import { urls } from 'scenes/urls'
 import equal from 'fast-deep-equal'
 import { lemonToast } from '@posthog/lemon-ui'
+import { beforeUnload } from 'kea-router'
 
 export interface SessionRecordingsPlaylistLogicProps {
     shortId: string
@@ -55,6 +56,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     listeners(({ actions, values }) => ({
         saveChanges: async () => {
             actions.updatePlaylist({ filters: values.filters || undefined })
+        },
+    })),
+
+    beforeUnload(({ values, actions }) => ({
+        enabled: () => values.hasChanges,
+        message: 'Leave playlist? Changes you made will be discarded.',
+        onConfirm: () => {
+            actions.setFilters(values.playlist?.filters || null)
         },
     })),
 

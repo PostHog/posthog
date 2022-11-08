@@ -2,7 +2,6 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import api, { PaginatedResponse } from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
-    FilterType,
     PropertyFilter,
     PropertyOperator,
     RecordingFilters,
@@ -124,7 +123,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         }),
         loadNext: true,
         loadPrev: true,
-        setOffset: (offset: number) => ({ offset }),
     }),
     loaders(({ props, values, actions }) => ({
         sessionRecordingsResponse: [
