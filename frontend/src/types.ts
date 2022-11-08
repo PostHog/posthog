@@ -606,6 +606,7 @@ interface CommonActorType {
     properties: Record<string, any>
     created_at?: string
     matched_recordings?: MatchedRecording[]
+    value: number | null
 }
 
 export interface PersonActorType extends CommonActorType {

@@ -3209,7 +3209,11 @@ def trend_test_factory(trends):
                     self.assertEqual(response["count"], 3)
 
         def test_breakdown_by_property_pie(self):
-            person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"], immediate=True)
+            with freeze_time("2020-01-01T12:00:00Z"):  # Fake created_at for easier assertions
+                person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"], immediate=True)
+                person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"], immediate=True)
+                person3 = _create_person(team_id=self.team.pk, distinct_ids=["person3"], immediate=True)
+
             _create_event(
                 team=self.team,
                 event="watched movie",
@@ -3218,7 +3222,13 @@ def trend_test_factory(trends):
                 properties={"fake_prop": "value_1"},
             )
 
-            person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"], immediate=True)
+            _create_event(
+                team=self.team,
+                event="watched movie",
+                distinct_id="person2",
+                timestamp="2020-01-01T12:00:00Z",
+                properties={"fake_prop": "value_1"},
+            )
             _create_event(
                 team=self.team,
                 event="watched movie",
@@ -3234,7 +3244,6 @@ def trend_test_factory(trends):
                 properties={"fake_prop": "value_2"},
             )
 
-            person3 = _create_person(team_id=self.team.pk, distinct_ids=["person3"], immediate=True)
             _create_event(
                 team=self.team,
                 event="watched movie",
@@ -3266,18 +3275,65 @@ def trend_test_factory(trends):
                 event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
 
                 entity = Entity({"id": "watched movie", "type": "events", "math": "dau"})
-                data.update({"breakdown_value": "value_1"})
-                people = self._get_trend_people(Filter(data=data), entity)
 
+                people_value_1 = self._get_trend_people(Filter(data={**data, "breakdown_value": "value_1"}), entity)
                 # TODO: improve ee/postgres handling
-                value_1_ids = sorted(str(person["id"]) for person in people)
-                self.assertTrue(value_1_ids == sorted([str(person1.uuid), str(person2.uuid), str(person3.uuid)]))
+                assert people_value_1 == [
+                    # Persons with higher value come first
+                    {
+                        "created_at": "2020-01-01T12:00:00Z",
+                        "distinct_ids": ["person2"],
+                        "id": str(person2.uuid),
+                        "is_identified": False,
+                        "matched_recordings": None,  # No recordings
+                        "name": "person2",
+                        "properties": {},
+                        "type": "person",
+                        "uuid": str(person2.uuid),
+                        "value": 2,  # 2 events with fake_prop="value_1" in the time range
+                    },
+                    {
+                        "created_at": "2020-01-01T12:00:00Z",
+                        "distinct_ids": ["person1"],
+                        "id": str(person1.uuid),
+                        "is_identified": False,
+                        "matched_recordings": None,  # No recordings
+                        "name": "person1",
+                        "properties": {},
+                        "type": "person",
+                        "uuid": str(person1.uuid),
+                        "value": 1,  # 1 event with fake_prop="value_1" in the time range
+                    },
+                    {
+                        "created_at": "2020-01-01T12:00:00Z",
+                        "distinct_ids": ["person3"],
+                        "id": str(person3.uuid),
+                        "is_identified": False,
+                        "matched_recordings": None,  # No recordings
+                        "name": "person3",
+                        "properties": {},
+                        "type": "person",
+                        "uuid": str(person3.uuid),
+                        "value": 1,  # 1 event with fake_prop="value_1" in the time range
+                    },
+                ]
 
-                data.update({"breakdown_value": "value_2"})
-                people = self._get_trend_people(Filter(data=data), entity)
-
-                value_2_ids = [str(person["id"]) for person in people]
-                self.assertTrue(value_2_ids == [str(person2.uuid)])
+                people_value_2 = self._get_trend_people(Filter(data={**data, "breakdown_value": "value_2"}), entity)
+                # TODO: improve ee/postgres handling
+                assert people_value_2 == [
+                    {
+                        "created_at": "2020-01-01T12:00:00Z",
+                        "distinct_ids": ["person2"],
+                        "id": str(person2.uuid),
+                        "is_identified": False,
+                        "matched_recordings": None,  # No recordings
+                        "name": "person2",
+                        "properties": {},
+                        "type": "person",
+                        "uuid": str(person2.uuid),
+                        "value": 1,  # 1 event with fake_prop="value_2" in the time range
+                    }
+                ]
 
         @test_with_materialized_columns(person_properties=["name"])
         def test_breakdown_by_person_property_pie(self):
