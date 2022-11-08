@@ -53,13 +53,19 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         date_to, date_to_params = query_date_range.date_to
         date_params.update(date_from_params)
         date_params.update(date_to_params)
+        limit = request.GET.get("limit", 100)
 
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
             team_id=self.team.pk, property_group=filter.property_groups
         )
         result = sync_execute(
-            GET_ELEMENTS.format(date_from=date_from, date_to=date_to, query=prop_filters),
-            {"team_id": self.team.pk, "timezone": self.team.timezone, **prop_filter_params, **date_params},
+            GET_ELEMENTS.format(date_from=date_from, date_to=date_to, query=prop_filters, limit=limit),
+            {
+                "team_id": self.team.pk,
+                "timezone": self.team.timezone,
+                **prop_filter_params,
+                **date_params,
+            },
         )
         return response.Response(
             [
