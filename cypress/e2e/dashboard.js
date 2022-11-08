@@ -153,7 +153,7 @@ describe('Dashboard', () => {
         cy.get('.page-title').contains(dashboardName).should('exist')
     })
 
-    describe.only('deleting dashboards', () => {
+    describe('deleting dashboards', () => {
         it('can delete dashboard without deleting the insights', () => {
             cy.visit(urls.savedInsights()) // get insights list into turbo mode
             cy.clickNavMenu('dashboards')
