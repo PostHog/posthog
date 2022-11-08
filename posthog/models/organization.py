@@ -26,7 +26,6 @@ from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
 from posthog.models.utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
 from posthog.redis import get_client
-from posthog.settings.ee import EE_AVAILABLE
 from posthog.utils import absolute_uri, mask_email_address
 
 if TYPE_CHECKING:
@@ -69,11 +68,6 @@ class OrganizationManager(models.Manager):
                 user.current_organization = organization
                 user.current_team = team
                 user.save()
-            if EE_AVAILABLE and AvailableFeature.ROLE_BASED_ACCESS in organization.available_features:
-                from ee.api.role import DEFAULT_ROLE_NAME
-                from ee.models.role import Role
-
-                Role.objects.create(name=DEFAULT_ROLE_NAME, organization=organization)
 
         return organization, organization_membership, team
 

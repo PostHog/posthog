@@ -9,7 +9,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
-from posthog.permissions import OrganizationMemberPermissions, extract_organization
+from posthog.permissions import OrganizationMemberPermissions
 
 DEFAULT_ROLE_NAME = "Write"
 
@@ -22,7 +22,7 @@ class RolePermissions(BasePermission):
     message = "You need to have admin level or higher."
 
     def has_permission(self, request, view):
-        organization = extract_organization(request.user)
+        organization = request.user.organization
 
         requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
             user_id=cast(User, request.user).id,

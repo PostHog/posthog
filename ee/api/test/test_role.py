@@ -7,8 +7,6 @@ from posthog.models.organization import Organization, OrganizationMembership
 
 
 class TestRoleAPI(APILicensedTest):
-    test_role: Role
-
     def setUp(self):
         super().setUp()
 
