@@ -160,6 +160,9 @@ export const billingLogic = kea<billingLogicType>([
                 ...alertConfig,
             })
         },
+        loadBillingSuccess: ({ billing }) => {
+            posthog.group('customer', billing.customer_id)
+        },
     })),
 
     afterMount(({ actions }) => {
