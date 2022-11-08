@@ -4,7 +4,7 @@ import { ChartDisplayType, InsightLogicProps, InsightType, TrendsFilterType } fr
 import type { compareFilterLogicType } from './compareFilterLogicType'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils.ts'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export const compareFilterLogic = kea<compareFilterLogicType>({
     props: {} as InsightLogicProps,

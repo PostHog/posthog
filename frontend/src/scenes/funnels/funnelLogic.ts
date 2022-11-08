@@ -54,7 +54,7 @@ import {
 } from './funnelUtils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import { isFunnelsFilter } from 'scenes/insights/sharedUtils.ts'
+import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { teamLogic } from '../teamLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'

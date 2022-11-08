@@ -29,7 +29,7 @@ import {
     isRetentionFilter,
     isStickinessFilter,
     isTrendsFilter,
-} from 'scenes/insights/sharedUtils.ts'
+} from 'scenes/insights/sharedUtils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId, summarizeInsightFilters } from './utils'
 import { teamLogic } from '../teamLogic'

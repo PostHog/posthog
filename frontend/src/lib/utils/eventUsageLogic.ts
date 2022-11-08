@@ -41,7 +41,7 @@ import {
     isRetentionFilter,
     isStickinessFilter,
     isTrendsFilter,
-} from 'scenes/insights/sharedUtils.ts'
+} from 'scenes/insights/sharedUtils'
 export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',

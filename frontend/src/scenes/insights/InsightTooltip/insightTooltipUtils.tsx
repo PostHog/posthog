@@ -4,7 +4,7 @@ import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatBreakdownLabel } from '../utils'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils.ts'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export interface SeriesDatum {
     id: number // determines order that series will be displayed in
