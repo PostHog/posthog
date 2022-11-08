@@ -50,6 +50,7 @@ export const deleteDashboardLogic = kea<deleteDashboardLogicType>([
         },
         [dashboardsModel.actionTypes.deleteDashboardSuccess]: () => {
             actions.hideDeleteDashboardModal()
+
             if (router.values.currentLocation.pathname !== urls.dashboards()) {
                 router.actions.push(urls.dashboards())
             }
