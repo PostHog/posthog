@@ -1177,7 +1177,7 @@ export interface FilterType {
     from_dashboard?: boolean | number
 
     // TODO: move these down into specific filters
-    event?: string // specify one event
+    // event?: string // specify one event
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
     breakdowns?: Breakdown[]
@@ -1189,7 +1189,6 @@ export interface FilterType {
     aggregation_group_type_index?: number | undefined // Groups aggregation
 
     // persons modal
-    // type?: EntityType
     entity_id?: string | number
     entity_type?: EntityType
     entity_math?: string
@@ -1270,7 +1269,6 @@ export interface RetentionFilterType extends FilterType {
 export interface LifecycleFilterType extends FilterType {
     __notSameAsFilterType?: undefined
 }
-
 export type AnyFilterType =
     | TrendsFilterType
     | StickinessFilterType
@@ -1288,6 +1286,15 @@ export type AnyPartialFilterType =
     | Partial<RetentionFilterType>
     | Partial<LifecycleFilterType>
     | Partial<FilterType>
+
+export interface EventsListQueryParams {
+    event?: string
+    properties?: AnyPropertyFilter[] | PropertyGroupFilter
+    orderBy?: string[]
+    action_id?: number
+    after?: string
+    limit?: number
+}
 
 export interface RecordingEventsFilters {
     query: string
