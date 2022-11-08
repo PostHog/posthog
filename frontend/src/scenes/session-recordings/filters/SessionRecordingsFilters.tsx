@@ -42,7 +42,7 @@ export function SessionRecordingsFilters({
 }: SessionRecordingsFiltersProps): JSX.Element {
     const [localFilters, setLocalFilters] = useState<FilterType>(filtersToLocalFilters(filters))
 
-    // We have a copy of the filters as local state as it stores more properties than we want for playlists
+    // TRICKY: We have a copy of the filters as local state as it stores more properties than we want for playlists
     useEffect(() => {
         setFilters({
             actions: localFilters.actions,

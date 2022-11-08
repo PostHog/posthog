@@ -102,7 +102,6 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         return playlist
 
     def update(self, instance: SessionRecordingPlaylist, validated_data: Dict, **kwargs) -> SessionRecordingPlaylist:
-
         try:
             before_update = SessionRecordingPlaylist.objects.get(pk=instance.id)
         except SessionRecordingPlaylist.DoesNotExist:
