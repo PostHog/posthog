@@ -102,8 +102,8 @@ export async function startPluginsServer(
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
 
-        // Stop all consumers and the graphile worker, as well as the http
-        // server. Note that we close the http server before the others to
+        // HACKY: Stop all consumers and the graphile worker, as well as the
+        // http server. Note that we close the http server before the others to
         // ensure that e.g. if something goes wrong and we deadlock, then if
         // we're running in k8s, the liveness check will fail, and thus k8s will
         // kill the pod.
