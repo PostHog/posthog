@@ -148,10 +148,6 @@ class Insight(models.Model):
     def url(self):
         return absolute_uri(f"/insights/{self.short_id}")
 
-    @property
-    def display_name(self) -> str:
-        return self.name if self.name else self.derived_name
-
 
 class InsightViewed(models.Model):
     class Meta:

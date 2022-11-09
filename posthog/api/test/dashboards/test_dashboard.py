@@ -653,6 +653,19 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         after_duplication_tile_id = duplicate_response.json()["tiles"][1]["text"]["id"]
         assert after_duplication_tile_id != dashboard_with_tiles["tiles"][1]["text"]["id"]
 
+    def test_dashboard_duplication_can_duplicate_tiles_without_editing_name_if_there_is_none(self) -> None:
+        existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
+        insight_one_id, _ = self._create_insight({"dashboards": [existing_dashboard.pk], "name": None})
+        _, dashboard_with_tiles = self.dashboard_api.create_text_tile(existing_dashboard.id)
+
+        duplicate_response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {"name": "another", "use_dashboard": existing_dashboard.id, "duplicate_tiles": True},
+        )
+        self.assertEqual(duplicate_response.status_code, status.HTTP_201_CREATED)
+
+        assert duplicate_response.json()["tiles"][0]["insight"]["name"] is None
+
     def test_dashboard_duplication(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
         insight1 = Insight.objects.create(filters={"name": "test1"}, team=self.team, last_refresh=now())

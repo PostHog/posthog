@@ -156,9 +156,9 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                 existing_tiles = DashboardTile.objects.filter(dashboard=existing_dashboard).select_related("insight")
                 for existing_tile in existing_tiles:
                     if self.initial_data.get("duplicate_tiles", False):
-                        self._duplicate_tiles(dashboard, existing_tile)
+                        self._deep_duplicate_tiles(dashboard, existing_tile)
                     else:
-                        existing_tile.add_to_dashboard(dashboard)
+                        existing_tile.copy_to_dashboard(dashboard)
 
             except Dashboard.DoesNotExist:
                 raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
@@ -194,13 +194,13 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         return dashboard
 
-    def _duplicate_tiles(self, dashboard: Dashboard, existing_tile: DashboardTile) -> None:
+    def _deep_duplicate_tiles(self, dashboard: Dashboard, existing_tile: DashboardTile) -> None:
         if existing_tile.insight:
             new_data = {
                 **InsightSerializer(existing_tile.insight, context=self.context).data,
                 "id": None,  # to create a new Insight
                 "last_refresh": now(),
-                "name": existing_tile.insight.display_name + " (Copy)",
+                "name": (existing_tile.insight.name + " (Copy)") if existing_tile.insight.name else None,
             }
             new_data.pop("dashboards", None)
             new_tags = new_data.pop("tags", None)
