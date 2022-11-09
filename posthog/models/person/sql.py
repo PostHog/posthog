@@ -397,7 +397,7 @@ SELECT
     {matching_events_select_statement}
 FROM ({events_query})
 GROUP BY actor_id
-ORDER BY actor_value DESC
+ORDER BY actor_value DESC, actor_id DESC /* Also sorting by ID for determinism */
 {limit}
 {offset}
 """

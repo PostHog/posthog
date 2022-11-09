@@ -1,5 +1,4 @@
 import json
-import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Union
 from unittest.mock import patch
@@ -197,17 +196,30 @@ def trend_test_factory(trends):
 
         @snapshot_clickhouse_queries
         def test_trend_actors_person_on_events_pagination_with_alias_inconsistencies(self):
+            test_person_ids = [  # 10 test person IDs (in UUIDT format), hard-coded for deterministic runs
+                "016f70a4-1c68-0000-db29-61f63a926520",
+                "016f70a4-1c68-0001-51a1-ad418c05e09f",
+                "016f70a4-1c68-0002-9ea5-10186329258f",
+                "016f70a4-1c68-0003-7680-697adb073c10",
+                "016f70a4-1c68-0004-d0f8-7bd581c97eff",
+                "016f70a4-1c68-0005-f593-e89d76db7a1f",
+                "016f70a4-1c68-0006-bb84-d42937ef5989",
+                "016f70a4-1c68-0007-923f-82720e97a6ba",
+                "016f70a4-1c68-0008-8970-cbb33f01de1e",
+                "016f70a4-1c68-0009-75a2-3755450b0b17",
+            ]
+
             with freeze_time("2020-01-04T13:00:01Z"):
                 all_distinct_ids = []
-                for i in range(10):
+                for i, person_id in enumerate(test_person_ids):
                     distinct_id = f"blabla_{i}"
-                    last_uuid = uuid.uuid4()
+                    # UUIDT offers k-sortability, making this test effectively deterministic, as opposed to UUIDv4
                     _create_event(
                         team=self.team,
                         event="sign up",
                         distinct_id=distinct_id,
                         properties={"$some_property": "value", "$bool_prop": True},
-                        person_id=last_uuid,  # different person_ids, but in the end aliased to be the same person
+                        person_id=person_id,  # Different person_ids, but in the end aliased to be the same person
                     )
                     all_distinct_ids.append(distinct_id)
 
@@ -215,8 +227,9 @@ def trend_test_factory(trends):
                     team_id=self.team.pk,
                     distinct_ids=all_distinct_ids,
                     properties={"$some_prop": "some_val"},
-                    uuid=last_uuid,
+                    uuid=test_person_ids[-1],
                 )
+                flush_persons_and_events()
 
                 data = {"date_from": "-7d", "events": [{"id": "sign up", "math": "dau"}], "limit": 5}
 
@@ -233,13 +246,13 @@ def trend_test_factory(trends):
 
                     # pagination works, no matter how few ids in people_response
                     self.assertIsNotNone(people_response["next"])
-                    self.assertGreaterEqual(people_response["missing_persons"], 4)
+                    self.assertEqual(people_response["missing_persons"], 5)
 
                     next_url = people_response["next"]
                     second_people_response = self.client.get(f"{next_url}").json()
 
                     self.assertIsNotNone(second_people_response["next"])
-                    self.assertGreaterEqual(second_people_response["missing_persons"], 4)
+                    self.assertEqual(second_people_response["missing_persons"], 4)
                     self.assertEqual(second_people_response["missing_persons"] + people_response["missing_persons"], 9)
 
                     first_load_ids = sorted(str(person["id"]) for person in people_response["results"][0]["people"])
