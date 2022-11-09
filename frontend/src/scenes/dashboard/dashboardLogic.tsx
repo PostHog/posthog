@@ -142,7 +142,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         return dashboard
                     } catch (error: any) {
                         if (error.status === 404) {
-                            return null
+                            lemonToast.error('Dashboard not found')
+                            throw new Error('Dashboard not found')
                         }
                         throw error
                     }
@@ -579,6 +580,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         const isPathsViz = !!tile.insight && tile.insight.filters.display === ChartDisplayType.PathsViz
                         const isBoldNumber =
                             !!tile.insight && tile.insight.filters.display === ChartDisplayType.BoldNumber
+
                         const defaultWidth = isRetention || isPathsViz ? 8 : 6
                         const defaultHeight = !!tile.text ? minH + 1 : isRetention ? 8 : isPathsViz ? 12.5 : 5
                         const layout = tile.layouts && tile.layouts[col]

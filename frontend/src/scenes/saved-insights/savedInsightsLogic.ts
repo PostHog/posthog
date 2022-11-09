@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import { lemonToast } from 'lib/components/lemonToast'
 import { PaginationManual } from 'lib/components/PaginationControl'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 
 export const INSIGHTS_PER_PAGE = 30
 
@@ -35,6 +36,7 @@ export interface SavedInsightFilters {
     dateFrom: string | dayjs.Dayjs | undefined | 'all' | null
     dateTo: string | dayjs.Dayjs | undefined | null
     page: number
+    dashboardId: number | undefined | null
 }
 
 function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
@@ -48,6 +50,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
         page: parseInt(String(values.page)) || 1,
+        dashboardId: values.dashboardId,
     }
 }
 
@@ -186,6 +189,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                         date_from: filters.dateFrom,
                         date_to: filters.dateTo,
                     }),
+                ...(!!filters.dashboardId && {
+                    dashboards: [filters.dashboardId],
+                }),
             }),
         ],
         pagination: [
@@ -255,6 +261,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
         },
         [dashboardsModel.actionTypes.updateDashboardInsight]: () => actions.loadInsights(),
         [dashboardsModel.actionTypes.duplicateDashboardSuccess]: () => actions.loadInsights(),
+        [deleteDashboardLogic.actionTypes.submitDeleteDashboardSuccess]: ({ deleteDashboard }) => {
+            if (deleteDashboard.deleteInsights) {
+                actions.loadInsights()
+            }
+        },
     }),
     actionToUrl: ({ values }) => {
         const changeUrl = ():

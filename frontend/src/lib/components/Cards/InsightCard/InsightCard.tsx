@@ -33,7 +33,7 @@ import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import './InsightCard.scss'
 import { InsightDetails } from './InsightDetails'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
-import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
 import { DashboardInsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
@@ -50,10 +50,11 @@ import { AlertMessage } from '../../AlertMessage'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { SpinnerOverlay } from '../../Spinner/Spinner'
+import { CardMeta, Resizeable } from 'lib/components/Cards/Card'
+import { DashboardPrivilegeLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { CardMeta, Resizeable } from 'lib/components/Cards/Card'
 
 // TODO: Add support for Retention to InsightDetails
 export const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -224,6 +225,7 @@ function InsightMeta({
             showDetailsControls={showDetailsControls}
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
+            className={'border-b'}
             topHeading={
                 <>
                     <span title={INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS]?.description}>
@@ -526,7 +528,7 @@ function InsightCardInternal(
 
     return (
         <div
-            className={clsx('Card InsightCard', highlighted && 'InsightCard--highlighted', className)}
+            className={clsx('InsightCard', highlighted && 'InsightCard--highlighted', className)}
             data-attr="insight-card"
             {...divProps}
             ref={ref}
@@ -560,7 +562,7 @@ function InsightCardInternal(
                     invalidFunnelExclusion={invalidFunnelExclusion}
                     style={
                         metaPrimaryHeight
-                            ? { height: `calc(100% - ${metaPrimaryHeight}px - 1rem /* margins */ - 1px /* border */)` }
+                            ? { height: `calc(100% - ${metaPrimaryHeight}px - 2rem /* margins */ - 1px /* border */)` }
                             : undefined
                     }
                     setAreDetailsShown={setAreDetailsShown}
@@ -577,4 +579,5 @@ function InsightCardInternal(
         </div>
     )
 }
+
 export const InsightCard = React.forwardRef(InsightCardInternal) as typeof InsightCardInternal

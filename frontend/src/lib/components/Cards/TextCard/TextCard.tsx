@@ -76,7 +76,7 @@ export function TextCardInternal(
     const otherDashboards = nameSortedDashboards.filter((dashboard) => dashboard.id !== dashboardId)
     return (
         <div
-            className={clsx('Card TextCard rounded flex flex-col', className, showResizeHandles && 'border')}
+            className={clsx('TextCard rounded flex flex-col', className, showResizeHandles && 'border')}
             data-attr="text-card"
             {...divProps}
             ref={ref}
@@ -166,7 +166,7 @@ export function TextCardInternal(
                 closeDetails={() => setAreDetailsShown(false)}
                 style={
                     metaPrimaryHeight
-                        ? { height: `calc(100% - ${metaPrimaryHeight}px - 1rem /* margins */ - 1px /* border */)` }
+                        ? { height: `calc(100% - ${metaPrimaryHeight}px - 2rem /* margins */ - 1px /* border */)` }
                         : undefined
                 }
             />

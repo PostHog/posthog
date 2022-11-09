@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LockOutlined } from '@ant-design/icons'
-import { featureFlagLogic } from './featureFlagLogic'
+import { defaultPropertyOnFlag, featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -41,8 +41,10 @@ import { allOperatorsToHumanName } from 'lib/components/DefinitionPopup/utils'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
 import { cohortsModel } from '~/models/cohortsModel'
+import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagRecordings } from './FeatureFlagRecordingsCard'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { EventsTable } from 'scenes/events'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -202,7 +204,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 If your feature flag is applied prior to an identify or authentication
                                                 event, use this to ensure that feature flags are not reset after a
                                                 person is identified. This ensures the experience for the anonymous
-                                                person is carried forward to the authenticated person.
+                                                person is carried forward to the authenticated person.{' '}
+                                                <Link
+                                                    to="https://posthog.com/manual/feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                    target="_blank"
+                                                >
+                                                    Learn more <IconOpenInNew />
+                                                </Link>
                                             </div>
                                         </div>
                                     )}
@@ -228,6 +236,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         <FeatureFlagRollout />
                         <Divider />
                         <FeatureFlagReleaseConditions />
+                        <Divider />
+                        {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && <FeatureFlagAutoRollback />}
                         <LemonDivider className="mt-8" />
                         <div className="flex items-center gap-2 justify-end">
                             <LemonButton
@@ -328,6 +338,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <Col span={13}>
                                                 <FeatureFlagRollout readOnly />
                                                 <FeatureFlagReleaseConditions readOnly />
+                                                {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
+                                                    <FeatureFlagAutoRollback readOnly />
+                                                )}
                                             </Col>
                                             <Col span={11} className="pl-4">
                                                 <RecentFeatureFlagInsights />
@@ -342,6 +355,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             </Col>
                                         </Row>
                                     </Tabs.TabPane>
+                                    {featureFlags[FEATURE_FLAGS.EXPOSURES_ON_FEATURE_FLAGS] && featureFlag.key && id && (
+                                        <Tabs.TabPane tab="Exposures" key="exposure">
+                                            <ExposureTab id={id} featureFlagKey={featureFlag.key} />
+                                        </Tabs.TabPane>
+                                    )}
                                     {featureFlag.id && (
                                         <Tabs.TabPane tab="History" key="history">
                                             <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
@@ -354,6 +372,22 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                 )}
             </div>
         </>
+    )
+}
+
+function ExposureTab({ id, featureFlagKey }: { id: string; featureFlagKey: string }): JSX.Element {
+    return (
+        <EventsTable
+            fixedFilters={{
+                event_filter: '$feature_flag_called',
+                properties: defaultPropertyOnFlag(featureFlagKey),
+            }}
+            sceneUrl={urls.featureFlag(id)}
+            fetchMonths={3}
+            pageKey={`feature-flag-${featureFlagKey}}`}
+            showEventFilter={false}
+            showPropertyFilter={false}
+        />
     )
 }
 

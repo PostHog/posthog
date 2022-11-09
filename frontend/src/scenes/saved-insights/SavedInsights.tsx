@@ -8,8 +8,6 @@ import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 import { AppstoreFilled, StarFilled, StarOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { membersLogic } from 'scenes/organization/Settings/membersLogic'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { teamLogic } from '../teamLogic'
@@ -38,9 +36,9 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { PaginationControl, usePagination } from 'lib/components/PaginationControl'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { CalendarOutlined } from '@ant-design/icons'
-import { LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 
 const { TabPane } = Tabs
 
@@ -205,12 +203,11 @@ export function SavedInsights(): JSX.Element {
     const { insights, count, insightsLoading, filters, sorting, pagination } = useValues(savedInsightsLogic)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { meFirstMembers } = useValues(membersLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
 
-    const { tab, createdBy, layoutView, search, insightType, dateFrom, dateTo, page } = filters
+    const { tab, layoutView, page } = filters
 
     const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
     const endCount = page * INSIGHTS_PER_PAGE < count ? page * INSIGHTS_PER_PAGE : count
@@ -231,7 +228,7 @@ export function SavedInsights(): JSX.Element {
             render: function renderName(name: string, insight) {
                 return (
                     <>
-                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <div className={'flex items-center'}>
                             <Link to={urls.insightView(insight.short_id)} className="row-name">
                                 {name || (
                                     <i>
@@ -245,7 +242,7 @@ export function SavedInsights(): JSX.Element {
                                 )}
                             </Link>
                             <div
-                                style={{ cursor: 'pointer', width: 'fit-content', marginLeft: 8 }}
+                                className={'ml-32 w-fit cursor-pointer'}
                                 onClick={() => updateFavoritedInsight(insight, !insight.favorited)}
                             >
                                 {insight.favorited ? (
@@ -284,9 +281,7 @@ export function SavedInsights(): JSX.Element {
             dataIndex: 'last_modified_at',
             render: function renderLastModified(last_modified_at: string) {
                 return (
-                    <div style={{ whiteSpace: 'nowrap' }}>
-                        {last_modified_at && <TZLabel time={last_modified_at} />}
-                    </div>
+                    <div className={'whitespace-nowrap'}>{last_modified_at && <TZLabel time={last_modified_at} />}</div>
                 )
             },
         },
@@ -362,65 +357,7 @@ export function SavedInsights(): JSX.Element {
                 <ActivityLog scope={ActivityScope.INSIGHT} />
             ) : (
                 <>
-                    <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
-                        <LemonInput
-                            type="search"
-                            placeholder="Search for insights"
-                            onChange={(value) => setSavedInsightsFilters({ search: value })}
-                            value={search || ''}
-                        />
-                        <div className="flex items-center gap-2 flex-wrap">
-                            <div className="flex items-center gap-2">
-                                <span>Type:</span>
-                                <LemonSelect
-                                    size="small"
-                                    options={INSIGHT_TYPE_OPTIONS}
-                                    value={insightType}
-                                    onChange={(v: any): void => setSavedInsightsFilters({ insightType: v })}
-                                    dropdownMatchSelectWidth={false}
-                                    data-attr="insight-type"
-                                />
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <span>Last modified:</span>
-                                <DateFilter
-                                    disabled={false}
-                                    dateFrom={dateFrom}
-                                    dateTo={dateTo}
-                                    onChange={(fromDate, toDate) =>
-                                        setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate ?? undefined })
-                                    }
-                                    makeLabel={(key) => (
-                                        <>
-                                            <CalendarOutlined />
-                                            <span className="hide-when-small"> {key}</span>
-                                        </>
-                                    )}
-                                />
-                            </div>
-                            {tab !== SavedInsightsTabs.Yours ? (
-                                <div className="flex items-center gap-2">
-                                    <span>Created by:</span>
-                                    {/* TODO: Fix issues with user name order due to numbers having priority */}
-                                    <LemonSelect
-                                        size="small"
-                                        options={[
-                                            { value: 'All users' as number | 'All users', label: 'All Users' },
-                                            ...meFirstMembers.map((x) => ({
-                                                value: x.user.id,
-                                                label: x.user.first_name,
-                                            })),
-                                        ]}
-                                        value={createdBy}
-                                        onChange={(v: any): void => {
-                                            setSavedInsightsFilters({ createdBy: v })
-                                        }}
-                                        dropdownMatchSelectWidth={false}
-                                    />
-                                </div>
-                            ) : null}
-                        </div>
-                    </div>
+                    <SavedInsightsFilters />
                     <LemonDivider />
                     <div className="flex justify-between mb-4 mt-2 items-center">
                         <span className="text-muted-alt">
@@ -428,7 +365,7 @@ export function SavedInsights(): JSX.Element {
                                 ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
                                       count === 1 ? '' : 's'
                                   }`
-                                : 'No insights yet'}
+                                : null}
                         </span>
                         <div>
                             <Radio.Group

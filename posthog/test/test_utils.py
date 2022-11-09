@@ -1,3 +1,4 @@
+from datetime import datetime
 from unittest.mock import call, patch
 
 import pytest
@@ -18,6 +19,7 @@ from posthog.utils import (
     absolute_uri,
     format_query_params_absolute_url,
     get_available_timezones_with_offsets,
+    get_compare_period_dates,
     get_default_event_name,
     load_data_from_request,
     mask_email_address,
@@ -327,3 +329,15 @@ class TestShouldRefresh(TestCase):
         drf_request = Request(HttpRequest())
         drf_request._full_data = {"refresh": False}  # type: ignore
         self.assertFalse(should_refresh(drf_request))
+
+    def test_can_get_period_to_compare_when_interval_is_day(self) -> None:
+        """
+        regression test see https://sentry.io/organizations/posthog/issues/3719740579/events/latest/?project=1899813&referrer=latest-event
+        """
+        assert get_compare_period_dates(
+            date_from=datetime(2022, 1, 1, 0, 0),
+            date_to=datetime(2022, 11, 4, 21, 20, 41, 730028),
+            date_from_delta_mapping={"day": 1, "month": 1},
+            date_to_delta_mapping=None,
+            interval="day",
+        ) == (datetime(2021, 2, 27, 0, 0), datetime(2021, 12, 31, 23, 59, 59, 999999))

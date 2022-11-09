@@ -1,38 +1,6 @@
 import { urls } from 'scenes/urls'
 import { randomString } from '../support/random'
-
-function applyFilter() {
-    cy.get('[data-attr=insight-filters-add-filter-group]').click()
-    cy.get('[data-attr=property-select-toggle-0]').click()
-    cy.get('[data-attr=taxonomic-filter-searchfield]').click()
-    cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
-    cy.get('[data-attr=prop-val]').click()
-    cy.get('[data-attr=prop-val-0]').click({ force: true })
-}
-
-function createANewInsight(insightName) {
-    cy.visit('/saved_insights/') // Should work with trailing slash just like without it
-    cy.get('[data-attr=saved-insights-new-insight-dropdown]').click()
-    cy.get('[data-attr-insight-type="TRENDS"').click()
-
-    applyFilter()
-
-    if (insightName) {
-        cy.get('[data-attr="insight-name"] [data-attr="edit-prop-name"]').click()
-        cy.get('[data-attr="insight-name"] input').type(insightName)
-        cy.get('[data-attr="insight-name"] [title="Save"]').click()
-    }
-
-    cy.get('[data-attr="insight-save-button"]').click()
-    // wait for save to complete and URL to change and include short id
-    cy.url().should('not.include', '/new')
-}
-
-function checkInsightIsInListView(insightName) {
-    // turbo mode updated the insights list
-    cy.visit(urls.savedInsights())
-    cy.contains('.saved-insights table tr', insightName).should('exist')
-}
+import { savedInsights, createInsight } from 'cypress/productAnalytics'
 
 // For tests related to trends please check trendsElements.js
 describe('Insights', () => {
@@ -41,7 +9,7 @@ describe('Insights', () => {
     })
 
     it('Saving an insight sets breadcrumbs', () => {
-        createANewInsight()
+        createInsight()
 
         cy.get('[data-attr=breadcrumb-0]').should('contain', 'Hogflix')
         cy.get('[data-attr=breadcrumb-1]').should('contain', 'Hogflix Demo App')
@@ -52,7 +20,7 @@ describe('Insights', () => {
     it('Can change insight name', () => {
         const startingName = randomString('starting-value-')
         const editedName = randomString('edited-value-')
-        createANewInsight(startingName)
+        createInsight(startingName)
         cy.get('[data-attr="insight-name"]').should('contain', startingName)
 
         cy.get('[data-attr="insight-name"] [data-attr="edit-prop-name"]').click()
@@ -61,11 +29,11 @@ describe('Insights', () => {
 
         cy.get('[data-attr="insight-name"]').should('contain', editedName)
 
-        checkInsightIsInListView(editedName)
+        savedInsights.checkInsightIsInListView(editedName)
     })
 
     it('Can undo a change of insight name', () => {
-        createANewInsight('starting value')
+        createInsight('starting value')
         cy.get('[data-attr="insight-name"]').should('contain', 'starting value')
 
         cy.get('[data-attr="insight-name"]').scrollIntoView()
@@ -80,14 +48,14 @@ describe('Insights', () => {
         cy.get('[data-attr="insight-name"]').should('not.contain', 'edited value')
         cy.get('[data-attr="insight-name"]').should('contain', 'starting value')
 
-        checkInsightIsInListView('starting value')
+        savedInsights.checkInsightIsInListView('starting value')
     })
 
     it('Create new insight and save and continue editing', () => {
         cy.intercept('PATCH', /\/api\/projects\/\d+\/insights\/\d+\/?/).as('patchInsight')
 
         const insightName = randomString('insight-name-')
-        createANewInsight(insightName)
+        createInsight(insightName)
 
         cy.get('[data-attr="insight-edit-button"]').click()
 
@@ -106,7 +74,7 @@ describe('Insights', () => {
             cy.get('[data-attr="insight-save-button"]').should('exist')
         })
 
-        checkInsightIsInListView(insightName)
+        savedInsights.checkInsightIsInListView(insightName)
     })
 
     describe('unsaved insights confirmation', () => {
@@ -223,7 +191,7 @@ describe('Insights', () => {
         beforeEach(() => {
             cy.visit(urls.savedInsights()) // make sure turbo mode has cached this page
             insightName = randomString('insight-name-')
-            createANewInsight(insightName)
+            createInsight(insightName)
         })
         it('can duplicate insights from the insights list view', () => {
             cy.visit(urls.savedInsights())
@@ -237,11 +205,11 @@ describe('Insights', () => {
         it('can duplicate insights from the insights card view', () => {
             cy.visit(urls.savedInsights())
             cy.contains('.saved-insights .ant-radio-button-wrapper', 'Cards').click()
-            cy.contains('.InsightMeta', insightName).within(() => {
+            cy.contains('.CardMeta', insightName).within(() => {
                 cy.get('[data-attr="more-button"]').click()
             })
             cy.get('[data-attr="duplicate-insight-from-card-list-view"]').click()
-            cy.contains('.InsightMeta', `${insightName} (copy)`).should('exist')
+            cy.contains('.CardMeta', `${insightName} (copy)`).should('exist')
         })
 
         it('can duplicate from insight view', () => {
@@ -249,7 +217,7 @@ describe('Insights', () => {
             cy.get('[data-attr="duplicate-insight-from-insight-view"]').click()
             cy.get('[data-attr="insight-name"]').should('contain', `${insightName} (copy)`)
 
-            checkInsightIsInListView(`${insightName} (copy)`)
+            savedInsights.checkInsightIsInListView(`${insightName} (copy)`)
         })
 
         it('can save insight as a copy', () => {
@@ -260,7 +228,7 @@ describe('Insights', () => {
             cy.get('.ant-modal-content .ant-btn-primary').click()
             cy.get('[data-attr="insight-name"]').should('contain', `${insightName} (copy)`)
 
-            checkInsightIsInListView(`${insightName} (copy)`)
+            savedInsights.checkInsightIsInListView(`${insightName} (copy)`)
         })
     })
 })

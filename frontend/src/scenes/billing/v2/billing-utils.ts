@@ -57,6 +57,10 @@ export const convertUsageToAmount = (usage: number, tiers: BillingProductV2Type[
 }
 
 export const convertAmountToUsage = (amount: string, tiers: BillingProductV2Type['tiers']): number => {
+    if (!amount) {
+        return 0
+    }
+
     let remainingAmount = parseFloat(amount)
     let usage = 0
     let previousTier: BillingProductV2Type['tiers'][0] | undefined = undefined
@@ -66,6 +70,13 @@ export const convertAmountToUsage = (amount: string, tiers: BillingProductV2Type
             return tiers[0].up_to || 0
         }
         return 0
+    }
+
+    const allTiersZero = tiers.every((tier) => !parseFloat(tier.unit_amount_usd))
+
+    if (allTiersZero) {
+        // Free plan - usage cannot be calculated
+        return tiers[0].up_to || 0
     }
 
     for (const tier of tiers) {

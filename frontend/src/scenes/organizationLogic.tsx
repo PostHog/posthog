@@ -43,11 +43,13 @@ export const organizationLogic = kea<organizationLogicType>({
             (currentOrganization, currentOrganizationLoading): boolean =>
                 !currentOrganization?.membership_level && !currentOrganizationLoading,
         ],
-        isProjectCreationForbidden: [
+        projectCreationForbiddenReason: [
             (s) => [s.currentOrganization],
-            (currentOrganization) =>
+            (currentOrganization): string | null =>
                 !currentOrganization?.membership_level ||
-                currentOrganization.membership_level < OrganizationMembershipLevel.Admin,
+                currentOrganization.membership_level < OrganizationMembershipLevel.Admin
+                    ? 'You need to be an organization admin or above to create new projects.'
+                    : null,
         ],
     },
     loaders: ({ values }) => ({

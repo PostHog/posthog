@@ -147,27 +147,19 @@ def trend_test_factory(trends):
             _create_action(team=self.team, name="sign up")
 
         def _create_event_count_per_user_events(self):
-            _create_person(team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"])
-            _create_person(team_id=self.team.pk, distinct_ids=["tintin"])
-            _create_person(team_id=self.team.pk, distinct_ids=["murmur"])
-            _create_person(team_id=self.team.pk, distinct_ids=["reeree"])
+            _create_person(team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"fruit": "mango"})
+            _create_person(team_id=self.team.pk, distinct_ids=["tintin"], properties={"fruit": "mango"})
+            _create_person(team_id=self.team.pk, distinct_ids=["murmur"], properties={})  # No fruit here
+            _create_person(team_id=self.team.pk, distinct_ids=["reeree"], properties={"fruit": "tomato"})
 
             with freeze_time("2020-01-01 00:06:02"):
                 _create_event(
-                    team=self.team,
-                    event="viewed video",
-                    distinct_id="anonymous_id",
+                    team=self.team, event="viewed video", distinct_id="anonymous_id", properties={"color": "red"}
                 )
                 _create_event(
-                    team=self.team,
-                    event="viewed video",
-                    distinct_id="blabla",
+                    team=self.team, event="viewed video", distinct_id="blabla", properties={}  # No color here
                 )
-                _create_event(
-                    team=self.team,
-                    event="viewed video",
-                    distinct_id="reeree",
-                )
+                _create_event(team=self.team, event="viewed video", distinct_id="reeree", properties={"color": "blue"})
                 _create_event(
                     team=self.team,
                     event="sign up",
@@ -182,33 +174,13 @@ def trend_test_factory(trends):
                 )
 
             with freeze_time("2020-01-04 23:17:00"):
-                _create_event(
-                    team=self.team,
-                    event="viewed video",
-                    distinct_id="tintin",
-                )
+                _create_event(team=self.team, event="viewed video", distinct_id="tintin", properties={"color": "red"})
 
             with freeze_time("2020-01-05 19:06:34"):
-                _create_event(
-                    team=self.team,
-                    event="viewed video",
-                    distinct_id="blabla",
-                )
-                _create_event(
-                    team=self.team,
-                    event="viewed video",
-                    distinct_id="tintin",
-                )
-                _create_event(
-                    team=self.team,
-                    event="viewed video",
-                    distinct_id="tintin",
-                )
-                _create_event(
-                    team=self.team,
-                    event="viewed video",
-                    distinct_id="tintin",
-                )
+                _create_event(team=self.team, event="viewed video", distinct_id="blabla", properties={"color": "blue"})
+                _create_event(team=self.team, event="viewed video", distinct_id="tintin", properties={"color": "red"})
+                _create_event(team=self.team, event="viewed video", distinct_id="tintin", properties={"color": "red"})
+                _create_event(team=self.team, event="viewed video", distinct_id="tintin", properties={"color": "blue"})
 
         def test_trends_per_day(self):
             self._create_events()
@@ -223,6 +195,7 @@ def trend_test_factory(trends):
             self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
             self.assertEqual(response[0]["data"][5], 1.0)
 
+        @snapshot_clickhouse_queries
         def test_trend_actors_person_on_events_pagination_with_alias_inconsistencies(self):
             with freeze_time("2020-01-04T13:00:01Z"):
                 all_distinct_ids = []
@@ -1199,10 +1172,12 @@ def trend_test_factory(trends):
             breakdown_vals = [val["breakdown_value"] for val in daily_response]
             self.assertTrue("value_21" in breakdown_vals)
 
-        def test_trends_compare(self):
+        def test_trends_compare_day_interval_relative_range(self):
             self._create_events()
             with freeze_time("2020-01-04T13:00:01Z"):
-                response = trends().run(Filter(data={"compare": "true", "events": [{"id": "sign up"}]}), self.team)
+                response = trends().run(
+                    Filter(data={"compare": "true", "date_from": "-7d", "events": [{"id": "sign up"}]}), self.team
+                )
 
             self.assertEqual(response[0]["label"], "sign up")
             self.assertEqual(response[0]["labels"][4], "day 4")
@@ -1212,28 +1187,28 @@ def trend_test_factory(trends):
             self.assertEqual(
                 response[0]["days"],
                 [
-                    "2019-12-28",
-                    "2019-12-29",
-                    "2019-12-30",
-                    "2019-12-31",
-                    "2020-01-01",
-                    "2020-01-02",
-                    "2020-01-03",
-                    "2020-01-04",
+                    "2019-12-28",  # -7d, current period
+                    "2019-12-29",  # -6d, current period
+                    "2019-12-30",  # -5d, current period
+                    "2019-12-31",  # -4d, current period
+                    "2020-01-01",  # -3d, current period
+                    "2020-01-02",  # -2d, current period
+                    "2020-01-03",  # -1d, current period
+                    "2020-01-04",  # -0d, current period (this one's ongoing!)
                 ],
             )
 
             self.assertEqual(
                 response[1]["days"],
                 [
-                    "2019-12-21",
-                    "2019-12-22",
-                    "2019-12-23",
-                    "2019-12-24",
-                    "2019-12-25",
-                    "2019-12-26",
-                    "2019-12-27",
-                    "2019-12-28",
+                    "2019-12-21",  # -7d, previous period
+                    "2019-12-22",  # -6d, previous period
+                    "2019-12-23",  # -5d, previous period
+                    "2019-12-24",  # -4d, previous period
+                    "2019-12-25",  # -3d, previous period
+                    "2019-12-26",  # -2d, previous period
+                    "2019-12-27",  # -1d, previous period
+                    "2019-12-28",  # -0d, previous period
                 ],
             )
             self.assertEqual(response[1]["label"], "sign up")
@@ -1252,6 +1227,165 @@ def trend_test_factory(trends):
             self.assertEqual(no_compare_response[0]["data"][4], 3.0)
             self.assertEqual(no_compare_response[0]["labels"][5], "2-Jan-2020")
             self.assertEqual(no_compare_response[0]["data"][5], 1.0)
+
+        def test_trends_compare_day_interval_fixed_range_single(self):
+            self._create_events(use_time=True)
+            with freeze_time("2020-01-02T20:17:00Z"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "compare": "true",
+                            # A fixed single-day range requires different handling than a relative range like -7d
+                            "date_from": "2020-01-02",
+                            "interval": "day",
+                            "events": [{"id": "sign up"}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(
+                response[0]["days"],
+                [
+                    "2020-01-02",  # Current day
+                ],
+            )
+            self.assertEqual(
+                response[0]["data"],
+                [1],
+            )
+            self.assertEqual(
+                response[1]["days"],
+                [
+                    "2020-01-01",  # Previous day
+                ],
+            )
+            self.assertEqual(
+                response[1]["data"],
+                [
+                    3,
+                ],
+            )
+
+        def test_trends_compare_hour_interval_relative_range(self):
+            self._create_events(use_time=True)
+            with freeze_time("2020-01-02T20:17:00Z"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "compare": "true",
+                            "date_from": "dStart",
+                            "interval": "hour",
+                            "events": [{"id": "sign up"}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(
+                response[0]["days"],
+                [
+                    "2020-01-02 00:00:00",
+                    "2020-01-02 01:00:00",
+                    "2020-01-02 02:00:00",
+                    "2020-01-02 03:00:00",
+                    "2020-01-02 04:00:00",
+                    "2020-01-02 05:00:00",
+                    "2020-01-02 06:00:00",
+                    "2020-01-02 07:00:00",
+                    "2020-01-02 08:00:00",
+                    "2020-01-02 09:00:00",
+                    "2020-01-02 10:00:00",
+                    "2020-01-02 11:00:00",
+                    "2020-01-02 12:00:00",
+                    "2020-01-02 13:00:00",
+                    "2020-01-02 14:00:00",
+                    "2020-01-02 15:00:00",
+                    "2020-01-02 16:00:00",
+                    "2020-01-02 17:00:00",
+                    "2020-01-02 18:00:00",
+                    "2020-01-02 19:00:00",
+                    "2020-01-02 20:00:00",
+                ],
+            )
+            self.assertEqual(
+                response[0]["data"],
+                [
+                    0,  # 00:00
+                    0,  # 01:00
+                    0,  # 02:00
+                    0,  # 03:00
+                    0,  # 04:00
+                    0,  # 05:00
+                    0,  # 06:00
+                    0,  # 07:00
+                    0,  # 08:00
+                    0,  # 09:00
+                    0,  # 10:00
+                    0,  # 11:00
+                    0,  # 12:00
+                    0,  # 13:00
+                    0,  # 14:00
+                    0,  # 15:00
+                    1,  # 16:00
+                    0,  # 17:00
+                    0,  # 18:00
+                    0,  # 19:00
+                    0,  # 20:00
+                ],
+            )
+            self.assertEqual(
+                response[1]["days"],
+                [
+                    "2020-01-01 00:00:00",
+                    "2020-01-01 01:00:00",
+                    "2020-01-01 02:00:00",
+                    "2020-01-01 03:00:00",
+                    "2020-01-01 04:00:00",
+                    "2020-01-01 05:00:00",
+                    "2020-01-01 06:00:00",
+                    "2020-01-01 07:00:00",
+                    "2020-01-01 08:00:00",
+                    "2020-01-01 09:00:00",
+                    "2020-01-01 10:00:00",
+                    "2020-01-01 11:00:00",
+                    "2020-01-01 12:00:00",
+                    "2020-01-01 13:00:00",
+                    "2020-01-01 14:00:00",
+                    "2020-01-01 15:00:00",
+                    "2020-01-01 16:00:00",
+                    "2020-01-01 17:00:00",
+                    "2020-01-01 18:00:00",
+                    "2020-01-01 19:00:00",
+                    "2020-01-01 20:00:00",
+                ],
+            )
+            self.assertEqual(
+                response[1]["data"],
+                [
+                    3,  # 00:00
+                    0,  # 01:00
+                    0,  # 02:00
+                    0,  # 03:00
+                    0,  # 04:00
+                    0,  # 05:00
+                    0,  # 06:00
+                    0,  # 07:00
+                    0,  # 08:00
+                    0,  # 09:00
+                    0,  # 10:00
+                    0,  # 11:00
+                    0,  # 12:00
+                    0,  # 13:00
+                    0,  # 14:00
+                    0,  # 15:00
+                    0,  # 16:00
+                    0,  # 17:00
+                    0,  # 18:00
+                    0,  # 19:00
+                    0,  # 20:00
+                ],
+            )
 
         def _test_events_with_dates(self, dates: List[str], result, query_time=None, **filter_params):
             _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
@@ -5116,6 +5250,98 @@ def trend_test_factory(trends):
                 "2020-01-07",
             ]
             assert daily_response[0]["data"] == [2.0, 0.0, 0.0, 1.0, 3.0, 0.0, 0.0]
+
+        def test_trends_volume_per_user_average_with_event_property_breakdown(self):
+            self._create_event_count_per_user_events()
+
+            daily_response = trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_LINEAR,
+                        "breakdown": "color",
+                        "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-07",
+                    }
+                ),
+                self.team,
+            )
+
+            assert len(daily_response) == 3
+            assert daily_response[0]["breakdown_value"] == "red"
+            assert daily_response[1]["breakdown_value"] == "blue"
+            assert daily_response[2]["breakdown_value"] == ""
+            assert daily_response[0]["days"] == [
+                "2020-01-01",
+                "2020-01-02",
+                "2020-01-03",
+                "2020-01-04",
+                "2020-01-05",
+                "2020-01-06",
+                "2020-01-07",
+            ]
+            assert daily_response[1]["days"] == daily_response[0]["days"]
+            assert daily_response[2]["days"] == daily_response[0]["days"]
+            assert daily_response[0]["data"] == [1.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0]  # red
+            assert daily_response[1]["data"] == [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]  # blue
+            assert daily_response[2]["data"] == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # none
+
+        def test_trends_volume_per_user_average_with_person_property_breakdown(self):
+            self._create_event_count_per_user_events()
+
+            daily_response = trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_LINEAR,
+                        "breakdown": "fruit",
+                        "breakdown_type": "person",
+                        "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-07",
+                    }
+                ),
+                self.team,
+            )
+
+            assert len(daily_response) == 2
+            assert daily_response[0]["breakdown_value"] == "mango"
+            assert daily_response[1]["breakdown_value"] == "tomato"
+            assert daily_response[0]["days"] == [
+                "2020-01-01",
+                "2020-01-02",
+                "2020-01-03",
+                "2020-01-04",
+                "2020-01-05",
+                "2020-01-06",
+                "2020-01-07",
+            ]
+            assert daily_response[1]["days"] == daily_response[0]["days"]
+            assert daily_response[0]["data"] == [2.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0]  # red
+            assert daily_response[1]["data"] == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # blue
+
+        def test_trends_volume_per_user_average_aggregated_with_event_property_breakdown(self):
+            self._create_event_count_per_user_events()
+
+            daily_response = trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_TABLE,
+                        "breakdown": "color",
+                        "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-07",
+                    }
+                ),
+                self.team,
+            )
+
+            assert len(daily_response) == 3
+            assert daily_response[0]["breakdown_value"] == "red"
+            assert daily_response[1]["breakdown_value"] == "blue"
+            assert daily_response[2]["breakdown_value"] == ""
+            assert daily_response[0]["aggregated_value"] == 2.0  # red
+            assert daily_response[1]["aggregated_value"] == 1.0  # blue
+            assert daily_response[2]["aggregated_value"] == 1.0  # none
 
     return TestTrends
 
