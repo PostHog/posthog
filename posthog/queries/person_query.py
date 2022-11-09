@@ -101,7 +101,7 @@ class PersonQuery:
                     WHERE team_id = %(team_id)s
                     ORDER BY version DESC
                     LIMIT 1 BY id
-                )
+                ) AS person
                 WHERE True AND {person_filters}
             )
             GROUP BY id
