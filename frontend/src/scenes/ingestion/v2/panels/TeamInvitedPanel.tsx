@@ -5,9 +5,10 @@ import './Panels.scss'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { IconChevronRight } from 'lib/components/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { BOOKMARKLET } from '../constants'
 
 export function TeamInvitedPanel(): JSX.Element {
-    const { completeOnboarding } = useActions(ingestionLogic)
+    const { completeOnboarding, setTechnical, setPlatform } = useActions(ingestionLogic)
     const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
 
     return (
@@ -20,7 +21,8 @@ export function TeamInvitedPanel(): JSX.Element {
             <div className="flex flex-col mb-6">
                 <LemonButton
                     onClick={() => {
-                        // Import demo data here!
+                        setTechnical(false)
+                        setPlatform(BOOKMARKLET)
                     }}
                     fullWidth
                     size="large"
@@ -29,9 +31,9 @@ export function TeamInvitedPanel(): JSX.Element {
                     sideIcon={<IconChevronRight />}
                 >
                     <div className="mt-4 mb-0">
-                        <p className="mb-2">Explore PostHog with some demo data.</p>
+                        <p className="mb-2">Quickly try PostHog with our Bookmarklet.</p>
                         <p className="font-normal text-xs">
-                            Experience all PostHog has to offer without any of the setup.
+                            Create a few events and experience all PostHog has to offer without any of the setup.
                         </p>
                     </div>
                 </LemonButton>
