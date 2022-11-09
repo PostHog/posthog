@@ -20,10 +20,21 @@
               FROM person
               WHERE team_id = %(team_id)s
               AND id IN (
-                  SELECT id FROM person
-                  
-                  WHERE team_id = %(team_id)s
-                  AND (   person."pmat_email" ILIKE %(v_0)s)
+                  SELECT id FROM (
+                      SELECT *
+                      FROM person
+                      
+                      WHERE team_id = %(team_id)s
+                      ORDER BY version DESC
+                      LIMIT 1 BY id
+                      -- NOTE: by default asterisk doesn't include materialized
+                      -- columns. I don't know how optimised this is e.g. if the
+                      -- stream returned by this subquery will include literally
+                      -- everything of if it will be optimised to only include
+                      -- those columns that are actually used in the outer query.
+                      SETTINGS asterisk_include_materialized_columns=1
+                  ) AS person
+                  WHERE True AND (   person."pmat_email" ILIKE %(v_0)s)
               )
               GROUP BY id
               HAVING max(is_deleted) = 0
@@ -40,10 +51,21 @@
               FROM person
               WHERE team_id = %(team_id)s
               AND id IN (
-                  SELECT id FROM person
-                  
-                  WHERE team_id = %(team_id)s
-                  AND ((   person."pmat_email" ILIKE %(v_0_0)s   OR replaceRegexpAll(JSONExtractRaw(person.properties, %(k_0_1)s), '^"|"$', '') ILIKE %(v_0_1)s))
+                  SELECT id FROM (
+                      SELECT *
+                      FROM person
+                      
+                      WHERE team_id = %(team_id)s
+                      ORDER BY version DESC
+                      LIMIT 1 BY id
+                      -- NOTE: by default asterisk doesn't include materialized
+                      -- columns. I don't know how optimised this is e.g. if the
+                      -- stream returned by this subquery will include literally
+                      -- everything of if it will be optimised to only include
+                      -- those columns that are actually used in the outer query.
+                      SETTINGS asterisk_include_materialized_columns=1
+                  ) AS person
+                  WHERE True AND ((   person."pmat_email" ILIKE %(v_0_0)s   OR replaceRegexpAll(JSONExtractRaw(person.properties, %(k_0_1)s), '^"|"$', '') ILIKE %(v_0_1)s))
               )
               GROUP BY id
               HAVING max(is_deleted) = 0
@@ -60,10 +82,21 @@
               FROM person
               WHERE team_id = %(team_id)s
               AND id IN (
-                  SELECT id FROM person
-                  
-                  WHERE team_id = %(team_id)s
-                  AND (   person."pmat_email" ILIKE %(v_0)s   AND has(%(v_1)s, replaceRegexpAll(JSONExtractRaw(person.properties, %(k_1)s), '^"|"$', ''))   AND has(%(v_2)s, replaceRegexpAll(JSONExtractRaw(person.properties, %(k_2)s), '^"|"$', '')))
+                  SELECT id FROM (
+                      SELECT *
+                      FROM person
+                      
+                      WHERE team_id = %(team_id)s
+                      ORDER BY version DESC
+                      LIMIT 1 BY id
+                      -- NOTE: by default asterisk doesn't include materialized
+                      -- columns. I don't know how optimised this is e.g. if the
+                      -- stream returned by this subquery will include literally
+                      -- everything of if it will be optimised to only include
+                      -- those columns that are actually used in the outer query.
+                      SETTINGS asterisk_include_materialized_columns=1
+                  ) AS person
+                  WHERE True AND (   person."pmat_email" ILIKE %(v_0)s   AND has(%(v_1)s, replaceRegexpAll(JSONExtractRaw(person.properties, %(k_1)s), '^"|"$', ''))   AND has(%(v_2)s, replaceRegexpAll(JSONExtractRaw(person.properties, %(k_2)s), '^"|"$', '')))
               )
               GROUP BY id
               HAVING max(is_deleted) = 0
@@ -95,10 +128,21 @@
               FROM person
               WHERE team_id = %(team_id)s
               AND id IN (
-                  SELECT id FROM person
-                  
-                  WHERE team_id = %(team_id)s
-                  AND (   person."pmat_email" ILIKE %(v_0)s)
+                  SELECT id FROM (
+                      SELECT *
+                      FROM person
+                      
+                      WHERE team_id = %(team_id)s
+                      ORDER BY version DESC
+                      LIMIT 1 BY id
+                      -- NOTE: by default asterisk doesn't include materialized
+                      -- columns. I don't know how optimised this is e.g. if the
+                      -- stream returned by this subquery will include literally
+                      -- everything of if it will be optimised to only include
+                      -- those columns that are actually used in the outer query.
+                      SETTINGS asterisk_include_materialized_columns=1
+                  ) AS person
+                  WHERE True AND (   person."pmat_email" ILIKE %(v_0)s)
               )
               GROUP BY id
               HAVING max(is_deleted) = 0
@@ -115,10 +159,21 @@
               FROM person
               WHERE team_id = %(team_id)s
               AND id IN (
-                  SELECT id FROM person
-                  
-                  WHERE team_id = %(team_id)s
-                  AND ((   person."pmat_email" ILIKE %(v_0_0)s   OR replaceRegexpAll(JSONExtractRaw(person.properties, %(k_0_1)s), '^"|"$', '') ILIKE %(v_0_1)s))
+                  SELECT id FROM (
+                      SELECT *
+                      FROM person
+                      
+                      WHERE team_id = %(team_id)s
+                      ORDER BY version DESC
+                      LIMIT 1 BY id
+                      -- NOTE: by default asterisk doesn't include materialized
+                      -- columns. I don't know how optimised this is e.g. if the
+                      -- stream returned by this subquery will include literally
+                      -- everything of if it will be optimised to only include
+                      -- those columns that are actually used in the outer query.
+                      SETTINGS asterisk_include_materialized_columns=1
+                  ) AS person
+                  WHERE True AND ((   person."pmat_email" ILIKE %(v_0_0)s   OR replaceRegexpAll(JSONExtractRaw(person.properties, %(k_0_1)s), '^"|"$', '') ILIKE %(v_0_1)s))
               )
               GROUP BY id
               HAVING max(is_deleted) = 0
@@ -135,10 +190,21 @@
               FROM person
               WHERE team_id = %(team_id)s
               AND id IN (
-                  SELECT id FROM person
-                  
-                  WHERE team_id = %(team_id)s
-                  AND (((   person."pmat_email" ILIKE %(v_0_0_0)s   OR replaceRegexpAll(JSONExtractRaw(person.properties, %(k_0_0_1)s), '^"|"$', '') ILIKE %(v_0_0_1)s))AND (   person."pmat_email" ILIKE %(v_1_0)s   OR replaceRegexpAll(JSONExtractRaw(person.properties, %(k_1_1)s), '^"|"$', '') ILIKE %(v_1_1)s))
+                  SELECT id FROM (
+                      SELECT *
+                      FROM person
+                      
+                      WHERE team_id = %(team_id)s
+                      ORDER BY version DESC
+                      LIMIT 1 BY id
+                      -- NOTE: by default asterisk doesn't include materialized
+                      -- columns. I don't know how optimised this is e.g. if the
+                      -- stream returned by this subquery will include literally
+                      -- everything of if it will be optimised to only include
+                      -- those columns that are actually used in the outer query.
+                      SETTINGS asterisk_include_materialized_columns=1
+                  ) AS person
+                  WHERE True AND (((   person."pmat_email" ILIKE %(v_0_0_0)s   OR replaceRegexpAll(JSONExtractRaw(person.properties, %(k_0_0_1)s), '^"|"$', '') ILIKE %(v_0_0_1)s))AND (   person."pmat_email" ILIKE %(v_1_0)s   OR replaceRegexpAll(JSONExtractRaw(person.properties, %(k_1_1)s), '^"|"$', '') ILIKE %(v_1_1)s))
               )
               GROUP BY id
               HAVING max(is_deleted) = 0
@@ -155,10 +221,21 @@
               FROM person
               WHERE team_id = %(team_id)s
               AND id IN (
-                  SELECT id FROM person
-                  
-                  WHERE team_id = %(team_id)s
-                  AND (   person."pmat_email" ILIKE %(v_0)s)
+                  SELECT id FROM (
+                      SELECT *
+                      FROM person
+                      
+                      WHERE team_id = %(team_id)s
+                      ORDER BY version DESC
+                      LIMIT 1 BY id
+                      -- NOTE: by default asterisk doesn't include materialized
+                      -- columns. I don't know how optimised this is e.g. if the
+                      -- stream returned by this subquery will include literally
+                      -- everything of if it will be optimised to only include
+                      -- those columns that are actually used in the outer query.
+                      SETTINGS asterisk_include_materialized_columns=1
+                  ) AS person
+                  WHERE True AND (   person."pmat_email" ILIKE %(v_0)s)
               )
               GROUP BY id
               HAVING max(is_deleted) = 0
@@ -175,10 +252,21 @@
               FROM person
               WHERE team_id = %(team_id)s
               AND id IN (
-                  SELECT id FROM person
-                  
-                  WHERE team_id = %(team_id)s
-                  AND (   person."pmat_email" ILIKE %(v_0)s)
+                  SELECT id FROM (
+                      SELECT *
+                      FROM person
+                      
+                      WHERE team_id = %(team_id)s
+                      ORDER BY version DESC
+                      LIMIT 1 BY id
+                      -- NOTE: by default asterisk doesn't include materialized
+                      -- columns. I don't know how optimised this is e.g. if the
+                      -- stream returned by this subquery will include literally
+                      -- everything of if it will be optimised to only include
+                      -- those columns that are actually used in the outer query.
+                      SETTINGS asterisk_include_materialized_columns=1
+                  ) AS person
+                  WHERE True AND (   person."pmat_email" ILIKE %(v_0)s)
               )
               GROUP BY id
               HAVING max(is_deleted) = 0
@@ -195,10 +283,21 @@
               FROM person
               WHERE team_id = %(team_id)s
               AND id IN (
-                  SELECT id FROM person
-                  
-                  WHERE team_id = %(team_id)s
-                  AND (   person."pmat_email" ILIKE %(v_0)s)
+                  SELECT id FROM (
+                      SELECT *
+                      FROM person
+                      
+                      WHERE team_id = %(team_id)s
+                      ORDER BY version DESC
+                      LIMIT 1 BY id
+                      -- NOTE: by default asterisk doesn't include materialized
+                      -- columns. I don't know how optimised this is e.g. if the
+                      -- stream returned by this subquery will include literally
+                      -- everything of if it will be optimised to only include
+                      -- those columns that are actually used in the outer query.
+                      SETTINGS asterisk_include_materialized_columns=1
+                  ) AS person
+                  WHERE True AND (   person."pmat_email" ILIKE %(v_0)s)
               )
               GROUP BY id
               HAVING max(is_deleted) = 0
