@@ -142,7 +142,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         return dashboard
                     } catch (error: any) {
                         if (error.status === 404) {
-                            return null
+                            lemonToast.error('Dashboard not found')
+                            throw new Error('Dashboard not found')
                         }
                         throw error
                     }
