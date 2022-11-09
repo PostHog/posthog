@@ -268,8 +268,13 @@
                           WHERE team_id = 2
                             AND id IN
                               (SELECT id
-                               FROM person
-                               WHERE team_id = 2
+                               FROM
+                                 (SELECT *
+                                  FROM person
+                                  WHERE team_id = 2
+                                  ORDER BY version DESC
+                                  LIMIT 1 BY id SETTINGS asterisk_include_materialized_columns=1) AS person
+                               WHERE True
                                  AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
@@ -362,8 +367,13 @@
                           WHERE team_id = 2
                             AND id IN
                               (SELECT id
-                               FROM person
-                               WHERE team_id = 2
+                               FROM
+                                 (SELECT *
+                                  FROM person
+                                  WHERE team_id = 2
+                                  ORDER BY version DESC
+                                  LIMIT 1 BY id SETTINGS asterisk_include_materialized_columns=1) AS person
+                               WHERE True
                                  AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
@@ -456,8 +466,13 @@
                           WHERE team_id = 2
                             AND id IN
                               (SELECT id
-                               FROM person
-                               WHERE team_id = 2
+                               FROM
+                                 (SELECT *
+                                  FROM person
+                                  WHERE team_id = 2
+                                  ORDER BY version DESC
+                                  LIMIT 1 BY id SETTINGS asterisk_include_materialized_columns=1) AS person
+                               WHERE True
                                  AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
@@ -550,8 +565,13 @@
                           WHERE team_id = 2
                             AND id IN
                               (SELECT id
-                               FROM person
-                               WHERE team_id = 2
+                               FROM
+                                 (SELECT *
+                                  FROM person
+                                  WHERE team_id = 2
+                                  ORDER BY version DESC
+                                  LIMIT 1 BY id SETTINGS asterisk_include_materialized_columns=1) AS person
+                               WHERE True
                                  AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
@@ -742,8 +762,13 @@
                           WHERE team_id = 2
                             AND id IN
                               (SELECT id
-                               FROM person
-                               WHERE team_id = 2
+                               FROM
+                                 (SELECT *
+                                  FROM person
+                                  WHERE team_id = 2
+                                  ORDER BY version DESC
+                                  LIMIT 1 BY id SETTINGS asterisk_include_materialized_columns=1) AS person
+                               WHERE True
                                  AND (has(['Positive'], person."pmat_$browser")) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
@@ -836,8 +861,13 @@
                           WHERE team_id = 2
                             AND id IN
                               (SELECT id
-                               FROM person
-                               WHERE team_id = 2
+                               FROM
+                                 (SELECT *
+                                  FROM person
+                                  WHERE team_id = 2
+                                  ORDER BY version DESC
+                                  LIMIT 1 BY id SETTINGS asterisk_include_materialized_columns=1) AS person
+                               WHERE True
                                  AND (has(['Positive'], person."pmat_$browser")) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
@@ -930,8 +960,13 @@
                           WHERE team_id = 2
                             AND id IN
                               (SELECT id
-                               FROM person
-                               WHERE team_id = 2
+                               FROM
+                                 (SELECT *
+                                  FROM person
+                                  WHERE team_id = 2
+                                  ORDER BY version DESC
+                                  LIMIT 1 BY id SETTINGS asterisk_include_materialized_columns=1) AS person
+                               WHERE True
                                  AND (has(['Negative'], person."pmat_$browser")) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
@@ -1024,8 +1059,13 @@
                           WHERE team_id = 2
                             AND id IN
                               (SELECT id
-                               FROM person
-                               WHERE team_id = 2
+                               FROM
+                                 (SELECT *
+                                  FROM person
+                                  WHERE team_id = 2
+                                  ORDER BY version DESC
+                                  LIMIT 1 BY id SETTINGS asterisk_include_materialized_columns=1) AS person
+                               WHERE True
                                  AND (has(['Negative'], person."pmat_$browser")) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
