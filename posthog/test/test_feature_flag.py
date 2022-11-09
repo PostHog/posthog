@@ -1372,7 +1372,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
             )
             res = cursor.fetchall()
             self.assertEqual(len(res), 2)
-            self.assertEqual({var[0] for var in res}, set(["other_id"]))
+            self.assertEqual({var[0] for var in res}, {"other_id"})
 
     def test_retrieving_hash_key_overrides(self):
 
@@ -1412,7 +1412,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
             )
             res = cursor.fetchall()
             self.assertEqual(len(res), 3)
-            self.assertEqual({var[0] for var in res}, set([hash_key]))
+            self.assertEqual({var[0] for var in res}, {hash_key})
 
     def test_entire_flow_with_hash_key_override(self):
         # get feature flags for 'other_id', with an override for 'example_id'
