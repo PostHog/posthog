@@ -383,6 +383,11 @@ export enum SavedInsightsTabs {
     History = 'history',
 }
 
+export enum SessionRecordingsTabs {
+    Recent = 'recent',
+    Playlists = 'playlists',
+}
+
 export enum ExperimentsTabs {
     All = 'all',
     Yours = 'yours',
@@ -499,7 +504,7 @@ export enum SessionRecordingUsageType {
     LOADED = 'loaded',
 }
 
-export enum SessionRecordingTab {
+export enum SessionRecordingPlayerTab {
     EVENTS = 'events',
     CONSOLE = 'console',
 }
@@ -530,12 +535,13 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
 export interface RecordingFilters {
     date_from?: string | null
     date_to?: string | null
-    events?: Record<string, any>[]
-    actions?: Record<string, any>[]
+    events?: FilterType['events']
+    actions?: FilterType['actions']
     properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
 }
+
 export interface SessionRecordingsResponse {
     results: SessionRecordingType[]
     has_next: boolean
@@ -758,6 +764,22 @@ export interface EventsTableRowItem {
     event?: EventType
     date_break?: string
     new_events?: boolean
+}
+
+export interface SessionRecordingPlaylistType {
+    /** The primary key in the database, used as well in API endpoints */
+    id: number
+    short_id: string
+    name: string
+    derived_name?: string | null
+    description?: string
+    pinned?: boolean
+    deleted: boolean
+    created_at: string
+    created_by: UserBasicType | null
+    last_modified_at: string
+    last_modified_by: UserBasicType | null
+    filters?: RecordingFilters
 }
 
 export interface SessionRecordingType {
