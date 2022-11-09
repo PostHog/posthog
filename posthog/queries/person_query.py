@@ -101,6 +101,12 @@ class PersonQuery:
                     WHERE team_id = %(team_id)s
                     ORDER BY version DESC
                     LIMIT 1 BY id
+                    -- NOTE: by default asterisk doesn't include materialized
+                    -- columns. I don't know how optimised this is e.g. if the
+                    -- stream returned by this subquery will include literally
+                    -- everything of if it will be optimised to only include
+                    -- those columns that are actually used in the outer query.
+                    SETTINGS asterisk_include_materialized_columns=1
                 ) AS person
                 WHERE True {person_filters}
             )
