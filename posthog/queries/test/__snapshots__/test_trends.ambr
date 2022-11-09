@@ -1026,6 +1026,96 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
+# name: TestFOSSTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
+        UNION ALL SELECT count(DISTINCT person_id) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM
+          (SELECT e.timestamp as timestamp,
+                  e.person_id as person_id
+           FROM events e
+           WHERE team_id = 2
+             AND event = 'sign up'
+             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+             AND e.person_id != toUUIDOrZero('') )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestFOSSTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT person_id AS actor_id
+  FROM
+    (SELECT e.timestamp as timestamp,
+            e.person_id as person_id,
+            e.distinct_id as distinct_id,
+            e.team_id as team_id
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-04 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND e.person_id != toUUIDOrZero('') )
+  GROUP BY actor_id
+  LIMIT 5
+  OFFSET 0
+  '
+---
+# name: TestFOSSTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies.2
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT person_id AS actor_id
+  FROM
+    (SELECT e.timestamp as timestamp,
+            e.person_id as person_id,
+            e.distinct_id as distinct_id,
+            e.team_id as team_id
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-04 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND e.person_id != toUUIDOrZero('') )
+  GROUP BY actor_id
+  LIMIT 5
+  OFFSET 5
+  '
+---
+# name: TestFOSSTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies.3
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT person_id AS actor_id
+  FROM
+    (SELECT e.timestamp as timestamp,
+            e.person_id as person_id,
+            e.distinct_id as distinct_id,
+            e.team_id as team_id
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-04 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND e.person_id != toUUIDOrZero('') )
+  GROUP BY actor_id
+  LIMIT 5
+  OFFSET 10
+  '
+---
 # name: TestFOSSTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns
   '
   

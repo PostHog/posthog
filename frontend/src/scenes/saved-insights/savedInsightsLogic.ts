@@ -36,6 +36,7 @@ export interface SavedInsightFilters {
     dateFrom: string | dayjs.Dayjs | undefined | 'all' | null
     dateTo: string | dayjs.Dayjs | undefined | null
     page: number
+    dashboardId: number | undefined | null
 }
 
 function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
@@ -49,6 +50,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
         page: parseInt(String(values.page)) || 1,
+        dashboardId: values.dashboardId,
     }
 }
 
@@ -187,6 +189,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                         date_from: filters.dateFrom,
                         date_to: filters.dateTo,
                     }),
+                ...(!!filters.dashboardId && {
+                    dashboards: [filters.dashboardId],
+                }),
             }),
         ],
         pagination: [

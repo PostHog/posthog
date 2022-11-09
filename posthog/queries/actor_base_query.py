@@ -116,7 +116,7 @@ class ActorBaseQuery:
         """
         params = {"team_id": self._team.pk, "session_ids": list(session_ids)}
         raw_result = sync_execute(query, params)
-        return set([row[0] for row in raw_result])
+        return {row[0] for row in raw_result}
 
     def add_matched_recordings_to_serialized_actors(
         self, serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]], raw_result
