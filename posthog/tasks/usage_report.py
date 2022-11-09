@@ -230,7 +230,7 @@ def send_report_to_billing_service(organization: Organization, report: Dict) -> 
     headers = {}
     if token:
         headers = {"Authorization": f"Bearer {token}"}
-    response = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers)
+    response = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers, timeout=5)
     if response.status_code != 200:
         raise Exception(
             f"Failed to send usage report to billing service code:{response.status_code} response:{response.text}"

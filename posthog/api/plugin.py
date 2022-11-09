@@ -289,8 +289,8 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def repository(self, request: request.Request, **kwargs):
         url = "https://raw.githubusercontent.com/PostHog/integrations-repository/main/plugins.json"
-        plugins = requests.get(url)
-        return Response(json.loads(plugins.text))
+        plugins = requests.get(url, timeout=5)
+        return Response(plugins.json())
 
     @action(methods=["GET"], detail=True)
     def check_for_updates(self, request: request.Request, **kwargs):

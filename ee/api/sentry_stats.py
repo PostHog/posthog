@@ -23,7 +23,7 @@ def get_sentry_stats(start_time: str, end_time: str) -> Tuple[dict, int]:
 
     params = {"start": start_time, "end": end_time, "sort": "freq", "utc": "true"}
 
-    response = requests.get(url=url, headers=headers, params=params).json()
+    response = requests.get(url=url, headers=headers, params=params, timeout=5).json()
 
     counts = {}
     total_count = 0
@@ -74,7 +74,7 @@ def get_tagged_issues_stats(
     for i in range(0, len(target_issues), pagination_chunk_size):
         groups = target_issues[i : i + pagination_chunk_size]
         params["groups"] = groups
-        response = requests.get(url=url, headers=headers, params=params).json()
+        response = requests.get(url=url, headers=headers, params=params, timeout=5).json()
 
         # TODO: Confirm sentry always sends this information
         for item in response:

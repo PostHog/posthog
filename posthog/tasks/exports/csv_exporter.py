@@ -212,7 +212,11 @@ def make_api_call(
     try:
         url = add_query_params(request_url, {"limit": str(limit)})
         response = requests.request(
-            method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"}
+            method=method.lower(),
+            url=url,
+            json=body,
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=5,
         )
         return response
     except Exception as ex:

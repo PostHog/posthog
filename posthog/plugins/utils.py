@@ -49,7 +49,7 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
                 commits_url = "https://api.github.com/repos/{}/{}/commits?sha={}&path={}".format(
                     parsed["user"], parsed["repo"], parsed["tag"] or "", parsed["path"] or ""
                 )
-                commits = requests.get(commits_url, headers=headers).json()
+                commits = requests.get(commits_url, headers=headers, timeout=5).json()
 
                 if isinstance(commits, dict):
                     raise Exception(commits.get("message"))
@@ -105,7 +105,7 @@ def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
             commits_url = "https://gitlab.com/api/v4/projects/{}/repository/commits".format(
                 quote(parsed["project"], safe="")
             )
-            commits = requests.get(commits_url, headers=headers).json()
+            commits = requests.get(commits_url, headers=headers, timeout=5).json()
             if len(commits) > 0 and commits[0].get("id", None):
                 parsed["tag"] = commits[0]["id"]
             else:
@@ -142,7 +142,9 @@ def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Opti
         try:
             token = private_token or settings.NPM_TOKEN
             headers = {"Authorization": "Bearer {}".format(token)} if token else {}
-            details = requests.get("https://registry.npmjs.org/{}/latest".format(parsed["pkg"]), headers=headers).json()
+            details = requests.get(
+                "https://registry.npmjs.org/{}/latest".format(parsed["pkg"]), headers=headers, timeout=5
+            ).json()
             parsed["tag"] = details["version"]
         except Exception:
             raise Exception("Could not get latest version for: {}".format(url))
@@ -215,7 +217,7 @@ def download_plugin_archive(url: str, tag: Optional[str] = None) -> bytes:
     else:
         raise Exception("Unknown Repository Format")
 
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers, timeout=5)
     if not response.ok:
         raise Exception("Could not download archive from {}".format(parsed_url["type"]))
 

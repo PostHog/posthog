@@ -96,7 +96,7 @@ class HobbyTester:
                 # verify is set False here because we are hitting the staging endoint for Let's Encrypt
                 # This endpoint doesn't have the strict rate limiting that the production endpoint has
                 # This mitigates the chances of getting throttled or banned
-                r = requests.get(url, verify=False)
+                r = requests.get(url, verify=False, timeout=5)
             except Exception as e:
                 print(f"Host is probably not up. Received exception\n{e}")
                 time.sleep(retry_interval)

@@ -15,6 +15,7 @@ class DeliverHook(Task):
                 url=target,
                 data=json.dumps(payload, cls=DjangoJSONEncoder),
                 headers={"Content-Type": "application/json"},
+                timeout=5,
             )
             if response.status_code == 410 and hook_id:
                 # Delete hook on our side if it's gone on Zapier's
