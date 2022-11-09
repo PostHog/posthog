@@ -498,7 +498,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
             elif key == "dashboards":
                 dashboards_filter = request.GET["dashboards"]
                 if dashboards_filter:
-                    dashboards_ids = json.loads(request.GET["dashboards"])
+                    dashboards_ids = json.loads(dashboards_filter)
                     for dashboard_id in dashboards_ids:
                         queryset = queryset.filter(dashboard_tiles__dashboard_id=dashboard_id)
 
