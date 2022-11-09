@@ -667,6 +667,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
         addConditionSet,
     } = useActions(featureFlagLogic)
     const { cohortsById } = useValues(cohortsModel)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
 
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption({ value: -2 })
@@ -877,7 +878,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                     </div>
                                 </div>
                             )}
-                            {nonEmptyVariants.length > 0 && (
+                            {featureFlags[FEATURE_FLAGS.VARIANT_OVERRIDES] && nonEmptyVariants.length > 0 && (
                                 <>
                                     {(!readOnly || (readOnly && group.properties?.length > 0)) && (
                                         <LemonDivider className="my-3" />
@@ -897,7 +898,8 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                     ) : (
                                         <div className="feature-flag-form-row">
                                             <div className="centered">
-                                                Set variant for all <b>{aggregationTargetName}</b> in this set to{' '}
+                                                <b>Optional override:</b> Set variant for all{' '}
+                                                <b>{aggregationTargetName}</b> in this set to{' '}
                                                 <LemonSelect
                                                     placeholder="Select variant"
                                                     allowClear={true}

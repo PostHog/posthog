@@ -649,8 +649,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 1),
         )
 
-    # TODO: Don't allow creating flag with invalid variant selection
-
     def test_flag_with_multiple_variant_overrides(self):
         Person.objects.create(team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"})
 

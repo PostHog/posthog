@@ -119,7 +119,6 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         for condition in filters["groups"]:
             if condition.get("variant") and condition["variant"] not in variants:
                 raise serializers.ValidationError("Filters are not valid (variant override does not exist)")
-                # TODO: tessstt this!
 
             for property in condition.get("properties", []):
                 prop = Property(**property)
