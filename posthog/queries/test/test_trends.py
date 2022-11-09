@@ -253,7 +253,6 @@ def trend_test_factory(trends):
 
                     self.assertIsNotNone(second_people_response["next"])
                     self.assertEqual(second_people_response["missing_persons"], 4)
-                    self.assertEqual(second_people_response["missing_persons"] + people_response["missing_persons"], 9)
 
                     first_load_ids = sorted(str(person["id"]) for person in people_response["results"][0]["people"])
                     second_load_ids = sorted(
