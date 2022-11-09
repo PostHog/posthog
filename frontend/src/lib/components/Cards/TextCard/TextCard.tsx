@@ -8,10 +8,11 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import ReactMarkdown from 'react-markdown'
-import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import React, { useEffect, useState } from 'react'
 import { CardMeta, Resizeable } from 'lib/components/Cards/Card'
+import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { TZLabel } from 'lib/components/TimezoneAware'
 
 interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     dashboardId?: string | number
@@ -88,11 +89,18 @@ export function TextCardInternal(
                 areDetailsShown={areDetailsShown}
                 className={clsx(showResizeHandles ? 'border-b' : 'border rounded-t')}
                 metaDetails={
-                    <UserActivityIndicator
-                        className={'mt-1'}
-                        at={text.last_modified_at}
-                        by={text.created_by || text.last_modified_by}
-                    />
+                    <div className={'TextDetails'}>
+                        <h5>Modified by</h5>
+                        <section>
+                            <ProfilePicture
+                                name={text.last_modified_by?.first_name}
+                                email={text.last_modified_by?.email}
+                                showName
+                                size="md"
+                            />{' '}
+                            <TZLabel time={text.last_modified_at} />
+                        </section>
+                    </div>
                 }
                 moreButtons={
                     <>

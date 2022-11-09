@@ -19,8 +19,6 @@ import { TZLabel } from '../../TimezoneAware'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import React from 'react'
-import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 
 function CompactPropertyFiltersDisplay({
     groupFilter,
@@ -283,23 +281,16 @@ function InsightDetailsInternal(
     { insight, onDashboard }: { insight: InsightModel; onDashboard: boolean },
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
-    const { filters, created_at, created_by, description, tags } = insight
+    const { filters, created_at, created_by } = insight
     const { featureFlags } = useValues(featureFlagLogic)
     const minimalistMode: boolean = !!featureFlags[FEATURE_FLAGS.MINIMALIST_MODE]
 
     return (
         <div className="InsightDetails" ref={ref}>
-            {onDashboard && minimalistMode && (
-                <>
-                    <div className="InsightDetails__description">{description || <i>No description</i>}</div>
-                    <UserActivityIndicator at={insight.last_modified_at} by={insight.last_modified_by} />
-                    {tags && tags.length > 0 && <ObjectTags tags={tags} staticOnly className={'my-1'} />}
-                    <LemonDivider />
-                </>
-            )}
             <QuerySummary filters={filters} />
             <FiltersSummary filters={filters} />
             <div className="InsightDetails__footer">
+                {filters.breakdown_type && <BreakdownSummary filters={filters} />}
                 <div>
                     <h5>Created by</h5>
                     <section>
@@ -307,7 +298,20 @@ function InsightDetailsInternal(
                         <TZLabel time={created_at} />
                     </section>
                 </div>
-                {filters.breakdown_type && <BreakdownSummary filters={filters} />}
+                {onDashboard && minimalistMode && (
+                    <div>
+                        <h5>Modified by</h5>
+                        <section>
+                            <ProfilePicture
+                                name={insight.last_modified_by?.first_name}
+                                email={insight.last_modified_by?.email}
+                                showName
+                                size="md"
+                            />{' '}
+                            <TZLabel time={insight.last_modified_at} />
+                        </section>
+                    </div>
+                )}
             </div>
         </div>
     )

@@ -25,3 +25,13 @@
         max-width: 100%;
     }
 }
+
+.TextDetails {
+    font-size: 0.8125rem;
+    line-height: 1.5rem;
+
+    .tz-label {
+        line-height: normal;
+        vertical-align: middle;
+    }
+}

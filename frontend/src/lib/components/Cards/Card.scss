@@ -44,7 +44,7 @@
     h5 {
         color: var(--muted);
         line-height: 1.5rem;
-        margin-bottom: 0;
+        margin-bottom: 0.125rem;
     }
     h4 {
         overflow: hidden;
@@ -54,6 +54,13 @@
         font-size: 1rem;
         font-weight: 600;
         margin-bottom: 0.125rem;
+    }
+    .profile-package {
+        vertical-align: middle;
+        .tz-label {
+            line-height: normal;
+            vertical-align: middle;
+        }
     }
 }
 

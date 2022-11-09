@@ -63,12 +63,6 @@
     }
 }
 
-.InsightDetails__description {
-    color: var(--muted);
-    max-height: 7em; // Display at most 4.5 lines at once, then scroll
-    overflow: auto;
-}
-
 .InsightDetails__query {
     margin-top: 0.25rem;
     padding: 0.5rem;
@@ -101,9 +95,6 @@
 .InsightDetails__footer {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    .profile-package {
-        vertical-align: middle;
-    }
     .tz-label {
         line-height: normal;
         vertical-align: middle;
