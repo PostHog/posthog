@@ -34,8 +34,13 @@
         WHERE team_id = 2
           AND id IN
             (SELECT id
-             FROM person
-             WHERE team_id = 2
+             FROM
+               (SELECT *
+                FROM person
+                WHERE team_id = 2
+                ORDER BY version DESC
+                LIMIT 1 BY id SETTINGS asterisk_include_materialized_columns=1) AS person
+             WHERE True
                AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', ''))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
@@ -110,8 +115,13 @@
         WHERE team_id = 2
           AND id IN
             (SELECT id
-             FROM person
-             WHERE team_id = 2
+             FROM
+               (SELECT *
+                FROM person
+                WHERE team_id = 2
+                ORDER BY version DESC
+                LIMIT 1 BY id SETTINGS asterisk_include_materialized_columns=1) AS person
+             WHERE True
                AND (((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', ''))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
@@ -152,8 +162,13 @@
         WHERE team_id = 2
           AND id IN
             (SELECT id
-             FROM person
-             WHERE team_id = 2
+             FROM
+               (SELECT *
+                FROM person
+                WHERE team_id = 2
+                ORDER BY version DESC
+                LIMIT 1 BY id SETTINGS asterisk_include_materialized_columns=1) AS person
+             WHERE True
                AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
@@ -352,8 +367,13 @@
         WHERE team_id = 2
           AND id IN
             (SELECT id
-             FROM person
-             WHERE team_id = 2
+             FROM
+               (SELECT *
+                FROM person
+                WHERE team_id = 2
+                ORDER BY version DESC
+                LIMIT 1 BY id SETTINGS asterisk_include_materialized_columns=1) AS person
+             WHERE True
                AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '')))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
@@ -474,8 +494,13 @@
         WHERE team_id = 2
           AND id IN
             (SELECT id
-             FROM person
-             WHERE team_id = 2
+             FROM
+               (SELECT *
+                FROM person
+                WHERE team_id = 2
+                ORDER BY version DESC
+                LIMIT 1 BY id SETTINGS asterisk_include_materialized_columns=1) AS person
+             WHERE True
                AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', ''))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
@@ -495,8 +520,13 @@
   WHERE team_id = 2
     AND id IN
       (SELECT id
-       FROM person
-       WHERE team_id = 2
+       FROM
+         (SELECT *
+          FROM person
+          WHERE team_id = 2
+          ORDER BY version DESC
+          LIMIT 1 BY id SETTINGS asterisk_include_materialized_columns=1) AS person
+       WHERE True
          AND (((has(['test1@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '')))
                OR (has(['test2@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', ''))))
               OR ((has(['test3'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))
@@ -562,8 +592,13 @@
   WHERE team_id = 2
     AND id IN
       (SELECT id
-       FROM person
-       WHERE team_id = 2
+       FROM
+         (SELECT *
+          FROM person
+          WHERE team_id = 2
+          ORDER BY version DESC
+          LIMIT 1 BY id SETTINGS asterisk_include_materialized_columns=1) AS person
+       WHERE True
          AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))))
               OR (has(['test2'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))) )
   GROUP BY id

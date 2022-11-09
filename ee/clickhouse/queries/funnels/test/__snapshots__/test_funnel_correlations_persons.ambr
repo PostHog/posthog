@@ -478,8 +478,13 @@
                           WHERE team_id = 2
                             AND id IN
                               (SELECT id
-                               FROM person
-                               WHERE team_id = 2
+                               FROM
+                                 (SELECT *
+                                  FROM person
+                                  WHERE team_id = 2
+                                  ORDER BY version DESC
+                                  LIMIT 1 BY id SETTINGS asterisk_include_materialized_columns=1) AS person
+                               WHERE True
                                  AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(person.properties, 'foo'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
@@ -623,8 +628,13 @@
                           WHERE team_id = 2
                             AND id IN
                               (SELECT id
-                               FROM person
-                               WHERE team_id = 2
+                               FROM
+                                 (SELECT *
+                                  FROM person
+                                  WHERE team_id = 2
+                                  ORDER BY version DESC
+                                  LIMIT 1 BY id SETTINGS asterisk_include_materialized_columns=1) AS person
+                               WHERE True
                                  AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(person.properties, 'foo'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
@@ -766,8 +776,13 @@
                           WHERE team_id = 2
                             AND id IN
                               (SELECT id
-                               FROM person
-                               WHERE team_id = 2
+                               FROM
+                                 (SELECT *
+                                  FROM person
+                                  WHERE team_id = 2
+                                  ORDER BY version DESC
+                                  LIMIT 1 BY id SETTINGS asterisk_include_materialized_columns=1) AS person
+                               WHERE True
                                  AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(person.properties, 'foo'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
