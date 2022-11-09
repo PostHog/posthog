@@ -2532,14 +2532,19 @@
     tunnel-agent "^0.6.0"
     uuid "^8.3.2"
 
-"@cypress/webpack-preprocessor@^5.12.2":
-  version "5.12.2"
-  resolved "https://registry.yarnpkg.com/@cypress/webpack-preprocessor/-/webpack-preprocessor-5.12.2.tgz#9cc623a5629980d7f2619569bffc8e3f05a701ae"
-  integrity sha512-t29wEFvI87IMnCd8taRunwStNsFjFWg138fGF0hPQOYgSj30fbzCEwFD9cAQLYMMcjjuXcnnw8yOfkzIZBBNVQ==
+"@cypress/webpack-preprocessor@^5.15.4":
+  version "5.15.4"
+  resolved "https://registry.yarnpkg.com/@cypress/webpack-preprocessor/-/webpack-preprocessor-5.15.4.tgz#ea8187272202ef232eb2a51fa757bd237cac798b"
+  integrity sha512-spqrTlso5AC4tGET/bsgpC5aUiyZkPVi+aZnmg0xEvTdD/5QXRe3Tyh8t92en6rcJVzlc4PqLkZqDZEYySYyZQ==
   dependencies:
     bluebird "3.7.1"
     debug "^4.3.2"
+    fs-extra "^10.1.0"
+    loader-utils "^2.0.0"
     lodash "^4.17.20"
+    md5 "2.3.0"
+    source-map "^0.6.1"
+    webpack-virtual-modules "^0.4.4"
 
 "@cypress/xvfb@^1.2.4":
   version "1.2.4"
@@ -7916,10 +7921,10 @@ cypress@*:
     untildify "^4.0.0"
     yauzl "^2.10.0"
 
-cypress@^10.9.0:
-  version "10.9.0"
-  resolved "https://registry.yarnpkg.com/cypress/-/cypress-10.9.0.tgz#273a61a6304766f9d6423e5ac8d4a9a11ed8b485"
-  integrity sha512-MjIWrRpc+bQM9U4kSSdATZWZ2hUqHGFEQTF7dfeZRa4MnalMtc88FIE49USWP2ZVtfy5WPBcgfBX+YorFqGElA==
+cypress@^10.11.0:
+  version "10.11.0"
+  resolved "https://registry.yarnpkg.com/cypress/-/cypress-10.11.0.tgz#e9fbdd7638bae3d8fb7619fd75a6330d11ebb4e8"
+  integrity sha512-lsaE7dprw5DoXM00skni6W5ElVVLGAdRUUdZjX2dYsGjbY/QnpzWZ95Zom1mkGg0hAaO/QVTZoFVS7Jgr/GUPA==
   dependencies:
     "@cypress/request" "^2.88.10"
     "@cypress/xvfb" "^1.2.4"
@@ -12901,7 +12906,7 @@ md5.js@^1.3.4:
     inherits "^2.0.1"
     safe-buffer "^5.1.2"
 
-md5@^2.3.0:
+md5@2.3.0, md5@^2.3.0:
   version "2.3.0"
   resolved "https://registry.yarnpkg.com/md5/-/md5-2.3.0.tgz#c3da9a6aae3a30b46b7b0c349b87b110dc3bda4f"
   integrity sha512-T1GITYmFaKuO91vxyoQMFETst+O71VUPEU3ze5GNzDm0OWdP8v1ziTaAEPUr/3kLsY3Sftgz242A1SetQiDL7g==
@@ -18498,6 +18503,11 @@ webpack-virtual-modules@^0.2.2:
   integrity sha512-kDUmfm3BZrei0y+1NTHJInejzxfhtU8eDj2M7OKb2IWrPFAeO1SOH2KuQ68MSZu9IGEHcxbkKKR1v18FrUSOmA==
   dependencies:
     debug "^3.0.0"
+
+webpack-virtual-modules@^0.4.4:
+  version "0.4.6"
+  resolved "https://registry.yarnpkg.com/webpack-virtual-modules/-/webpack-virtual-modules-0.4.6.tgz#3e4008230731f1db078d9cb6f68baf8571182b45"
+  integrity sha512-5tyDlKLqPfMqjT3Q9TAqf2YqjwmnUleZwzJi1A5qXnlBCdj2AtOJ6wAWdglTIDOPgOiOrXeBeFcsQ8+aGQ6QbA==
 
 webpack@4, webpack@^4.46.0:
   version "4.46.0"

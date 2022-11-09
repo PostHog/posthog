@@ -131,6 +131,8 @@ export const FEATURE_FLAGS = {
     AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE
     WEBSITE_ANALYTICS_TEMPLATE: 'website-analytics-template', // owner: @pauldambra
     VARIANT_OVERRIDES: 'variant-overrides', // owner: @neilkakkar
+    RECORDING_PLAYLISTS: 'recording-playlists', // owner: #team-recordings
+    ONBOARDING_V2: 'onboarding-v2', // owner: #team-growth
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

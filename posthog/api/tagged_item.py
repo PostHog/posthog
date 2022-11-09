@@ -31,7 +31,7 @@ class TaggedItemSerializerMixin(serializers.Serializer):
             return
 
         # Normalize and dedupe tags
-        deduped_tags = list(set([tagify(t) for t in tags]))
+        deduped_tags = list({tagify(t) for t in tags})
         tagged_item_objects = []
 
         # Create tags

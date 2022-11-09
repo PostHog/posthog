@@ -46,7 +46,6 @@ test.concurrent(`event ingestion: definition for string property %p`, async () =
             name: 'property',
             is_numerical: false,
             property_type: 'String',
-            property_type_format: null,
         })
     )
 })
@@ -68,7 +67,6 @@ test.concurrent.each([[2], [2.1234], ['2'], ['2.1234']])(
                 name: 'property',
                 is_numerical: true,
                 property_type: 'Numeric',
-                property_type_format: null,
             })
         )
     }
@@ -96,7 +94,6 @@ test.concurrent.each([
             name: 'property',
             is_numerical: false,
             property_type: 'DateTime',
-            property_type_format: null,
         })
     )
 })
@@ -118,7 +115,28 @@ test.concurrent.each([[true], ['true']])(
                 name: 'property',
                 is_numerical: false,
                 property_type: 'Boolean',
-                property_type_format: null,
+            })
+        )
+    }
+)
+
+test.concurrent.each([['utm_abc'], ['utm_123']])(
+    `event ingestion: utm properties should always be strings`,
+    async (propertyName: string) => {
+        const teamId = await createTeam(postgres, organizationId)
+        const distinctId = 'distinctId'
+        const uuid = new UUIDT().toString()
+
+        await capture(producer, teamId, distinctId, uuid, 'custom event', {
+            [propertyName]: 1234,
+        })
+
+        const propertyDefinitions = await delayUntilEventIngested(() => getPropertyDefinitions(postgres, teamId))
+        expect(propertyDefinitions).toContainEqual(
+            expect.objectContaining({
+                name: propertyName,
+                is_numerical: false,
+                property_type: 'String',
             })
         )
     }
