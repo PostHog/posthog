@@ -2,6 +2,8 @@ import math
 from itertools import accumulate
 from typing import Any, Dict, List
 
+from sentry_sdk import capture_exception, push_scope
+
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.client import sync_execute
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE
@@ -75,6 +77,13 @@ class TrendsFormula:
                 additional_values["aggregated_value"] = (
                     0.0 if math.isnan(item[1][0]) and not math.isinf(item[1][0]) else item[1][0]
                 )
+
+                if math.isnan(item[1][0]) or math.isinf(item[1][0]):
+                    with push_scope() as scope:
+                        scope.set_context("filter", filter.to_dict())
+                        scope.set_context("query", {"sql": sql, "params": params})
+                        scope.set_tag("team", team)
+                        capture_exception(Exception("Formula had aggregated_value of NaN or Inf"))
             else:
                 additional_values["data"] = [
                     round(number, 2) if not math.isnan(number) and not math.isinf(number) else 0.0 for number in item[1]
