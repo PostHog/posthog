@@ -20,6 +20,7 @@ export enum Scene {
     IngestionWarnings = 'IngestionWarnings',
     SessionRecordings = 'SessionsRecordings',
     SessionRecording = 'SessionRecording',
+    SessionRecordingPlaylist = 'SessionRecordingPlaylist',
     Person = 'Person',
     Persons = 'Persons',
     Groups = 'Groups',

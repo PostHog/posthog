@@ -1,9 +1,9 @@
-import { Params, Scene, SceneConfig, LoadedScene } from 'scenes/sceneTypes'
+import { LoadedScene, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
-import { InsightShortId } from '~/types'
+import { InsightShortId, SessionRecordingsTabs } from '~/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -89,6 +89,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.SessionRecording]: {
         projectBased: true,
         name: 'Recordings',
+    },
+    [Scene.SessionRecordingPlaylist]: {
+        projectBased: true,
+        name: 'Recordings Playlist',
     },
     [Scene.Person]: {
         projectBased: true,
@@ -279,8 +283,14 @@ export const routes: Record<string, Scene> = {
     [urls.events()]: Scene.Events,
     [urls.webPerformance()]: Scene.WebPerformance,
     [urls.webPerformance() + '/*']: Scene.WebPerformance,
-    [urls.sessionRecording(':id')]: Scene.SessionRecording,
     [urls.sessionRecordings()]: Scene.SessionRecordings,
+    // One entry for every available tab
+    ...Object.values(SessionRecordingsTabs).reduce((acc, tab) => {
+        acc[urls.sessionRecordings(tab)] = Scene.SessionRecordings
+        return acc
+    }, {} as Record<string, Scene>),
+    [urls.sessionRecording(':id')]: Scene.SessionRecording,
+    [urls.sessionRecordingPlaylist(':id')]: Scene.SessionRecordingPlaylist,
     [urls.person('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,
     [urls.groups(':groupTypeIndex')]: Scene.Groups,

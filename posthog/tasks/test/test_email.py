@@ -161,7 +161,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             send_first_ingestion_reminder_emails()
             self.assertEqual(MessagingRecord.objects.all().count(), 2)
             self.assertEqual(
-                set([record[0] for record in MessagingRecord.objects.all().values_list("email_hash")]),
+                {record[0] for record in MessagingRecord.objects.all().values_list("email_hash")},
                 set(
                     [get_email_hash("in_range_user_not_admin@posthog.com"), get_email_hash("in_range_user@posthog.com")]
                 ),
@@ -187,7 +187,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             send_second_ingestion_reminder_emails()
             self.assertEqual(MessagingRecord.objects.all().count(), 2)
             self.assertEqual(
-                set([record[0] for record in MessagingRecord.objects.all().values_list("email_hash")]),
+                {record[0] for record in MessagingRecord.objects.all().values_list("email_hash")},
                 set(
                     [get_email_hash("in_range_user_not_admin@posthog.com"), get_email_hash("in_range_user@posthog.com")]
                 ),
