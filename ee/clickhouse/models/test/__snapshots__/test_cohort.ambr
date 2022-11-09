@@ -13,8 +13,13 @@
      WHERE team_id = 2
        AND id IN
          (SELECT id
-          FROM person
-          WHERE team_id = 2
+          FROM
+            (SELECT *
+             FROM person
+             WHERE team_id = 2
+             ORDER BY version DESC
+             LIMIT 1 BY id) AS person
+          WHERE True
             AND ((((has(['something'], replaceRegexpAll(JSONExtractRaw(person.properties, '$some_prop'), '^"|"$', ''))))
                   AND ((has(['something'], replaceRegexpAll(JSONExtractRaw(person.properties, '$another_prop'), '^"|"$', '')))))) )
      GROUP BY id
