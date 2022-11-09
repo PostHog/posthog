@@ -102,7 +102,7 @@ class PersonQuery:
                     ORDER BY version DESC
                     LIMIT 1 BY id
                 )
-                {person_filters}
+                WHERE True AND {person_filters}
             )
             GROUP BY id
             HAVING max(is_deleted) = 0
