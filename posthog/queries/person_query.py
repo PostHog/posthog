@@ -94,9 +94,14 @@ class PersonQuery:
             FROM person
             WHERE team_id = %(team_id)s
             AND id IN (
-                SELECT id FROM person
-                {cohort_query}
-                WHERE team_id = %(team_id)s
+                SELECT id FROM (
+                    SELECT *
+                    FROM person
+                    {cohort_query}
+                    WHERE team_id = %(team_id)s
+                    ORDER BY version DESC
+                    LIMIT 1 BY id
+                )
                 {person_filters}
             )
             GROUP BY id
