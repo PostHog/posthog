@@ -95,7 +95,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
             null as null | boolean,
             {
                 setHasInvitedMembers: (_, { hasInvitedMembers }) => hasInvitedMembers,
-                setState: (_, { technical }) => technical,
+                setState: (_, { hasInvitedMembers }) => hasInvitedMembers,
             },
         ],
         platform: [
@@ -224,6 +224,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
 
     actionToUrl(({ values }) => ({
         setTechnical: () => getUrl(values),
+        setHasInvitedMembers: () => getUrl(values),
         setPlatform: () => getUrl(values),
         setFramework: () => getUrl(values),
         setVerify: () => getUrl(values),
@@ -240,6 +241,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
 
     urlToAction(({ actions }) => ({
         '/ingestion': () => actions.setState(null, null, null, null, false, false),
+        '/ingestion/invites-sent': () => actions.setState(false, true, null, null, false, false),
         '/ingestion/billing': (_: any, { platform, framework }) => {
             actions.setState(
                 null,
@@ -399,7 +401,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
 ])
 
 function getUrl(values: ingestionLogicType['values']): string | [string, Record<string, undefined | string>] {
-    const { technical, platform, framework, verify, addBilling } = values
+    const { technical, platform, framework, verify, addBilling, hasInvitedMembers } = values
 
     let url = '/ingestion'
 
@@ -468,6 +470,10 @@ function getUrl(values: ingestionLogicType['values']): string | [string, Record<
 
     if (technical && !platform) {
         url += '/platform'
+    }
+
+    if (!technical && !platform && hasInvitedMembers) {
+        url += '/invites-sent'
     }
 
     if (framework) {
