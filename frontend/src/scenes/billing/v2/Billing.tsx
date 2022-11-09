@@ -107,7 +107,7 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
                                 >
                                     Current bill total
                                 </LemonLabel>
-                                <div className="font-bold text-4xl">${billing.current_total_amount_usd}</div>
+                                <div className="font-bold text-6xl">${billing.current_total_amount_usd}</div>
 
                                 <p>
                                     <b>{billing.billing_period.current_period_end.diff(dayjs(), 'days')} days</b>{' '}
@@ -312,6 +312,8 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
         700: 'medium',
     })
 
+    const showFreeAllocationLimit = !billing?.has_active_subscription && product.free_allocation !== null
+
     const billingGaugeItems: BillingGaugeProps['items'] = useMemo(
         () =>
             [
@@ -319,14 +321,14 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                     tooltip: (
                         <>
                             <b>Free tier limit</b>
-                            {!billing?.has_active_subscription ? <div>(Subscribed)</div> : null}
+                            {showFreeAllocationLimit ? <div>(Subscribed)</div> : null}
                         </>
                     ),
-                    color: billing?.has_active_subscription ? 'success-light' : 'success-highlight',
+                    color: !showFreeAllocationLimit ? 'success-light' : 'success-highlight',
                     value: product.tiers?.[0]?.up_to || 0,
                     top: true,
                 },
-                !billing?.has_active_subscription
+                showFreeAllocationLimit
                     ? {
                           tooltip: (
                               <>

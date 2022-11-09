@@ -21,7 +21,7 @@ import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
-import { KafkaQueue } from './ingestion-queues/kafka-queue'
+import { IngestionConsumer } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
@@ -32,7 +32,7 @@ const { version } = require('../../package.json')
 export type ServerInstance = {
     hub: Hub
     piscina: Piscina
-    queue: KafkaQueue | null
+    queue: IngestionConsumer | null
     mmdb?: ReaderModel
     mmdbUpdateJob?: schedule.Job
     stop: () => Promise<void>
@@ -77,7 +77,7 @@ export async function startPluginsServer(
     //
     // The queue also handles async handlers, reading from
     // clickhouse_events_json topic.
-    let queue: KafkaQueue | undefined | null
+    let queue: IngestionConsumer | undefined | null
 
     // Kafka consumer. Handles events that we couldn't find an existing person
     // to associate. The buffer handles delaying the ingestion of these events
@@ -101,6 +101,16 @@ export async function startPluginsServer(
         shuttingDown = true
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
+
+        // HACKY: Stop all consumers and the graphile worker, as well as the
+        // http server. Note that we close the http server before the others to
+        // ensure that e.g. if something goes wrong and we deadlock, then if
+        // we're running in k8s, the liveness check will fail, and thus k8s will
+        // kill the pod.
+        //
+        // I say hacky because we've got a weak dependency on the liveness check
+        // configuration.
+        httpServer?.close()
         cancelAllScheduledJobs()
         stopEventLoopMetrics?.()
         await Promise.allSettled([
@@ -127,12 +137,10 @@ export async function startPluginsServer(
         if (piscina) {
             await stopPiscina(piscina)
         }
+
         await closeHub?.()
-        httpServer?.close()
 
         status.info('👋', 'Over and out!')
-        // wait an extra second for any misc async task to finish
-        await delay(1000)
     }
 
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {

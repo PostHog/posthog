@@ -49,7 +49,7 @@ from posthog.models.entity import Entity, ExclusionEntity, MathType
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
 from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
-from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse
+from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse_with_delta_mapping
 
 # When updating this regex, remember to update the regex with the same name in TrendsFormula.tsx
 ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)\.]+)"
@@ -305,6 +305,9 @@ class CompareMixin(BaseParamMixin):
 
 
 class DateMixin(BaseParamMixin):
+    date_from_delta_mapping: Optional[Dict[str, int]]
+    date_to_delta_mapping: Optional[Dict[str, int]]
+
     @cached_property
     def _date_from(self) -> Optional[Union[str, datetime.datetime]]:
         return self._data.get(DATE_FROM, None)
@@ -315,11 +318,14 @@ class DateMixin(BaseParamMixin):
 
     @cached_property
     def date_from(self) -> Optional[datetime.datetime]:
+        self.date_from_delta_mapping = None
         if self._date_from:
             if self._date_from == "all":
                 return None
             elif isinstance(self._date_from, str):
-                return relative_date_parse(self._date_from)
+                date, delta_mapping = relative_date_parse_with_delta_mapping(self._date_from)
+                self.date_from_delta_mapping = delta_mapping
+                return date
             else:
                 return self._date_from
         return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
@@ -328,23 +334,24 @@ class DateMixin(BaseParamMixin):
 
     @cached_property
     def date_to(self) -> datetime.datetime:
+        self.date_to_delta_mapping = None
         if not self._date_to:
-            if self.interval == "hour":  # type: ignore
-                return timezone.now() + relativedelta(minutes=1)
-            date = timezone.now()
+            return timezone.now()
         else:
             if isinstance(self._date_to, str):
                 try:
-                    date = datetime.datetime.strptime(self._date_to, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
+                    return datetime.datetime.strptime(self._date_to, "%Y-%m-%d").replace(
+                        hour=23, minute=59, second=59, microsecond=999999, tzinfo=pytz.UTC
+                    )
                 except ValueError:
                     try:
                         return datetime.datetime.strptime(self._date_to, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
                     except ValueError:
-                        date = relative_date_parse(self._date_to)
+                        date, delta_mapping = relative_date_parse_with_delta_mapping(self._date_to)
+                        self.date_to_delta_mapping = delta_mapping
+                        return date
             else:
                 return self._date_to
-
-        return date.replace(hour=23, minute=59, second=59, microsecond=99999)
 
     @cached_property
     def use_explicit_dates(self) -> bool:

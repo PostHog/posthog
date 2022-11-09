@@ -132,6 +132,9 @@ class BillingViewset(viewsets.GenericViewSet):
 
     def list(self, request: HttpRequest, *args: Any, **kwargs: Any) -> Response:
         license = License.objects.first_valid()
+        if license and not license.is_v2_license:
+            raise NotFound("Billing V2 is not supported for this license type")
+
         org = self._get_org()
         distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
 
@@ -147,14 +150,6 @@ class BillingViewset(viewsets.GenericViewSet):
         if org and license and license.is_v2_license:
             response["license"] = {"plan": license.plan}
             billing_service_response = self._get_billing(license, org)
-
-        # If there isn't a valid v2 subscription then we only return sucessfully if BILLING_V2_ENABLED
-        if (
-            not billing_service_response.get("customer", {}).get("has_active_subscription")
-            and not settings.BILLING_V2_ENABLED
-        ):
-            if not (distinct_id and posthoganalytics.get_feature_flag("billing-v2-enabled", distinct_id)):
-                raise NotFound("Billing V2 is not enabled for this organization")
 
         # Sync the License and Org if we have a valid response
         if license and billing_service_response.get("license"):
@@ -199,10 +194,9 @@ class BillingViewset(viewsets.GenericViewSet):
         license = License.objects.first_valid()
         if not license:
             raise Exception("There is no license configured for this instance yet.")
+
         org = self._get_org_required()
-
         billing_service_token = build_billing_token(license, org)
-
         custom_limits_usd = request.data.get("custom_limits_usd")
 
         if custom_limits_usd:
@@ -233,8 +227,10 @@ class BillingViewset(viewsets.GenericViewSet):
         if redirect_path.startswith("/"):
             redirect_path = redirect_path[1:]
 
+        plan = request.GET.get("plan", "standard")
+
         redirect_uri = f"{settings.SITE_URL or request.headers.get('Host')}/{redirect_path}"
-        url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}&plan={request.GET.get('plan', 'standard')}"
+        url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}&plan={plan}"
 
         if license:
             billing_service_token = build_billing_token(license, organization)
@@ -289,12 +285,18 @@ class BillingViewset(viewsets.GenericViewSet):
 
     def _get_products(self, license: Optional[License], organization: Optional[Organization]):
         headers = {}
+        params = {"plan": "standard"}
 
         if license and organization:
             billing_service_token = build_billing_token(license, organization)
             headers = {"Authorization": f"Bearer {billing_service_token}"}
+            params = {"plan": "standard"}
 
-        res = requests.get(f"{BILLING_SERVICE_URL}/api/products", headers=headers)
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/products",
+            params=params,
+            headers=headers,
+        )
 
         handle_billing_service_error(res)
 

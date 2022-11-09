@@ -1,12 +1,12 @@
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
 import { status } from '../../../utils/status'
-import { KafkaQueue } from '../kafka-queue'
+import { IngestionConsumer } from '../kafka-queue'
 
 export async function eachBatch(
     { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload,
-    queue: KafkaQueue,
-    eachMessage: (message: KafkaMessage, queue: KafkaQueue) => Promise<void>,
+    queue: IngestionConsumer,
+    eachMessage: (message: KafkaMessage, queue: IngestionConsumer) => Promise<void>,
     groupIntoBatches: (messages: KafkaMessage[], batchSize: number) => KafkaMessage[][],
     key: string
 ): Promise<void> {

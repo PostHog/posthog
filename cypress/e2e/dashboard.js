@@ -1,16 +1,12 @@
-function createDashboardFromTemplate(dashboardName) {
-    cy.get('[data-attr="new-dashboard"]').click()
-    cy.get('[data-attr=dashboard-name-input]').clear().type(dashboardName)
-    cy.get('[data-attr=copy-from-template]').click()
-    cy.get('[data-attr=dashboard-select-default-app]').click()
-
-    cy.get('[data-attr=dashboard-submit-and-go]').click()
-
-    cy.contains(dashboardName).should('exist')
-}
+import { randomString } from 'cypress/support/random'
+import { urls } from 'scenes/urls'
+import { insight, savedInsights, dashboards, dashboard } from 'cypress/productAnalytics'
 
 describe('Dashboard', () => {
     beforeEach(() => {
+        cy.intercept('GET', /api\/projects\/\d+\/insights\/\?.*/).as('loadInsightList')
+        cy.intercept(/api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
+
         cy.clickNavMenu('dashboards')
         cy.location('pathname').should('include', '/dashboard')
     })
@@ -24,8 +20,6 @@ describe('Dashboard', () => {
     })
 
     it('Adding new insight to dashboard works', () => {
-        cy.intercept(/api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
-
         cy.get('[data-attr=menu-item-insight]').click() // Create a new insight
         cy.get('[data-attr="insight-save-button"]').click() // Save the insight
         cy.url().should('not.include', '/new') // wait for insight to complete and update URL
@@ -60,7 +54,7 @@ describe('Dashboard', () => {
     })
 
     it('Share dashboard', () => {
-        createDashboardFromTemplate('to be shared')
+        dashboards.createDashboardFromDefaultTemplate('to be shared')
 
         cy.get('.InsightCard').should('exist')
 
@@ -93,7 +87,7 @@ describe('Dashboard', () => {
     it('Create dashboard from a template', () => {
         const TEST_DASHBOARD_NAME = 'XDefault'
 
-        createDashboardFromTemplate(TEST_DASHBOARD_NAME)
+        dashboards.createDashboardFromDefaultTemplate(TEST_DASHBOARD_NAME)
 
         cy.get('.InsightCard').its('length').should('be.gte', 2)
         // Breadcrumbs work
@@ -151,15 +145,68 @@ describe('Dashboard', () => {
     })
 
     it('Add insight from empty dashboard', () => {
-        cy.get('[data-attr="new-dashboard"]').click()
-        cy.get('[data-attr=dashboard-name-input]').clear().type('Watermelon')
-        cy.get('button').contains('Create').click()
-
-        cy.get('[data-attr=dashboard-add-graph-header]').contains('Add insight').click()
-        cy.get('[data-attr=toast-close-button]').click()
-        cy.get('[data-attr=insight-save-button]').contains('Save & add to dashboard').click()
+        const dashboardName = randomString('dashboard-')
+        dashboards.createAndGoToEmptyDashboard(dashboardName)
+        dashboard.addInsightToEmptyDashboard(randomString('insight-'))
 
         cy.wait(200)
-        cy.get('.page-title').contains('Watermelon').should('exist')
+        cy.get('.page-title').contains(dashboardName).should('exist')
+    })
+
+    describe('deleting dashboards', () => {
+        it('can delete dashboard without deleting the insights', () => {
+            cy.visit(urls.savedInsights()) // get insights list into turbo mode
+            cy.clickNavMenu('dashboards')
+
+            const dashboardName = randomString('dashboard-')
+            const insightName = randomString('insight-')
+
+            dashboards.createAndGoToEmptyDashboard(dashboardName)
+            dashboard.addInsightToEmptyDashboard(insightName)
+
+            cy.get('[data-attr="dashboard-three-dots-options-menu"]').click()
+            cy.get('button').contains('Delete dashboard').click()
+            cy.get('[data-attr="dashboard-delete-submit"]').click()
+
+            savedInsights.checkInsightIsInListView(insightName)
+        })
+
+        it('can delete dashboard and delete the insights', () => {
+            cy.visit(urls.savedInsights()) // get insights list into turbo mode
+            cy.clickNavMenu('dashboards')
+
+            const dashboardName = randomString('dashboard-')
+            const dashboardToKeepName = randomString('dashboard-to-keep')
+            const insightName = randomString('insight-')
+            const insightToKeepName = randomString('insight-to-keep-')
+
+            dashboards.createAndGoToEmptyDashboard(dashboardName)
+            dashboard.addInsightToEmptyDashboard(insightName)
+
+            cy.clickNavMenu('dashboards')
+
+            dashboards.createAndGoToEmptyDashboard(dashboardToKeepName)
+            dashboard.addInsightToEmptyDashboard(insightToKeepName)
+
+            cy.visit(urls.savedInsights())
+            cy.wait('@loadInsightList').then(() => {
+                cy.get('.saved-insights tr a').should('be.visible')
+
+                // load the named insight
+                cy.contains('.saved-insights tr', insightToKeepName).within(() => {
+                    cy.get('a.row-name').click()
+                })
+
+                insight.addInsightToDashboard(dashboardName)
+
+                cy.get('[data-attr="dashboard-three-dots-options-menu"]').click()
+                cy.get('button').contains('Delete dashboard').click()
+                cy.contains('span.LemonCheckbox', "Delete this dashboard's insights").click()
+                cy.get('[data-attr="dashboard-delete-submit"]').click()
+
+                savedInsights.checkInsightIsInListView(insightToKeepName)
+                savedInsights.checkInsightIsNotInListView(insightName)
+            })
+        })
     })
 })

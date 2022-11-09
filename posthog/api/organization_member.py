@@ -79,6 +79,7 @@ class OrganizationMemberViewSet(
         .filter(
             user__is_active=True,
         )
+        .select_related("user")
     )
     lookup_field = "user__uuid"
 

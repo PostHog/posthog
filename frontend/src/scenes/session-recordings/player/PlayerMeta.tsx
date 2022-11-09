@@ -167,33 +167,38 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                     <LemonSkeleton className="w-1/3 my-1" />
                 ) : (
                     <>
-                        <IconWindow value={currentWindowIndex + 1} className="text-muted" />
-                        {!isSmallPlayer && <div className="window-number">Window {currentWindowIndex + 1}</div>}
+                        <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
+                        {!isSmallPlayer && <div className="text-muted-alt">Window {currentWindowIndex + 1}</div>}
                         {lastPageviewEvent?.properties?.['$current_url'] && (
                             <span className="flex items-center gap-2 truncate">
                                 <span>·</span>
-                                <Link
-                                    to={lastPageviewEvent?.properties['$current_url']}
-                                    target="_blank"
-                                    className="truncate"
-                                >
-                                    {lastPageviewEvent?.properties['$current_url']}
-                                </Link>
-                                <span className="flex items-center">
-                                    <CopyToClipboardInline
-                                        description="current url"
-                                        explicitValue={lastPageviewEvent?.properties['$current_url']}
-                                    />
+                                <span className="flex items-center gap-1 truncate">
+                                    <Tooltip title="Click to open url">
+                                        <Link
+                                            to={lastPageviewEvent?.properties['$current_url']}
+                                            target="_blank"
+                                            className="truncate"
+                                        >
+                                            {lastPageviewEvent?.properties['$current_url']}
+                                        </Link>
+                                    </Tooltip>
+                                    <span className="flex items-center">
+                                        <CopyToClipboardInline
+                                            description="current url"
+                                            explicitValue={lastPageviewEvent?.properties['$current_url']}
+                                            iconStyle={{ color: 'var(--muted-alt)' }}
+                                        />
+                                    </span>
                                 </span>
                             </span>
                         )}
                     </>
                 )}
-                <div className="flex-1 min-w-20" />
+                <div className={clsx('flex-1', isSmallPlayer ? 'min-w-4' : 'min-w-20')} />
                 {loading ? (
                     <LemonSkeleton className="w-1/3" />
                 ) : (
-                    <span>
+                    <span className="text-muted-alt">
                         {resolution && (
                             <>
                                 Resolution: {resolution.width} x {resolution.height}{' '}
