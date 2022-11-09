@@ -39,6 +39,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                 )}
             </div>
             {readOnly &&
+                featureFlag.rollback_conditions &&
                 featureFlag.rollback_conditions.map((rollback_condition, index) => (
                     <>
                         {index > 0 && <div className="condition-set-separator">OR</div>}
@@ -75,6 +76,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                     </>
                 ))}
             {!readOnly &&
+                featureFlag.rollback_conditions &&
                 featureFlag.rollback_conditions.map((_, index) => (
                     <>
                         {index > 0 && <div className="condition-set-separator">OR</div>}
