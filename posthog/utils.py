@@ -356,7 +356,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     if posthog_distinct_id:
         groups = {}
         if request.user and request.user.is_authenticated:
-            groups = {"organization": request.user.organization_id}
+            groups = {"organization": str(request.user.organization_id)}
         feature_flags = posthoganalytics.get_all_flags(posthog_distinct_id, only_evaluate_locally=True, groups=groups)
         # don't forcefully set distinctID, as this breaks the link for anonymous users coming from `posthog.com`.
         posthog_bootstrap["featureFlags"] = feature_flags
