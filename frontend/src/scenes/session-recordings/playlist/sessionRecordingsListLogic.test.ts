@@ -1,9 +1,4 @@
-import {
-    sessionRecordingsListLogic,
-    PLAYLIST_LIMIT,
-    DEFAULT_ENTITY_FILTERS,
-    DEFAULT_DURATION_FILTER,
-} from './sessionRecordingsListLogic'
+import { sessionRecordingsListLogic, PLAYLIST_LIMIT, DEFAULT_RECORDING_FILTERS } from './sessionRecordingsListLogic'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
@@ -76,7 +71,7 @@ describe('sessionRecordingsListLogic', () => {
 
     describe('global logic', () => {
         beforeEach(() => {
-            logic = sessionRecordingsListLogic({})
+            logic = sessionRecordingsListLogic({ key: 'tests', updateSearchParams: true })
             logic.mount()
         })
 
@@ -141,16 +136,16 @@ describe('sessionRecordingsListLogic', () => {
 
         describe('entityFilters', () => {
             it('starts with default values', () => {
-                expectLogic(logic).toMatchValues({ entityFilters: DEFAULT_ENTITY_FILTERS })
+                expectLogic(logic).toMatchValues({ filters: DEFAULT_RECORDING_FILTERS })
             })
 
-            it('is set by setEntityFilters and loads filtered results and sets the url', async () => {
+            it('is set by setFilters and loads filtered results and sets the url', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setEntityFilters({
+                    logic.actions.setFilters({
                         events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
                     })
                 })
-                    .toDispatchActions(['setEntityFilters', 'getSessionRecordings', 'getSessionRecordingsSuccess'])
+                    .toDispatchActions(['setFilters', 'getSessionRecordings', 'getSessionRecordingsSuccess'])
                     .toMatchValues({
                         sessionRecordings: ['List of recordings filtered by events'],
                     })
@@ -165,7 +160,7 @@ describe('sessionRecordingsListLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.loadNext()
                 })
-                    .toMatchValues({ offset: PLAYLIST_LIMIT })
+                    .toMatchValues({ filters: expect.objectContaining({ offset: PLAYLIST_LIMIT }) })
                     .toDispatchActions(['loadNext', 'getSessionRecordingsSuccess'])
                     .toMatchValues({ sessionRecordings: [`List of recordings offset by ${PLAYLIST_LIMIT}`] })
                 expect(router.values.searchParams.filters).toHaveProperty('offset', PLAYLIST_LIMIT)
@@ -173,7 +168,7 @@ describe('sessionRecordingsListLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.loadPrev()
                 })
-                    .toMatchValues({ offset: 0 })
+                    .toMatchValues({ filters: expect.objectContaining({ offset: 0 }) })
                     .toDispatchActions(['loadPrev', 'getSessionRecordingsSuccess'])
                     .toMatchValues({ sessionRecordings: listOfSessionRecordings })
                 expect(router.values.searchParams.filters).toHaveProperty('offset', 0)
@@ -181,12 +176,20 @@ describe('sessionRecordingsListLogic', () => {
         })
 
         describe('date range', () => {
-            it('is set by setDateRange and fetches results from server and sets the url', async () => {
+            it('is set by setFilters and fetches results from server and sets the url', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setDateRange('2021-10-05', '2021-10-20')
+                    logic.actions.setFilters({
+                        date_from: '2021-10-05',
+                        date_to: '2021-10-20',
+                    })
                 })
-                    .toMatchValues({ fromDate: '2021-10-05', toDate: '2021-10-20' })
-                    .toDispatchActions(['setDateRange', 'getSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        filters: expect.objectContaining({
+                            date_from: '2021-10-05',
+                            date_to: '2021-10-20',
+                        }),
+                    })
+                    .toDispatchActions(['setFilters', 'getSessionRecordingsSuccess'])
                     .toMatchValues({ sessionRecordings: ['Recordings filtered by date'] })
 
                 expect(router.values.searchParams.filters).toHaveProperty('date_from', '2021-10-05')
@@ -194,29 +197,28 @@ describe('sessionRecordingsListLogic', () => {
             })
         })
         describe('duration filter', () => {
-            it('starts filtered by default filter', () => {
-                expectLogic(logic).toMatchValues({
-                    durationFilter: DEFAULT_DURATION_FILTER,
-                })
-            })
-            it('is set by setDurationFilter and fetches results from server and sets the url', async () => {
+            it('is set by setFilters and fetches results from server and sets the url', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setDurationFilter({
-                        type: 'recording',
-                        key: 'duration',
-                        value: 600,
-                        operator: PropertyOperator.LessThan,
-                    })
-                })
-                    .toMatchValues({
-                        durationFilter: {
+                    logic.actions.setFilters({
+                        session_recording_duration: {
                             type: 'recording',
                             key: 'duration',
                             value: 600,
                             operator: PropertyOperator.LessThan,
                         },
                     })
-                    .toDispatchActions(['setDurationFilter', 'getSessionRecordingsSuccess'])
+                })
+                    .toMatchValues({
+                        filters: expect.objectContaining({
+                            session_recording_duration: {
+                                type: 'recording',
+                                key: 'duration',
+                                value: 600,
+                                operator: PropertyOperator.LessThan,
+                            },
+                        }),
+                    })
+                    .toDispatchActions(['setFilters', 'getSessionRecordingsSuccess'])
                     .toMatchValues({ sessionRecordings: ['Recordings filtered by duration'] })
 
                 expect(router.values.searchParams.filters).toHaveProperty('session_recording_duration', {
@@ -270,13 +272,13 @@ describe('sessionRecordingsListLogic', () => {
                 })
             })
 
-            it('is set by setEntityFilters and loads filtered results', async () => {
+            it('is set by setFilters and loads filtered results', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setEntityFilters({
+                    logic.actions.setFilters({
                         events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
                     })
                 })
-                    .toDispatchActions(['setEntityFilters', 'getSessionRecordings', 'getSessionRecordingsSuccess'])
+                    .toDispatchActions(['setFilters', 'getSessionRecordings', 'getSessionRecordingsSuccess'])
                     .toMatchValues({
                         sessionRecordings: ['List of recordings filtered by events'],
                     })
@@ -301,27 +303,31 @@ describe('sessionRecordingsListLogic', () => {
             })
 
             await expectLogic(logic)
-                .toDispatchActions(['setEntityFilters', 'setDateRange', 'setOffset', 'setDurationFilter'])
+                .toDispatchActions(['replaceFilters'])
                 .toMatchValues({
-                    entityFilters: {
+                    filters: {
                         events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
                         actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
-                    },
-                    fromDate: '2021-10-01',
-                    toDate: '2021-10-10',
-                    offset: 50,
-                    durationFilter: {
-                        type: 'recording',
-                        key: 'duration',
-                        value: 600,
-                        operator: PropertyOperator.LessThan,
+                        date_from: '2021-10-01',
+                        date_to: '2021-10-10',
+                        offset: 50,
+                        session_recording_duration: {
+                            type: 'recording',
+                            key: 'duration',
+                            value: 600,
+                            operator: PropertyOperator.LessThan,
+                        },
                     },
                 })
         })
     })
     describe('person specific logic', () => {
         beforeEach(() => {
-            logic = sessionRecordingsListLogic({ personUUID: 'cool_user_99' })
+            logic = sessionRecordingsListLogic({
+                key: 'cool_user_99',
+                personUUID: 'cool_user_99',
+                updateSearchParams: true,
+            })
             logic.mount()
         })
 

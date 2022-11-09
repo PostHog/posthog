@@ -389,7 +389,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         _, update_response = self._update_insight(
             insight_id, {"dashboards": [dashboard_id, deleted_dashboard_id, new_dashboard_id]}
         )
-        assert update_response["dashboards"] == [dashboard_id, new_dashboard_id]
+        assert sorted(update_response["dashboards"]) == [dashboard_id, new_dashboard_id]
 
     def test_can_update_insight_with_inconsistent_dashboards(self):
         """
@@ -418,7 +418,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         assert DashboardTile.objects.filter(dashboard_id=deleted_dashboard_id).exists()
 
         insight_json = self._get_insight(insight_id)
-        assert insight_json["dashboards"] == [dashboard_id, deleted_dashboard_id]
+        assert insight_json["dashboards"] == [dashboard_id]
 
         # accidentally include a deleted dashboard
         _, update_response = self._update_insight(insight_id, {"dashboards": [deleted_dashboard_id]})
