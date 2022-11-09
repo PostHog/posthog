@@ -6,16 +6,6 @@ STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.C
 
 KAFKA_ENGINE = "Kafka('{kafka_host}', '{topic}', '{group}', '{serialization}')"
 
-KAFKA_PROTO_ENGINE = """
-    Kafka () SETTINGS
-    kafka_broker_list = '{kafka_host}',
-    kafka_topic_list = '{topic}',
-    kafka_group_name = '{group}',
-    kafka_format = 'Protobuf',
-    kafka_schema = '{proto_schema}',
-    kafka_skip_broken_messages = {skip_broken_messages}
-    """
-
 GENERATE_UUID_SQL = """
 SELECT generateUUIDv4()
 """
@@ -33,6 +23,8 @@ KAFKA_COLUMNS_WITH_PARTITION = """
 , _offset UInt64
 , _partition UInt64
 """
+
+KAFKA_ENGINE_DEFAULT_SETTINGS = "SETTINGS kafka_handle_error_mode='stream'"
 
 
 def kafka_engine(topic: str, kafka_host=None, group="group1"):
