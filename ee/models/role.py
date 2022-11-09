@@ -1,5 +1,6 @@
 from django.db import models
 
+from posthog.models.organization import Organization
 from posthog.models.utils import UUIDModel
 
 
@@ -10,6 +11,10 @@ class Role(UUIDModel):
         on_delete=models.CASCADE,
         related_name="roles",
         related_query_name="role",
+    )
+    feature_flags_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
+        default=Organization.FeatureFlagsAccessLevel.CAN_ALWAYS_EDIT,
+        choices=Organization.FeatureFlagsAccessLevel.choices,
     )
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     created_by: models.ForeignKey = models.ForeignKey(

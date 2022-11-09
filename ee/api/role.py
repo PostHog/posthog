@@ -11,8 +11,6 @@ from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import OrganizationMemberPermissions
 
-DEFAULT_ROLE_NAME = "Write"
-
 
 class RolePermissions(BasePermission):
     """

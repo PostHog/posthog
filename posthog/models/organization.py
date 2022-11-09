@@ -95,6 +95,13 @@ class Organization(UUIDModel):
         # This includes installing plugins from the repository and managing plugin installations for all other orgs.
         ROOT = 9, "root"
 
+    class FeatureFlagsAccessLevel(models.IntegerChoices):
+        """Level for which a role or user can edit or view feature flags"""
+
+        CAN_ONLY_VIEW = 21, "Can only view feature flags"
+        CAN_ALWAYS_EDIT = 37, "Can always edit feature flags"
+        DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE = 25, "Default view unless role grants access"
+
     members: models.ManyToManyField = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
@@ -111,6 +118,10 @@ class Organization(UUIDModel):
     )
     for_internal_metrics: models.BooleanField = models.BooleanField(default=False)
     is_member_join_email_enabled: models.BooleanField = models.BooleanField(default=True)
+
+    feature_flags_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
+        default=FeatureFlagsAccessLevel.CAN_ALWAYS_EDIT, choices=FeatureFlagsAccessLevel.choices
+    )
 
     # Managed by Billing
     available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
