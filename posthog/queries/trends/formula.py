@@ -72,7 +72,9 @@ class TrendsFormula:
             additional_values: Dict[str, Any] = {"label": self._label(filter, item)}
             if is_aggregate:
                 additional_values["data"] = []
-                additional_values["aggregated_value"] = item[1][0]
+                additional_values["aggregated_value"] = (
+                    0.0 if math.isnan(item[1][0]) and not math.isinf(item[1][0]) else item[1][0]
+                )
             else:
                 additional_values["data"] = [
                     round(number, 2) if not math.isnan(number) and not math.isinf(number) else 0.0 for number in item[1]
