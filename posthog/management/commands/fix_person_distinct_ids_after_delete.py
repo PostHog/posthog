@@ -36,8 +36,9 @@ def run(options):
     distinct_ids = get_distinct_ids_tied_to_deleted_persons(team_id)
 
     for distinct_id in distinct_ids:
-        # this can throw but this script can safely be re-ran as
-        # updated distinct_ids won't show up in the search anymore as they don't belong to deleted persons anymore
+        # this can throw but this script can safely be re-run as
+        # updated distinct_ids won't show up in the search anymore 
+        # since they no longer belong to deleted persons
         # it's safer to throw and exit if anything went wrong
         update_distinct_id(distinct_id, version, team_id, live_run)
 
@@ -49,7 +50,7 @@ def get_distinct_ids_tied_to_deleted_persons(team_id: int) -> List[str]:
             SELECT distinct_id FROM (
                 SELECT distinct_id, argMax(person_id, version) AS person_id FROM person_distinct_id2 WHERE team_id = %(team)s GROUP BY distinct_id
             ) AS pdi2 INNER JOIN (
-                SELECT id FROM person WHERE team_id = %(team)s GROUP BY id having max(is_deleted) = 1
+                SELECT id FROM person WHERE team_id = %(team)s GROUP BY id HAVING max(is_deleted) = 1
             ) AS p
             ON pdi2.person_id = p.id
         """,
@@ -61,7 +62,7 @@ def get_distinct_ids_tied_to_deleted_persons(team_id: int) -> List[str]:
 
 
 def update_distinct_id(distinct_id: str, version: int, team_id: int, live_run: bool):
-    # if the distinct_id exists in postgres, then update otherwise do nothing
+    # update the version if the distinct_id exists in postgres, otherwise do nothing
     # also to avoid collisions we're doing this one-by-one locking postgres for a transaction
     with transaction.atomic():
         person_distinct_id = PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id).first()
