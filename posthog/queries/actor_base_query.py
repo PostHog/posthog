@@ -125,7 +125,7 @@ class ActorBaseQuery:
 
         session_events_column_index = 2 if self.ACTOR_VALUES_INCLUDED else 1
         for row in raw_result:
-            if len(row) > session_events_column_index - 1:  # Session events are in the last column
+            if len(row) > session_events_column_index:  # Session events are in the last column
                 for event in row[session_events_column_index]:
                     if event[2]:
                         all_session_ids.add(event[2])
@@ -137,7 +137,7 @@ class ActorBaseQuery:
             recording_events_by_session_id: Dict[str, List[EventInfoForRecording]] = {}
             if len(row) > session_events_column_index - 1:
                 for event in row[session_events_column_index]:
-                    event_session_id = event[session_events_column_index]
+                    event_session_id = event[2]
                     if event_session_id and event_session_id in session_ids_with_recordings:
                         recording_events_by_session_id.setdefault(event_session_id, []).append(
                             EventInfoForRecording(timestamp=event[0], uuid=event[1], window_id=event[3])
