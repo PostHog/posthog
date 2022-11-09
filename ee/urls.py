@@ -15,6 +15,7 @@ from .api import (
     hooks,
     license,
     sentry_stats,
+    session_recording_playlist,
     subscription,
 )
 
@@ -42,6 +43,12 @@ def extend_api_router(
     )
 
     projects_router.register(r"subscriptions", subscription.SubscriptionViewSet, "subscriptions", ["team_id"])
+    projects_router.register(
+        r"session_recording_playlists",
+        session_recording_playlist.SessionRecordingPlaylistViewSet,
+        "project_session_recording_playlists",
+        ["team_id"],
+    )
 
 
 urlpatterns: List[Any] = [

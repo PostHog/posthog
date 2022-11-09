@@ -128,7 +128,6 @@ from posthog.api.event import EventViewSet, LegacyEventViewSet  # noqa: E402
 from posthog.api.insight import InsightViewSet  # noqa: E402
 from posthog.api.person import LegacyPersonViewSet, PersonViewSet  # noqa: E402
 from posthog.api.session_recording import SessionRecordingViewSet  # noqa: E402
-from posthog.api.session_recording_playlist import SessionRecordingPlaylistViewSet  # noqa: E402
 
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
@@ -143,9 +142,6 @@ projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["team_id
 projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id"])
 projects_router.register(r"elements", ElementViewSet, "project_elements", ["team_id"])
 projects_router.register(r"session_recordings", SessionRecordingViewSet, "project_session_recordings", ["team_id"])
-projects_router.register(
-    r"session_recording_playlists", SessionRecordingPlaylistViewSet, "project_session_recording_playlists", ["team_id"]
-)
 
 if EE_AVAILABLE:
     from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet
