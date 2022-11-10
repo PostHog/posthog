@@ -54,7 +54,7 @@ export function SessionsRecordings(): JSX.Element {
                                             filters: tab === SessionRecordingsTabs.Recent ? filters : undefined,
                                         })
                                     }
-                                    disabled={newPlaylistLoading}
+                                    loading={newPlaylistLoading}
                                     data-attr="save-recordings-playlist-button"
                                     icon={<IconPlus />}
                                 >
