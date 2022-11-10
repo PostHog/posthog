@@ -15,9 +15,15 @@ import { PlayerInspectorPicker } from './PlayerInspector'
 
 interface PlayerControllerProps extends SessionRecordingPlayerProps {
     isDetail: boolean
+    hideInspectorPicker?: boolean
 }
 
-export function PlayerController({ sessionRecordingId, playerKey, isDetail }: PlayerControllerProps): JSX.Element {
+export function PlayerController({
+    sessionRecordingId,
+    playerKey,
+    isDetail,
+    hideInspectorPicker = false,
+}: PlayerControllerProps): JSX.Element {
     const { togglePlayPause, setSpeed, setSkipInactivitySetting, setIsFullScreen } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
@@ -33,7 +39,7 @@ export function PlayerController({ sessionRecordingId, playerKey, isDetail }: Pl
             </div>
             <div className="flex justify-between items-center h-8 gap-2">
                 <div className="flex items-center gap-2 flex-1">
-                    {!isFullScreen && (
+                    {!hideInspectorPicker && !isFullScreen && (
                         <PlayerInspectorPicker sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                     )}
                 </div>

@@ -97,7 +97,12 @@ export function SessionRecordingPlayer({
                     <PlayerFrame sessionRecordingId={sessionRecordingId} ref={frame} playerKey={playerKey} />
                 </div>
                 <LemonDivider className="my-0" />
-                <PlayerController sessionRecordingId={sessionRecordingId} playerKey={playerKey} isDetail={isDetail} />
+                <PlayerController
+                    sessionRecordingId={sessionRecordingId}
+                    playerKey={playerKey}
+                    isDetail={isDetail}
+                    hideInspectorPicker={size !== 'small'}
+                />
             </div>
             {!isFullScreen && (
                 <div className="SessionRecordingPlayer__inspector">
