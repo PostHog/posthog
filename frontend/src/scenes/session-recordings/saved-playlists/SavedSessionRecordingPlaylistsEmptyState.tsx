@@ -1,10 +1,10 @@
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconPlus } from 'lib/components/icons'
+import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { useActions } from 'kea'
-import { sessionRecordingsLogic } from 'scenes/session-recordings/sessionRecordingsLogic'
 
 export function SavedSessionRecordingPlaylistsEmptyState(): JSX.Element {
-    const { saveNewPlaylist } = useActions(sessionRecordingsLogic)
+    const { saveNewPlaylist } = useActions(sessionRecordingsListLogic({ key: 'recents', updateSearchParams: true }))
 
     return (
         <div className="flex items-center justify-center">
