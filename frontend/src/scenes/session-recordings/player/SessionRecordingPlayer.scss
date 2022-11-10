@@ -80,8 +80,9 @@
         }
 
         .SessionRecordingPlayer__body {
-            height: 70vh;
-            min-height: 70vh;
+            // Rough aproximation of the parent elements
+            height: calc(100vh - 20rem);
+            min-height: calc(100vh - 20rem);
         }
     }
 }
