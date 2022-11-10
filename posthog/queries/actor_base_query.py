@@ -36,14 +36,15 @@ class MatchedRecording(TypedDict):
     events: List[EventInfoForRecording]
 
 
-class CommonAttributes(TypedDict, total=False):
+class CommonActor(TypedDict):
     id: Union[uuid.UUID, str]
     created_at: Optional[str]
     properties: Dict[str, Any]
     matched_recordings: List[MatchedRecording]
+    value_at_data_point: Optional[float]
 
 
-class SerializedPerson(CommonAttributes):
+class SerializedPerson(CommonActor):
     type: Literal["person"]
     uuid: Union[uuid.UUID, str]
     is_identified: Optional[bool]
@@ -51,7 +52,7 @@ class SerializedPerson(CommonAttributes):
     distinct_ids: List[str]
 
 
-class SerializedGroup(CommonAttributes):
+class SerializedGroup(CommonActor):
     type: Literal["group"]
     group_key: str
     group_type_index: int
@@ -61,7 +62,9 @@ SerializedActor = Union[SerializedGroup, SerializedPerson]
 
 
 class ActorBaseQuery:
-    aggregating_by_groups = False
+    # Whether actor values are included as the second column of the actors query
+    ACTOR_VALUES_INCLUDED = False
+
     entity: Optional[Entity] = None
 
     def __init__(
@@ -119,9 +122,11 @@ class ActorBaseQuery:
         self, serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]], raw_result
     ) -> Union[List[SerializedGroup], List[SerializedPerson]]:
         all_session_ids = set()
+
+        session_events_column_index = 2 if self.ACTOR_VALUES_INCLUDED else 1
         for row in raw_result:
-            if len(row) > 1:
-                for event in row[1]:
+            if len(row) > session_events_column_index:  # Session events are in the last column
+                for event in row[session_events_column_index]:
                     if event[2]:
                         all_session_ids.add(event[2])
 
@@ -130,8 +135,8 @@ class ActorBaseQuery:
         matched_recordings_by_actor_id: Dict[Union[uuid.UUID, str], List[MatchedRecording]] = {}
         for row in raw_result:
             recording_events_by_session_id: Dict[str, List[EventInfoForRecording]] = {}
-            if len(row) > 1:
-                for event in row[1]:
+            if len(row) > session_events_column_index - 1:
+                for event in row[session_events_column_index]:
                     event_session_id = event[2]
                     if event_session_id and event_session_id in session_ids_with_recordings:
                         recording_events_by_session_id.setdefault(event_session_id, []).append(
@@ -161,28 +166,36 @@ class ActorBaseQuery:
         serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]]
 
         actor_ids = [row[0] for row in raw_result]
+        value_per_actor_id = {str(row[0]): row[1] for row in raw_result} if self.ACTOR_VALUES_INCLUDED else None
 
         if self.is_aggregating_by_groups:
             actors, serialized_actors = get_groups(
-                self._team.pk, cast(int, self.aggregation_group_type_index), actor_ids
+                self._team.pk, cast(int, self.aggregation_group_type_index), actor_ids, value_per_actor_id
             )
         else:
-            actors, serialized_actors = get_people(self._team.pk, actor_ids)
+            actors, serialized_actors = get_people(self._team.pk, actor_ids, value_per_actor_id)
+
+        if self.ACTOR_VALUES_INCLUDED:
+            # We fetched actors from Postgres in get_groups/get_people, so `ORDER BY actor_value DESC` no longer holds
+            # We need .sort() to restore this order
+            serialized_actors.sort(key=lambda actor: cast(float, actor["value_at_data_point"]), reverse=True)
 
         return actors, serialized_actors
 
 
 def get_groups(
-    team_id: int, group_type_index: int, group_ids: List[Any]
+    team_id: int, group_type_index: int, group_ids: List[Any], value_per_actor_id: Optional[Dict[str, float]] = None
 ) -> Tuple[QuerySet[Group], List[SerializedGroup]]:
     """Get groups from raw SQL results in data model and dict formats"""
     groups: QuerySet[Group] = Group.objects.filter(
         team_id=team_id, group_type_index=group_type_index, group_key__in=group_ids
     )
-    return groups, serialize_groups(groups)
+    return groups, serialize_groups(groups, value_per_actor_id)
 
 
-def get_people(team_id: int, people_ids: List[Any]) -> Tuple[QuerySet[Person], List[SerializedPerson]]:
+def get_people(
+    team_id: int, people_ids: List[Any], value_per_actor_id: Optional[Dict[str, float]] = None
+) -> Tuple[QuerySet[Person], List[SerializedPerson]]:
     """Get people from raw SQL results in data model and dict formats"""
     persons: QuerySet[Person] = (
         Person.objects.filter(team_id=team_id, uuid__in=people_ids)
@@ -190,10 +203,10 @@ def get_people(team_id: int, people_ids: List[Any]) -> Tuple[QuerySet[Person], L
         .order_by("-created_at", "uuid")
         .only("id", "is_identified", "created_at", "properties", "uuid")
     )
-    return persons, serialize_people(persons)
+    return persons, serialize_people(persons, value_per_actor_id)
 
 
-def serialize_people(data: QuerySet[Person]) -> List[SerializedPerson]:
+def serialize_people(data: QuerySet[Person], value_per_actor_id: Optional[Dict[str, float]]) -> List[SerializedPerson]:
     from posthog.api.person import get_person_name
 
     return [
@@ -206,12 +219,14 @@ def serialize_people(data: QuerySet[Person]) -> List[SerializedPerson]:
             is_identified=person.is_identified,
             name=get_person_name(person),
             distinct_ids=person.distinct_ids,
+            matched_recordings=[],
+            value_at_data_point=value_per_actor_id[str(person.uuid)] if value_per_actor_id else None,
         )
         for person in data
     ]
 
 
-def serialize_groups(data: QuerySet[Group]) -> List[SerializedGroup]:
+def serialize_groups(data: QuerySet[Group], value_per_actor_id: Optional[Dict[str, float]]) -> List[SerializedGroup]:
     return [
         SerializedGroup(
             id=group.group_key,
@@ -219,7 +234,9 @@ def serialize_groups(data: QuerySet[Group]) -> List[SerializedGroup]:
             group_type_index=group.group_type_index,
             group_key=group.group_key,
             created_at=group.created_at,
+            matched_recordings=[],
             properties=group.group_properties,
+            value_at_data_point=value_per_actor_id[group.group_key] if value_per_actor_id else None,
         )
         for group in data
     ]
