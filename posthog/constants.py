@@ -26,7 +26,7 @@ class AvailableFeature(str, Enum):
     WHITE_LABELLING = "white_labelling"
     SUBSCRIPTIONS = "subscriptions"
     APP_METRICS = "app_metrics"
-    RECORDINGS_PLAYLISTS_UNLIMITED = "recordings_playlists_unlimited"
+    RECORDINGS_PLAYLISTS = "recordings_playlists"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

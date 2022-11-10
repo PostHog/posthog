@@ -137,7 +137,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         playlist_count = SessionRecordingPlaylist.objects.filter(deleted=False, team=team).count()
 
         if (
-            AvailableFeature.RECORDINGS_PLAYLISTS_UNLIMITED not in (available_features or [])
+            AvailableFeature.RECORDINGS_PLAYLISTS not in (available_features or [])
             and playlist_count >= SESSION_RECORDINGS_PLAYLIST_FREE_COUNT
         ):
             raise PermissionDenied("You have hit the limit for playlists for this team.")

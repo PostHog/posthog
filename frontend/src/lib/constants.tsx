@@ -155,7 +155,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
     [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
     [AvailableFeature.APP_METRICS]: LicensePlan.Scale,
-    [AvailableFeature.RECORDINGS_PLAYLISTS_UNLIMITED]: LicensePlan.Scale,
+    [AvailableFeature.RECORDINGS_PLAYLISTS]: LicensePlan.Scale,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
