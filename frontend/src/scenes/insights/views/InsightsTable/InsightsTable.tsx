@@ -28,7 +28,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatAggregationValue, formatBreakdownLabel } from 'scenes/insights/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isFilterWithDisplay, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -103,9 +103,7 @@ export function InsightsTable({
     }
 
     const isDisplayModeNonTimeSeries: boolean =
-        (isTrendsFilter(filters) || isStickinessFilter(filters)) &&
-        !!filters.display &&
-        NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)
+        isFilterWithDisplay(filters) && !!filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)
 
     const calcColumnMenu = isDisplayModeNonTimeSeries ? null : (
         <Menu>

@@ -542,6 +542,10 @@ export interface RecordingFilters {
     session_recording_duration?: RecordingDurationFilter
 }
 
+export interface LocalRecordingFilters extends RecordingFilters {
+    new_entity?: Record<string, any>[]
+}
+
 export interface SessionRecordingsResponse {
     results: SessionRecordingType[]
     has_next: boolean
@@ -1198,18 +1202,18 @@ export interface FilterType {
     filter_test_accounts?: boolean
     from_dashboard?: boolean | number
 
-    // shared between trends and funnels
+    // persons modal
+    entity_id?: string | number
+    entity_type?: EntityType
+    entity_math?: string
+
+    // TODO: extract into TrendsFunnelsCommonFilterType
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
     breakdowns?: Breakdown[]
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number | undefined // Groups aggregation
-
-    // persons modal
-    entity_id?: string | number
-    entity_type?: EntityType
-    entity_math?: string
 }
 
 export interface TrendsFilterType extends FilterType {

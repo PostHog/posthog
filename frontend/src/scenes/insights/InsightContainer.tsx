@@ -30,7 +30,7 @@ import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
 import { FunnelInsight } from './views/Funnels/FunnelInsight'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { AlertMessage } from 'lib/components/AlertMessage'
-import { isFunnelsFilter, isPathsFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isFilterWithDisplay, isFunnelsFilter, isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -220,7 +220,7 @@ export function InsightContainer(
                     </Row>
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
-                    ) : (isTrendsFilter(filters) || isStickinessFilter(filters)) && filters.show_legend ? (
+                    ) : isFilterWithDisplay(filters) && filters.show_legend ? (
                         <Row className="insights-graph-container-row" wrap={false}>
                             <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
                             <Col className="insights-graph-container-row-right">

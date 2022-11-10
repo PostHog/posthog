@@ -9,7 +9,7 @@ import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { isLifecycleFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isFilterWithDisplay, isLifecycleFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -25,7 +25,8 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
         <LineGraph
             data-attr="trend-line-graph"
             type={
-                isLifecycleFilter(filters) || filters.display === ChartDisplayType.ActionsBar
+                (isFilterWithDisplay(filters) && filters.display === ChartDisplayType.ActionsBar) ||
+                isLifecycleFilter(filters)
                     ? GraphType.Bar
                     : GraphType.Line
             }

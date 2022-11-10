@@ -10,7 +10,7 @@ import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/components/Tooltip'
 import { IconCalculate } from 'lib/components/icons'
-import { isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isFilterWithDisplay, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))
@@ -41,8 +41,11 @@ export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
                 showSeriesIndicator
                 showNestedArrow
                 entitiesLimit={
-                    isLifecycleFilter(filters) ||
-                    (filters.display && SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) && !isFormulaOn)
+                    (isFilterWithDisplay(filters) &&
+                        filters.display &&
+                        SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) &&
+                        !isFormulaOn) ||
+                    isLifecycleFilter(filters)
                         ? 1
                         : alphabet.length
                 }
@@ -65,7 +68,7 @@ export function TrendsSeriesLabel({ insightProps }: EditorFilterProps): JSX.Elem
 
     const formulaModeButtonDisabled: boolean =
         isFormulaOn &&
-        !isLifecycleFilter(filters) &&
+        isTrendsFilter(filters) &&
         !!filters.display &&
         SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) &&
         localFilters.length > 1

@@ -13,7 +13,7 @@ import clsx from 'clsx'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { useEffect, useRef } from 'react'
-import { isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isFilterWithDisplay, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export interface InsightLegendProps {
     readOnly?: boolean
@@ -32,7 +32,7 @@ const insightViewCanShowLegendAllowList = [InsightType.TRENDS, InsightType.STICK
 
 const shouldShowLegend = (filters: Partial<FilterType>, activeView: InsightType): boolean =>
     insightViewCanShowLegendAllowList.includes(activeView) &&
-    (isTrendsFilter(filters) || isStickinessFilter(filters)) &&
+    isFilterWithDisplay(filters) &&
     !!filters.display &&
     !trendTypeCanShowLegendDenyList.includes(filters.display)
 
@@ -40,7 +40,7 @@ export function InsightLegendButton(): JSX.Element | null {
     const { filters, activeView } = useValues(insightLogic)
     const { toggleInsightLegend } = useActions(insightLogic)
 
-    return shouldShowLegend(filters, activeView) && (isTrendsFilter(filters) || isStickinessFilter(filters)) ? (
+    return shouldShowLegend(filters, activeView) && isFilterWithDisplay(filters) ? (
         <Button className="InsightLegendButton" onClick={toggleInsightLegend}>
             <IconLegend />
             <span className="InsightLegendButton-title">{filters.show_legend ? 'Hide' : 'Show'} legend</span>

@@ -2,7 +2,12 @@ import { kea } from 'kea'
 import { objectsEqual } from 'lib/utils'
 import type { chartFilterLogicType } from './chartFilterLogicType'
 import { ChartDisplayType, FunnelsFilterType, FunnelVizType, InsightLogicProps, TrendsFilterType } from '~/types'
-import { isStickinessFilter, isTrendsFilter, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import {
+    isFilterWithDisplay,
+    isStickinessFilter,
+    isTrendsFilter,
+    keyForInsightLogicProps,
+} from 'scenes/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
 
@@ -30,7 +35,7 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
                 return (
                     (isFunnelsFilter(filters)
                         ? filters.funnel_viz_type
-                        : isTrendsFilter(filters) || isStickinessFilter(filters)
+                        : isFilterWithDisplay(filters)
                         ? filters.display
                         : null) || null
                 )

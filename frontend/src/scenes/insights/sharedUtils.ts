@@ -65,3 +65,8 @@ export function isFilterWithHiddenLegendKeys(
 ): filters is Partial<TrendsFilterType> | Partial<StickinessFilterType> | Partial<FunnelsFilterType> {
     return isTrendsFilter(filters) || isFunnelsFilter(filters) || isStickinessFilter(filters)
 }
+export function isFilterWithDisplay(
+    filters: Partial<FilterType>
+): filters is Partial<TrendsFilterType> | Partial<StickinessFilterType> {
+    return isTrendsFilter(filters) || isStickinessFilter(filters)
+}

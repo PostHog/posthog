@@ -12,7 +12,7 @@ import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import clsx from 'clsx'
-import { isLifecycleFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
@@ -86,7 +86,7 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
                     </div>
                     <h1 className="text-7xl text-center mb-0">{formatAggregationAxisValue(insight.filters, total)}</h1>
                 </div>
-                {inCardView && !isLifecycleFilter(filters) && filters.show_legend && <InsightLegend inCardView />}
+                {inCardView && isTrendsFilter(filters) && filters.show_legend && <InsightLegend inCardView />}
             </div>
         ) : (
             <p className="text-center mt-16">We couldn't find any matching actions.</p>

@@ -15,6 +15,7 @@ import {
 import type { trendsLogicType } from './trendsLogicType'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import {
+    isFilterWithDisplay,
     isLifecycleFilter,
     isStickinessFilter,
     isTrendsInsight,
@@ -97,9 +98,7 @@ export const trendsLogic = kea<trendsLogicType>([
         loadedFilters: [
             (s) => [s.insight],
             ({ filters }): Partial<TrendsFilterType> =>
-                filters && (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters))
-                    ? filters
-                    : {},
+                filters && (isFilterWithDisplay(filters) || isLifecycleFilter(filters)) ? filters : {},
         ],
         results: [
             (s) => [s.insight],
@@ -119,13 +118,14 @@ export const trendsLogic = kea<trendsLogicType>([
             (s) => [s.filters, s.results, s.toggledLifecycles],
             (filters, _results, toggledLifecycles): IndexedTrendResult[] => {
                 let results = _results || []
-                if (isLifecycleFilter(filters)) {
-                    results = results.filter((result) => toggledLifecycles.includes(String(result.status)))
-                } else if (
-                    filters.display === ChartDisplayType.ActionsBarValue ||
-                    filters.display === ChartDisplayType.ActionsPie
+                if (
+                    isFilterWithDisplay(filters) &&
+                    (filters.display === ChartDisplayType.ActionsBarValue ||
+                        filters.display === ChartDisplayType.ActionsPie)
                 ) {
                     results.sort((a, b) => b.aggregated_value - a.aggregated_value)
+                } else if (isLifecycleFilter(filters)) {
+                    results = results.filter((result) => toggledLifecycles.includes(String(result.status)))
                 }
                 return results.map((result, index) => ({ ...result, id: index }))
             },

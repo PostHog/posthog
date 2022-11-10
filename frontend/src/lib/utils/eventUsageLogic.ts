@@ -36,6 +36,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PlatformType, Framework } from 'scenes/ingestion/v1/types'
 import { now } from 'lib/dayjs'
 import {
+    isFilterWithDisplay,
     isFunnelsFilter,
     isPathsFilter,
     isRetentionFilter,
@@ -174,7 +175,7 @@ function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any
     const properties_global = flattenProperties(properties)
 
     return {
-        display: isTrendsFilter(filters) || isStickinessFilter(filters) ? filters.display : undefined,
+        display: isFilterWithDisplay(filters) ? filters.display : undefined,
         interval,
         date_from,
         date_to,

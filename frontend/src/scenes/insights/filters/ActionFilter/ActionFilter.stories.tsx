@@ -11,7 +11,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { alphabet, uuid } from 'lib/utils'
 import { ComponentStory } from '@storybook/react'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isFilterWithDisplay, isLifecycleFilter } from 'scenes/insights/sharedUtils'
 
 export default {
     title: 'Filters/Action Filter',
@@ -54,7 +54,7 @@ const Template: ComponentStory<typeof ActionFilter> = ({ ...props }: Partial<Act
             showSeriesIndicator
             entitiesLimit={
                 isLifecycleFilter(filters) ||
-                ((isTrendsFilter(filters) || isStickinessFilter(filters)) &&
+                (isFilterWithDisplay(filters) &&
                     filters.display &&
                     SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display))
                     ? 1

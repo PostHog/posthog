@@ -52,10 +52,10 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { SpinnerOverlay } from '../../Spinner/Spinner'
 import {
+    isFilterWithDisplay,
     isFunnelsFilter,
     isPathsFilter,
     isRetentionFilter,
-    isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
 import { CardMeta, Resizeable } from 'lib/components/Cards/Card'
@@ -126,7 +126,7 @@ function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
         ? 'PathsContainer'
         : isFunnelsFilter(filters)
         ? 'FunnelContainer'
-        : isTrendsFilter(filters) || isStickinessFilter(filters)
+        : isFilterWithDisplay(filters)
         ? filters.display || ChartDisplayType.ActionsLineGraph
         : ChartDisplayType.ActionsLineGraph
     return displayedType

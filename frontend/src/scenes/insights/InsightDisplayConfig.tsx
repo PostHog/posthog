@@ -18,6 +18,7 @@ import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import {
+    isFilterWithDisplay,
     isFunnelsFilter,
     isPathsFilter,
     isRetentionFilter,
@@ -43,10 +44,6 @@ const showIntervalFilter = function (filter: Partial<FilterType>): boolean {
         (isTrendsFilter(filter) || isStickinessFilter(filter)) &&
         (!filter.display || !NON_TIME_SERIES_DISPLAY_TYPES.includes(filter.display))
     )
-}
-
-const showChartFilter = function (filters: Partial<FilterType>): boolean {
-    return isTrendsFilter(filters) || isStickinessFilter(filters)
 }
 
 const showDateFilter = {
@@ -143,7 +140,7 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                 )}
             </div>
             <div className="flex items-center space-x-4 flex-wrap my-2">
-                {showChartFilter(filters) && (
+                {isFilterWithDisplay(filters) && (
                     <>
                         {isTrendsFilter(filters) && (
                             <ConfigFilter>
