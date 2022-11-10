@@ -10,6 +10,7 @@ from . import (
     async_migration,
     authentication,
     dashboard,
+    dashboard_templates,
     dead_letter_queue,
     event_definition,
     exports,
@@ -66,6 +67,9 @@ projects_router.register(r"activity_log", activity_log.ActivityLogViewSet, "proj
 projects_router.register(r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"])
 project_dashboards_router = projects_router.register(
     r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
+)
+projects_router.register(
+    r"dashboard_templates", dashboard_templates.DashboardTemplatesViewSet, "project_dashboard_templates", ["team_id"]
 )
 
 projects_router.register(r"exports", exports.ExportedAssetViewSet, "exports", ["team_id"])
