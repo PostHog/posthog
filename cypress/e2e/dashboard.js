@@ -187,7 +187,7 @@ describe('Dashboard', () => {
                     cy.get('h1.page-title').should('have.text', expectedCopiedDashboardName)
 
                     cy.wait('@createDashboard').then(() => {
-                        cy.get('.InsightMeta h4').should('have.text', insightName).should('not.have.text', '(Copy)')
+                        cy.get('.CardMeta h4').should('have.text', insightName).should('not.have.text', '(Copy)')
                         cy.contains('h4', insightName).click()
                         // this works when actually using the site, but not in Cypress
                         // cy.get('[data-attr="save-to-dashboard-button"] .LemonBadge').should('have.text', '2')
@@ -228,7 +228,7 @@ describe('Dashboard', () => {
                     cy.get('h1.page-title').should('have.text', expectedCopiedDashboardName)
 
                     cy.wait('@createDashboard').then(() => {
-                        cy.get('.InsightMeta h4').should('have.text', insightName).should('not.have.text', '(Copy)')
+                        cy.get('.CardMeta h4').should('have.text', insightName).should('not.have.text', '(Copy)')
                         cy.contains('h4', insightName).click()
                         // this works when actually using the site, but not in Cypress
                         // cy.get('[data-attr="save-to-dashboard-button"] .LemonBadge').should('have.text', '2')
