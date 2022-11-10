@@ -7,14 +7,13 @@ import {
     LogLevel,
     PluginsServerConfig,
     PropertyUpdateOperation,
-    Team,
     TimestampFormat,
 } from '../../../src/types'
 import { castTimestampOrNow, UUIDT } from '../../../src/utils/utils'
 import { makePiscina } from '../../../src/worker/piscina'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 import { resetKafka } from '../../helpers/kafka'
-import { getFirstTeam, resetTestDatabase } from '../../helpers/sql'
+import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
@@ -27,7 +26,7 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
 describe('postgres parity', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
-    let team: Team
+    let teamId = 10 // Incremented every test. Avoids late ingestion causing issues
 
     beforeAll(async () => {
         await resetKafka(extraServerConfig)
@@ -45,7 +44,15 @@ describe('postgres parity', () => {
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
         hub = startResponse.hub
         stopServer = startResponse.stop
-        team = await getFirstTeam(hub)
+        teamId++
+        await createUserTeamAndOrganization(
+            hub.db.postgres,
+            teamId,
+            teamId,
+            new UUIDT().toString(),
+            new UUIDT().toString(),
+            new UUIDT().toString()
+        )
     })
 
     afterEach(async () => {
@@ -60,7 +67,7 @@ describe('postgres parity', () => {
             { userPropOnce: 'propOnceValue', userProp: 'propValue' },
             { userProp: ts, userPropOnce: ts },
             { userProp: PropertyUpdateOperation.Set, userPropOnce: PropertyUpdateOperation.SetOnce },
-            team.id,
+            teamId,
             null,
             true,
             uuid,
@@ -75,7 +82,7 @@ describe('postgres parity', () => {
             {
                 id: uuid,
                 created_at: expect.any(String), // '2021-02-04 00:18:26.472',
-                team_id: team.id,
+                team_id: teamId,
                 properties: '{"userPropOnce":"propOnceValue","userProp":"propValue"}',
                 is_identified: 1,
                 is_deleted: 0,
@@ -103,7 +110,7 @@ describe('postgres parity', () => {
                     userProp: PropertyUpdateOperation.Set,
                     userPropOnce: PropertyUpdateOperation.SetOnce,
                 },
-                team_id: 2,
+                team_id: teamId,
                 is_user_id: null,
                 is_identified: true,
                 uuid: uuid,
@@ -119,7 +126,7 @@ describe('postgres parity', () => {
                 {
                     distinct_id: 'distinct1',
                     person_id: person.uuid,
-                    team_id: team.id,
+                    team_id: teamId,
                     version: 0,
                     is_deleted: 0,
                     _timestamp: expect.any(String),
@@ -129,7 +136,7 @@ describe('postgres parity', () => {
                 {
                     distinct_id: 'distinct2',
                     person_id: person.uuid,
-                    team_id: team.id,
+                    team_id: teamId,
                     version: 0,
                     is_deleted: 0,
                     _timestamp: expect.any(String),
@@ -149,7 +156,7 @@ describe('postgres parity', () => {
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
             {},
-            team.id,
+            teamId,
             null,
             false,
             uuid,
@@ -220,7 +227,7 @@ describe('postgres parity', () => {
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
             {},
-            team.id,
+            teamId,
             null,
             true,
             uuid,
@@ -231,7 +238,7 @@ describe('postgres parity', () => {
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
             {},
-            team.id,
+            teamId,
             null,
             true,
             uuid2,
@@ -257,7 +264,7 @@ describe('postgres parity', () => {
             expect.objectContaining({
                 distinct_id: 'distinct1',
                 person_id: person.id,
-                team_id: team.id,
+                team_id: teamId,
                 version: '0',
             }),
         ])
@@ -265,7 +272,7 @@ describe('postgres parity', () => {
             {
                 distinct_id: 'distinct1',
                 person_id: person.uuid,
-                team_id: team.id,
+                team_id: teamId,
                 version: 0,
                 is_deleted: 0,
                 _timestamp: expect.any(String),
@@ -303,7 +310,7 @@ describe('postgres parity', () => {
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
             {},
-            team.id,
+            teamId,
             null,
             false,
             uuid,
@@ -314,7 +321,7 @@ describe('postgres parity', () => {
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
             {},
-            team.id,
+            teamId,
             null,
             true,
             uuid2,
@@ -330,7 +337,6 @@ describe('postgres parity', () => {
         const kafkaMessages = await hub.db.moveDistinctIds(person, anotherPerson)
         await hub.db!.kafkaProducer!.queueMessages(kafkaMessages)
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse), 2)
-        await delayUntilEventIngested(() => hub.db.fetchDistinctIds(postgresPerson, Database.ClickHouse), 1)
 
         // it got added
 
@@ -349,7 +355,7 @@ describe('postgres parity', () => {
                 {
                     distinct_id: 'another_distinct_id',
                     person_id: anotherPerson.uuid,
-                    team_id: team.id,
+                    team_id: teamId,
                     version: 0,
                     is_deleted: 0,
                     _timestamp: expect.any(String),
@@ -359,7 +365,7 @@ describe('postgres parity', () => {
                 {
                     distinct_id: 'distinct1',
                     person_id: anotherPerson.uuid,
-                    team_id: team.id,
+                    team_id: teamId,
                     version: 1,
                     is_deleted: 0,
                     _timestamp: expect.any(String),
@@ -389,14 +395,9 @@ describe('postgres parity', () => {
             await hub.db!.kafkaProducer!.queueMessage(deletePersonMessage[0])
         })
 
-        // Check distinct ids
         await delayUntilEventIngested(async () =>
             (await hub.db.fetchPersons(Database.ClickHouse)).length === 1 ? ['deleted!'] : []
         )
-        await delayUntilEventIngested(async () =>
-            (await hub.db.fetchDistinctIdValues(person, Database.ClickHouse)).length === 1 ? ['deleted!'] : []
-        )
-
         const clickHousePersons = await hub.db.fetchPersons(Database.ClickHouse)
         const postgresPersons = await hub.db.fetchPersons(Database.Postgres)
 

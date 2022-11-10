@@ -113,7 +113,13 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             if not is_valid:
                 raise serializers.ValidationError("Filters are not valid (can only use group properties)")
 
+        variant_list = (filters.get("multivariate") or {}).get("variants", [])
+        variants = {variant["key"] for variant in variant_list}
+
         for condition in filters["groups"]:
+            if condition.get("variant") and condition["variant"] not in variants:
+                raise serializers.ValidationError("Filters are not valid (variant override does not exist)")
+
             for property in condition.get("properties", []):
                 prop = Property(**property)
                 if prop.type == "cohort":

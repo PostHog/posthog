@@ -60,26 +60,24 @@ class RecordingDomainMigrationTestCase(TestMigrations):
         # CASE 2:
         self.assertEqual(
             set(Team.objects.get(name="t2").recording_domains),
-            set(
-                [
-                    "https://example.com",
-                    "https://www.example2.com",
-                    "http://localhost:8000",
-                    "http://localhost:9000",
-                ]
-            ),
+            {
+                "https://example.com",
+                "https://www.example2.com",
+                "http://localhost:8000",
+                "http://localhost:9000",
+            },
         )
 
         # CASE 3:
         self.assertEqual(
             set(Team.objects.get(name="t3").recording_domains),
-            set(["https://*.example.com", "https://*.app.example.com"]),
+            {"https://*.example.com", "https://*.app.example.com"},
         )
 
         # CASE 4:
         self.assertEqual(
             set(Team.objects.get(name="t4").recording_domains),
-            set(["https://test.example.com"]),
+            {"https://test.example.com"},
         )
 
     def tearDown(self):

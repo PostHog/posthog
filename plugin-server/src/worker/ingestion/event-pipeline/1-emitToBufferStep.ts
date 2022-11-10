@@ -40,7 +40,7 @@ export async function emitToBufferStep(
             topic: KAFKA_BUFFER,
             messages: [
                 {
-                    key: event.team_id.toString(),
+                    key: event.distinct_id,
                     value: JSON.stringify(event),
                     headers: { processEventAt: processEventAt.toString(), eventId: event.uuid },
                 },
