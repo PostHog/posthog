@@ -1206,9 +1206,6 @@ export interface FilterType {
     date_from?: string | null
     date_to?: string | null
 
-    // used by insights and funnels
-    interval?: IntervalType
-
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
@@ -1221,6 +1218,8 @@ export interface FilterType {
     entity_type?: EntityType
     entity_math?: string
 
+    // used by trends and stickiness
+    interval?: IntervalType
     // TODO: extract into TrendsFunnelsCommonFilterType
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
@@ -1242,8 +1241,6 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
-    people_day?: any
-    people_action?: any
     formula?: any
     shown_as?: ShownAsValue
     display?: ChartDisplayType
