@@ -13,11 +13,7 @@ import clsx from 'clsx'
 import { PlayerInspectorPicker } from './PlayerInspector'
 import { openPlayerShareDialog } from './share/PlayerShare'
 
-interface PlayerControllerProps extends SessionRecordingPlayerProps {
-    isDetail: boolean
-}
-
-export function PlayerController({ sessionRecordingId, playerKey }: PlayerControllerProps): JSX.Element {
+export function PlayerController({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, isFullScreen } = useValues(logic)
     const { togglePlayPause, setSpeed, setSkipInactivitySetting, setIsFullScreen, setPause } = useActions(logic)
