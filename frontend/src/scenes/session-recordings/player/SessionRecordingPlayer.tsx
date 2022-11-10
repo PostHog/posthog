@@ -14,7 +14,6 @@ import clsx from 'clsx'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
-import { urls } from 'scenes/urls'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 
 export function useFrameRef({
@@ -39,7 +38,6 @@ export function SessionRecordingPlayer({
     includeMeta = true,
     recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
     matching,
-    isDetail = false, // True if player is shown in separate detail page
     noBorder = false,
 }: SessionRecordingPlayerProps): JSX.Element {
     const { handleKeyDown, setIsFullScreen, setPause } = useActions(
@@ -55,7 +53,6 @@ export function SessionRecordingPlayer({
                 action: () => setIsFullScreen(!isFullScreen),
             },
             ...(isFullScreen ? { escape: { action: () => setIsFullScreen(false) } } : {}),
-            ...(!isDetail ? { d: { action: () => open(urls.sessionRecording(sessionRecordingId), '_blank') } } : {}),
         },
         [isFullScreen]
     )
@@ -100,7 +97,6 @@ export function SessionRecordingPlayer({
                 <PlayerController
                     sessionRecordingId={sessionRecordingId}
                     playerKey={playerKey}
-                    isDetail={isDetail}
                     hideInspectorPicker={size !== 'small'}
                 />
             </div>

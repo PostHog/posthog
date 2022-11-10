@@ -7,29 +7,32 @@ import { SessionPlayerState, SessionRecordingPlayerProps } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { IconFullScreen, IconOpenInNew, IconPause, IconPlay, IconSkipInactivity } from 'lib/components/icons'
+import { IconFullScreen, IconPause, IconPlay, IconSkipInactivity, IconLink } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
-import { urls } from 'scenes/urls'
 import { PlayerInspectorPicker } from './PlayerInspector'
+import { openPlayerShareDialog } from './share/PlayerShare'
 
 interface PlayerControllerProps extends SessionRecordingPlayerProps {
-    isDetail: boolean
     hideInspectorPicker?: boolean
 }
 
 export function PlayerController({
     sessionRecordingId,
     playerKey,
-    isDetail,
     hideInspectorPicker = false,
 }: PlayerControllerProps): JSX.Element {
-    const { togglePlayPause, setSpeed, setSkipInactivitySetting, setIsFullScreen } = useActions(
-        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    )
-    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, isFullScreen } = useValues(
-        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    )
+    const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
+    const { togglePlayPause, setSpeed, setSkipInactivitySetting, setIsFullScreen, setPause } = useActions(logic)
+    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, isFullScreen } = useValues(logic)
+
+    const onShare = (): void => {
+        setPause()
+        openPlayerShareDialog({
+            seconds: Math.floor((logic.values.currentPlayerTime || 0) / 1000),
+            id: sessionRecordingId,
+        })
+    }
 
     return (
         <div className="p-3 bg-light flex flex-col select-none">
@@ -116,18 +119,13 @@ export function PlayerController({
                             />
                         </LemonButton>
                     </Tooltip>
-                    {!isDetail && (
-                        <Tooltip title={'Open in new tab (D)'}>
-                            <LemonButton
-                                size="small"
-                                status="primary-alt"
-                                to={urls.sessionRecording(sessionRecordingId)}
-                                targetBlank
-                            >
-                                <IconOpenInNew className={'text-xl text-primary-alt'} />
-                            </LemonButton>
-                        </Tooltip>
-                    )}
+                    <Tooltip title={`Share recording`}>
+                        <LemonButton size="small" status="primary-alt" onClick={() => onShare()}>
+                            <IconLink
+                                className={clsx('text-2xl', isFullScreen ? 'text-primary' : 'text-primary-alt')}
+                            />
+                        </LemonButton>
+                    </Tooltip>
                 </div>
             </div>
         </div>
