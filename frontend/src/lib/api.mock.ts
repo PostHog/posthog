@@ -68,6 +68,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
+    customer_id: null,
     id: MOCK_ORGANIZATION_ID,
     name: 'MockHog',
     slug: 'mockhog-fstn',
