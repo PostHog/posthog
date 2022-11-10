@@ -162,6 +162,16 @@ export const billingLogic = kea<billingLogicType>([
                 ...alertConfig,
             })
         },
+        loadBillingSuccess: () => {
+            if (
+                router.values.location.pathname.includes('/organization/billing') &&
+                router.values.searchParams.get('success')
+            ) {
+                // if the activation is successful, we reload the user to get the updated billing info on the organization
+                actions.loadUser()
+                router.actions.replace('/organization/billing')
+            }
+        },
     })),
 
     afterMount(({ actions }) => {
@@ -174,10 +184,6 @@ export const billingLogic = kea<billingLogicType>([
                 actions.setShowLicenseDirectInput(true)
                 actions.setActivateLicenseValues({ license: hash.license })
                 actions.submitActivateLicense()
-            } else if (_search.success) {
-                // if the activation is successful, we reload the user to get the updated billing info on the organization
-                actions.loadUser()
-                router.actions.replace('/organization/billing')
             }
         },
     })),
