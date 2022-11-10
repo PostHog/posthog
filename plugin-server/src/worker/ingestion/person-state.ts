@@ -393,8 +393,7 @@ export class PersonState {
                 }
             }
         } else if (oldPerson && newPerson && oldPerson.id !== newPerson.id) {
-            // $create_alias is an explicit call to merge 2 users, so we'll merge anything
-            // for $identify, we'll not merge a user who's already identified into anyone else
+            // $create_alias and $identify will not merge a user who's already identified into anyone else
             const isCallToMergeAnIdentifiedUser = oldPerson.is_identified
 
             this.statsd?.increment('merge_users', {
