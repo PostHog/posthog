@@ -55,6 +55,7 @@ __all__ = [
     "Cohort",
     "CohortPeople",
     "Dashboard",
+    "DashboardTemplate",
     "DashboardTile",
     "DeletionType",
     "Element",

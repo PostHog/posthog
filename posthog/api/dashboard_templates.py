@@ -4,32 +4,36 @@ from rest_framework import authentication, mixins, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
-from posthog.models import DashboardTemplate
+from posthog.models import DashboardTemplate, Team
 
 
 class DashboardTemplateSerializer(serializers.Serializer):
-    name: serializers.CharField = serializers.CharField(max_length=400)
+    template_name: serializers.CharField = serializers.CharField(max_length=400)
     source_dashboard: serializers.IntegerField = serializers.IntegerField(allow_null=True)
-    template: serializers.JSONField = serializers.JSONField(default=dict)
+    dashboard_name: serializers.CharField = serializers.CharField(max_length=400)
+    dashboard_description: serializers.CharField = serializers.CharField(max_length=400, allow_blank=True)
+    tiles: serializers.JSONField = serializers.JSONField(default=dict)
+    tags: serializers.ListField = serializers.ListField(child=serializers.CharField(), allow_null=True)
 
     def validate(self, data: Dict) -> Dict:
-        if not data["name"] or str.isspace(data["name"]):
+        if not data["template_name"] or str.isspace(data["template_name"]):
             raise serializers.ValidationError("Must provide a template name")
 
         if not data["source_dashboard"]:
             raise serializers.ValidationError("Must provide the id of the source dashboard")
 
-        if not data["template"] or not isinstance(data["template"], dict):
-            raise serializers.ValidationError("Must provide a template")
+        if not data["dashboard_name"] or str.isspace(data["dashboard_name"]):
+            raise serializers.ValidationError("Must provide a dashboard name")
 
-        if not data["template"].get("tiles"):
+        if not data.get("tiles") or not isinstance(data["tiles"], list):
             raise serializers.ValidationError("Must provide at least one tile")
 
-        for tile in data["template"]["tiles"]:
-            if not tile.get("type"):
-                raise serializers.ValidationError("Must provide a tile type")
+        for tile in data["tiles"]:
             if not tile.get("layouts") or not isinstance(tile["layouts"], dict):
                 raise serializers.ValidationError("Must provide a tile layouts")
+
+            if not tile.get("type"):
+                raise serializers.ValidationError("Must provide a tile type")
 
             if tile.get("type") == "INSIGHT":
                 if not tile.get("filters"):
@@ -45,7 +49,8 @@ class DashboardTemplateSerializer(serializers.Serializer):
         return data
 
     def create(self, validated_data: Dict) -> DashboardTemplate:
-        return DashboardTemplate.objects.create(**validated_data, team_id=self.context["team_id"])
+        team = Team.objects.get(id=self.context["team_id"])
+        return DashboardTemplate.objects.create(**validated_data, team=team)
 
 
 class DashboardTemplatesViewSet(

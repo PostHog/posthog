@@ -274,6 +274,10 @@ class ApiRequest {
         return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
     }
 
+    public dashboardTemplates(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('dashboard_templates')
+    }
+
     // # Persons
     public persons(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('persons')
@@ -886,6 +890,12 @@ const api = {
         },
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()
+        },
+    },
+
+    dashboardTemplates: {
+        async create(data: Record<string, any>): Promise<any> {
+            return await new ApiRequest().dashboardTemplates().create({ data })
         },
     },
 

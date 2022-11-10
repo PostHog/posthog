@@ -4,6 +4,7 @@ import { forms } from 'kea-forms'
 import type { saveDashboardTemplateLogicType } from './saveDashboardTemplateLogicType'
 import { DashboardType } from '~/types'
 import { dashboardTemplateLogic } from 'scenes/dashboard/dashboardTemplates/dashboardTemplateLogic'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export interface SaveDashboardTemplateForm {
     dashboard: DashboardType | null
@@ -31,14 +32,16 @@ export const saveDashboardTemplateLogic = kea<saveDashboardTemplateLogicType>([
             },
         ],
     }),
-    forms(() => ({
+    forms(({ actions }) => ({
         saveDashboardTemplate: {
             defaults: defaultFormValues,
             errors: (formValues) => ({
                 templateName: !formValues.templateName ? 'Please enter a template name' : null,
             }),
-            submit: async ({ dashboard, templateName }) => {
-                console.log('submitting', dashboard, templateName)
+            submit: async ({ templateName, dashboard }) => {
+                if (dashboard) {
+                    actions.saveDashboardTemplate({ templateName, dashboard })
+                }
             },
         },
     })),
@@ -48,6 +51,10 @@ export const saveDashboardTemplateLogic = kea<saveDashboardTemplateLogicType>([
         },
         hideSaveDashboardTemplateModal: () => {
             actions.resetSaveDashboardTemplate()
+        },
+        submitSaveDashboardTemplateSuccess: () => {
+            actions.hideSaveDashboardTemplateModal()
+            lemonToast.success('Template saved successfully')
         },
     })),
 ])
