@@ -5,6 +5,7 @@ INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 
 
 # N.B. Keep this in sync with frontend enum (types.ts)
+# AND ensure it is added to the Billing Service
 class AvailableFeature(str, Enum):
     ZAPIER = "zapier"
     ORGANIZATIONS_PROJECTS = "organizations_projects"
