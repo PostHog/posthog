@@ -330,16 +330,12 @@ export function SessionRecordingsPlaylist({
                 </div>
                 <div className="SessionRecordingsPlaylist__right-column">
                     {activeSessionRecording?.id ? (
-                        <div className="border rounded h-full">
-                            <SessionRecordingPlayer
-                                playerKey="playlist"
-                                sessionRecordingId={activeSessionRecording?.id}
-                                matching={activeSessionRecording?.matching_events}
-                                recordingStartTime={
-                                    activeSessionRecording ? activeSessionRecording.start_time : undefined
-                                }
-                            />
-                        </div>
+                        <SessionRecordingPlayer
+                            playerKey="playlist"
+                            sessionRecordingId={activeSessionRecording?.id}
+                            matching={activeSessionRecording?.matching_events}
+                            recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
+                        />
                     ) : (
                         <div className="mt-20">
                             <EmptyMessage
