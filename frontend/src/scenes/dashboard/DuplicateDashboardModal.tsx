@@ -57,7 +57,7 @@ export function DuplicateDashboardModal(): JSX.Element {
             >
                 <Field
                     name="duplicateTiles"
-                    help="Choose whether to duplicate this dashboard's tiles or attach both dashboards to the same tiles."
+                    help="Choose whether to duplicate this dashboard's insights and text or attach them to the new dashboard."
                 >
                     {({ value, onChange }) => (
                         <LemonCheckbox checked={value} label="Duplicate this dashboard's tiles" onChange={onChange} />
