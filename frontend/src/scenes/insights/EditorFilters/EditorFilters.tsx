@@ -9,7 +9,7 @@ import {
 import { CSSTransition } from 'react-transition-group'
 import { TrendsSeries, TrendsSeriesLabel } from 'scenes/insights/EditorFilters/TrendsSeries'
 import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
-import { TrendsGlobalAndOrFilters } from 'scenes/insights/EditorFilters/TrendsGlobalAndOrFilters'
+import { GlobalAndOrFilters } from 'scenes/insights/EditorFilters/GlobalAndOrFilters'
 import { TrendsFormula, TrendsFormulaLabel } from 'scenes/insights/EditorFilters/TrendsFormula'
 import { TrendsBreakdown } from 'scenes/insights/EditorFilters/TrendsBreakdown'
 import { LifecycleToggles } from 'scenes/insights/EditorFilters/LifecycleToggles'
@@ -180,12 +180,12 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                           component: LifecycleToggles,
                       }
                     : null,
-                hasPropertyFilters && filters.properties
+                hasPropertyFilters
                     ? {
                           key: 'properties',
                           label: !usingEditorPanels ? 'Filters' : undefined,
                           position: 'right',
-                          component: TrendsGlobalAndOrFilters,
+                          component: GlobalAndOrFilters,
                       }
                     : null,
             ]),
