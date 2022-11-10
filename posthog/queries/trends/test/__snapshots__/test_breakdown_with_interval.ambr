@@ -1,0 +1,64 @@
+# name: TestBreakdownsWithInterval.test_breakdown_by_some_property_by_week_interval
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'watched movie'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2022-11-02 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2022-11-09 23:59:59', 'UTC')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestBreakdownsWithInterval.test_breakdown_by_some_property_by_week_interval.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfWeek(toDateTime('2022-11-09 23:59:59', 'UTC') - number * 604800) as day_start
+              FROM numbers(2)
+              UNION ALL SELECT toStartOfWeek(toDateTime('2022-11-02 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['c', 'b', 'a'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0) as day_start,
+                            replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+           FROM events e
+           WHERE e.team_id = 2
+             AND event = 'watched movie'
+             AND toDateTime(timestamp, 'UTC') >= toStartOfWeek(toDateTime('2022-11-02 00:00:00', 'UTC'), 0)
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2022-11-09 23:59:59', 'UTC')
+             AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['c', 'b', 'a'])
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
