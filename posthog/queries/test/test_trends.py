@@ -3290,7 +3290,6 @@ def trend_test_factory(trends):
                 entity = Entity({"id": "watched movie", "type": "events", "math": "dau"})
 
                 people_value_1 = self._get_trend_people(Filter(data={**data, "breakdown_value": "value_1"}), entity)
-                # TODO: improve ee/postgres handling
                 assert people_value_1 == [
                     # Persons with higher value come first
                     {
@@ -3332,7 +3331,6 @@ def trend_test_factory(trends):
                 ]
 
                 people_value_2 = self._get_trend_people(Filter(data={**data, "breakdown_value": "value_2"}), entity)
-                # TODO: improve ee/postgres handling
                 assert people_value_2 == [
                     {
                         "created_at": "2020-01-01T12:00:00Z",
