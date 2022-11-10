@@ -49,6 +49,7 @@ export enum AvailableFeature {
     WHITE_LABELLING = 'white_labelling',
     SUBSCRIPTIONS = 'subscriptions',
     APP_METRICS = 'app_metrics',
+    RECORDINGS_PLAYLISTS = 'recordings_playlists',
 }
 
 export enum LicensePlan {

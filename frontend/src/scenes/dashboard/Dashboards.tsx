@@ -50,16 +50,18 @@ export function Dashboards(): JSX.Element {
             width: 0,
             dataIndex: 'pinned',
             render: function Render(pinned, { id }) {
-                return pinned ? (
-                    <PushpinFilled
-                        onClick={() => unpinDashboard(id, DashboardEventSource.DashboardsList)}
-                        style={{ cursor: 'pointer' }}
-                    />
-                ) : (
-                    <PushpinOutlined
-                        onClick={() => pinDashboard(id, DashboardEventSource.DashboardsList)}
-                        style={{ cursor: 'pointer' }}
-                    />
+                return (
+                    <LemonButton
+                        size="small"
+                        status="primary-alt"
+                        onClick={
+                            pinned
+                                ? () => unpinDashboard(id, DashboardEventSource.DashboardsList)
+                                : () => pinDashboard(id, DashboardEventSource.DashboardsList)
+                        }
+                    >
+                        {pinned ? <PushpinFilled /> : <PushpinOutlined />}
+                    </LemonButton>
                 )
             },
         },

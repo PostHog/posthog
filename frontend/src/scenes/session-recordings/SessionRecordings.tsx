@@ -49,17 +49,30 @@ export function SessionsRecordings(): JSX.Element {
                             Configure
                         </LemonButton>
 
-                        {showRecordingPlaylists && tab === SessionRecordingsTabs.Recent ? (
+                        {showRecordingPlaylists ? (
                             <>
-                                <Tooltip title="Save the currently filters as a dynamic playlist" placement="left">
+                                <Tooltip
+                                    placement="topRight"
+                                    title={
+                                        tab === SessionRecordingsTabs.Recent
+                                            ? 'Save the currently filters as a dynamic playlist'
+                                            : 'Create a new playlist'
+                                    }
+                                >
                                     <LemonButton
                                         type="primary"
-                                        onClick={() => saveNewPlaylist({ filters: filters })}
-                                        disabled={newPlaylistLoading}
+                                        onClick={() =>
+                                            saveNewPlaylist({
+                                                filters: tab === SessionRecordingsTabs.Recent ? filters : undefined,
+                                            })
+                                        }
+                                        loading={newPlaylistLoading}
                                         data-attr="save-recordings-playlist-button"
                                         icon={<IconPlus />}
                                     >
-                                        Save as playlist
+                                        {tab === SessionRecordingsTabs.Recent
+                                            ? 'Save as playlist'
+                                            : 'Create new playlist'}
                                     </LemonButton>
                                 </Tooltip>
                             </>

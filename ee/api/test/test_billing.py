@@ -122,7 +122,7 @@ class TestBillingAPI(APILicensedTest):
         mock_request.return_value.json.return_value = create_billing_response(customer=create_billing_customer())
 
         self.client.get("/api/billing-v2")
-        assert mock_request.call_args.args[0] == "http://localhost:8100/api/billing"
+        assert mock_request.call_args.args[0].endswith("/api/billing")
         token = mock_request.call_args.kwargs["headers"]["Authorization"].split(" ")[1]
 
         secret = self.license.key.split("::")[1]

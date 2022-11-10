@@ -18,10 +18,25 @@ export type SavedSessionRecordingPlaylistsProps = {
 export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPlaylistsProps): JSX.Element {
     const logic = savedSessionRecordingPlaylistsLogic({ tab })
     const { playlists, playlistsLoading, filters, sorting, pagination } = useValues(logic)
-    const { setSavedPlaylistsFilters } = useActions(logic)
+    const { setSavedPlaylistsFilters, updatePlaylist } = useActions(logic)
     const { meFirstMembers } = useValues(membersLogic)
 
     const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
+        {
+            width: 0,
+            dataIndex: 'pinned',
+            render: function Render(pinned, { short_id }) {
+                return (
+                    <LemonButton
+                        size="small"
+                        status="primary-alt"
+                        onClick={() => updatePlaylist(short_id, { pinned: !pinned })}
+                    >
+                        {pinned ? <PushpinFilled /> : <PushpinOutlined />}
+                    </LemonButton>
+                )
+            },
+        },
         {
             title: 'Name',
             dataIndex: 'name',
@@ -35,8 +50,12 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     </>
                 )
             },
-            sorter: (a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'),
         },
+
+        createdByColumn<SessionRecordingPlaylistType>() as LemonTableColumn<
+            SessionRecordingPlaylistType,
+            keyof SessionRecordingPlaylistType | undefined
+        >,
         {
             title: 'Last modified',
             sorter: true,
@@ -51,10 +70,6 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 )
             },
         },
-        createdByColumn<SessionRecordingPlaylistType>() as LemonTableColumn<
-            SessionRecordingPlaylistType,
-            keyof SessionRecordingPlaylistType | undefined
-        >,
     ]
 
     return (
@@ -63,7 +78,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 <LemonInput
                     type="search"
                     placeholder="Search for playlists"
-                    onChange={(value) => setSavedPlaylistsFilters({ search: value })}
+                    onChange={(value) => setSavedPlaylistsFilters({ search: value || undefined })}
                     value={filters.search || ''}
                 />
                 <div className="flex items-center gap-4 flex-wrap">
