@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { PlayerPosition, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
+import { PlayerPosition, SessionRecordingPlayerProps, SessionRecordingPlayerTab } from '~/types'
 import List, { RenderedRows } from 'react-virtualized/dist/es/List'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { eventsListLogic } from 'scenes/session-recordings/player/list/eventsListLogic'
@@ -20,7 +20,7 @@ export const OVERSCANNED_ROW_COUNT = 25
 const DEFAULT_SCROLLING_RESET_TIME_INTERVAL = 150 * 5 // https://github.com/bvaughn/react-virtualized/blob/abe0530a512639c042e74009fbf647abdb52d661/source/Grid/Grid.js#L42
 
 export interface ListLogicProps extends SessionRecordingPlayerProps {
-    tab: SessionRecordingTab
+    tab: SessionRecordingPlayerTab
 }
 
 // See sharedListLogic for logic that is shared across recording tabs
@@ -108,7 +108,7 @@ export const listLogic = kea<listLogicType>([
         data: [
             (selectors) => [selectors.eventListData, selectors.consoleListData],
             (eventListData, consoleListData): Record<string, any>[] =>
-                props.tab === SessionRecordingTab.CONSOLE ? consoleListData : eventListData,
+                props.tab === SessionRecordingPlayerTab.CONSOLE ? consoleListData : eventListData,
         ],
         currentStartIndex: [
             (selectors) => [selectors.data, selectors.currentPlayerTime],

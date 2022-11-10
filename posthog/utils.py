@@ -156,51 +156,64 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
     return (period_start, period_end)
 
 
-def relative_date_parse(input: str) -> datetime.datetime:
+def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
+    """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
-        return datetime.datetime.strptime(input, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
+        return datetime.datetime.strptime(input, "%Y-%m-%d").replace(tzinfo=pytz.UTC), None
     except ValueError:
         pass
 
     # when input also contains the time for intervals "hour" and "minute"
     # the above try fails. Try one more time from isoformat.
     try:
-        return parser.isoparse(input).replace(tzinfo=pytz.UTC)
+        return parser.isoparse(input).replace(tzinfo=pytz.UTC), None
     except ValueError:
         pass
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)
     date = timezone.now()
+    delta_mapping: Dict[str, int] = {}
     if not match:
-        return date
+        return date, delta_mapping
     if match.group("type") == "h":
-        date -= relativedelta(hours=int(match.group("number")))
-        return date.replace(minute=0, second=0, microsecond=0)
+        delta_mapping["hours"] = int(match.group("number"))
     elif match.group("type") == "d":
         if match.group("number"):
-            date -= relativedelta(days=int(match.group("number")))
+            delta_mapping["days"] = int(match.group("number"))
     elif match.group("type") == "w":
         if match.group("number"):
-            date -= relativedelta(weeks=int(match.group("number")))
+            delta_mapping["weeks"] = int(match.group("number"))
     elif match.group("type") == "m":
         if match.group("number"):
-            date -= relativedelta(months=int(match.group("number")))
+            delta_mapping["months"] = int(match.group("number"))
         if match.group("position") == "Start":
-            date -= relativedelta(day=1)
+            delta_mapping["day"] = 1
         if match.group("position") == "End":
-            date -= relativedelta(day=31)
+            delta_mapping["day"] = 31
     elif match.group("type") == "q":
         if match.group("number"):
-            date -= relativedelta(weeks=13 * int(match.group("number")))
+            delta_mapping["weeks"] = 13 * int(match.group("number"))
     elif match.group("type") == "y":
         if match.group("number"):
-            date -= relativedelta(years=int(match.group("number")))
+            delta_mapping["years"] = int(match.group("number"))
         if match.group("position") == "Start":
-            date -= relativedelta(month=1, day=1)
+            delta_mapping["month"] = 1
+            delta_mapping["day"] = 1
         if match.group("position") == "End":
-            date -= relativedelta(month=12, day=31)
-    return date.replace(hour=0, minute=0, second=0, microsecond=0)
+            delta_mapping["month"] = 12
+            delta_mapping["day"] = 31
+    date -= relativedelta(**delta_mapping)  # type: ignore
+    # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
+    if "hours" in delta_mapping:
+        date = date.replace(minute=0, second=0, microsecond=0)
+    else:
+        date = date.replace(hour=0, minute=0, second=0, microsecond=0)
+    return date, delta_mapping
+
+
+def relative_date_parse(input: str) -> datetime.datetime:
+    return relative_date_parse_with_delta_mapping(input)[0]
 
 
 def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dict[str, datetime.datetime]:
@@ -396,7 +409,7 @@ def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
     for p in plugin_configs:
         config = p["pluginconfig__config"] or {}
         config_schema = p["config_schema"] or {}
-        secret_fields = set([field["key"] for field in config_schema if "secret" in field and field["secret"]])
+        secret_fields = {field["key"] for field in config_schema if "secret" in field and field["secret"]}
         for key in secret_fields:
             if key in config:
                 config[key] = "** SECRET FIELD **"
@@ -460,10 +473,38 @@ def convert_property_value(input: Union[str, bool, dict, list, int, Optional[str
 def get_compare_period_dates(
     date_from: datetime.datetime,
     date_to: datetime.datetime,
+    date_from_delta_mapping: Optional[Dict[str, int]],
+    date_to_delta_mapping: Optional[Dict[str, int]],
+    interval: str,
 ) -> Tuple[datetime.datetime, datetime.datetime]:
-    new_date_to = date_from
     diff = date_to - date_from
     new_date_from = date_from - diff
+    if interval == "hour":
+        # Align previous period time range with that of the current period, so that results are comparable day-by-day
+        # (since variations based on time of day are major)
+        new_date_from = new_date_from.replace(hour=date_from.hour, minute=0, second=0, microsecond=0)
+        new_date_to = (new_date_from + diff).replace(minute=59, second=59, microsecond=999999)
+    else:
+        # Align previous period time range to day boundaries
+        new_date_from = new_date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+        # Handle date_from = -7d, -14d etc. specially
+        if (
+            interval == "day"
+            and date_from_delta_mapping
+            and date_from_delta_mapping.get("days", None)
+            and date_from_delta_mapping["days"] % 7 == 0
+            and not date_to_delta_mapping
+        ):
+            # KLUDGE: Unfortunately common relative date ranges such as "Last 7 days" (-7d) or "Last 14 days" (-14d)
+            # are wrong because they treat the current ongoing day as an _extra_ one. This means that those ranges
+            # are in reality, respectively, 8 and 15 days long. So for the common use case of comparing weeks,
+            # it's not possible to just use that period length directly - the results for the previous period
+            # would be misaligned by a day.
+            # The proper fix would be making -7d actually 7 days, but that requires careful consideration.
+            # As a quick fix for the most common week-by-week case, we just always add a day to counteract the woes
+            # of relative date ranges:
+            new_date_from += datetime.timedelta(days=1)
+        new_date_to = (new_date_from + diff).replace(hour=23, minute=59, second=59, microsecond=999999)
     return new_date_from, new_date_to
 
 

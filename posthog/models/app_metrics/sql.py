@@ -1,8 +1,9 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
-from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, KAFKA_ENGINE_DEFAULT_SETTINGS, kafka_engine
+from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_APP_METRICS
+from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL, KAFKA_ENGINE_DLQ_MV_BASE_SQL
 
 SHARDED_APP_METRICS_TABLE_ENGINE = lambda: AggregatingMergeTree(
     "sharded_app_metrics", replication_scheme=ReplicationScheme.SHARDED
@@ -24,7 +25,7 @@ BASE_APP_METRICS_COLUMNS = """
 
 APP_METRICS_DATA_TABLE_SQL = (
     lambda: f"""
-CREATE TABLE sharded_app_metrics ON CLUSTER {settings.CLICKHOUSE_CLUSTER}
+CREATE TABLE sharded_app_metrics ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 (
     {BASE_APP_METRICS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
@@ -38,7 +39,7 @@ ORDER BY (team_id, plugin_config_id, job_id, category, toStartOfHour(timestamp),
 
 DISTRIBUTED_APP_METRICS_TABLE_SQL = (
     lambda: f"""
-CREATE TABLE app_metrics ON CLUSTER {settings.CLICKHOUSE_CLUSTER}
+CREATE TABLE app_metrics ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 (
     {BASE_APP_METRICS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
@@ -49,7 +50,7 @@ ENGINE={Distributed(data_table="sharded_app_metrics", sharding_key="rand()")}
 
 KAFKA_APP_METRICS_TABLE_SQL = (
     lambda: f"""
-CREATE TABLE kafka_app_metrics ON CLUSTER {settings.CLICKHOUSE_CLUSTER}
+CREATE TABLE kafka_app_metrics ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 (
     team_id Int64,
     timestamp DateTime64(6, 'UTC'),
@@ -64,7 +65,22 @@ CREATE TABLE kafka_app_metrics ON CLUSTER {settings.CLICKHOUSE_CLUSTER}
     error_details String CODEC(ZSTD(3))
 )
 ENGINE={kafka_engine(topic=KAFKA_APP_METRICS)}
+{KAFKA_ENGINE_DEFAULT_SETTINGS}
 """
+)
+
+# MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
+KAFKA_APP_METRICS_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
+    table="kafka_dlq_app_metrics",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=MergeTreeEngine("kafka_dlq_app_metrics", replication_scheme=ReplicationScheme.REPLICATED),
+)
+
+KAFKA_APP_METRICS_DLQ_MV_SQL = lambda: KAFKA_ENGINE_DLQ_MV_BASE_SQL.format(
+    view_name="kafka_dlq_app_metrics_mv",
+    target_table=f"{settings.CLICKHOUSE_DATABASE}.kafka_dlq_app_metrics",
+    kafka_table_name=f"{settings.CLICKHOUSE_DATABASE}.kafka_app_metrics",
+    cluster=settings.CLICKHOUSE_CLUSTER,
 )
 
 APP_METRICS_MV_TABLE_SQL = (
@@ -84,6 +100,7 @@ error_uuid,
 error_type,
 error_details
 FROM {settings.CLICKHOUSE_DATABASE}.kafka_app_metrics
+WHERE length(_error) = 0
 """
 )
 

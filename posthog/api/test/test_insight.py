@@ -285,6 +285,31 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             f"received query counts\n\n{query_counts}\n\nwith queries:\n\n{queries}",
         )
 
+    def test_can_list_insights_by_which_dashboards_they_are_in(self) -> None:
+        insight_one_id, _ = self._create_insight({"name": "insight 1", "filters": {"events": [{"id": "$pageview"}]}})
+        insight_two_id, _ = self._create_insight({"name": "insight 2", "filters": {"events": [{"id": "$pageview"}]}})
+        insight_three_id, _ = self._create_insight({"name": "insight 3", "filters": {"events": [{"id": "$pageview"}]}})
+
+        dashboard_one_id, _ = self._create_dashboard({"name": "dashboard 1", "filters": {"date_from": "-180d"}})
+        dashboard_two_id, _ = self._create_dashboard({"name": "dashboard 1", "filters": {"date_from": "-180d"}})
+        self._add_insight_to_dashboard([dashboard_one_id], insight_one_id)
+        self._add_insight_to_dashboard([dashboard_one_id, dashboard_two_id], insight_two_id)
+
+        any_on_dashboard_one = self.client.get(
+            f"/api/projects/{self.team.id}/insights/?dashboards=[{dashboard_one_id}]"
+        )
+        self.assertEqual(any_on_dashboard_one.status_code, status.HTTP_200_OK)
+        matched_insights = [insight["id"] for insight in any_on_dashboard_one.json()["results"]]
+        assert sorted(matched_insights) == [insight_one_id, insight_two_id]
+
+        # match is AND, not OR
+        any_on_dashboard_one_and_two = self.client.get(
+            f"/api/projects/{self.team.id}/insights/?dashboards=[{dashboard_one_id}, {dashboard_two_id}]"
+        )
+        self.assertEqual(any_on_dashboard_one_and_two.status_code, status.HTTP_200_OK)
+        matched_insights = [insight["id"] for insight in any_on_dashboard_one_and_two.json()["results"]]
+        assert matched_insights == [insight_two_id]
+
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_items(self):
         response = self.client.post(
@@ -389,7 +414,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         _, update_response = self._update_insight(
             insight_id, {"dashboards": [dashboard_id, deleted_dashboard_id, new_dashboard_id]}
         )
-        assert update_response["dashboards"] == [dashboard_id, new_dashboard_id]
+        assert sorted(update_response["dashboards"]) == [dashboard_id, new_dashboard_id]
 
     def test_can_update_insight_with_inconsistent_dashboards(self):
         """
@@ -418,7 +443,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         assert DashboardTile.objects.filter(dashboard_id=deleted_dashboard_id).exists()
 
         insight_json = self._get_insight(insight_id)
-        assert insight_json["dashboards"] == [dashboard_id, deleted_dashboard_id]
+        assert insight_json["dashboards"] == [dashboard_id]
 
         # accidentally include a deleted dashboard
         _, update_response = self._update_insight(insight_id, {"dashboards": [deleted_dashboard_id]})

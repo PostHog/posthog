@@ -26,7 +26,7 @@ from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_SECRET_GITHUB_ZIP,
 )
 from posthog.queries.app_metrics.test.test_app_metrics import create_app_metric
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from posthog.version import VERSION
 
 
@@ -36,7 +36,7 @@ def mocked_plugin_reload(*args, **kwargs):
 
 @mock.patch("posthog.models.plugin.reload_plugins_on_workers", side_effect=mocked_plugin_reload)
 @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
-class TestPluginAPI(APIBaseTest):
+class TestPluginAPI(APIBaseTest, QueryMatchingTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
@@ -733,6 +733,32 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(response_other.status_code, 404)
         response_this = self.client.get(f"/api/organizations/@current/plugins/{this_orgs_plugin.id}/")
         self.assertEqual(response_this.status_code, 200)
+
+    @snapshot_postgres_queries
+    def test_listing_plugins_is_not_nplus1(self, _mock_get, _mock_reload) -> None:
+        with self.assertNumQueries(8):
+            self._assert_number_of_when_listed_plugins(0)
+
+        Plugin.objects.create(organization=self.organization)
+
+        with self.assertNumQueries(9):
+            self._assert_number_of_when_listed_plugins(1)
+
+        Plugin.objects.create(organization=self.organization)
+
+        with self.assertNumQueries(9):
+            self._assert_number_of_when_listed_plugins(2)
+
+        Plugin.objects.create(organization=self.organization)
+
+        with self.assertNumQueries(9):
+            self._assert_number_of_when_listed_plugins(3)
+
+    def _assert_number_of_when_listed_plugins(self, expected_plugins_count: int) -> None:
+        response_with_none = self.client.get(f"/api/organizations/@current/plugins/")
+        self.assertEqual(response_with_none.status_code, 200)
+        self.assertEqual(response_with_none.json()["count"], expected_plugins_count, response_with_none.json())
+        self.assertEqual(len(response_with_none.json()["results"]), expected_plugins_count, response_with_none.json())
 
     def test_create_plugin_config(self, mock_get, mock_reload):
         self.assertEqual(mock_reload.call_count, 0)

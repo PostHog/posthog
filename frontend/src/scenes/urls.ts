@@ -1,4 +1,4 @@
-import { DashboardType, FilterType, InsightShortId } from '~/types'
+import { DashboardType, FilterType, InsightShortId, SessionRecordingsTabs } from '~/types'
 import { combineUrl } from 'kea-router'
 import { ExportOptions } from '~/exporter/types'
 import { AppMetricsUrlParams } from './apps/appMetricsSceneLogic'
@@ -46,8 +46,12 @@ export const urls = {
     savedInsights: (): string => '/insights',
     webPerformance: (): string => '/web-performance',
     webPerformanceWaterfall: (id: string): string => `/web-performance/${id}/waterfall`,
-    sessionRecordings: (filters?: Partial<FilterType>): string =>
-        combineUrl('/recordings', filters ? { filters } : {}).url,
+    sessionRecordings: (tab?: SessionRecordingsTabs, filters?: Partial<FilterType>): string =>
+        combineUrl(tab ? `/recordings/${tab}` : '/recordings', filters ? { filters } : {}).url,
+    sessionRecordingPlaylist: (id: string, filters?: Partial<FilterType>): string =>
+        combineUrl(`/recordings/playlists/${id}`, filters ? { filters } : {}).url,
+    sessionRecording: (id: string, filters?: Partial<FilterType>): string =>
+        combineUrl(`/recordings/${id}`, filters ? { filters } : {}).url,
     person: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     persons: (): string => '/persons',

@@ -14,13 +14,14 @@ import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { delay, getPiscinaStats, logOrThrowJobQueueError, stalenessCheck } from '../utils/utils'
+import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
 import { makePiscina as defaultMakePiscina } from '../worker/piscina'
+import { GraphileWorker } from './graphile-worker/graphile-worker'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
-import { KafkaQueue } from './ingestion-queues/kafka-queue'
+import { IngestionConsumer } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
@@ -31,7 +32,7 @@ const { version } = require('../../package.json')
 export type ServerInstance = {
     hub: Hub
     piscina: Piscina
-    queue: KafkaQueue | null
+    queue: IngestionConsumer | null
     mmdb?: ReaderModel
     mmdbUpdateJob?: schedule.Job
     stop: () => Promise<void>
@@ -76,7 +77,7 @@ export async function startPluginsServer(
     //
     // The queue also handles async handlers, reading from
     // clickhouse_events_json topic.
-    let queue: KafkaQueue | undefined | null
+    let queue: IngestionConsumer | undefined | null
 
     // Kafka consumer. Handles events that we couldn't find an existing person
     // to associate. The buffer handles delaying the ingestion of these events
@@ -88,6 +89,8 @@ export async function startPluginsServer(
     let httpServer: Server | undefined // healthcheck server
     let mmdbServer: net.Server | undefined // geoip server
 
+    let graphileWorker: GraphileWorker | undefined
+
     let closeHub: () => Promise<void> | undefined
 
     let lastActivityCheck: NodeJS.Timeout | undefined
@@ -98,12 +101,22 @@ export async function startPluginsServer(
         shuttingDown = true
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
+
+        // HACKY: Stop all consumers and the graphile worker, as well as the
+        // http server. Note that we close the http server before the others to
+        // ensure that e.g. if something goes wrong and we deadlock, then if
+        // we're running in k8s, the liveness check will fail, and thus k8s will
+        // kill the pod.
+        //
+        // I say hacky because we've got a weak dependency on the liveness check
+        // configuration.
+        httpServer?.close()
         cancelAllScheduledJobs()
         stopEventLoopMetrics?.()
         await Promise.allSettled([
             queue?.stop(),
             pubSub?.stop(),
-            hub?.graphileWorker.stop(),
+            graphileWorker?.stop(),
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
         ])
@@ -124,12 +137,10 @@ export async function startPluginsServer(
         if (piscina) {
             await stopPiscina(piscina)
         }
+
         await closeHub?.()
-        httpServer?.close()
 
         status.info('👋', 'Over and out!')
-        // wait an extra second for any misc async task to finish
-        await delay(1000)
     }
 
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
@@ -212,20 +223,25 @@ export async function startPluginsServer(
         // 3. clickhouse_events_json and plugin_events_ingestion
         // 4. conversion_events_buffer
         //
-        if (hub.capabilities.http) {
-            // start http server used for the healthcheck
-            // TODO: include bufferConsumer in healthcheck
-            httpServer = createHttpServer(hub!, serverInstance as ServerInstance)
-        }
-
         if (hub.capabilities.processPluginJobs || hub.capabilities.pluginScheduledTasks) {
-            const graphileWorkerError = await startGraphileWorker(hub, piscina)
-            if (graphileWorkerError instanceof Error) {
-                try {
-                    logOrThrowJobQueueError(hub, graphileWorkerError, `Cannot start job queue consumer!`)
-                } catch {
-                    killProcess()
-                }
+            graphileWorker = new GraphileWorker(hub)
+            // `connectProducer` just runs the PostgreSQL migrations. Ideally it
+            // would be great to move the migration to bin/migrate and ensure we
+            // have a way for the pods to wait for the migrations to complete as
+            // we do with other migrations. However, I couldn't find a
+            // `graphile-worker` supported way to do this, and I don't think
+            // it's that heavy so it may be fine, but something to watch out
+            // for.
+            await graphileWorker.connectProducer()
+            await startGraphileWorker(hub, graphileWorker, piscina)
+
+            if (hub.capabilities.processPluginJobs) {
+                jobsConsumer = await startJobsConsumer({
+                    kafka: hub.kafka,
+                    producer: hub.kafkaProducer.producer,
+                    graphileWorker: graphileWorker,
+                    statsd: hub.statsd,
+                })
             }
         }
 
@@ -239,23 +255,10 @@ export async function startPluginsServer(
             })
         }
 
-        if (hub.capabilities.processPluginJobs) {
-            jobsConsumer = await startJobsConsumer({
-                kafka: hub.kafka,
-                producer: hub.kafkaProducer.producer,
-                graphileWorker: hub.graphileWorker,
-                statsd: hub.statsd,
-            })
-        }
-
         const queues = await startQueues(hub, piscina)
 
         // `queue` refers to the ingestion queue.
         queue = queues.ingestion
-
-        piscina.on('drain', () => {
-            void hub?.graphileWorker.resumeConsumer()
-        })
 
         // use one extra Redis connection for pub-sub
         pubSub = new PubSub(hub, {
@@ -267,10 +270,6 @@ export async function startPluginsServer(
                     await piscina.broadcastTask({ task: 'reloadSchedule' })
                     hub.pluginSchedule = await loadPluginSchedule(piscina)
                 }
-            },
-            ['reload-actions']: async () => {
-                status.info('⚡', 'Reloading actions!')
-                await piscina?.broadcastTask({ task: 'reloadAllActions' })
             },
             'reset-available-features-cache': async (message) => {
                 await piscina?.broadcastTask({ task: 'resetAvailableFeaturesCache', args: JSON.parse(message) })
@@ -371,10 +370,16 @@ export async function startPluginsServer(
         hub.lastActivity = new Date().valueOf()
         hub.lastActivityType = 'serverStart'
 
+        if (hub.capabilities.http) {
+            // start http server used for the healthcheck
+            // TODO: include bufferConsumer in healthcheck
+            httpServer = createHttpServer(hub!, serverInstance as ServerInstance)
+        }
+
         return serverInstance as ServerInstance
     } catch (error) {
         Sentry.captureException(error)
-        status.error('💥', 'Launchpad failure!', error)
+        status.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
         void Sentry.flush().catch(() => null) // Flush Sentry in the background
         await closeJobs()
         process.exit(1)

@@ -7,10 +7,10 @@ import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { boxToSections } from 'lib/components/LemonSelect'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { PlayerListExpandableConfig } from 'scenes/session-recordings/player/list/PlayerList'
-import { LemonSelectOption } from '@posthog/lemon-ui'
+import { LemonSelectOptionLeaf } from '@posthog/lemon-ui'
 
 export interface ListRowOption<T>
-    extends Pick<LemonSelectOption<T>, 'value' | 'label' | 'tooltip' | 'disabled' | 'data-attr'> {
+    extends Pick<LemonSelectOptionLeaf<T>, 'value' | 'label' | 'tooltip' | 'disabled' | 'data-attr'> {
     onClick?: (record: T) => void
 }
 
@@ -134,13 +134,13 @@ function PlayerListRowRaw<T extends Record<string, any>>({
                                     placement: 'bottom-end',
                                     overlay: sections.map((section, i) => (
                                         <React.Fragment key={i}>
-                                            {section.options.map((option: ListRowOption<T>, index) => (
+                                            {section.options.map((option, index) => (
                                                 <LemonButton
                                                     key={index}
                                                     tooltip={option.tooltip}
                                                     onClick={(event) => {
                                                         event.stopPropagation()
-                                                        option?.onClick?.(record)
+                                                        ;(option as ListRowOption<T> | undefined)?.onClick?.(record)
                                                     }}
                                                     status="stealth"
                                                     disabled={option.disabled}

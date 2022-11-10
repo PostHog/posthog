@@ -19,7 +19,7 @@ class IntervalMixin(BaseParamMixin):
             raise ValueError(f"Interval must be a string!")
         interval_candidate = interval_candidate.lower()
         if interval_candidate == "minute":
-            return "hour"
+            return "hour"  # Handle legacy minute-by-minute insights
         if interval_candidate not in self.SUPPORTED_INTERVAL_TYPES:
             raise ValueError(f"Interval {interval_candidate} does not belong to SUPPORTED_INTERVAL_TYPES!")
         return cast(IntervalType, interval_candidate)

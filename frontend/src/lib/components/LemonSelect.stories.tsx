@@ -85,6 +85,21 @@ MixedValuesTypes.args = {
     ] as LemonSelectOptions<string | number>,
 }
 
+export const NestedSelect = Template.bind({})
+NestedSelect.args = {
+    dropdownMatchSelectWidth: false,
+    options: [
+        { label: 'Capybara', value: 'capybara' },
+        {
+            label: 'Elephant',
+            options: [
+                { label: 'African elephant', value: 'elephant-african' },
+                { label: 'Asian elephant', value: 'elephant-asian' },
+            ],
+        },
+    ] as LemonSelectOptions<string | number>,
+}
+
 export const Clearable = Template.bind({})
 Clearable.args = { allowClear: true, value: 'poodle' }
 

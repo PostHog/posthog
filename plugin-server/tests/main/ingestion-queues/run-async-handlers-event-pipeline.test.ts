@@ -11,18 +11,16 @@
 // integration test between the two:
 //
 //  1. using the Piscina task runner to run the pipeline results in the
-//     DependencyUnavailable Error being thrown.
+//     DependencyUnavailableError Error being thrown.
 //  2. the KafkaQueue consumer handler will let the error bubble up to the
 //     KafkaJS consumer runner, which we assume will handle retries.
-
 import { RetryError } from '@posthog/plugin-scaffold'
 import Redis from 'ioredis'
 import { KafkaJSError } from 'kafkajs'
 
 import { KAFKA_EVENTS_JSON } from '../../../src/config/kafka-topics'
-import { KafkaQueue } from '../../../src/main/ingestion-queues/kafka-queue'
 import { Hub } from '../../../src/types'
-import { DependencyUnavailable } from '../../../src/utils/db/error'
+import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { setupPlugins } from '../../../src/worker/plugins/setup'
@@ -34,6 +32,7 @@ import {
     createTeam,
     POSTGRES_DELETE_TABLES_QUERY,
 } from '../../helpers/sql'
+import { IngestionConsumer } from './../../../src/main/ingestion-queues/kafka-queue'
 
 describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
     // Tests the failure cases for the workerTasks.runAsyncHandlersEventPipeline
@@ -75,7 +74,7 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
     test('throws on produce errors', async () => {
         // To ensure that producer errors are retried and not swallowed, we need
         // to ensure that these are bubbled up to the main consumer loop. Note
-        // that the `KafkaJSError` is translated to a generic `DependencyUnavailable`.
+        // that the `KafkaJSError` is translated to a generic `DependencyUnavailableError`.
         // This is to allow the specific decision of whether the error is
         // retriable to happen as close to the dependency as possible.
         const organizationId = await createOrganization(hub.postgres)
@@ -118,7 +117,7 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
                 },
             })
         ).rejects.toEqual(
-            new DependencyUnavailable('Failed to produce', 'Kafka', new KafkaJSError('Failed to produce'))
+            new DependencyUnavailableError('Failed to produce', 'Kafka', new KafkaJSError('Failed to produce'))
         )
     })
 
@@ -185,7 +184,7 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
 
     test(`doesn't throw on arbitrary failures`, async () => {
         // If we receive an arbitrary error, we should just skip the event. We
-        // only want to retry on `RetryError` and `DependencyUnavailable` as these are
+        // only want to retry on `RetryError` and `DependencyUnavailableError` as these are
         // things under our control.
         const organizationId = await createOrganization(hub.postgres)
         const plugin = await createPlugin(hub.postgres, {
@@ -243,17 +242,25 @@ describe('eachBatchAsyncHandlers', () => {
     })
 
     test('rejections from piscina are bubbled up to the consumer', async () => {
-        const kafkaQueue = new KafkaQueue(hub, {
+        const ingestionConsumer = new IngestionConsumer(hub, {
             runAsyncHandlersEventPipeline: () => {
-                throw new DependencyUnavailable('Failed to produce', 'Kafka', new KafkaJSError('Failed to produce'))
+                throw new DependencyUnavailableError(
+                    'Failed to produce',
+                    'Kafka',
+                    new KafkaJSError('Failed to produce')
+                )
             },
             runEventPipeline: () => {
-                throw new DependencyUnavailable('Failed to produce', 'Kafka', new KafkaJSError('Failed to produce'))
+                throw new DependencyUnavailableError(
+                    'Failed to produce',
+                    'Kafka',
+                    new KafkaJSError('Failed to produce')
+                )
             },
         })
 
         await expect(
-            kafkaQueue.eachBatchConsumer({
+            ingestionConsumer.eachBatchConsumer({
                 batch: {
                     topic: KAFKA_EVENTS_JSON,
                     partition: 0,
@@ -293,7 +300,7 @@ describe('eachBatchAsyncHandlers', () => {
                 pause: jest.fn(),
             })
         ).rejects.toEqual(
-            new DependencyUnavailable('Failed to produce', 'Kafka', new KafkaJSError('Failed to produce'))
+            new DependencyUnavailableError('Failed to produce', 'Kafka', new KafkaJSError('Failed to produce'))
         )
     })
 })
