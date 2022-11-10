@@ -47,6 +47,7 @@ const ShareRecording = ({ time, id }: { time: number | null; id: string }): JSX.
                 center
                 sideIcon={<IconCopy />}
                 onClick={() => copyToClipboard(url, 'recording link')}
+                title={url}
             >
                 <span className="truncate">{url}</span>
             </LemonButton>
