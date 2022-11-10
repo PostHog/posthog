@@ -10,6 +10,7 @@ import { createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { TZLabel } from '@posthog/apps-common'
+import { SavedSessionRecordingPlaylistsEmptyState } from 'scenes/session-recordings/saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
 
 export type SavedSessionRecordingPlaylistsProps = {
     tab: SessionRecordingsTabs.Playlists
@@ -121,22 +122,28 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 </div>
             </div>
 
-            <LemonTable
-                loading={playlistsLoading}
-                columns={columns}
-                dataSource={playlists.results}
-                pagination={pagination}
-                noSortingCancellation
-                sorting={sorting}
-                onSort={(newSorting) =>
-                    setSavedPlaylistsFilters({
-                        order: newSorting ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}` : undefined,
-                    })
-                }
-                rowKey="id"
-                loadingSkeletonRows={PLAYLISTS_PER_PAGE}
-                nouns={['playlist', 'playlists']}
-            />
+            {!playlistsLoading && playlists.count < 1 ? (
+                <SavedSessionRecordingPlaylistsEmptyState />
+            ) : (
+                <LemonTable
+                    loading={playlistsLoading}
+                    columns={columns}
+                    dataSource={playlists.results}
+                    pagination={pagination}
+                    noSortingCancellation
+                    sorting={sorting}
+                    onSort={(newSorting) =>
+                        setSavedPlaylistsFilters({
+                            order: newSorting
+                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                : undefined,
+                        })
+                    }
+                    rowKey="id"
+                    loadingSkeletonRows={PLAYLISTS_PER_PAGE}
+                    nouns={['playlist', 'playlists']}
+                />
+            )}
         </div>
     )
 }
