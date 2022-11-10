@@ -1290,7 +1290,6 @@ export interface RetentionFilterType extends FilterType {
     period?: string
 }
 export interface LifecycleFilterType extends FilterType {
-    __notSameAsFilterType?: undefined
     shown_as?: ShownAsValue
 }
 export type AnyFilterType =

@@ -112,8 +112,6 @@ export function cleanFilters(
     oldFilters?: Partial<AnyFilterType>,
     featureFlags?: FeatureFlagsSet
 ): Partial<FilterType> {
-    // const insightChanged = oldFilters?.insight && filters.insight !== oldFilters?.insight
-
     if (isRetentionFilter(filters)) {
         const cleanedParams: Partial<RetentionFilterType> = {
             insight: InsightType.RETENTION,
