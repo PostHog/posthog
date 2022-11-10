@@ -52,7 +52,7 @@ export function SessionsRecordings(): JSX.Element {
                         {showRecordingPlaylists ? (
                             <>
                                 <Tooltip
-                                    placement="left"
+                                    placement="topRight"
                                     title={
                                         tab === SessionRecordingsTabs.Recent
                                             ? 'Save the currently filters as a dynamic playlist'
