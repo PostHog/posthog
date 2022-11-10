@@ -12,7 +12,7 @@ export const scene: SceneExport = {
 export function IngestionWizard(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    if (featureFlags[FEATURE_FLAGS.ONBOARDING_V2_EXPERIMENT]) {
+    if (featureFlags[FEATURE_FLAGS.ONBOARDING_V2_EXPERIMENT] === 'test') {
         return <IngestionWizardV2 />
     }
 
