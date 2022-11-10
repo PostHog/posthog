@@ -2,7 +2,7 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.role import Role
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 
 
 class TestRoleAPI(APILicensedTest):
@@ -28,6 +28,8 @@ class TestRoleAPI(APILicensedTest):
             },
         )
         self.assertEqual(admin_create_res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Role.objects.all().count(), 1)
+        self.assertEqual(Role.objects.first().name, "Product")  # type: ignore
         self.assertEqual(member_create_res.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_only_organization_admins_and_higher_can_update(self):
@@ -52,6 +54,8 @@ class TestRoleAPI(APILicensedTest):
 
         self.assertEqual(admin_update_res.status_code, status.HTTP_200_OK)
         self.assertEqual(member_update_res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(Role.objects.all().count(), 1)
+        self.assertEqual(Role.objects.first().name, "on call support")  # type: ignore
 
     def test_cannot_duplicate_role_name(self):
         Role.objects.create(name="Marketing", organization=self.organization)
@@ -76,12 +80,24 @@ class TestRoleAPI(APILicensedTest):
         )
         self.assertEqual(Role.objects.count(), count)
 
-    # def test_default_feature_flag_access(self):
-    #     Role.objects.create(organization=self.organization, name="Engineering")
-    #     self.assert
-    # def test_default_role_created_upon_new_organization(self):
-    #     self.assertEqual(Role.objects.count(), 0)
-    #     new_org = Organization.objects.bootstrap(self.user, name="PostHog A")
-    #     self.assertEqual(Role.objects.count(), 1)
-    #     self.assertEqual(Role.objects.first().name, DEFAULT_ROLE_NAME)  # type: ignore
-    #     self.assertEqual(Role.objects.first().organization, new_org[0])  # type: ignore
+    def test_updating_feature_flags_access_level(self):
+        role = Role.objects.create(organization=self.organization, name="Engineering")
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
+        self.assertEqual(role.feature_flags_access_level, Organization.FeatureFlagsAccessLevel.CAN_ALWAYS_EDIT)
+        self.client.patch(
+            f"/api/organizations/@current/roles/{role.id}",
+            {"feature_flags_access_level": Organization.FeatureFlagsAccessLevel.CAN_ONLY_VIEW},
+        )
+        self.assertEqual(
+            Role.objects.first().feature_flags_access_level, Organization.FeatureFlagsAccessLevel.CAN_ONLY_VIEW  # type: ignore
+        )
+        self.client.patch(
+            f"/api/organizations/@current/roles/{role.id}",
+            {"feature_flags_access_level": Organization.FeatureFlagsAccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE},
+        )
+        self.assertEqual(
+            Role.objects.first().feature_flags_access_level,  # type: ignore
+            Organization.FeatureFlagsAccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE,
+        )

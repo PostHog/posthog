@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ("posthog", "0277_roles_and_feature_flags_access"),
+        ("posthog", "0278_roles_and_feature_flags_access"),
         ("ee", "0013_silence_deprecated_tags_warnings"),
     ]
 

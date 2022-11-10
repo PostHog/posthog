@@ -37,7 +37,7 @@ class RoleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Role
-        fields = ["id", "name", "created_at", "created_by"]
+        fields = ["id", "name", "feature_flags_access_level", "created_at", "created_by"]
         read_only_fields = ["id", "created_at", "created_by"]
 
     def validate_name(self, name):
@@ -72,22 +72,25 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer(read_only=True)
     role_id = serializers.UUIDField(read_only=True)
 
-    user_uuid = serializers.UUIDField(required=True, write_only=True)
+    user_uuids = serializers.ListField(child=serializers.UUIDField(), required=True, write_only=True)
 
     class Meta:
         model = RoleMembership
-        fields = ["role_id", "user", "joined_at", "updated_at", "user_uuid"]
+        fields = ["role_id", "user", "joined_at", "updated_at", "user_uuids"]
         read_only_fields = ["id", "role_id", "user"]
 
     def create(self, validated_data):
-        user_uuid = validated_data.pop("user_uuid")
+        user_uuids = validated_data.pop("user_uuids")
         try:
-            validated_data["user"] = User.objects.filter(is_active=True).get(uuid=user_uuid)
+            users = User.objects.filter(uuid__in=user_uuids)
+            role_id = self.context["role_id"]
+            role = Role.objects.get(id=role_id)
+            role_memberships = (RoleMembership(user=user, role=role) for user in users)
         except User.DoesNotExist:
             raise serializers.ValidationError("User does not exist.")
-        validated_data["role_id"] = self.context["role_id"]
         try:
-            return super().create(validated_data)
+            memberships = RoleMembership.objects.bulk_create(role_memberships)
+            return memberships
         except IntegrityError:
             raise serializers.ValidationError("User is already part of the role.")
 
