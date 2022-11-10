@@ -260,11 +260,12 @@ export function DashboardHeader(): JSX.Element | null {
                                     </LemonButton>
                                 </>
                             )}
-                            {dashboard && canEditDashboard ? (
+                            {dashboard ? (
                                 <LemonButtonWithSideAction
                                     to={urls.insightNew(undefined, dashboard.id)}
                                     type="primary"
                                     data-attr="dashboard-add-graph-header"
+                                    disabled={!canEditDashboard}
                                     sideAction={{
                                         popup: {
                                             placement: 'bottom-end',
@@ -290,15 +291,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 >
                                     Add insight
                                 </LemonButtonWithSideAction>
-                            ) : (
-                                <LemonButton
-                                    to={urls.insightNew(undefined, dashboard?.id)}
-                                    type="primary"
-                                    data-attr="dashboard-add-graph-header"
-                                >
-                                    Add insight
-                                </LemonButton>
-                            )}
+                            ) : null}
                         </>
                     )
                 }
