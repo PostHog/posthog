@@ -13,14 +13,20 @@ from posthog.models import Organization, Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.session_recording_event.util import create_session_recording_event
 from posthog.models.team import Team
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
 def _create_session_recording_event(**kwargs):
     create_session_recording_event(uuid=uuid4(), **kwargs)
 
 
-class TestSessionRecordings(APIBaseTest):
+class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
+    def setUp(self):
+        super().setUp()
+
+        # Create a new team each time to ensure no clashing between tests
+        self.team = Team.objects.create(organization=self.organization, name="New Team")
+
     def create_snapshot(
         self,
         distinct_id,
