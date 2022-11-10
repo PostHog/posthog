@@ -1,7 +1,9 @@
 import json
+import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
-from unittest.mock import patch
+from unittest.mock import ANY, patch
+from uuid import uuid4
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import Client
@@ -419,6 +421,82 @@ email@example.org,
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(2, len(response.json()["results"]))
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_cohorts_use_only_newest_person_properties(self, patch_capture):
+        # First we create a person with properties that matches the cohort
+        # criteria. Then we add a newer version of the person with different
+        # properties. We expect the cohort to use the newer version of the
+        # person's properties.
+        person_id = str(uuid4())
+        _create_person(
+            distinct_ids=["p1"], uuid=person_id, version=0, team_id=self.team.pk, properties={"$some_prop": "something"}
+        )
+
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort A",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {"key": "$some_prop", "value": "something", "type": "person"},
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        cohort_id = response.json()["id"]
+
+        while response.json()["is_calculating"]:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+            time.sleep(0.1)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            response.json()["results"],
+            [
+                {
+                    "created_at": ANY,
+                    "distinct_ids": ["p1"],
+                    "id": person_id,
+                    "is_identified": False,
+                    "name": "p1",
+                    "properties": {"$some_prop": "something"},
+                    "type": "person",
+                    "uuid": person_id,
+                }
+            ],
+        )
+
+        # Now create a new person version with different properties
+        _create_person(
+            distinct_ids=["p2"],
+            uuid=person_id,
+            version=1,
+            team_id=self.team.pk,
+            properties={"$some_prop": "something else"},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={},
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+
+        while response.json()["is_calculating"]:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+            time.sleep(0.1)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["results"], [])
 
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_with_is_set_filter_missing_value(self, patch_capture):
