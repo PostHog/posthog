@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import equal from 'fast-deep-equal'
 import { lemonToast } from '@posthog/lemon-ui'
 import { beforeUnload, router } from 'kea-router'
+import { createPlaylist } from '../sessionRecordingsLogic'
 
 export interface SessionRecordingsPlaylistLogicProps {
     shortId: string
@@ -67,7 +68,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             const { id, short_id, ...playlist } = values.playlist
             playlist.name = playlist.name ? playlist.name + ' (copy)' : ''
 
-            const newPlaylist = await api.recordings.createPlaylist(playlist)
+            const newPlaylist = await createPlaylist(playlist)
+            if (!newPlaylist) {
+                return
+            }
             lemonToast.success('Playlist duplicated successfully')
             router.actions.push(urls.sessionRecordingPlaylist(newPlaylist.short_id))
         },

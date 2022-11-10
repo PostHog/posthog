@@ -5,7 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import type { sessionRecordingsLogicType } from './sessionRecordingsLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -20,6 +20,29 @@ export const humanFriendlyTabName = (tab: SessionRecordingsTabs): string => {
         default:
             return capitalizeFirstLetter(tab)
     }
+}
+
+export const PLAYLIST_LIMIT_REACHED_MESSAGE = `You have reached the free limit of ${SESSION_RECORDINGS_PLAYLIST_FREE_COUNT} saved playlists`
+
+export const openPlaylistUpsellModal = (): void => {
+    openBillingPopupModal({
+        title: `Upgrade now to unlock unlimited playlists`,
+        description: PLAYLIST_LIMIT_REACHED_MESSAGE,
+    })
+}
+
+export const createPlaylist = async (
+    playlist: Partial<SessionRecordingPlaylistType>
+): Promise<SessionRecordingPlaylistType | null> => {
+    try {
+        return await api.recordings.createPlaylist(playlist)
+    } catch (e: any) {
+        if (e.status === 403) {
+            openPlaylistUpsellModal()
+        }
+    }
+
+    return null
 }
 
 export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
@@ -44,20 +67,16 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
             null as SessionRecordingPlaylistType | null,
             {
                 saveNewPlaylist: async ({ playlist }) => {
-                    try {
-                        return await api.recordings.createPlaylist(playlist)
-                    } catch (e: any) {
-                        if (e.status === 403) {
-                            openBillingPopupModal()
-                        }
-                        throw e
-                    }
+                    return await createPlaylist(playlist)
                 },
             },
         ],
     })),
     listeners(({}) => ({
         saveNewPlaylistSuccess: async ({ newPlaylist }) => {
+            if (!newPlaylist) {
+                return
+            }
             router.actions.push(urls.sessionRecordingPlaylist(newPlaylist.short_id))
         },
     })),
