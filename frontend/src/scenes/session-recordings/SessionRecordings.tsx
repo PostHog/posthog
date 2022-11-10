@@ -41,17 +41,14 @@ export function SessionsRecordings(): JSX.Element {
                 title={<div>Session Recordings</div>}
                 buttons={
                     <>
-                        {!recordingsDisabled ? (
-                            <>
-                                <LemonButton
-                                    type="secondary"
-                                    icon={<IconSettings />}
-                                    onClick={() => openSessionRecordingSettingsDialog()}
-                                >
-                                    Configure
-                                </LemonButton>
-                            </>
-                        ) : undefined}
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconSettings />}
+                            onClick={() => openSessionRecordingSettingsDialog()}
+                        >
+                            Configure
+                        </LemonButton>
+
                         {showRecordingPlaylists && tab === SessionRecordingsTabs.Recent ? (
                             <>
                                 <Tooltip title="Save the currently filters as a dynamic playlist" placement="left">
