@@ -8,8 +8,9 @@ import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import {
+    IconCopy,
     IconFullScreen,
-    IconOpenInNew,
+    IconLink,
     IconPause,
     IconPlay,
     IconSkipInactivity,
@@ -18,18 +19,67 @@ import {
 } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
+import { LemonDialog } from 'lib/components/LemonDialog'
 import { urls } from 'scenes/urls'
+import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { useState } from 'react'
+import { copyToClipboard } from 'lib/utils'
 
-interface PlayerControllerProps extends SessionRecordingPlayerProps {
-    isDetail: boolean
+const ShareRecording = ({ time, id }: { time: number | null; id: string }): JSX.Element => {
+    const [startTime, setStartTime] = useState(String(time))
+    const [includeStartTime, setIncludeStartTime] = useState(false)
+    let url = window.origin + urls.sessionRecording(id)
+
+    if (includeStartTime) {
+        url += `?t=${startTime}`
+    }
+
+    return (
+        <div className="space-y-2">
+            <p>
+                <b>Click the button below</b> to copy a direct link to this recording. Make sure the person you share it
+                with has access to this PostHog project.
+            </p>
+            <LemonButton
+                type="secondary"
+                status="primary-alt"
+                fullWidth
+                center
+                sideIcon={<IconCopy />}
+                onClick={() => copyToClipboard(url, 'recording link')}
+            >
+                <span className="truncate">{url}</span>
+            </LemonButton>
+
+            <div className="flex gap-2 items-center">
+                <LemonCheckbox label={'Start at'} checked={includeStartTime} onChange={setIncludeStartTime} />
+                <LemonInput
+                    className={clsx('w-20', { 'opacity-50': !includeStartTime })}
+                    placeholder="0:00"
+                    value={startTime}
+                    onChange={setStartTime}
+                    onFocus={() => setIncludeStartTime(true)}
+                    fullWidth={false}
+                />
+            </div>
+        </div>
+    )
 }
 
-export function PlayerController({ sessionRecordingId, playerKey, isDetail }: PlayerControllerProps): JSX.Element {
-    const { togglePlayPause, setSpeed, setSkipInactivitySetting, setTab, setIsFullScreen } = useActions(
-        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    )
+export function PlayerController({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+    const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
+    const { togglePlayPause, setPause, setSpeed, setSkipInactivitySetting, setTab, setIsFullScreen } = useActions(logic)
     const { currentPlayerState, speed, isSmallScreen, isSmallPlayer, skipInactivitySetting, tab, isFullScreen } =
-        useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+        useValues(logic)
+
+    const onShare = (): void => {
+        setPause()
+        LemonDialog.open({
+            title: 'Share recording',
+            content: <ShareRecording time={logic.values.currentPlayerTime} id={sessionRecordingId} />,
+            width: 600,
+        })
+    }
 
     return (
         <div className="p-3 bg-light flex flex-col select-none">
@@ -137,18 +187,14 @@ export function PlayerController({ sessionRecordingId, playerKey, isDetail }: Pl
                             />
                         </LemonButton>
                     </Tooltip>
-                    {!isDetail && (
-                        <Tooltip title={'Open in new tab (D)'}>
-                            <LemonButton
-                                size="small"
-                                status="primary-alt"
-                                to={urls.sessionRecording(sessionRecordingId)}
-                                targetBlank
-                            >
-                                <IconOpenInNew className={'text-xl text-primary-alt'} />
-                            </LemonButton>
-                        </Tooltip>
-                    )}
+
+                    <Tooltip title={`Share recording`}>
+                        <LemonButton size="small" status="primary-alt" onClick={() => onShare()}>
+                            <IconLink
+                                className={clsx('text-2xl', isFullScreen ? 'text-primary' : 'text-primary-alt')}
+                            />
+                        </LemonButton>
+                    </Tooltip>
                 </div>
             </div>
         </div>
