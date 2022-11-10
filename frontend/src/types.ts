@@ -149,6 +149,7 @@ export interface OrganizationType extends OrganizationBasicType {
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
     is_member_join_email_enabled: boolean
+    customer_id: string | null
     metadata?: OrganizationMetadata
 }
 
@@ -859,6 +860,7 @@ export interface BillingProductV2Type {
 }
 
 export interface BillingV2Type {
+    customer_id: string
     has_active_subscription: boolean
     stripe_portal_url?: string
     deactivated?: boolean
