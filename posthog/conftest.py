@@ -73,6 +73,8 @@ def django_db_setup(django_db_setup, django_db_keepdb):
         verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
     )
 
+    sync_execute("SYSTEM STOP MERGES")
+
     if not django_db_keepdb:
         try:
             database.drop_database()
@@ -86,6 +88,8 @@ def django_db_setup(django_db_setup, django_db_keepdb):
     create_clickhouse_tables(table_count)
 
     yield
+
+    sync_execute("SYSTEM START MERGES")
 
     if django_db_keepdb:
         reset_clickhouse_tables()
