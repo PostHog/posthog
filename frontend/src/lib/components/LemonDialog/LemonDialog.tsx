@@ -11,6 +11,7 @@ export type LemonDialogProps = Pick<LemonModalProps, 'title' | 'description' | '
     primaryButton?: LemonDialogButtonProps
     secondaryButton?: LemonDialogButtonProps
     tertiaryButton?: LemonDialogButtonProps
+    content?: React.ReactNode
     onClose?: () => void
     onAfterClose?: () => void
 }
@@ -21,6 +22,7 @@ export function LemonDialog({
     primaryButton,
     tertiaryButton,
     secondaryButton,
+    content,
     ...props
 }: LemonDialogProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(true)
@@ -70,7 +72,9 @@ export function LemonDialog({
                     ) : null}
                 </>
             }
-        />
+        >
+            {content}
+        </LemonModal>
     )
 }
 

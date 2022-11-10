@@ -6,7 +6,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { AlertMessage } from 'lib/components/AlertMessage'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tabs } from 'antd'
@@ -15,8 +15,9 @@ import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRe
 import { Tooltip } from 'lib/components/Tooltip'
 import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecordingsLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { IconPlus } from 'lib/components/icons'
+import { IconPlus, IconSettings } from 'lib/components/icons'
 import { router } from 'kea-router'
+import { openSessionRecordingSettingsDialog } from './settings/SessionRecordingSettings'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -32,26 +33,38 @@ export function SessionsRecordings(): JSX.Element {
         </>
     )
 
+    const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
+
     return (
         <div>
             <PageHeader
                 title={<div>Session Recordings</div>}
                 buttons={
-                    showRecordingPlaylists && tab === SessionRecordingsTabs.Recent ? (
-                        <>
-                            <Tooltip title="Save the currently filters as a dynamic playlist" placement="left">
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() => saveNewPlaylist({ filters: filters })}
-                                    disabled={newPlaylistLoading}
-                                    data-attr="save-recordings-playlist-button"
-                                    icon={<IconPlus />}
-                                >
-                                    Save as playlist
-                                </LemonButton>
-                            </Tooltip>
-                        </>
-                    ) : undefined
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconSettings />}
+                            onClick={() => openSessionRecordingSettingsDialog()}
+                        >
+                            Configure
+                        </LemonButton>
+
+                        {showRecordingPlaylists && tab === SessionRecordingsTabs.Recent ? (
+                            <>
+                                <Tooltip title="Save the currently filters as a dynamic playlist" placement="left">
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={() => saveNewPlaylist({ filters: filters })}
+                                        disabled={newPlaylistLoading}
+                                        data-attr="save-recordings-playlist-button"
+                                        icon={<IconPlus />}
+                                    >
+                                        Save as playlist
+                                    </LemonButton>
+                                </Tooltip>
+                            </>
+                        ) : undefined}
+                    </>
                 }
             />
             {showRecordingPlaylists && (
@@ -68,11 +81,18 @@ export function SessionsRecordings(): JSX.Element {
                     </Tabs>
                 </>
             )}
-            {currentTeam && !currentTeam?.session_recording_opt_in ? (
+            {recordingsDisabled ? (
                 <div className="mb-4">
-                    <AlertMessage type="info">
-                        Session recordings are currently disabled for this project. To use this feature, please go to
-                        your <Link to={`${urls.projectSettings()}#recordings`}>project settings</Link> and enable it.
+                    <AlertMessage
+                        type="info"
+                        action={{
+                            type: 'secondary',
+                            icon: <IconSettings />,
+                            onClick: () => openSessionRecordingSettingsDialog(),
+                            children: 'Configure',
+                        }}
+                    >
+                        Session recordings are currently disabled for this project.
                     </AlertMessage>
                 </div>
             ) : null}
