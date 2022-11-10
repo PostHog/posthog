@@ -77,6 +77,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "available_features",
             "is_member_join_email_enabled",
             "metadata",
+            "customer_id",
         ]
         read_only_fields = [
             "id",
@@ -88,6 +89,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "teams",
             "available_features",
             "metadata",
+            "customer_id",
         ]
         extra_kwargs = {
             "slug": {

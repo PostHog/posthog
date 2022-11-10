@@ -39,7 +39,7 @@ export function SessionRecordingPlaylistItem({
             : recording.person?.properties || {}
 
     const propertyIcons = (
-        <div className="flex flex-row flex-nowrap shrink-0 gap-1 h-6">
+        <div className="flex flex-row flex-nowrap shrink-0 gap-1 h-6 ph-no-capture">
             {!recordingPropertiesLoading ? (
                 iconPropertyKeys.map((property) => {
                     const value =

@@ -1,4 +1,4 @@
-import { CSSProperties, PropsWithChildren } from 'react'
+import { CSSProperties } from 'react'
 import api from './api'
 import {
     ActionFilter,
@@ -176,9 +176,10 @@ export async function deleteWithUndo<T extends Record<string, any>>({
     undo?: boolean
     endpoint: string
     object: T
+    idField?: keyof T
     callback?: (undo: boolean, object: T) => void
 }): Promise<void> {
-    await api.update(`api/${props.endpoint}/${props.object.id}`, {
+    await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {
         ...props.object,
         deleted: !undo,
     })
@@ -197,35 +198,6 @@ export async function deleteWithUndo<T extends Record<string, any>>({
                       action: () => deleteWithUndo({ undo: true, ...props }),
                   },
         }
-    )
-}
-
-export function DeleteWithUndo(
-    props: PropsWithChildren<{
-        endpoint: string
-        object: {
-            name?: string
-            id: number
-        }
-        className: string
-        style: CSSProperties
-        callback: () => void
-    }>
-): JSX.Element {
-    const { className, style, children } = props
-    return (
-        <a
-            href="#"
-            onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                deleteWithUndo(props)
-            }}
-            className={className}
-            style={style}
-        >
-            {children}
-        </a>
     )
 }
 

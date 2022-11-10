@@ -14,6 +14,7 @@ import { lemonToast } from 'lib/components/lemonToast'
 import { PaginationManual } from 'lib/components/PaginationControl'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
+import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 
 export const INSIGHTS_PER_PAGE = 30
 
@@ -260,9 +261,13 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
             actions.setInsight(item)
         },
         [dashboardsModel.actionTypes.updateDashboardInsight]: () => actions.loadInsights(),
-        [dashboardsModel.actionTypes.duplicateDashboardSuccess]: () => actions.loadInsights(),
         [deleteDashboardLogic.actionTypes.submitDeleteDashboardSuccess]: ({ deleteDashboard }) => {
             if (deleteDashboard.deleteInsights) {
+                actions.loadInsights()
+            }
+        },
+        [duplicateDashboardLogic.actionTypes.submitDuplicateDashboardSuccess]: ({ duplicateDashboard }) => {
+            if (duplicateDashboard.duplicateTiles) {
                 actions.loadInsights()
             }
         },

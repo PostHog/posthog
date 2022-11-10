@@ -10,6 +10,7 @@ import { createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { TZLabel } from '@posthog/apps-common'
+import { SavedSessionRecordingPlaylistsEmptyState } from 'scenes/session-recordings/saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
 
 export type SavedSessionRecordingPlaylistsProps = {
     tab: SessionRecordingsTabs.Playlists
@@ -18,10 +19,25 @@ export type SavedSessionRecordingPlaylistsProps = {
 export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPlaylistsProps): JSX.Element {
     const logic = savedSessionRecordingPlaylistsLogic({ tab })
     const { playlists, playlistsLoading, filters, sorting, pagination } = useValues(logic)
-    const { setSavedPlaylistsFilters } = useActions(logic)
+    const { setSavedPlaylistsFilters, updatePlaylist } = useActions(logic)
     const { meFirstMembers } = useValues(membersLogic)
 
     const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
+        {
+            width: 0,
+            dataIndex: 'pinned',
+            render: function Render(pinned, { short_id }) {
+                return (
+                    <LemonButton
+                        size="small"
+                        status="primary-alt"
+                        onClick={() => updatePlaylist(short_id, { pinned: !pinned })}
+                    >
+                        {pinned ? <PushpinFilled /> : <PushpinOutlined />}
+                    </LemonButton>
+                )
+            },
+        },
         {
             title: 'Name',
             dataIndex: 'name',
@@ -35,8 +51,12 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     </>
                 )
             },
-            sorter: (a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'),
         },
+
+        createdByColumn<SessionRecordingPlaylistType>() as LemonTableColumn<
+            SessionRecordingPlaylistType,
+            keyof SessionRecordingPlaylistType | undefined
+        >,
         {
             title: 'Last modified',
             sorter: true,
@@ -51,10 +71,6 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 )
             },
         },
-        createdByColumn<SessionRecordingPlaylistType>() as LemonTableColumn<
-            SessionRecordingPlaylistType,
-            keyof SessionRecordingPlaylistType | undefined
-        >,
     ]
 
     return (
@@ -63,7 +79,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 <LemonInput
                     type="search"
                     placeholder="Search for playlists"
-                    onChange={(value) => setSavedPlaylistsFilters({ search: value })}
+                    onChange={(value) => setSavedPlaylistsFilters({ search: value || undefined })}
                     value={filters.search || ''}
                 />
                 <div className="flex items-center gap-4 flex-wrap">
@@ -121,22 +137,28 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 </div>
             </div>
 
-            <LemonTable
-                loading={playlistsLoading}
-                columns={columns}
-                dataSource={playlists.results}
-                pagination={pagination}
-                noSortingCancellation
-                sorting={sorting}
-                onSort={(newSorting) =>
-                    setSavedPlaylistsFilters({
-                        order: newSorting ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}` : undefined,
-                    })
-                }
-                rowKey="id"
-                loadingSkeletonRows={PLAYLISTS_PER_PAGE}
-                nouns={['playlist', 'playlists']}
-            />
+            {!playlistsLoading && playlists.count < 1 ? (
+                <SavedSessionRecordingPlaylistsEmptyState />
+            ) : (
+                <LemonTable
+                    loading={playlistsLoading}
+                    columns={columns}
+                    dataSource={playlists.results}
+                    pagination={pagination}
+                    noSortingCancellation
+                    sorting={sorting}
+                    onSort={(newSorting) =>
+                        setSavedPlaylistsFilters({
+                            order: newSorting
+                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                : undefined,
+                        })
+                    }
+                    rowKey="id"
+                    loadingSkeletonRows={PLAYLISTS_PER_PAGE}
+                    nouns={['playlist', 'playlists']}
+                />
+            )}
         </div>
     )
 }

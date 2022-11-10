@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { LemonButton, LemonButtonProps } from 'lib/components/LemonButton'
 import { LemonModal, LemonModalProps } from '../LemonModal'
 import ReactDOM from 'react-dom'
+import { useValues } from 'kea'
+import { router } from 'kea-router'
 
 export type LemonDialogButtonProps = Pick<LemonButtonProps, 'type' | 'status' | 'icon' | 'onClick'> & {
     children: React.ReactNode
@@ -14,6 +16,7 @@ export type LemonDialogProps = Pick<LemonModalProps, 'title' | 'description' | '
     content?: React.ReactNode
     onClose?: () => void
     onAfterClose?: () => void
+    closeOnNavigate?: boolean
 }
 
 export function LemonDialog({
@@ -23,13 +26,24 @@ export function LemonDialog({
     tertiaryButton,
     secondaryButton,
     content,
+    closeOnNavigate = true,
     ...props
 }: LemonDialogProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(true)
+    const { currentLocation } = useValues(router)
+    const lastLocation = useRef(currentLocation.pathname)
 
     primaryButton = primaryButton || {
         children: 'Okay',
     }
+
+    useEffect(() => {
+        if (lastLocation.current !== currentLocation.pathname && closeOnNavigate) {
+            setIsOpen(false)
+        }
+        lastLocation.current = currentLocation.pathname
+    }, [currentLocation])
+
     return (
         <LemonModal
             {...props}

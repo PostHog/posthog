@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { range } from '~/lib/utils'
-import { RecordingDurationFilter, RecordingFilters, SessionRecordingType } from '~/types'
+import { deleteWithUndo, range } from '~/lib/utils'
+import { RecordingDurationFilter, RecordingFilters, SessionRecordingsTabs, SessionRecordingType } from '~/types'
 import {
     defaultPageviewPropertyEntityFilter,
     PLAYLIST_LIMIT,
@@ -10,7 +10,7 @@ import {
 import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { IconChevronLeft, IconChevronRight, IconFilter, IconWithCount } from 'lib/components/icons'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import clsx from 'clsx'
@@ -25,9 +25,12 @@ import { SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { DurationFilter } from '../filters/DurationFilter'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
-import { Spinner } from 'lib/components/Spinner/Spinner'
 import { NotFound } from 'lib/components/NotFound'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { More } from 'lib/components/LemonButton/More'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+import { router } from 'kea-router'
 
 export const scene: SceneExport = {
     component: SessionRecordingsPlaylistScene,
@@ -38,11 +41,33 @@ export const scene: SceneExport = {
 }
 
 export function SessionRecordingsPlaylistScene(): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
     const { playlist, playlistLoading, hasChanges } = useValues(sessionRecordingsPlaylistLogic)
-    const { updatePlaylist, setFilters, saveChanges } = useActions(sessionRecordingsPlaylistLogic)
+    const { updatePlaylist, setFilters, saveChanges, duplicatePlaylist } = useActions(sessionRecordingsPlaylistLogic)
 
     if (!playlist && playlistLoading) {
-        return <Spinner />
+        return (
+            <div className="space-y-4 mt-6">
+                <LemonSkeleton className="h-10 w-1/4" />
+                <LemonSkeleton className=" w-1/3" />
+                <LemonSkeleton className=" w-1/4" />
+
+                <div className="flex justify-between mt-4">
+                    <LemonSkeleton.Button />
+                    <div className="flex gap-4">
+                        <LemonSkeleton.Button />
+                        <LemonSkeleton.Button />
+                    </div>
+                </div>
+
+                <div className="flex justify-between gap-4 mt-8">
+                    <div className="space-y-8 w-1/4">
+                        <LemonSkeleton className="h-10" repeat={10} />
+                    </div>
+                    <div className="flex-1" />
+                </div>
+            </div>
+        )
     }
 
     if (!playlist) {
@@ -66,6 +91,52 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                 }
                 buttons={
                     <div className="flex justify-between items-center gap-2">
+                        <More
+                            overlay={
+                                <>
+                                    <LemonButton
+                                        status="stealth"
+                                        onClick={() => duplicatePlaylist()}
+                                        fullWidth
+                                        data-attr="duplicate-playlist"
+                                    >
+                                        Duplicate
+                                    </LemonButton>
+                                    <LemonButton
+                                        status="stealth"
+                                        onClick={() =>
+                                            updatePlaylist({
+                                                pinned: !playlist.pinned,
+                                            })
+                                        }
+                                        fullWidth
+                                    >
+                                        {playlist.pinned ? 'Unpin playlist' : 'Pin playlist'}
+                                    </LemonButton>
+                                    <LemonDivider />
+
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={() =>
+                                            deleteWithUndo({
+                                                object: playlist,
+                                                idField: 'short_id',
+                                                endpoint: `projects/${currentTeamId}/session_recording_playlists`,
+                                                callback: () => {
+                                                    router.actions.replace(
+                                                        urls.sessionRecordings(SessionRecordingsTabs.Playlists)
+                                                    )
+                                                },
+                                            })
+                                        }
+                                        fullWidth
+                                    >
+                                        Delete playlist
+                                    </LemonButton>
+                                </>
+                            }
+                        />
+                        <LemonDivider vertical />
                         <>
                             <LemonButton
                                 type="primary"
