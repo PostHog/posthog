@@ -442,7 +442,7 @@ function useMathSelectorOptions(
             options.splice(1, 0, {
                 value: countPerActorMathTypeShown,
                 label: (
-                    <div className="flex items-center gap-2 pr-1">
+                    <div className="flex items-center gap-2">
                         <span>Count per user</span>
                         <LemonSelect
                             value={countPerActorMathTypeShown}
@@ -458,7 +458,6 @@ function useMathSelectorOptions(
                             }))}
                             onClick={(e) => e.stopPropagation()}
                             size="small"
-                            className="-mr-1"
                             dropdownMatchSelectWidth={false}
                             optionTooltipPlacement="right"
                         />
@@ -471,7 +470,7 @@ function useMathSelectorOptions(
         options.push({
             value: propertyMathTypeShown,
             label: (
-                <div className="flex items-center gap-2 pr-1">
+                <div className="flex items-center gap-2">
                     <span>Property value</span>
                     <LemonSelect
                         value={propertyMathTypeShown}
@@ -487,7 +486,6 @@ function useMathSelectorOptions(
                         }))}
                         onClick={(e) => e.stopPropagation()}
                         size="small"
-                        className="-mr-1"
                         dropdownMatchSelectWidth={false}
                         optionTooltipPlacement="right"
                     />
