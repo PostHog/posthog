@@ -2218,6 +2218,7 @@ export interface SessionRecordingPlayerProps {
     includeMeta?: boolean
     recordingStartTime?: string
     matching?: MatchedRecording[]
+    isDetail?: boolean
     noBorder?: boolean
 }
 

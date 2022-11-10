@@ -15,7 +15,6 @@ import { urls } from 'scenes/urls'
 import { openPlayerShareDialog } from './share/PlayerShare'
 
 interface PlayerControllerProps extends SessionRecordingPlayerProps {
-    isDetail: boolean
     hideInspectorPicker?: boolean
 }
 
@@ -26,8 +25,8 @@ export function PlayerController({
     hideInspectorPicker = false,
 }: PlayerControllerProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    const { togglePlayPause, setSpeed, setSkipInactivitySetting, setIsFullScreen } = useActions(logic)
-    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, isFullScreen, setPause } = useValues(logic)
+    const { togglePlayPause, setSpeed, setSkipInactivitySetting, setIsFullScreen, setPause } = useActions(logic)
+    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, isFullScreen } = useValues(logic)
 
     const onShare = (): void => {
         setPause()
