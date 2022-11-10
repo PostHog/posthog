@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { EventType, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
+import { EventType, SessionRecordingPlayerProps, SessionRecordingPlayerTab } from '~/types'
 import { PlayerList } from 'scenes/session-recordings/player/list/PlayerList'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, interleave } from 'lib/utils'
@@ -21,7 +21,7 @@ export function PlayerInspector({ sessionRecordingId, playerKey }: SessionRecord
                     if (record.level === 'match') {
                         return RowStatus.Match
                     }
-                    if (tab === SessionRecordingTab.EVENTS) {
+                    if (tab === SessionRecordingPlayerTab.EVENTS) {
                         return null
                     }
                     // Below statuses only apply to console logs
@@ -40,7 +40,7 @@ export function PlayerInspector({ sessionRecordingId, playerKey }: SessionRecord
                     return RowStatus.Information
                 },
                 content: function renderContent(record, _, expanded) {
-                    if (tab === SessionRecordingTab.CONSOLE) {
+                    if (tab === SessionRecordingPlayerTab.CONSOLE) {
                         return (
                             <div
                                 className="font-mono text-xs w-full text-ellipsis leading-6"
@@ -83,7 +83,7 @@ export function PlayerInspector({ sessionRecordingId, playerKey }: SessionRecord
                     )
                 },
                 sideContent: function renderSideContent(record) {
-                    if (tab === SessionRecordingTab.CONSOLE) {
+                    if (tab === SessionRecordingPlayerTab.CONSOLE) {
                         return <div className="font-mono text-xs">{record.traceContent?.[0]}</div>
                     }
                     return null
@@ -94,7 +94,7 @@ export function PlayerInspector({ sessionRecordingId, playerKey }: SessionRecord
                     if (!record) {
                         return null
                     }
-                    if (tab === SessionRecordingTab.CONSOLE) {
+                    if (tab === SessionRecordingPlayerTab.CONSOLE) {
                         return (
                             <div className="py-2 pr-2 pl-18 font-mono text-xs leading-6">
                                 {record.fullContent?.map((content: JSX.Element, i: number) => (

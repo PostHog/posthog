@@ -1,7 +1,7 @@
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { useActions, useValues } from 'kea'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
-import { RecordingWindowFilter, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
+import { RecordingWindowFilter, SessionRecordingPlayerProps, SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { IconInfo } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -24,7 +24,7 @@ export function PlayerFilter({ sessionRecordingId, playerKey, matching }: Sessio
     return (
         <div className="PlayerFilter flex justify-between gap-2 bg-side p-2 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
-                {tab === SessionRecordingTab.EVENTS ? (
+                {tab === SessionRecordingPlayerTab.EVENTS ? (
                     <>
                         <LemonInput
                             key="event-list-search-input"

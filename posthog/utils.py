@@ -409,7 +409,7 @@ def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
     for p in plugin_configs:
         config = p["pluginconfig__config"] or {}
         config_schema = p["config_schema"] or {}
-        secret_fields = set([field["key"] for field in config_schema if "secret" in field and field["secret"]])
+        secret_fields = {field["key"] for field in config_schema if "secret" in field and field["secret"]}
         for key in secret_fields:
             if key in config:
                 config[key] = "** SECRET FIELD **"
