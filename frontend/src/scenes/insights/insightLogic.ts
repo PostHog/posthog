@@ -103,6 +103,7 @@ export const insightLogic = kea<insightLogicType>([
         setActiveView: (type: InsightType) => ({ type }),
         updateActiveView: (type: InsightType) => ({ type }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
+        setFiltersMerge: (filters: Partial<FilterType>) => ({ filters }),
         reportInsightViewedForRecentInsights: () => true,
         reportInsightViewed: (
             insightModel: Partial<InsightModel>,
@@ -732,6 +733,9 @@ export const insightLogic = kea<insightLogicType>([
         ],
     }),
     listeners(({ actions, selectors, values }) => ({
+        setFiltersMerge: ({ filters }) => {
+            actions.setFilters({ ...values.filters, ...filters })
+        },
         setFilters: async ({ filters }, _, __, previousState) => {
             const previousFilters = selectors.filters(previousState)
             if (objectsEqual(previousFilters, filters)) {

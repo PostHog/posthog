@@ -7,7 +7,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function GlobalAndOrFilters({ filters }: EditorFilterProps): JSX.Element {
-    const { setFilters } = useActions(insightLogic)
+    const { setFiltersMerge } = useActions(insightLogic)
     const { allEventNames } = useValues(insightLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
@@ -25,12 +25,12 @@ export function GlobalAndOrFilters({ filters }: EditorFilterProps): JSX.Element 
         <PropertyGroupFilters
             noTitle
             value={convertPropertiesToPropertyGroup(filters.properties)}
-            onChange={(properties) => setFilters({ ...filters, properties })}
+            onChange={(properties) => setFiltersMerge({ properties })}
             taxonomicGroupTypes={taxonomicGroupTypes}
             pageKey="insight-filters"
             eventNames={allEventNames}
             filters={filters}
-            setTestFilters={(testFilters) => setFilters({ ...filters, ...testFilters })}
+            setTestFilters={(testFilters) => setFiltersMerge(testFilters)}
         />
     )
 }
