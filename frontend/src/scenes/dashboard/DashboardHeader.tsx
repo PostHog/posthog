@@ -274,24 +274,19 @@ export function DashboardHeader(): JSX.Element | null {
                                                 placement: 'bottom-end',
                                                 overlay: (
                                                     <>
-                                                        {showTextCards &&
-                                                            hasAvailableFeature(
-                                                                AvailableFeature.DASHBOARD_COLLABORATION
-                                                            ) && (
-                                                                <LemonButton
-                                                                    status="stealth"
-                                                                    fullWidth
-                                                                    onClick={() => {
-                                                                        push(
-                                                                            urls.dashboardTextTile(dashboard.id, 'new')
-                                                                        )
-                                                                    }}
-                                                                    data-attr="add-text-tile-to-dashboard"
-                                                                >
-                                                                    Add text card &nbsp;
-                                                                    <LemonTag type="warning">BETA</LemonTag>
-                                                                </LemonButton>
-                                                            )}
+                                                        {showTextCards && (
+                                                            <LemonButton
+                                                                status="stealth"
+                                                                fullWidth
+                                                                onClick={() => {
+                                                                    push(urls.dashboardTextTile(dashboard.id, 'new'))
+                                                                }}
+                                                                data-attr="add-text-tile-to-dashboard"
+                                                            >
+                                                                Add text card &nbsp;
+                                                                <LemonTag type="warning">BETA</LemonTag>
+                                                            </LemonButton>
+                                                        )}
                                                     </>
                                                 ),
                                             },

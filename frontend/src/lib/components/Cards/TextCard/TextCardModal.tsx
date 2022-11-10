@@ -1,10 +1,11 @@
-import { DashboardType } from '~/types'
+import { AvailableFeature, DashboardType } from '~/types'
 import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalLogic'
 import { useActions, useValues } from 'kea'
 import { LemonModal } from 'lib/components/LemonModal'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Field, Form } from 'kea-forms'
 import { LemonTextMarkdown } from 'lib/components/LemonTextArea/LemonTextArea'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 export function TextCardModal({
     isOpen,
@@ -59,11 +60,13 @@ export function TextCardModal({
                 className=""
                 enableFormOnSubmit
             >
-                <Field name="body" label="">
-                    {({ value, onChange }) => (
-                        <LemonTextMarkdown data-attr={'text-card-edit-area'} value={value} onChange={onChange} />
-                    )}
-                </Field>
+                <PayGateMini feature={AvailableFeature.DASHBOARD_COLLABORATION}>
+                    <Field name="body" label="">
+                        {({ value, onChange }) => (
+                            <LemonTextMarkdown data-attr={'text-card-edit-area'} value={value} onChange={onChange} />
+                        )}
+                    </Field>
+                </PayGateMini>
             </Form>
         </LemonModal>
     )
