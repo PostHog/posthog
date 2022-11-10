@@ -42,7 +42,7 @@ export const scene: SceneExport = {
 
 export function SessionRecordingsPlaylistScene(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const { playlist, playlistLoading, hasChanges } = useValues(sessionRecordingsPlaylistLogic)
+    const { playlist, playlistLoading, hasChanges, derivedName } = useValues(sessionRecordingsPlaylistLogic)
     const { updatePlaylist, setFilters, saveChanges, duplicatePlaylist } = useActions(sessionRecordingsPlaylistLogic)
 
     if (!playlist && playlistLoading) {
@@ -81,7 +81,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     <EditableField
                         name="name"
                         value={playlist.name || ''}
-                        placeholder={'Untitled Playlist'}
+                        placeholder={derivedName}
                         onSave={(value) => updatePlaylist({ name: value })}
                         saveOnBlur={true}
                         maxLength={400}

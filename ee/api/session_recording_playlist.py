@@ -72,7 +72,6 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "short_id",
-            "derived_name",
             "team",
             "created_at",
             "created_by",

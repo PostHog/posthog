@@ -40,11 +40,11 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
         {
             title: 'Name',
             dataIndex: 'name',
-            render: function Render(name, { short_id, description }) {
+            render: function Render(name, { short_id, derived_name, description }) {
                 return (
                     <>
                         <Link className="font-semibold" to={urls.sessionRecordingPlaylist(short_id)}>
-                            {name || 'Untitled'}
+                            {name || derived_name || 'Untitled'}
                         </Link>
                         {description ? <div className="truncate">{description}</div> : null}
                     </>

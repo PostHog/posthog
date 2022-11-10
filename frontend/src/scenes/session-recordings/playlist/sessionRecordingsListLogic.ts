@@ -6,6 +6,7 @@ import {
     PropertyOperator,
     RecordingFilters,
     SessionRecordingId,
+    SessionRecordingPlaylistType,
     SessionRecordingPropertiesType,
     SessionRecordingsResponse,
     SessionRecordingsTabs,
@@ -19,6 +20,9 @@ import { teamLogic } from '../../teamLogic'
 import { dayjs } from 'lib/dayjs'
 import { loaders } from 'kea-loaders'
 import { urls } from 'scenes/urls'
+import { cohortsModel } from '~/models/cohortsModel'
+import { createPlaylist } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { summarizePlaylistFilters } from 'scenes/session-recordings/playlist/playlistUtils'
 
 export type PersonUUID = string
 interface Params {
@@ -108,7 +112,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     props({} as SessionRecordingListLogicProps),
     key((props) => `${props.key}-${props.updateSearchParams ?? '-with-search'}`),
     connect({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], cohortsModel, ['cohortsById']],
         actions: [
             eventUsageLogic,
             ['reportRecordingsListFetched', 'reportRecordingsListPropertiesFetched', 'reportRecordingsListFilterAdded'],
@@ -124,6 +128,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         }),
         loadNext: true,
         loadPrev: true,
+        saveNewPlaylist: (playlist: Partial<SessionRecordingPlaylistType>) => ({ playlist }),
     }),
     loaders(({ props, values, actions }) => ({
         sessionRecordingsResponse: [
@@ -177,6 +182,17 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
 
                     breakpoint()
                     return response
+                },
+            },
+        ],
+        newPlaylist: [
+            null as SessionRecordingPlaylistType | null,
+            {
+                saveNewPlaylist: async ({ playlist }) => {
+                    return await createPlaylist({
+                        ...playlist,
+                        derived_name: summarizePlaylistFilters(playlist.filters || {}, values.cohortsById),
+                    })
                 },
             },
         ],
@@ -247,6 +263,12 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         },
         getSessionRecordingsSuccess: () => {
             actions.getSessionRecordingsProperties({})
+        },
+        saveNewPlaylistSuccess: async ({ newPlaylist }) => {
+            if (!newPlaylist) {
+                return
+            }
+            router.actions.push(urls.sessionRecordingPlaylist(newPlaylist.short_id))
         },
     })),
     selectors({

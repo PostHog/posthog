@@ -22,16 +22,13 @@ import { openSessionRecordingSettingsDialog } from './settings/SessionRecordingS
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { tab, newPlaylistLoading } = useValues(sessionRecordingsLogic)
-    const { saveNewPlaylist } = useActions(sessionRecordingsLogic)
+    const { tab } = useValues(sessionRecordingsLogic)
     const showRecordingPlaylists = !!featureFlags[FEATURE_FLAGS.RECORDING_PLAYLISTS]
-    const { filters } = useValues(sessionRecordingsListLogic({ key: 'recents', updateSearchParams: true }))
+    const listLogic = sessionRecordingsListLogic({ key: 'recents', updateSearchParams: true })
+    const { filters, newPlaylistLoading } = useValues(listLogic)
+    const { saveNewPlaylist } = useActions(listLogic)
 
-    const recentRecordings = (
-        <>
-            <SessionRecordingsPlaylist logicKey="recents" updateSearchParams />
-        </>
-    )
+    const recentRecordings = <SessionRecordingsPlaylist logicKey="recents" updateSearchParams />
 
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
 
