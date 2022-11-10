@@ -19,6 +19,10 @@
             div.innerHTML = "You are using a really old browser. Please upgrade to fully enjoy PostHog!"
             document.body.prepend(div);
         }
+        if (!window.process) {
+            // see https://github.com/remarkjs/react-markdown/issues/339
+            window.process = { cwd: () => '' };
+        }
     </script>
     <div id="root"></div>
   </body>
