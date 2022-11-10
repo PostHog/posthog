@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { FilterType } from '~/types'
+import { ChartDisplayType, FilterType } from '~/types'
 import type { insightsTableLogicType } from './insightsTableLogicType'
 
 export type CalcColumnState = 'total' | 'average' | 'median'
@@ -27,10 +27,13 @@ export const insightsTableLogic = kea<insightsTableLogicType>({
             () => [(_, props) => props.filters],
             (filters: Partial<FilterType>) => {
                 return (
-                    filters.actions?.every(
+                    filters.display == ChartDisplayType.ActionsTable ||
+                    (filters.actions?.every(
                         (entity) => entity.math === 'total' || entity.math === 'sum' || !entity.math
                     ) &&
-                    filters.events?.every((entity) => entity.math === 'total' || entity.math === 'sum' || !entity.math)
+                        filters.events?.every(
+                            (entity) => entity.math === 'total' || entity.math === 'sum' || !entity.math
+                        ))
                 )
             },
         ],

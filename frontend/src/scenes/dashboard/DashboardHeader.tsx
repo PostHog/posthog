@@ -31,6 +31,8 @@ import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
+import { saveDashboardTemplateLogic } from 'scenes/dashboard/dashboardTemplates/saveDashboardTemplateLogic'
+import { SaveDashboardTemplateModal } from 'scenes/dashboard/dashboardTemplates/SaveAsDashboardTemplateModal'
 
 export function DashboardHeader(): JSX.Element | null {
     const {
@@ -52,6 +54,7 @@ export function DashboardHeader(): JSX.Element | null {
 
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
+    const { showSaveDashboardTemplateModal } = useActions(saveDashboardTemplateLogic)
 
     const { push } = useActions(router)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -85,6 +88,7 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
                     {canEditDashboard && <DeleteDashboardModal />}
                     {canEditDashboard && <DuplicateDashboardModal />}
+                    {canEditDashboard && <SaveDashboardTemplateModal />}
                 </>
             )}
 
@@ -223,6 +227,16 @@ export function DashboardHeader(): JSX.Element | null {
                                                     },
                                                 ]}
                                             />
+                                            <LemonDivider />
+                                            <LemonButton
+                                                onClick={() => {
+                                                    showSaveDashboardTemplateModal(dashboard)
+                                                }}
+                                                status="stealth"
+                                                fullWidth
+                                            >
+                                                Save as template
+                                            </LemonButton>
                                             <LemonDivider />
                                             <LemonButton
                                                 onClick={() => {

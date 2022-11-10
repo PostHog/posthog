@@ -7,6 +7,7 @@ from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from .cohort import Cohort, CohortPeople
 from .dashboard import Dashboard
+from .dashboard_template import DashboardTemplate
 from .dashboard_tile import DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
