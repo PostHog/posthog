@@ -3,28 +3,24 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { SessionPlayerState, SessionRecordingPlayerProps, SessionRecordingPlayerTab } from '~/types'
+import { SessionPlayerState, SessionRecordingPlayerProps } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import {
-    IconFullScreen,
-    IconLink,
-    IconPause,
-    IconPlay,
-    IconSkipInactivity,
-    IconTerminal,
-    UnverifiedEvent,
-} from 'lib/components/icons'
+import { IconFullScreen, IconLink, IconPause, IconPlay, IconSkipInactivity } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
+import { PlayerInspectorPicker } from './PlayerInspector'
 import { openPlayerShareDialog } from './share/PlayerShare'
 
-export function PlayerController({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+interface PlayerControllerProps extends SessionRecordingPlayerProps {
+    isDetail: boolean
+}
+
+export function PlayerController({ sessionRecordingId, playerKey }: PlayerControllerProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    const { togglePlayPause, setPause, setSpeed, setSkipInactivitySetting, setTab, setIsFullScreen } = useActions(logic)
-    const { currentPlayerState, speed, isSmallScreen, isSmallPlayer, skipInactivitySetting, tab, isFullScreen } =
-        useValues(logic)
+    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, isFullScreen } = useValues(logic)
+    const { togglePlayPause, setSpeed, setSkipInactivitySetting, setIsFullScreen, setPause } = useActions(logic)
 
     const onShare = (): void => {
         setPause()
@@ -43,28 +39,7 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
             <div className="flex justify-between items-center h-8 gap-2">
                 <div className="flex items-center gap-2 flex-1">
                     {!isFullScreen && (
-                        <>
-                            <LemonButton
-                                size="small"
-                                icon={<UnverifiedEvent />}
-                                status={tab === SessionRecordingPlayerTab.EVENTS ? 'primary' : 'primary-alt'}
-                                active={tab === SessionRecordingPlayerTab.EVENTS}
-                                onClick={() => setTab(SessionRecordingPlayerTab.EVENTS)}
-                            >
-                                {isSmallScreen || isSmallPlayer ? '' : 'Events'}
-                            </LemonButton>
-                            <LemonButton
-                                size="small"
-                                icon={<IconTerminal />}
-                                status={tab === SessionRecordingPlayerTab.CONSOLE ? 'primary' : 'primary-alt'}
-                                active={tab === SessionRecordingPlayerTab.CONSOLE}
-                                onClick={() => {
-                                    setTab(SessionRecordingPlayerTab.CONSOLE)
-                                }}
-                            >
-                                {isSmallScreen || isSmallPlayer ? '' : 'Console'}
-                            </LemonButton>
-                        </>
+                        <PlayerInspectorPicker sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                     )}
                 </div>
                 <div className="flex items-center gap-1">

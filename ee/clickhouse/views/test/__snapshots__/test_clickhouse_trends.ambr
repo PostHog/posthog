@@ -14,7 +14,8 @@
 # name: ClickhouseTestTrends.test_insight_trends_aggregate.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
@@ -33,6 +34,8 @@
        AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -76,7 +79,8 @@
 # name: ClickhouseTestTrends.test_insight_trends_basic.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
@@ -95,6 +99,8 @@
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-14 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -132,7 +138,8 @@
 # name: ClickhouseTestTrends.test_insight_trends_clean_arg.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
@@ -153,6 +160,8 @@
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
        AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -188,7 +197,8 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
@@ -207,6 +217,8 @@
        AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -295,7 +307,8 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.12
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
@@ -316,6 +329,8 @@
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
        AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -363,7 +378,8 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.3
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
@@ -382,6 +398,8 @@
        AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -453,7 +471,8 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.6
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
@@ -474,6 +493,8 @@
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
        AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -610,7 +631,8 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.9
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
@@ -645,6 +667,8 @@
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
        AND (((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))) )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -826,7 +850,8 @@
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT $group_0 AS actor_id
+  SELECT $group_0 AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e."$group_0" as "$group_0"
@@ -838,6 +863,8 @@
        AND (NOT has([''], "$group_0")
             AND NOT has([''], "$group_0")) )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -874,7 +901,8 @@
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_session.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e."$session_id" as "$session_id",
@@ -894,6 +922,8 @@
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '

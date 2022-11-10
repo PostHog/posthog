@@ -194,12 +194,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (s) => [s.matching],
             (matching) => (matching ?? []).map((filterMatches) => filterMatches.events).flat(),
         ],
-        isSmallPlayer: [
-            (s) => [s.rootFrame, () => window.innerWidth],
-            (rootFrame) => {
-                return !!rootFrame?.parentElement && rootFrame.parentElement.clientWidth < getBreakpoint('sm')
-            },
-        ],
     }),
     listeners(({ values, actions, cache }) => ({
         setRootFrame: () => {

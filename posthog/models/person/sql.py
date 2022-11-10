@@ -426,10 +426,12 @@ ORDER BY count DESC, key ASC
 
 GET_ACTORS_FROM_EVENT_QUERY = """
 SELECT
-    {id_field} AS actor_id
+    {id_field} AS actor_id,
+    {actor_value_expression} AS actor_value
     {matching_events_select_statement}
 FROM ({events_query})
 GROUP BY actor_id
+ORDER BY actor_value DESC, actor_id DESC /* Also sorting by ID for determinism */
 {limit}
 {offset}
 """

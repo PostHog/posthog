@@ -21,9 +21,11 @@ import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { PanelHeader } from './panels/PanelComponents'
 import { InviteTeamPanel } from './panels/InviteTeamPanel'
+import { TeamInvitedPanel } from './panels/TeamInvitedPanel'
 
 export function IngestionWizardV2(): JSX.Element {
-    const { platform, framework, verify, addBilling, technical } = useValues(ingestionLogic)
+    const { platform, framework, verify, addBilling, technical, hasInvitedMembers } = useValues(ingestionLogic)
+    const { isInviteModalShown } = useValues(inviteLogic)
     const { reportIngestionLandingSeen } = useActions(eventUsageLogic)
 
     useEffect(() => {
@@ -36,6 +38,14 @@ export function IngestionWizardV2(): JSX.Element {
         return (
             <IngestionContainer>
                 <BillingPanel />
+            </IngestionContainer>
+        )
+    }
+
+    if (hasInvitedMembers && !isInviteModalShown && !technical) {
+        return (
+            <IngestionContainer>
+                <TeamInvitedPanel />
             </IngestionContainer>
         )
     }
