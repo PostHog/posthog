@@ -153,7 +153,7 @@ export const billingLogic = kea<billingLogicType>([
         },
     })),
 
-    listeners(() => ({
+    listeners(({ actions }) => ({
         reportBillingV2Shown: () => {
             posthog.capture('billing v2 shown')
         },
