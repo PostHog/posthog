@@ -5,7 +5,7 @@ import { insight, savedInsights, dashboards, dashboard, duplicateDashboardFromMe
 describe('Dashboard', () => {
     beforeEach(() => {
         cy.intercept('GET', /api\/projects\/\d+\/insights\/\?.*/).as('loadInsightList')
-        cy.intercept(/api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
+        cy.intercept('PATCH', /api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
         cy.intercept('GET', /\/api\/projects\/\d+\/insights\/?\?short/).as('getInsight')
         cy.intercept('POST', /\/api\/projects\/\d+\/dashboards/).as('createDashboard')
 
