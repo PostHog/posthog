@@ -107,8 +107,8 @@ export const heatmapLogic = kea<heatmapLogicType>({
                 const allElements = collectAllElementsDeep('*', document)
                 const elements: CountedHTMLElement[] = []
                 events.forEach((event) => {
-                    let combinedSelector
-                    let lastSelector
+                    let combinedSelector: string
+                    let lastSelector: string | undefined
                     for (let i = 0; i < event.elements.length; i++) {
                         const selector = elementToSelector(event.elements[i], dataAttributes) || '*'
                         combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
@@ -147,7 +147,12 @@ export const heatmapLogic = kea<heatmapLogicType>({
 
                             if (domElements.length === 0) {
                                 if (i === event.elements.length - 1) {
-                                    console.error('Found a case with 0 elements')
+                                    console.error(
+                                        'For event: ',
+                                        event,
+                                        '. Found a case with 0 elements using: ',
+                                        combinedSelector
+                                    )
                                     return null
                                 } else if (i > 0 && lastSelector) {
                                     // We already have something, but found nothing when adding the next selector.

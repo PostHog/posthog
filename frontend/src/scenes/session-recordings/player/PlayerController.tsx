@@ -3,7 +3,7 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { SessionPlayerState, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
+import { SessionPlayerState, SessionRecordingPlayerProps, SessionRecordingPlayerTab } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
@@ -44,19 +44,19 @@ export function PlayerController({ sessionRecordingId, playerKey, isDetail }: Pl
                             <LemonButton
                                 size="small"
                                 icon={<UnverifiedEvent />}
-                                status={tab === SessionRecordingTab.EVENTS ? 'primary' : 'primary-alt'}
-                                active={tab === SessionRecordingTab.EVENTS}
-                                onClick={() => setTab(SessionRecordingTab.EVENTS)}
+                                status={tab === SessionRecordingPlayerTab.EVENTS ? 'primary' : 'primary-alt'}
+                                active={tab === SessionRecordingPlayerTab.EVENTS}
+                                onClick={() => setTab(SessionRecordingPlayerTab.EVENTS)}
                             >
                                 {isSmallScreen || isSmallPlayer ? '' : 'Events'}
                             </LemonButton>
                             <LemonButton
                                 size="small"
                                 icon={<IconTerminal />}
-                                status={tab === SessionRecordingTab.CONSOLE ? 'primary' : 'primary-alt'}
-                                active={tab === SessionRecordingTab.CONSOLE}
+                                status={tab === SessionRecordingPlayerTab.CONSOLE ? 'primary' : 'primary-alt'}
+                                active={tab === SessionRecordingPlayerTab.CONSOLE}
                                 onClick={() => {
-                                    setTab(SessionRecordingTab.CONSOLE)
+                                    setTab(SessionRecordingPlayerTab.CONSOLE)
                                 }}
                             >
                                 {isSmallScreen || isSmallPlayer ? '' : 'Console'}

@@ -13,6 +13,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
@@ -78,6 +79,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
+    delete_insights = serializers.BooleanField(write_only=True, required=False, default=False)
     effective_privilege_level = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
 
@@ -96,6 +98,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             "creation_mode",
             "use_template",
             "use_dashboard",
+            "delete_insights",
             "filters",
             "tags",
             "tiles",
@@ -129,6 +132,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         team = Team.objects.get(id=self.context["team_id"])
         use_template: str = validated_data.pop("use_template", None)
         use_dashboard: int = validated_data.pop("use_dashboard", None)
+        validated_data.pop("delete_insights", None)  # not used during creation
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
         dashboard = Dashboard.objects.create(team=team, **validated_data)
@@ -216,50 +220,80 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         validated_data.pop("use_template", None)  # Remove attribute if present
 
+        being_undeleted = instance.deleted and "deleted" in validated_data and not validated_data["deleted"]
+        if being_undeleted:
+            self._undo_delete_related_tiles(instance)
+
         initial_data = dict(self.initial_data)
 
         instance = super().update(instance, validated_data)
 
         if validated_data.get("deleted", False):
-            DashboardTile.objects.filter(dashboard__id=instance.id).delete()
+            self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
 
-        tile = initial_data.pop("tiles", [])
-        for tile_data in tile:
-            if tile_data.get("text", None):
-                text_json = tile_data.get("text")
-                created_by_json = text_json.get("created_by", None)
-                if created_by_json:
-                    last_modified_by = user
-                    created_by = User.objects.get(id=created_by_json.get("id"))
-                else:
-                    created_by = user
-                    last_modified_by = None
-                text, _ = Text.objects.update_or_create(
-                    id=text_json.get("id", None),
-                    defaults={
-                        **tile_data["text"],
-                        "team": instance.team,
-                        "created_by": created_by,
-                        "last_modified_by": last_modified_by,
-                        "last_modified_at": now(),
-                    },
-                )
-                DashboardTile.objects.update_or_create(
-                    id=tile_data.get("id", None), defaults={**tile_data, "text": text, "dashboard": instance}
-                )
-            elif "deleted" in tile_data or "color" in tile_data or "layouts" in tile_data:
-                tile_data.pop("insight", None)  # don't ever update insight tiles here
-
-                DashboardTile.objects.update_or_create(
-                    id=tile_data.get("id", None), defaults={**tile_data, "dashboard": instance}
-                )
+        tiles = initial_data.pop("tiles", [])
+        for tile_data in tiles:
+            self._update_tiles(instance, tile_data, user)
 
         if "request" in self.context:
             report_user_action(user, "dashboard updated", instance.get_analytics_metadata())
 
         return instance
 
-    def get_tiles(self, dashboard: Dashboard):
+    @staticmethod
+    def _update_tiles(instance: Dashboard, tile_data: Dict, user: User) -> None:
+        if tile_data.get("text", None):
+            text_json: Dict = tile_data.get("text", {})
+            created_by_json = text_json.get("created_by", None)
+            if created_by_json:
+                last_modified_by = user
+                created_by = User.objects.get(id=created_by_json.get("id"))
+            else:
+                created_by = user
+                last_modified_by = None
+            text, _ = Text.objects.update_or_create(
+                id=text_json.get("id", None),
+                defaults={
+                    **tile_data["text"],
+                    "team": instance.team,
+                    "created_by": created_by,
+                    "last_modified_by": last_modified_by,
+                    "last_modified_at": now(),
+                },
+            )
+            DashboardTile.objects.update_or_create(
+                id=tile_data.get("id", None), defaults={**tile_data, "text": text, "dashboard": instance}
+            )
+        elif "deleted" in tile_data or "color" in tile_data or "layouts" in tile_data:
+            tile_data.pop("insight", None)  # don't ever update insight tiles here
+
+            DashboardTile.objects.update_or_create(
+                id=tile_data.get("id", None), defaults={**tile_data, "dashboard": instance}
+            )
+
+    @staticmethod
+    def _delete_related_tiles(instance: Dashboard, delete_related_insights: bool) -> None:
+        if delete_related_insights:
+            insights_to_update = []
+            for insight in Insight.objects.filter(dashboard_tiles__dashboard=instance.id):
+                if insight.dashboard_tiles.exclude(deleted=True).count() == 1:
+                    insight.deleted = True
+                    insights_to_update.append(insight)
+
+            Insight.objects.bulk_update(insights_to_update, ["deleted"])
+        DashboardTile.objects.filter(dashboard__id=instance.id).update(deleted=True)
+
+    @staticmethod
+    def _undo_delete_related_tiles(instance: Dashboard) -> None:
+        DashboardTile.objects.filter(dashboard__id=instance.id).update(deleted=False)
+        insights_to_undelete = []
+        for tile in DashboardTile.objects.filter(dashboard__id=instance.id):
+            if tile.insight and tile.insight.deleted:
+                tile.insight.deleted = False
+                insights_to_undelete.append(tile.insight)
+        Insight.objects.bulk_update(insights_to_undelete, ["deleted"])
+
+    def get_tiles(self, dashboard: Dashboard) -> Optional[List[ReturnDict]]:
         if self.context["view"].action == "list":
             return None
 
@@ -352,7 +386,16 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
 
         if self.action != "list":
             tiles_prefetch_queryset = DashboardTile.dashboard_queryset(
-                DashboardTile.objects.prefetch_related("insight__dashboards__team__organization")
+                DashboardTile.objects.prefetch_related(
+                    Prefetch(
+                        "insight__dashboards",
+                        queryset=Dashboard.objects.exclude(deleted=True)
+                        .filter(
+                            id__in=DashboardTile.objects.exclude(deleted=True).values_list("dashboard_id", flat=True)
+                        )
+                        .select_related("team__organization"),
+                    ),
+                )
             )
             try:
                 dashboard_id = self.kwargs["pk"]
@@ -366,7 +409,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
                 Prefetch(
                     "tiles",
                     queryset=tiles_prefetch_queryset,
-                )
+                ),
             )
 
         return queryset

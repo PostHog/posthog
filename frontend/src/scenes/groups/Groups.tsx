@@ -12,7 +12,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
-import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { AlertMessage } from 'lib/components/AlertMessage'
 
 export const scene: SceneExport = {

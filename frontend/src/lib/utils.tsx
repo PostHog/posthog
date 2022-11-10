@@ -421,6 +421,17 @@ export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
 }
 
+// https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object
+export function objectClean(obj: Record<string, any>): Record<string, any> {
+    const response = { ...obj }
+    Object.keys(response).forEach((key) => {
+        if (response[key] === undefined) {
+            delete response[key]
+        }
+    })
+    return response
+}
+
 /** Returns "response" from: obj2 = { ...obj1, ...response }  */
 export function objectDiffShallow(obj1: Record<string, any>, obj2: Record<string, any>): Record<string, any> {
     const response: Record<string, any> = { ...obj2 }
