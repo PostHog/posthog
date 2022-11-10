@@ -70,6 +70,7 @@ export enum Region {
 }
 
 export type SSOProviders = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+
 export interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
@@ -111,6 +112,7 @@ export interface UserType extends UserBaseType {
     realm?: Realm
     posthog_version?: string
 }
+
 export interface NotificationSettings {
     plugin_disabled: boolean
 }
@@ -142,6 +144,7 @@ interface OrganizationMetadata {
     taxonomy_set_events_count: number
     taxonomy_set_properties_count: number
 }
+
 export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
@@ -604,6 +607,7 @@ export interface MatchedRecordingEvents {
     window_id: string
     timestamp: string
 }
+
 export interface MatchedRecording {
     session_id?: string
     events: MatchedRecordingEvents[]
@@ -901,6 +905,7 @@ export interface PlanInterface {
 
 // Creating a nominal type: https://github.com/microsoft/TypeScript/issues/202#issuecomment-961853101
 export type InsightShortId = string & { readonly '': unique symbol }
+
 export enum InsightColor {
     White = 'white',
     Black = 'black',
@@ -1003,6 +1008,7 @@ export interface DashboardCollaboratorType {
 
 /** Explicit (dashboard privilege) OR implicit (project admin) dashboard collaborator. */
 export type FusedDashboardCollaboratorType = Pick<DashboardCollaboratorType, 'user' | 'level'>
+
 export interface OrganizationInviteType {
     id: string
     target_email: string
@@ -1067,6 +1073,7 @@ export interface JobPayloadFieldOptions {
 export interface JobSpec {
     payload?: Record<string, JobPayloadFieldOptions>
 }
+
 export interface PluginConfigType {
     id?: number
     plugin: number
@@ -1355,6 +1362,7 @@ export interface SystemStatusAnalyzeResult {
     }
     flamegraphs: Record<string, string>
 }
+
 export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
@@ -1602,7 +1610,8 @@ export interface PrevalidatedInvite {
 }
 
 interface InstancePreferencesInterface {
-    debug_queries: boolean /** Whether debug queries option should be shown on the command palette. */
+    debug_queries: boolean
+    /** Whether debug queries option should be shown on the command palette. */
     disable_paid_fs: boolean /** Whether paid features showcasing / upsells are completely disabled throughout the app. */
 }
 
@@ -1801,6 +1810,7 @@ export interface Experiment {
     created_at: string
     created_by: UserBasicType | null
 }
+
 export interface ExperimentResults {
     insight: FunnelStep[][] | TrendResult[]
     probability: Record<string, number>
@@ -2015,6 +2025,7 @@ export type GraphDataset = ChartDataset<ChartType> &
     }
 
 export type GraphPoint = InteractionItem & { dataset: GraphDataset }
+
 interface PointsPayload {
     pointsIntersectingLine: GraphPoint[]
     pointsIntersectingClick: GraphPoint[]
@@ -2218,7 +2229,6 @@ export interface SessionRecordingPlayerProps {
     includeMeta?: boolean
     recordingStartTime?: string
     matching?: MatchedRecording[]
-    isDetail?: boolean
     noBorder?: boolean
 }
 
