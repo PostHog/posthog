@@ -611,7 +611,6 @@ export function reverseColonDelimitedDuration(duration?: string | null): number 
         .map((unit) => Number(unit))
         .reverse()
 
-    console.log(duration, units)
     ;[1, 60, 3600, 86400, 604800].forEach((unit, index) => {
         if (units[index]) {
             seconds += units[index] * unit
