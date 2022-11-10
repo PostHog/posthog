@@ -6,6 +6,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { Field, Form } from 'kea-forms'
 import { LemonTextMarkdown } from 'lib/components/LemonTextArea/LemonTextArea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { userLogic } from 'scenes/userLogic'
 
 export function TextCardModal({
     isOpen,
@@ -21,6 +22,8 @@ export function TextCardModal({
     const modalLogic = textCardModalLogic({ dashboard, textTileId: textTileId ?? 'new', onClose })
     const { isTextTileSubmitting } = useValues(modalLogic)
     const { submitTextTile, resetTextTile } = useActions(modalLogic)
+
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const handleClose = (): void => {
         resetTextTile()
@@ -38,17 +41,19 @@ export function TextCardModal({
                     <LemonButton disabled={isTextTileSubmitting} type="secondary" onClick={handleClose}>
                         Cancel
                     </LemonButton>
-                    <LemonButton
-                        disabled={isTextTileSubmitting}
-                        loading={isTextTileSubmitting}
-                        form="text-tile-form"
-                        htmlType="submit"
-                        type="primary"
-                        onClick={submitTextTile}
-                        data-attr={textTileId === 'new' ? 'save-new-text-tile' : 'edit-text-tile-text'}
-                    >
-                        Save
-                    </LemonButton>
+                    {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
+                        <LemonButton
+                            disabled={isTextTileSubmitting}
+                            loading={isTextTileSubmitting}
+                            form="text-tile-form"
+                            htmlType="submit"
+                            type="primary"
+                            onClick={submitTextTile}
+                            data-attr={textTileId === 'new' ? 'save-new-text-tile' : 'edit-text-tile-text'}
+                        >
+                            Save
+                        </LemonButton>
+                    )}
                 </>
             }
         >
