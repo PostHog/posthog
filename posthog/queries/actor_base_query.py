@@ -36,15 +36,15 @@ class MatchedRecording(TypedDict):
     events: List[EventInfoForRecording]
 
 
-class CommonAttributes(TypedDict):
+class CommonActor(TypedDict):
     id: Union[uuid.UUID, str]
     created_at: Optional[str]
     properties: Dict[str, Any]
     matched_recordings: List[MatchedRecording]
-    value: Optional[float]
+    value_at_data_point: Optional[float]
 
 
-class SerializedPerson(CommonAttributes):
+class SerializedPerson(CommonActor):
     type: Literal["person"]
     uuid: Union[uuid.UUID, str]
     is_identified: Optional[bool]
@@ -52,7 +52,7 @@ class SerializedPerson(CommonAttributes):
     distinct_ids: List[str]
 
 
-class SerializedGroup(CommonAttributes):
+class SerializedGroup(CommonActor):
     type: Literal["group"]
     group_key: str
     group_type_index: int
@@ -178,7 +178,7 @@ class ActorBaseQuery:
         if self.ACTOR_VALUES_INCLUDED:
             # We fetched actors from Postgres in get_groups/get_people, so `ORDER BY actor_value DESC` no longer holds
             # We need .sort() to restore this order
-            serialized_actors.sort(key=lambda actor: cast(float, actor["value"]), reverse=True)
+            serialized_actors.sort(key=lambda actor: cast(float, actor["value_at_data_point"]), reverse=True)
 
         return actors, serialized_actors
 
@@ -220,7 +220,7 @@ def serialize_people(data: QuerySet[Person], value_per_actor_id: Optional[Dict[s
             name=get_person_name(person),
             distinct_ids=person.distinct_ids,
             matched_recordings=[],
-            value=value_per_actor_id[str(person.uuid)] if value_per_actor_id else None,
+            value_at_data_point=value_per_actor_id[str(person.uuid)] if value_per_actor_id else None,
         )
         for person in data
     ]
@@ -236,7 +236,7 @@ def serialize_groups(data: QuerySet[Group], value_per_actor_id: Optional[Dict[st
             created_at=group.created_at,
             matched_recordings=[],
             properties=group.group_properties,
-            value=value_per_actor_id[group.group_key] if value_per_actor_id else None,
+            value_at_data_point=value_per_actor_id[group.group_key] if value_per_actor_id else None,
         )
         for group in data
     ]

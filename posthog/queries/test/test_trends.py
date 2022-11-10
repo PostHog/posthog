@@ -3303,7 +3303,7 @@ def trend_test_factory(trends):
                         "properties": {},
                         "type": "person",
                         "uuid": str(person2.uuid),
-                        "value": 2,  # 2 events with fake_prop="value_1" in the time range
+                        "value_at_data_point": 2,  # 2 events with fake_prop="value_1" in the time range
                     },
                     {
                         "created_at": "2020-01-01T12:00:00Z",
@@ -3315,7 +3315,7 @@ def trend_test_factory(trends):
                         "properties": {},
                         "type": "person",
                         "uuid": str(person1.uuid),
-                        "value": 1,  # 1 event with fake_prop="value_1" in the time range
+                        "value_at_data_point": 1,  # 1 event with fake_prop="value_1" in the time range
                     },
                     {
                         "created_at": "2020-01-01T12:00:00Z",
@@ -3327,7 +3327,7 @@ def trend_test_factory(trends):
                         "properties": {},
                         "type": "person",
                         "uuid": str(person3.uuid),
-                        "value": 1,  # 1 event with fake_prop="value_1" in the time range
+                        "value_at_data_point": 1,  # 1 event with fake_prop="value_1" in the time range
                     },
                 ]
 
@@ -3344,7 +3344,7 @@ def trend_test_factory(trends):
                         "properties": {},
                         "type": "person",
                         "uuid": str(person2.uuid),
-                        "value": 1,  # 1 event with fake_prop="value_2" in the time range
+                        "value_at_data_point": 1,  # 1 event with fake_prop="value_2" in the time range
                     }
                 ]
 
