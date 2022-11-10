@@ -148,6 +148,7 @@ export interface OrganizationType extends OrganizationBasicType {
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
     is_member_join_email_enabled: boolean
+    customer_id: string | null
     metadata?: OrganizationMetadata
 }
 

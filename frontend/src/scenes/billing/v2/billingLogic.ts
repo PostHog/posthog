@@ -12,6 +12,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { projectUsage } from './billing-utils'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 
@@ -45,6 +46,7 @@ export const billingLogic = kea<billingLogicType>([
     }),
     connect({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
+        actions: [userLogic, ['loadUser']],
     }),
     reducers({
         showLicenseDirectInput: [
@@ -137,7 +139,7 @@ export const billingLogic = kea<billingLogicType>([
                     })
 
                     // Reset the URL so we don't trigger the license submission again
-                    router.actions.replace('/organization/billing')
+                    router.actions.replace('/organization/billing?success=true')
                     setTimeout(() => {
                         window.location.reload() // Permissions, projects etc will be out of date at this point, so refresh
                     }, 100)
@@ -160,9 +162,6 @@ export const billingLogic = kea<billingLogicType>([
                 ...alertConfig,
             })
         },
-        loadBillingSuccess: ({ billing }) => {
-            posthog.group('customer', billing.customer_id)
-        },
     })),
 
     afterMount(({ actions }) => {
@@ -171,10 +170,15 @@ export const billingLogic = kea<billingLogicType>([
 
     urlToAction(({ actions }) => ({
         '/organization/billing': (_params, _search, hash) => {
+            console.log('TEST', _search)
             if (hash.license) {
                 actions.setShowLicenseDirectInput(true)
                 actions.setActivateLicenseValues({ license: hash.license })
                 actions.submitActivateLicense()
+            } else if (_search.success) {
+                // if the activation is successful, we reload the user to get the updated billing info on the organization
+                actions.loadUser()
+                router.actions.replace('/organization/billing')
             }
         },
     })),
