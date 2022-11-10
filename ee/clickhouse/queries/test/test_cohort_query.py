@@ -323,7 +323,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
         res = sync_execute(q, params)
 
-        self.assertEqual(set([p2.uuid]), {r[0] for r in res})
+        self.assertEqual({p2.uuid}, {r[0] for r in res})
 
     def test_can_handle_many_performed_multiple_filters(self):
         p1 = _create_person(
@@ -400,7 +400,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
         res = sync_execute(q, params)
 
-        self.assertEqual(set([p1.uuid, p2.uuid, p3.uuid]), {r[0] for r in res})
+        self.assertEqual({p1.uuid, p2.uuid, p3.uuid}, {r[0] for r in res})
 
     def test_performed_event_zero_times_(self):
         filter = Filter(
@@ -764,7 +764,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
         res = sync_execute(q, params)
-        self.assertEqual(set([p1.uuid, p2.uuid]), {r[0] for r in res})
+        self.assertEqual({p1.uuid, p2.uuid}, {r[0] for r in res})
 
     @snapshot_clickhouse_queries
     def test_person_props_only(self):
@@ -2218,7 +2218,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
         res = sync_execute(q, params)
 
-        self.assertEqual(set([p1.uuid, p2.uuid]), {r[0] for r in res})
+        self.assertEqual({p1.uuid, p2.uuid}, {r[0] for r in res})
 
     @snapshot_clickhouse_queries
     def test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts(self):

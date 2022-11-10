@@ -609,13 +609,15 @@ export interface MatchedRecording {
 }
 
 interface CommonActorType {
-    id?: string | number
+    id: string | number
     properties: Record<string, any>
-    created_at?: string
-    matched_recordings?: MatchedRecording[]
+    created_at: string
+    matched_recordings: MatchedRecording[]
+    value_at_data_point: number | null
 }
 
 export interface PersonActorType extends CommonActorType {
+    id: number // person serial ID
     type: 'person'
     uuid?: string
     name?: string
@@ -624,6 +626,7 @@ export interface PersonActorType extends CommonActorType {
 }
 
 export interface GroupActorType extends CommonActorType {
+    id: string // group key
     type: 'group'
     group_key: string
     group_type_index: number
@@ -1541,6 +1544,7 @@ export interface SetInsightOptions {
 export interface FeatureFlagGroupType {
     properties: AnyPropertyFilter[]
     rollout_percentage: number | null
+    variant?: string
 }
 
 export interface MultivariateFlagVariant {

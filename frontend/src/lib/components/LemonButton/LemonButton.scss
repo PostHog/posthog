@@ -24,15 +24,20 @@
         cursor: not-allowed;
     }
 
+    .LemonButton__content {
+        flex: 1;
+        line-height: initial;
+    }
+
     &.LemonButton--full-width {
         width: 100%;
         padding-left: 0.5rem;
         padding-right: 0.5rem;
-    }
+        overflow: hidden;
 
-    .LemonButton__content {
-        flex: 1;
-        line-height: initial;
+        .LemonButton__content {
+            overflow: hidden;
+        }
     }
 
     &.LemonButton--centered {

@@ -69,7 +69,7 @@ describe('emitToBufferStep()', () => {
             topic: KAFKA_BUFFER,
             messages: [
                 {
-                    key: '2',
+                    key: 'my_id',
                     value: JSON.stringify(pluginEvent),
                     headers: {
                         eventId: pluginEvent.uuid,

@@ -56,5 +56,5 @@ export async function delayUntilEventIngested<T extends any[] | number>(
         }
         await delay(delayMs)
     }
-    return data
+    throw Error(`Failed to get data in time, got ${JSON.stringify(data)}`)
 }
