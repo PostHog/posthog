@@ -16,7 +16,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>({
             sessionRecordingDataLogic({ sessionRecordingId }),
             ['sessionPlayerData', 'sessionEventsData'],
             sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
-            ['currentPlayerPosition', 'scale', 'isSmallPlayer', 'currentPlayerTime'],
+            ['currentPlayerPosition', 'scale', 'currentPlayerTime'],
         ],
         actions: [sessionRecordingDataLogic({ sessionRecordingId }), ['loadRecordingMetaSuccess']],
     }),

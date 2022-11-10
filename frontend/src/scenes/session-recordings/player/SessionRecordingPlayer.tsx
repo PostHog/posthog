@@ -5,7 +5,7 @@ import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
 import { PlayerController } from 'scenes/session-recordings/player/PlayerController'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { PlayerInspector } from 'scenes/session-recordings/player/PlayerInspector'
+import { PlayerInspector, PlayerInspectorPicker } from 'scenes/session-recordings/player/PlayerInspector'
 import { PlayerFilter } from 'scenes/session-recordings/player/list/PlayerFilter'
 import { SessionRecordingPlayerProps } from '~/types'
 import { PlayerMeta } from './PlayerMeta'
@@ -83,7 +83,7 @@ export function SessionRecordingPlayer({
             ref={ref}
             className={clsx('SessionRecordingPlayer', {
                 'SessionRecordingPlayer--fullscreen': isFullScreen,
-                'SessionRecordingPlayer--widescreen': size !== 'small',
+                'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
             })}
             onKeyDown={handleKeyDown}
         >
@@ -99,6 +99,11 @@ export function SessionRecordingPlayer({
             </div>
             {!isFullScreen && (
                 <div className="SessionRecordingPlayer__inspector">
+                    {size !== 'small' && (
+                        <div className="border-b p-2">
+                            <PlayerInspectorPicker sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+                        </div>
+                    )}
                     <PlayerFilter sessionRecordingId={sessionRecordingId} playerKey={playerKey} matching={matching} />
                     <LemonDivider className="my-0" />
                     <PlayerInspector sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
