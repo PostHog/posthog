@@ -2212,6 +2212,7 @@ export interface SessionRecordingPlayerProps {
     recordingStartTime?: string
     matching?: MatchedRecording[]
     isDetail?: boolean
+    noBorder?: boolean
 }
 
 export enum FeatureFlagReleaseType {

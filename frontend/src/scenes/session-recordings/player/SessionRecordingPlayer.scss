@@ -5,9 +5,13 @@
     flex-direction: column;
     height: 100%;
     width: 100%;
-
     border: 1px solid var(--border);
     border-radius: var(--radius);
+
+    &--no-border {
+        border: none;
+        border-radius: 0px;
+    }
 
     .SessionRecordingPlayer__body {
         position: relative;
@@ -57,6 +61,7 @@
 
     .SessionRecordingPlayer__inspector {
         border-top: 1px solid var(--border);
+        min-height: 30rem;
     }
 
     &--widescreen {
@@ -83,7 +88,6 @@
 
 .SessionPlayerModal {
     width: 100%;
-    height: calc(100vh - 2rem);
     padding: 0;
 }
 

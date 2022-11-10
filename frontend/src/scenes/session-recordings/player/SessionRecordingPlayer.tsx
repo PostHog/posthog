@@ -40,6 +40,7 @@ export function SessionRecordingPlayer({
     recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
     matching,
     isDetail = false, // True if player is shown in separate detail page
+    noBorder = false,
 }: SessionRecordingPlayerProps): JSX.Element {
     const { handleKeyDown, setIsFullScreen, setPause } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey, recordingStartTime, matching })
@@ -83,6 +84,7 @@ export function SessionRecordingPlayer({
             ref={ref}
             className={clsx('SessionRecordingPlayer', {
                 'SessionRecordingPlayer--fullscreen': isFullScreen,
+                'SessionRecordingPlayer--no-border': noBorder,
                 'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
             })}
             onKeyDown={handleKeyDown}
