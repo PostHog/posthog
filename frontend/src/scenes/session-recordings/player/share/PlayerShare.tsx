@@ -12,7 +12,7 @@ export function ShareRecording(props: PlayerShareLogicProps): JSX.Element {
     const logic = playerShareLogic(props)
 
     const { shareUrl, url } = useValues(logic)
-    const { setShareUrlValue } = useActions(logic)
+    const { setShareUrlValue, submitShareUrl } = useActions(logic)
 
     return (
         <div className="space-y-2">
@@ -37,11 +37,12 @@ export function ShareRecording(props: PlayerShareLogicProps): JSX.Element {
                     <Field name="includeTime">
                         <LemonCheckbox label="Start at" />
                     </Field>
-                    <Field name="time">
+                    <Field name="time" inline>
                         <LemonInput
                             className={clsx('w-20', { 'opacity-50': !shareUrl.includeTime })}
-                            placeholder="0:00"
+                            placeholder="00:00"
                             onFocus={() => setShareUrlValue('includeTime', true)}
+                            onBlur={() => submitShareUrl()}
                             fullWidth={false}
                         />
                     </Field>

@@ -33,7 +33,7 @@ export const playerShareLogic = kea<playerShareLogicType>([
             errors: ({ time, includeTime }) => ({
                 time:
                     time && includeTime && reverseColonDelimitedDuration(time || undefined) === null
-                        ? 'Set a valid time like 2:30 (minutes:seconds)'
+                        ? 'Set a valid time like 02:30 (minutes:seconds)'
                         : undefined,
             }),
         },
