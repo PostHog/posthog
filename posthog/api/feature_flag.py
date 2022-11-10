@@ -52,6 +52,8 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "rollout_percentage",
             "ensure_experience_continuity",
             "experiment_set",
+            "rollback_conditions",
+            "performed_rollback",
         ]
 
     # Simple flags are ones that only have rollout_percentage
@@ -168,6 +170,10 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     def _update_filters(self, validated_data):
         if "get_filters" in validated_data:
             validated_data["filters"] = validated_data.pop("get_filters")
+
+        active = validated_data.get("active", None)
+        if active:
+            validated_data["performed_rollback"] = False
 
 
 class MinimalFeatureFlagSerializer(serializers.HyperlinkedModelSerializer):

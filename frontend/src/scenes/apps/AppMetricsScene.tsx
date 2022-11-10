@@ -82,7 +82,7 @@ export function AppMetrics(): JSX.Element {
                             <HistoricalExportsTab />
                         </Tabs.TabPane>
                     )}
-                    <Tabs.TabPane tab="Activity history" key={AppMetricsTab.Activity}>
+                    <Tabs.TabPane tab="History" key={AppMetricsTab.History}>
                         <ActivityLog scope={ActivityScope.PLUGIN} id={pluginConfig?.id} />
                     </Tabs.TabPane>
                 </Tabs>

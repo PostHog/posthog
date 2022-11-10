@@ -17,7 +17,6 @@ import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
 
-import { GraphileWorker } from './main/graphile-worker/graphile-worker'
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
@@ -200,13 +199,11 @@ export interface Hub extends PluginsServerConfig {
     personManager: PersonManager
     siteUrlManager: SiteUrlManager
     appMetrics: AppMetrics
-    graphileWorker: GraphileWorker
     // diagnostics
     lastActivity: number
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
-    conversionBufferTopicEnabledTeams: Set<number>
 }
 
 export interface PluginServerCapabilities {
@@ -217,19 +214,13 @@ export interface PluginServerCapabilities {
     http?: boolean
 }
 
-export type EnqueuedJob = EnqueuedPluginJob | EnqueuedBufferJob | GraphileWorkerCronScheduleJob
+export type EnqueuedJob = EnqueuedPluginJob | GraphileWorkerCronScheduleJob
 export interface EnqueuedPluginJob {
     type: string
     payload: Record<string, any>
     timestamp: number
     pluginConfigId: number
     pluginConfigTeam: number
-    jobKey?: string
-}
-
-export interface EnqueuedBufferJob {
-    eventPayload: PluginEvent
-    timestamp: number
     jobKey?: string
 }
 
@@ -525,6 +516,7 @@ interface BaseEvent {
 
 export type ISOTimestamp = Brand<string, 'ISOTimestamp'>
 export type ClickHouseTimestamp = Brand<string, 'ClickHouseTimestamp'>
+export type ClickHouseTimestampSecondPrecision = Brand<string, 'ClickHouseTimestamp'>
 
 /** Raw event row from ClickHouse. */
 export interface RawClickHouseEvent extends BaseEvent {

@@ -1,7 +1,7 @@
 import './PlayerList.scss'
 import { ReactElement, useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
+import { SessionRecordingPlayerProps, SessionRecordingPlayerTab } from '~/types'
 import {
     DEFAULT_EXPANDED_ROW_HEIGHT,
     DEFAULT_ROW_HEIGHT,
@@ -42,7 +42,7 @@ export interface PlayerListExpandableConfig<T extends Record<string, any>> exten
 }
 
 export interface PlayerListProps<T> extends SessionRecordingPlayerProps {
-    tab: SessionRecordingTab
+    tab: SessionRecordingPlayerTab
     expandable?: PlayerListExpandableConfig<T>
     row?: RowConfig<T>
 }
@@ -108,7 +108,7 @@ export function PlayerList<T extends Record<string, any>>({
                                     width={width}
                                     onRowsRendered={setRenderedRows}
                                     noRowsRenderer={() =>
-                                        tab === SessionRecordingTab.CONSOLE &&
+                                        tab === SessionRecordingPlayerTab.CONSOLE &&
                                         !currentTeam?.capture_console_log_opt_in ? (
                                             <div className="flex flex-col items-center h-full w-full pt-16 px-4 bg-white">
                                                 <h4 className="text-xl font-medium">Introducing Console Logs</h4>
@@ -136,7 +136,9 @@ export function PlayerList<T extends Record<string, any>>({
                                                 <Empty
                                                     image={Empty.PRESENTED_IMAGE_SIMPLE}
                                                     description={`No ${
-                                                        tab === SessionRecordingTab.EVENTS ? 'events' : 'console logs'
+                                                        tab === SessionRecordingPlayerTab.EVENTS
+                                                            ? 'events'
+                                                            : 'console logs'
                                                     } captured in this recording.`}
                                                 />
                                             </div>

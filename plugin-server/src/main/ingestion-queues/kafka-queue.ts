@@ -16,8 +16,8 @@ type ConsumerManagementPayload = {
     partitions?: number[] | undefined
 }
 
-type EachBatchFunction = (payload: EachBatchPayload, queue: KafkaQueue) => Promise<void>
-export class KafkaQueue {
+type EachBatchFunction = (payload: EachBatchPayload, queue: IngestionConsumer) => Promise<void>
+export class IngestionConsumer {
     public pluginsServer: Hub
     public workerMethods: WorkerMethods
     public consumerReady: boolean
@@ -32,7 +32,7 @@ export class KafkaQueue {
     constructor(pluginsServer: Hub, workerMethods: WorkerMethods) {
         this.pluginsServer = pluginsServer
         this.kafka = pluginsServer.kafka!
-        this.consumer = KafkaQueue.buildConsumer(this.kafka, this.consumerGroupId())
+        this.consumer = IngestionConsumer.buildConsumer(this.kafka, this.consumerGroupId())
         this.wasConsumerRan = false
         this.workerMethods = workerMethods
         this.consumerGroupMemberId = null
@@ -51,10 +51,14 @@ export class KafkaQueue {
 
         if (this.pluginsServer.capabilities.ingestion) {
             topics.push(this.ingestionTopic)
-        } else if (this.pluginsServer.capabilities.processAsyncHandlers) {
+        }
+
+        if (this.pluginsServer.capabilities.processAsyncHandlers) {
             topics.push(this.eventsTopic)
-        } else {
-            throw Error('No topics to consume, KafkaQueue should not be started')
+        }
+
+        if (topics.length === 0) {
+            throw Error('No topics to consume, IngestionConsumer should not be started')
         }
 
         return { topics }
@@ -66,7 +70,7 @@ export class KafkaQueue {
         } else if (this.pluginsServer.capabilities.processAsyncHandlers) {
             return `${KAFKA_PREFIX}clickhouse-plugin-server-async`
         } else {
-            throw Error('No topics to consume, KafkaQueue should not be started')
+            throw Error('No topics to consume, IngestionConsumer should not be started')
         }
     }
 

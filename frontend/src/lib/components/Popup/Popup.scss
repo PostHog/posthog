@@ -2,6 +2,8 @@
     perspective: 80rem;
     perspective-origin: top;
     z-index: var(--z-popup);
+    display: flex;
+    flex-direction: column;
     h5 {
         margin: 0.25rem 0.5rem;
     }
@@ -27,8 +29,6 @@
     padding: 0.5rem;
     border-radius: var(--radius);
     border: 1px solid var(--border);
-    max-width: calc(100vw - 1rem);
-    max-height: calc(90vh - 1rem);
     overflow: auto;
 
     [data-floating-placement^='top'] & {

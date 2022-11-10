@@ -18,11 +18,11 @@ export function Navigation({ children }: { children: any }): JSX.Element {
                 <Layout.Content className={!sceneConfig?.plain ? 'main-app-content' : undefined}>
                     {!sceneConfig?.plain && (
                         <>
+                            <BillingAlertsV2 />
                             {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
                             <Breadcrumbs />
                         </>
                     )}
-                    <BillingAlertsV2 />
                     {children}
                 </Layout.Content>
             </SideBar>

@@ -18,7 +18,6 @@ ignore=
     B024, # ClickhouseFunnelBase is an abstract base class, but it has no abstract methods. Remember to use @abstractmethod, @abstractclassmethod and/or @abstractproperty decorators.
     C400, # Unnecessary generator - rewrite as a list comprehension
     C401, # Unnecessary generator - rewrite as a set comprehension.
-    C403, # Unnecessary list comprehension - rewrite as a set comprehension.
     C405, # Unnecessary list literal - rewrite as a set literal.
     C407, # Unnecessary list comprehension - 'any' can take a generator.
     C408, # Unnecessary dict call - rewrite as a literal.
