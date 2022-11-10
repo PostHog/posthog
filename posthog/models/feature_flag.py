@@ -325,12 +325,24 @@ class FeatureFlagMatcher:
 
         highest_priority_evaluation_reason = FeatureFlagMatchReason.NO_CONDITION_MATCH
         highest_priority_index = 0
-        for index, condition in enumerate(feature_flag.conditions):
+        # Stable sort conditions with variant overrides to the top. This ensures that if overrides are present, they are
+        # evaluated first, and the variant override is applied to the first matching condition.
+        # :TRICKY: We need to include the enumeration index before the sort so the flag evaluation reason gets the right condition index.
+        sorted_flag_conditions = sorted(
+            enumerate(feature_flag.conditions),
+            key=lambda condition_tuple: 0 if condition_tuple[1].get("variant") else 1,
+        )
+        for index, condition in sorted_flag_conditions:
             is_match, evaluation_reason = self.is_condition_match(feature_flag, condition, index)
             if is_match:
+                variant_override = condition.get("variant")
+                if variant_override in [variant["key"] for variant in feature_flag.variants]:
+                    variant = variant_override
+                else:
+                    variant = self.get_matching_variant(feature_flag)
                 return FeatureFlagMatch(
                     match=True,
-                    variant=self.get_matching_variant(feature_flag),
+                    variant=variant,
                     reason=evaluation_reason,
                     condition_index=index,
                 )
