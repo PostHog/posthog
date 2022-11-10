@@ -109,7 +109,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         entity = Entity(event)
         _, serialized_actors, _ = TrendsActors(self.team, entity, filter).get_actors()
 
-        self.assertEqual(serialized_actors[0]["matched_recordings"], [])
+        self.assertEqual(serialized_actors[0].get("matched_recordings"), [])
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
@@ -151,7 +151,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _, serialized_actors, _ = TrendsActors(self.team, entity, filter).get_actors()
 
         self.assertCountEqual(
-            serialized_actors[0]["matched_recordings"] or [],
+            serialized_actors[0].get("matched_recordings", []),
             [
                 {
                     "session_id": "s1",
