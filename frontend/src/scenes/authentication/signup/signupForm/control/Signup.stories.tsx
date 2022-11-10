@@ -1,7 +1,7 @@
 // Signup.stories.tsx
 import { Meta } from '@storybook/react'
 import { useEffect } from 'react'
-import { Signup } from './Signup'
+import { SignupForm } from './SignupForm'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { userLogic } from 'scenes/userLogic'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
@@ -31,7 +31,7 @@ export const SelfHosted = (): JSX.Element => {
     useEffect(() => {
         userLogic.actions.loadUserSuccess(null)
     }, [])
-    return <Signup />
+    return <SignupForm />
 }
 
 export const SelfHostedSSO = (): JSX.Element => {
@@ -48,7 +48,7 @@ export const SelfHostedSSO = (): JSX.Element => {
     useEffect(() => {
         userLogic.actions.loadUserSuccess(null)
     }, [])
-    return <Signup />
+    return <SignupForm />
 }
 
 export const Cloud = (): JSX.Element => {
@@ -65,5 +65,5 @@ export const Cloud = (): JSX.Element => {
     useEffect(() => {
         userLogic.actions.loadUserSuccess(null)
     }, [])
-    return <Signup />
+    return <SignupForm />
 }
