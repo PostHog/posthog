@@ -28,6 +28,8 @@ import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { LemonInput } from '@posthog/lemon-ui'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
+import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
+import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -36,13 +38,14 @@ export const scene: SceneExport = {
 
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { unpinDashboard, pinDashboard, duplicateDashboard } = useActions(dashboardsModel)
+    const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { setSearchTerm, setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, searchTerm, currentTab } = useValues(dashboardsLogic)
     const { showNewDashboardModal, addDashboard } = useActions(newDashboardLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { closePrompts } = useActions(inAppPromptLogic)
+    const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
@@ -160,7 +163,9 @@ export function Dashboards(): JSX.Element {
                                 </LemonButton>
                                 <LemonButton
                                     status="stealth"
-                                    onClick={() => duplicateDashboard({ id, name })}
+                                    onClick={() => {
+                                        showDuplicateDashboardModal(id, name)
+                                    }}
                                     fullWidth
                                 >
                                     Duplicate
@@ -193,6 +198,7 @@ export function Dashboards(): JSX.Element {
     return (
         <div>
             <NewDashboardModal />
+            <DuplicateDashboardModal />
             <DeleteDashboardModal />
             <PageHeader
                 title="Dashboards"
