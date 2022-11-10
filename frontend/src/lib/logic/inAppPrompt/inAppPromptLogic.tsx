@@ -399,7 +399,11 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
             const valid = []
             for (const sequence of values.sequences) {
                 // for now the only valid rule is related to the pathname, can be extended
-                const isMatchingPath = sequence.rule.path.must_match.some((value) => wcmatch(value)(pathname))
+                const { must_match } = sequence.rule.path
+                if (must_match.includes('/*')) {
+                    must_match.push('/**')
+                }
+                const isMatchingPath = must_match.some((value) => wcmatch(value)(pathname))
                 if (isMatchingPath) {
                     if (sequence.rule.path.exclude) {
                         const isMatchingExclusion = sequence.rule.path.exclude.some((value) => wcmatch(value)(pathname))
