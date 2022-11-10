@@ -543,7 +543,7 @@
                      AND (has(['person1'], person."pmat_name")) )
               GROUP BY id
               HAVING max(is_deleted) = 0
-              AND (has(['person1'], argMax(person."pmat_name", _timestamp)))) person ON person.id = pdi.person_id
+              AND (has(['person1'], argMax(person."pmat_name", version)))) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = 'watched movie'
              AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
@@ -621,7 +621,7 @@
                      AND (has(['person1'], person."pmat_name")) )
               GROUP BY id
               HAVING max(is_deleted) = 0
-              AND (has(['person1'], argMax(person."pmat_name", _timestamp)))) person ON person.id = pdi.person_id
+              AND (has(['person1'], argMax(person."pmat_name", version)))) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = 'watched movie'
              AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
