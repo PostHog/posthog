@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { openBillingPopupModal } from 'scenes/billing/v2/BillingPopup'
 
 export const humanFriendlyTabName = (tab: SessionRecordingsTabs): string => {
     switch (tab) {
@@ -43,9 +44,14 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
             null as SessionRecordingPlaylistType | null,
             {
                 saveNewPlaylist: async ({ playlist }) => {
-                    const response = await api.recordings.createPlaylist(playlist)
-
-                    return response
+                    try {
+                        return await api.recordings.createPlaylist(playlist)
+                    } catch (e: any) {
+                        if (e.status === 403) {
+                            openBillingPopupModal()
+                        }
+                        throw e
+                    }
                 },
             },
         ],

@@ -25,12 +25,14 @@ class AvailableFeature(str, Enum):
     WHITE_LABELLING = "white_labelling"
     SUBSCRIPTIONS = "subscriptions"
     APP_METRICS = "app_metrics"
+    RECORDINGS_PLAYLISTS_UNLIMITED = "recordings_playlists_unlimited"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 
 SESSION_RECORDINGS_FILTER_TYPE_DURATION = "session_recording_duration"
+SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
 
 TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
 TRENDS_LINEAR = "ActionsLineGraph"

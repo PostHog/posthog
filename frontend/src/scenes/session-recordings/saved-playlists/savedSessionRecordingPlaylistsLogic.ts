@@ -35,6 +35,7 @@ export interface SavedSessionRecordingPlaylistsLogicProps {
 export const DEFAULT_PLAYLIST_FILTERS = {
     createdBy: 'All users',
     page: 1,
+    dateFrom: 'all',
 }
 
 export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlaylistsLogicType>([
@@ -85,7 +86,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                     order: filters.order ?? '-last_modified_at', // Sync with `sorting` selector
                     created_by: createdBy ?? undefined,
                     search: filters.search || undefined,
-                    date_from: filters.dateFrom ?? 'all',
+                    date_from: filters.dateFrom && filters.dateFrom != 'all' ? filters.dateFrom : undefined,
                     date_to: filters.dateTo ?? undefined,
                     pinned: filters.pinned ? true : undefined,
                 }
