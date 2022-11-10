@@ -1,4 +1,4 @@
-import { kea, path, connect } from 'kea'
+import { kea, path, connect, actions, reducers } from 'kea'
 import { urlToAction } from 'kea-router'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
@@ -20,10 +20,26 @@ export interface SignupForm {
     organization_name: string
 }
 
+export enum SignupFormSteps {
+    START = 'Get Started',
+    FINISH = 'Tell us a bit about yourself',
+}
+
 export const signupLogic = kea<signupLogicType>([
     path(['scenes', 'authentication', 'signupLogic']),
     connect({
         values: [preflightLogic, ['preflight']],
+    }),
+    actions({
+        setPanel: (panel: string) => ({ panel }),
+    }),
+    reducers({
+        panel: [
+            SignupFormSteps.START,
+            {
+                setPanel: (_, { panel }) => panel,
+            },
+        ],
     }),
     forms(({ actions, values }) => ({
         signup: {
