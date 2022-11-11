@@ -11,6 +11,7 @@ import { PLAYLIST_LIMIT_REACHED_MESSAGE } from '../sessionRecordingsLogic'
 import { lemonToast } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { DEFAULT_RECORDING_FILTERS } from './sessionRecordingsListLogic'
 
 function getOperatorSymbol(operator: PropertyOperator | null): string {
     if (!operator) {
@@ -68,6 +69,7 @@ export async function createPlaylist(
     redirect = true
 ): Promise<SessionRecordingPlaylistType | null> {
     try {
+        playlist.filters = playlist.filters || DEFAULT_RECORDING_FILTERS
         const res = await api.recordings.createPlaylist(playlist)
         if (redirect) {
             router.actions.push(urls.sessionRecordingPlaylist(res.short_id))
