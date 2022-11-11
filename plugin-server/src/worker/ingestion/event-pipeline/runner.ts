@@ -2,7 +2,7 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
 import { runInSpan } from '../../../sentry'
-import { Hub, PostIngestionEvent } from '../../../types'
+import { Hub, PipelineEvent, PostIngestionEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
@@ -68,7 +68,7 @@ export class EventPipelineRunner {
         this.originalEvent = originalEvent
     }
 
-    async runEventPipeline(event: PluginEvent): Promise<EventPipelineResult> {
+    async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
         const result = await this.runPipeline('emitToBufferStep', event)
         this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')

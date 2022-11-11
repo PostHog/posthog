@@ -394,7 +394,7 @@ export interface PluginTask {
 
 export type WorkerMethods = {
     runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
-    runEventPipeline: (event: PluginEvent) => Promise<void>
+    runEventPipeline: (event: PipelineEvent) => Promise<void>
 }
 
 export type VMMethods = {
@@ -934,4 +934,9 @@ export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
     Owner = 15,
+}
+
+
+export interface PipelineEvent extends PluginEvent {
+    token?: string
 }

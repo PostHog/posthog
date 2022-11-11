@@ -46,6 +46,7 @@ def parse_kafka_event_data(
     now: datetime,
     sent_at: Optional[datetime],
     event_uuid: UUIDT,
+    token: str
 ) -> Dict:
     return {
         "uuid": str(event_uuid),
@@ -56,6 +57,7 @@ def parse_kafka_event_data(
         "team_id": team_id,
         "now": now.isoformat(),
         "sent_at": sent_at.isoformat() if sent_at else "",
+        "token": token
     }
 
 
@@ -267,6 +269,7 @@ def get_event(request):
                 event_uuid=event_uuid,
                 data=event,
                 sent_at=sent_at,
+                token=token,
             )
 
             log_event_to_dead_letter_queue(
