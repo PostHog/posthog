@@ -51,7 +51,7 @@
            FROM events e
            WHERE e.team_id = 2
              AND event = 'watched movie'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) is not null
            GROUP BY day_start,
@@ -117,7 +117,7 @@
            FROM events e
            WHERE e.team_id = 2
              AND event = 'watched movie'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) is not null
            GROUP BY day_start,
@@ -201,7 +201,7 @@
            WHERE e.team_id = 2
              AND event = 'watched movie'
              AND (sessions.session_duration > 30.0)
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') in (['', 'https://example.com'])
            GROUP BY day_start,
@@ -285,7 +285,7 @@
            WHERE e.team_id = 2
              AND event = 'watched movie'
              AND (NOT has(['https://test.com'], replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^"|"$', '')))
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND sessions.session_duration in ([120, 180, 60, 91, 0])
            GROUP BY day_start,
@@ -342,7 +342,7 @@
      GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
   WHERE e.team_id = 2
     AND event = 'watched movie'
-    AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC'))
+    AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
     AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
     AND toFloat64OrNull(toString(sessions.session_duration)) is not null
   GROUP BY breakdown_value
@@ -422,7 +422,7 @@
            WHERE e.team_id = 2
              AND event = 'watched movie'
              AND (NOT has(['https://test.com'], replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^"|"$', '')))
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND toFloat64OrNull(toString(sessions.session_duration)) is not null
            GROUP BY day_start,
@@ -504,7 +504,7 @@
               GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
            WHERE e.team_id = 2
              AND event = 'watched movie'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND sessions.session_duration in ([180, 120, 91, 60, 0])
            GROUP BY day_start,
@@ -588,7 +588,7 @@
               GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
            WHERE e.team_id = 2
              AND event = 'watched movie'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND toFloat64OrNull(toString(sessions.session_duration)) is not null
            GROUP BY day_start,
