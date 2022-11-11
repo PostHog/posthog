@@ -5,6 +5,11 @@ import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import type { signupLogicType } from './signupLogicType'
 
+export enum SIGNUP_FORM_STEPS {
+    START = 'Get Started',
+    FINISH = 'Tell us a bit about yourself',
+}
+
 export interface AccountResponse {
     success: boolean
     redirect_url?: string
@@ -21,10 +26,6 @@ export interface SignupForm {
     role_at_organization: string
 }
 
-export enum SignupFormSteps {
-    START = 'Get Started',
-    FINISH = 'Tell us a bit about yourself',
-}
 export const emailRegex: RegExp =
     /(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])/
 
@@ -38,7 +39,7 @@ export const signupLogic = kea<signupLogicType>([
     }),
     reducers({
         panel: [
-            SignupFormSteps.START,
+            SIGNUP_FORM_STEPS.START,
             {
                 setPanel: (_, { panel }) => panel,
             },

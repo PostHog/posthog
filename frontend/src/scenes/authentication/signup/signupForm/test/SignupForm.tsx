@@ -3,7 +3,7 @@ import { Link } from 'lib/components/Link'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { SignupFormSteps, signupLogic } from './signupLogic'
+import { SIGNUP_FORM_STEPS, signupLogic } from './signupLogic'
 import { userLogic } from '../../../../userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Form } from 'kea-forms'
@@ -30,8 +30,8 @@ export function SignupForm(): JSX.Element | null {
     const [showSpinner, setShowSpinner] = useState(true)
 
     const getPreviousPanel = (panel: string): string => {
-        const vals: SignupFormSteps[] = Object.values(SignupFormSteps)
-        const currentPanelIndex: number = vals.indexOf(panel as unknown as SignupFormSteps)
+        const vals: SIGNUP_FORM_STEPS[] = Object.values(SIGNUP_FORM_STEPS)
+        const currentPanelIndex: number = vals.indexOf(panel as unknown as SIGNUP_FORM_STEPS)
         const nextPanel: string = vals[currentPanelIndex - 1]
         return nextPanel
     }
@@ -64,7 +64,7 @@ export function SignupForm(): JSX.Element | null {
                 </AlertMessage>
             )}
             <Form logic={signupLogic} formKey={'signup'} className="space-y-4" enableFormOnSubmit>
-                {panel === SignupFormSteps.START ? (
+                {panel === SIGNUP_FORM_STEPS.START ? (
                     <SignupFormPanel1 />
                 ) : (
                     <>
@@ -142,7 +142,7 @@ export function SignupFormPanel1(): JSX.Element | null {
                 data-attr="signup-start"
                 onClick={() => {
                     if (!signupValidationErrors.email && !signupValidationErrors.password) {
-                        setPanel(SignupFormSteps.FINISH)
+                        setPanel(SIGNUP_FORM_STEPS.FINISH)
                     }
                 }}
             >
