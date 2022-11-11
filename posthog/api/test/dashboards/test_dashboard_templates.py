@@ -1,3 +1,4 @@
+from django.http import HttpResponse
 from rest_framework import status
 
 from posthog.test.base import APIBaseTest, QueryMatchingTest
@@ -5,10 +6,34 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 
 class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
     def test_can_create_template(self) -> None:
-        response = self.client.post(
+        response = self._create_template()
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(response.json()["template_name"], "Test template")
+        self.assertEqual(response.json()["tags"], ["test"])
+        self.assertEqual(response.json()["tiles"][0]["body"], "Test template text")
+
+    def test_can_list_templates_for_use_in_UI(self) -> None:
+        a_response = self._create_template("a")
+        b_response = self._create_template("b")
+        c_response = self._create_template("c")
+
+        templates = [
+            {"id": a_response.json()["id"], "template_name": "a"},
+            {"id": b_response.json()["id"], "template_name": "b"},
+            {"id": c_response.json()["id"], "template_name": "c"},
+        ]
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/dashboard_templates/?basic=true")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK, list_response.json())
+
+        assert list_response.json() == {"count": 3, "next": None, "previous": None, "results": templates}
+
+    def _create_template(self, name: str = "Test template") -> HttpResponse:
+        return self.client.post(
             f"/api/projects/{self.team.id}/dashboard_templates/",
             data={
-                "template_name": "Test template",
+                "template_name": name,
                 "source_dashboard": 1,
                 "dashboard_name": "Test dashboard",
                 "dashboard_description": "",
@@ -28,7 +53,3 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
                 ],
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-        self.assertEqual(response.json()["template_name"], "Test template")
-        self.assertEqual(response.json()["tags"], ["test"])
-        self.assertEqual(response.json()["tiles"][0]["body"], "Test template text")

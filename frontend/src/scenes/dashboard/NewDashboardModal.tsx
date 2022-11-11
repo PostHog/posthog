@@ -10,24 +10,21 @@ import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { LemonModal } from 'lib/components/LemonModal'
 import { Form } from 'kea-forms'
+import { dashboardTemplateLogic } from 'scenes/dashboard/dashboardTemplates/dashboardTemplateLogic'
 
 export function NewDashboardModal(): JSX.Element {
     const { hideNewDashboardModal, createAndGoToDashboard } = useActions(newDashboardLogic)
     const { isNewDashboardSubmitting, newDashboardModalVisible } = useValues(newDashboardLogic)
 
-    const templates = [
-        {
-            value: 'DEFAULT_APP',
-            label: 'Product analytics',
-            'data-attr': 'dashboard-select-default-app',
-        },
+    const { dashboardTemplates, dashboardTemplatesLoading } = useValues(dashboardTemplateLogic)
 
-        {
-            value: 'WEBSITE_TRAFFIC',
-            label: 'Website traffic',
-            'data-attr': 'dashboard-select-wesbite-template',
-        },
-    ]
+    const templates = dashboardTemplates.map((template) => {
+        return {
+            value: template.id,
+            label: template.template_name,
+            'data-attr': `dashboard-template-${template.id}`,
+        }
+    })
 
     return (
         <LemonModal
@@ -88,6 +85,7 @@ export function NewDashboardModal(): JSX.Element {
                         options={templates}
                         fullWidth
                         data-attr="copy-from-template"
+                        loading={dashboardTemplatesLoading}
                     />
                 </Field>
                 <Field name="restrictionLevel" label="Collaboration settings">

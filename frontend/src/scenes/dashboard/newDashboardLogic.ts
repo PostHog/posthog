@@ -8,6 +8,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { forms } from 'kea-forms'
+import { dashboardTemplateLogic } from 'scenes/dashboard/dashboardTemplates/dashboardTemplateLogic'
 
 export interface NewDashboardForm {
     name: string
@@ -27,7 +28,7 @@ const defaultFormValues: NewDashboardForm = {
 
 export const newDashboardLogic = kea<newDashboardLogicType>([
     path(['scenes', 'dashboard', 'newDashboardLogic']),
-    connect(dashboardsModel),
+    connect({ logic: [dashboardsModel], actions: [dashboardTemplateLogic, ['getAllDashboardTemplates']] }),
     actions({
         showNewDashboardModal: true,
         hideNewDashboardModal: true,
@@ -78,6 +79,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         },
         showNewDashboardModal: () => {
             actions.resetNewDashboard()
+            actions.getAllDashboardTemplates()
         },
         createAndGoToDashboard: () => {
             actions.setNewDashboardValue('show', true)

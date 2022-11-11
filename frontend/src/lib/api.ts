@@ -29,6 +29,7 @@ import {
     SessionRecordingsResponse,
     SessionRecordingPropertiesType,
     SessionRecordingPlaylistType,
+    DashboardTemplateListing,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -896,6 +897,9 @@ const api = {
     dashboardTemplates: {
         async create(data: Record<string, any>): Promise<any> {
             return await new ApiRequest().dashboardTemplates().create({ data })
+        },
+        async list(): Promise<PaginatedResponse<DashboardTemplateListing>> {
+            return await new ApiRequest().dashboardTemplates().get()
         },
     },
 

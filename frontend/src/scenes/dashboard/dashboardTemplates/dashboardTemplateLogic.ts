@@ -1,8 +1,8 @@
-import { kea, path } from 'kea'
+import { afterMount, kea, path } from 'kea'
 
 import type { dashboardTemplateLogicType } from './dashboardTemplateLogicType'
 import { loaders } from 'kea-loaders'
-import { DashboardType, FilterType, Tileable } from '~/types'
+import { DashboardTemplateListing, DashboardType, FilterType, Tileable } from '~/types'
 import api from 'lib/api'
 
 type TextTilePayload = {
@@ -56,6 +56,15 @@ const templateFrom = (dashboard: DashboardType): DashboardTemplateRequest => ({
 export const dashboardTemplateLogic = kea<dashboardTemplateLogicType>([
     path(['scenes', 'dashboard', 'dashboardTemplates', 'dashboardTemplateLogic']),
     loaders({
+        dashboardTemplates: [
+            [] as DashboardTemplateListing[],
+            {
+                getAllDashboardTemplates: async () => {
+                    const response = await api.dashboardTemplates.list()
+                    return response.results || []
+                },
+            },
+        ],
         dashboardTemplate: [
             null,
             {
@@ -74,5 +83,8 @@ export const dashboardTemplateLogic = kea<dashboardTemplateLogicType>([
                 },
             },
         ],
+    }),
+    afterMount(({ actions }) => {
+        actions.getAllDashboardTemplates()
     }),
 ])

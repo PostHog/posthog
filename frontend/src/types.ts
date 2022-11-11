@@ -974,6 +974,11 @@ export interface InsightModel extends Cacheable {
     filters: Partial<FilterType>
 }
 
+export interface DashboardTemplateListing {
+    id: string
+    template_name: string
+}
+
 export interface DashboardType {
     id: number
     name: string

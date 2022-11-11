@@ -1,17 +1,25 @@
-from typing import Dict
+from typing import Dict, Type
 
 from rest_framework import authentication, mixins, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models import DashboardTemplate, Team
+from posthog.utils import str_to_bool
+
+
+class DashboardTemplateBasicSerializer(serializers.Serializer):
+    id: serializers.UUIDField = serializers.UUIDField(read_only=True)
+    template_name: serializers.CharField = serializers.CharField(max_length=400)
 
 
 class DashboardTemplateSerializer(serializers.Serializer):
+    id: serializers.UUIDField = serializers.UUIDField(read_only=True)
     template_name: serializers.CharField = serializers.CharField(max_length=400)
     source_dashboard: serializers.IntegerField = serializers.IntegerField(allow_null=True)
     dashboard_name: serializers.CharField = serializers.CharField(max_length=400)
     dashboard_description: serializers.CharField = serializers.CharField(max_length=400, allow_blank=True)
+    dashboard_filters: serializers.JSONField = serializers.JSONField(allow_null=True, required=False)
     tiles: serializers.JSONField = serializers.JSONField(default=dict)
     tags: serializers.ListField = serializers.ListField(child=serializers.CharField(), allow_null=True)
 
@@ -57,7 +65,7 @@ class DashboardTemplatesViewSet(
     StructuredViewSetMixin,
     viewsets.GenericViewSet,
     mixins.CreateModelMixin,
-    # mixins.RetrieveModelMixin,
+    mixins.ListModelMixin,
     # mixins.UpdateModelMixin,
     # mixins.DestroyModelMixin,
 ):
@@ -68,6 +76,11 @@ class DashboardTemplatesViewSet(
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
+
+    def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
+        if (self.action == "list") and str_to_bool(self.request.query_params.get("basic", "0")):
+            return DashboardTemplateBasicSerializer
+        return super().get_serializer_class()
 
     def get_queryset(self):
         return self.filter_queryset_by_parents_lookups(DashboardTemplate.objects.all())

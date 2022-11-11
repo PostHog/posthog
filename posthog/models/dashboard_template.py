@@ -10,5 +10,6 @@ class DashboardTemplate(UUIDModel):
     source_dashboard: models.IntegerField = models.IntegerField(null=True)
     dashboard_name: models.CharField = models.CharField(max_length=400, null=True)
     dashboard_description: models.CharField = models.CharField(max_length=400, null=True)
+    dashboard_filters: models.JSONField = models.JSONField(null=True)
     tiles: models.JSONField = models.JSONField(default=list)
     tags: ArrayField = ArrayField(models.CharField(max_length=255), default=list)
