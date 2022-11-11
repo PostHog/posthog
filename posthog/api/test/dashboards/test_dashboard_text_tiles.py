@@ -164,7 +164,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         dashboard_id, dashboard_json = self.dashboard_api.update_text_tile(dashboard_id, updated_tile)
 
         assert len(dashboard_json["tiles"]) == 2
-        assert [(t["id"], t["color"]) for t in dashboard_json["tiles"]] == [
+        assert sorted([(t["id"], t["color"]) for t in dashboard_json["tiles"]], key=lambda item: item[0]) == [
             (tile_ids[0], "purple"),
             (tile_ids[1], None),
         ]
@@ -177,7 +177,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="i am text")
         dashboard_id, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="ich bin text")
 
-        last_tile = dashboard_json["tiles"][-1]
+        last_tile = next(t for t in dashboard_json["tiles"] if t["text"]["body"] == "ich bin text")
 
         delete_response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
@@ -189,7 +189,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
         tiles = dashboard_json["tiles"]
         assert len(tiles) == 3
-        assert [t["text"]["body"] for t in tiles] == ["io sono testo", "soy texto", "i am text"]
+        assert sorted([t["text"]["body"] for t in tiles]) == ["i am text", "io sono testo", "soy texto"]
 
     def test_do_not_see_deleted_text_tiles_when_adding_new_ones(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
@@ -208,7 +208,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             dashboard_id, text="i am a third text"
         )
         assert len(with_another_tile_dashboard_json["tiles"]) == 2
-        assert [t["text"]["body"] for t in with_another_tile_dashboard_json["tiles"]] == [
-            "soy texto",
+        assert sorted([t["text"]["body"] for t in with_another_tile_dashboard_json["tiles"]]) == [
             "i am a third text",
+            "soy texto",
         ]

@@ -23,14 +23,11 @@ class DashboardTemplateSerializer(serializers.Serializer):
     tags: serializers.ListField = serializers.ListField(child=serializers.CharField(), allow_null=True)
 
     def validate(self, data: Dict) -> Dict:
-        if not data["template_name"] or str.isspace(data["template_name"]):
+        if not data.get("template_name") or str.isspace(data.get("template_name")):
             raise serializers.ValidationError("Must provide a template name")
 
-        if not data["source_dashboard"]:
+        if not data.get("source_dashboard"):
             raise serializers.ValidationError("Must provide the id of the source dashboard")
-
-        if not data["dashboard_name"] or str.isspace(data["dashboard_name"]):
-            raise serializers.ValidationError("Must provide a dashboard name")
 
         if not data.get("tiles") or not isinstance(data["tiles"], list):
             raise serializers.ValidationError("Must provide at least one tile")

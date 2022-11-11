@@ -548,14 +548,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.assertTrue("lg" in first_tile_layouts)
 
-    def test_dashboard_from_template(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/", {"name": "another", "use_template": "DEFAULT_APP"}
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertGreater(Insight.objects.count(), 1)
-        self.assertEqual(response.json()["creation_mode"], "template")
-
     def test_dashboard_creation_validation(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
 
@@ -577,12 +569,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.client.post(f"/api/projects/{self.team.id}/dashboards", {"name": "another", "use_template": ""})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        # valid - only use_template is set
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards", {"name": "another", "use_template": "DEFAULT_APP"}
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
         # valid - only use_dashboard is set
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards", {"name": "another", "use_dashboard": existing_dashboard.id}
@@ -601,12 +587,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_dashboard_creation_mode(self):
-        # template
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/", {"name": "another", "use_template": "DEFAULT_APP"}
-        )
-        self.assertEqual(response.json()["creation_mode"], "template")
-
         # duplicate
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
         response = self.client.post(

@@ -29,13 +29,22 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
 
         assert list_response.json() == {"count": 3, "next": None, "previous": None, "results": templates}
 
+    def test_create_dashboard_from_template(self):
+        a_response = self._create_template("a")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/", {"name": "another", "use_template": a_response.json()["id"]}
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["creation_mode"], "template")
+        self.assertEqual(len(response.json()["tiles"]), 2)
+
     def _create_template(self, name: str = "Test template") -> HttpResponse:
-        return self.client.post(
+        create_response = self.client.post(
             f"/api/projects/{self.team.id}/dashboard_templates/",
             data={
                 "template_name": name,
                 "source_dashboard": 1,
-                "dashboard_name": "Test dashboard",
                 "dashboard_description": "",
                 "tags": ["test"],
                 "tiles": [
@@ -53,3 +62,5 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
                 ],
             },
         )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED, create_response.json())
+        return create_response
