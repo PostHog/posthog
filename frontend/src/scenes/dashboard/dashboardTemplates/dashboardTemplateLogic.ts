@@ -1,9 +1,10 @@
-import { afterMount, kea, path } from 'kea'
+import { afterMount, kea, listeners, path } from 'kea'
 
 import type { dashboardTemplateLogicType } from './dashboardTemplateLogicType'
 import { loaders } from 'kea-loaders'
 import { DashboardTemplateListing, DashboardType, FilterType, Tileable } from '~/types'
 import api from 'lib/api'
+import { lemonToast } from 'lib/components/lemonToast'
 
 type TextTilePayload = {
     type: 'TEXT'
@@ -84,6 +85,11 @@ export const dashboardTemplateLogic = kea<dashboardTemplateLogicType>([
             },
         ],
     }),
+    listeners(() => ({
+        saveDashboardTemplateSuccess: () => {
+            lemonToast.success('Template saved successfully')
+        },
+    })),
     afterMount(({ actions }) => {
         actions.getAllDashboardTemplates()
     }),

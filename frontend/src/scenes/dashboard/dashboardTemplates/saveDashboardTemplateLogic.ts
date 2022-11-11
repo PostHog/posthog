@@ -4,7 +4,6 @@ import { forms } from 'kea-forms'
 import type { saveDashboardTemplateLogicType } from './saveDashboardTemplateLogicType'
 import { DashboardType } from '~/types'
 import { dashboardTemplateLogic } from 'scenes/dashboard/dashboardTemplates/dashboardTemplateLogic'
-import { lemonToast } from 'lib/components/lemonToast'
 
 export interface SaveDashboardTemplateForm {
     dashboard: DashboardType | null
@@ -54,7 +53,6 @@ export const saveDashboardTemplateLogic = kea<saveDashboardTemplateLogicType>([
         },
         submitSaveDashboardTemplateSuccess: () => {
             actions.hideSaveDashboardTemplateModal()
-            lemonToast.success('Template saved successfully')
         },
     })),
 ])

@@ -33,7 +33,7 @@ class DashboardTemplateSerializer(serializers.Serializer):
             raise serializers.ValidationError("Must provide at least one tile")
 
         for tile in data["tiles"]:
-            if not tile.get("layouts") or not isinstance(tile["layouts"], dict):
+            if "layouts" not in tile or not isinstance(tile["layouts"], dict):
                 raise serializers.ValidationError("Must provide a tile layouts")
 
             if not tile.get("type"):

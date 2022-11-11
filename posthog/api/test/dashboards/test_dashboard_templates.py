@@ -50,7 +50,7 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
                 "tiles": [
                     {
                         "type": "TEXT",
-                        "layouts": {"lg": {"x": 0, "y": 0, "w": 6, "h": 3}},
+                        "layouts": {},  # empty layouts should be valid too
                         "body": "Test template text",
                     },
                     {
