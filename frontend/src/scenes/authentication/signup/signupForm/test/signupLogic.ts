@@ -24,6 +24,8 @@ export enum SignupFormSteps {
     START = 'Get Started',
     FINISH = 'Tell us a bit about yourself',
 }
+export const emailRegex: RegExp =
+    /(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])/
 
 export const signupLogic = kea<signupLogicType>([
     path(['scenes', 'authentication', 'signupLogic']),
@@ -43,9 +45,15 @@ export const signupLogic = kea<signupLogicType>([
     }),
     forms(({ actions, values }) => ({
         signup: {
+            alwaysShowErrors: true,
+            showErrorsOnTouch: true,
             defaults: { email: '', password: '', first_name: '', organization_name: '' } as SignupForm,
             errors: ({ email, password, first_name, organization_name }) => ({
-                email: !email ? 'Please enter your email to continue' : undefined,
+                email: !email
+                    ? 'Please enter your email to continue'
+                    : !emailRegex.test(email)
+                    ? 'Please use a valid email address'
+                    : undefined,
                 password: !values.preflight?.demo
                     ? !password
                         ? 'Please enter your password to continue'
