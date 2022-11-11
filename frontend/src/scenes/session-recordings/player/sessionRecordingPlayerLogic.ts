@@ -1,4 +1,3 @@
-import { KeyboardEvent } from 'react'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
 import * as Sentry from '@sentry/react'
@@ -110,7 +109,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setRootFrame: (frame: HTMLDivElement) => ({ frame }),
         checkBufferingCompleted: true,
         initializePlayerFromStart: true,
-        handleKeyDown: (event: KeyboardEvent<HTMLDivElement>) => ({ event }),
         incrementErrorCount: true,
         incrementWarningCount: true,
         setMatching: (matching: SessionRecordingType['matching_events']) => ({ matching }),
@@ -605,32 +603,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         stopAnimation: () => {
             if (cache.timer) {
                 cancelAnimationFrame(cache.timer)
-            }
-        },
-        handleKeyDown: ({ event }) => {
-            // Don't trigger keydown evens if in input box
-            if ((event.target as HTMLInputElement)?.matches('input')) {
-                return
-            }
-            if (event.key === ' ') {
-                actions.togglePlayPause()
-                event.preventDefault()
-            } else if (event.key === 'ArrowLeft') {
-                // If alt key is pressed we pause the video as otherwise moving by one frame makes no sense
-                event.altKey && actions.setPause()
-                actions.seekBackward(event.altKey ? ONE_FRAME_MS : undefined)
-                event.preventDefault()
-            } else if (event.key === 'ArrowRight') {
-                event.altKey && actions.setPause()
-                actions.seekForward(event.altKey ? ONE_FRAME_MS : undefined)
-                event.preventDefault()
-            } else {
-                // Playback speeds shortcuts
-                for (let i = 0; i < PLAYBACK_SPEEDS.length; i++) {
-                    if (event.key === (i + 1).toString()) {
-                        actions.setSpeed(PLAYBACK_SPEEDS[i])
-                    }
-                }
             }
         },
     })),

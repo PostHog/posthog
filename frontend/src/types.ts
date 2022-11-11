@@ -1703,6 +1703,11 @@ export type HotKeys =
     | 'z'
     | 'escape'
     | 'enter'
+    | ' '
+    | 'arrowleft'
+    | 'arrowright'
+    | 'arrowdown'
+    | 'arrowup'
 
 export interface LicenseType {
     id: number

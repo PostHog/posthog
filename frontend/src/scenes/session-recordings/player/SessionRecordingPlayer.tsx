@@ -1,7 +1,12 @@
 import './SessionRecordingPlayer.scss'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
+import {
+    ONE_FRAME_MS,
+    PLAYBACK_SPEEDS,
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
+} from './sessionRecordingPlayerLogic'
 import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
 import { PlayerController } from 'scenes/session-recordings/player/PlayerController'
 import { LemonDivider } from 'lib/components/LemonDivider'
@@ -10,7 +15,7 @@ import { PlayerFilter } from 'scenes/session-recordings/player/list/PlayerFilter
 import { PlayerMeta } from './PlayerMeta'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import clsx from 'clsx'
-import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -39,6 +44,13 @@ export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogic
     nextSessionRecording?: Partial<SessionRecordingType>
 }
 
+export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysInterface => {
+    return PLAYBACK_SPEEDS.map((x, i) => ({ key: `${i}`, value: x })).reduce(
+        (acc, x) => ({ ...acc, [x.key]: { action: () => action(x.value) } }),
+        {}
+    )
+}
+
 export function SessionRecordingPlayer({
     sessionRecordingId,
     playerKey,
@@ -48,18 +60,47 @@ export function SessionRecordingPlayer({
     noBorder = false,
     nextSessionRecording,
 }: SessionRecordingPlayerProps): JSX.Element {
-    const { handleKeyDown, setIsFullScreen, setPause } = useActions(
+    const { setIsFullScreen, setPause, togglePlayPause, seekBackward, seekForward, setSpeed } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey, recordingStartTime, matching })
     )
     const { isNotFound } = useValues(sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }))
     const { isFullScreen } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const frame = useFrameRef({ sessionRecordingId, playerKey })
 
+    const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
+
     useKeyboardHotkeys(
         {
             f: {
                 action: () => setIsFullScreen(!isFullScreen),
             },
+            ' ': {
+                action: () => togglePlayPause(),
+            },
+            arrowleft: {
+                action: (e) => {
+                    console.log(e)
+                    if (e.ctrlKey || e.metaKey) {
+                        return
+                    }
+                    e.preventDefault()
+                    e.altKey && setPause()
+                    seekBackward(e.altKey ? ONE_FRAME_MS : undefined)
+                },
+                willHandleEvent: true,
+            },
+            arrowright: {
+                action: (e) => {
+                    if (e.ctrlKey || e.metaKey) {
+                        return
+                    }
+                    e.preventDefault()
+                    e.altKey && setPause()
+                    seekForward(e.altKey ? ONE_FRAME_MS : undefined)
+                },
+                willHandleEvent: true,
+            },
+            ...speedHotkeys,
             ...(isFullScreen ? { escape: { action: () => setIsFullScreen(false) } } : {}),
         },
         [isFullScreen]
@@ -92,7 +133,6 @@ export function SessionRecordingPlayer({
                 'SessionRecordingPlayer--no-border': noBorder,
                 'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
             })}
-            onKeyDown={handleKeyDown}
         >
             <div className="SessionRecordingPlayer__main">
                 {includeMeta || isFullScreen ? (
