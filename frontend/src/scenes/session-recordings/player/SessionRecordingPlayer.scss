@@ -34,7 +34,6 @@
         overflow-y: auto;
         background-color: var(--white);
         z-index: var(--z-modal);
-        border-radius: 0;
 
         .SessionRecordingPlayer__main {
             flex: 1;
@@ -44,6 +43,7 @@
             height: 100%;
             min-height: auto;
             margin: 0rem;
+            border-radius: 0;
         }
     }
 
