@@ -88,7 +88,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setPlayer: (player: Player | null) => ({ player }),
         setPlay: true,
         setPause: true,
-        setEndReached: true,
+        setEndReached: (reached: boolean = true) => ({ reached }),
         startBuffer: true,
         endBuffer: true,
         startScrub: true,
@@ -167,8 +167,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         endReached: [
             false,
             {
-                setEndReached: () => true,
-                setPlay: () => false,
+                setEndReached: (_, { reached }) => reached,
                 tryInitReplayer: () => false,
             },
         ],
@@ -379,6 +378,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 nextPlayerPosition = values.sessionPlayerData.metadata.segments[0].startPlayerPosition
             }
 
+            console.log({ nextPlayerPosition, endReached: values.endReached })
+            actions.setEndReached(false)
+
             if (nextPlayerPosition) {
                 actions.seek(nextPlayerPosition, true)
             }
@@ -388,8 +390,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
             values.player?.replayer?.pause()
         },
-        setEndReached: () => {
-            actions.setPause()
+        setEndReached: ({ reached }) => {
+            if (reached) {
+                actions.setPause()
+            }
         },
         startBuffer: () => {
             actions.stopAnimation()
