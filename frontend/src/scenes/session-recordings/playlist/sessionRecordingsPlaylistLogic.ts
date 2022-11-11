@@ -132,7 +132,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
         derivedName: [
             (s) => [s.filters, s.cohortsById],
-            (filters, cohortsById) => summarizePlaylistFilters(filters || {}, cohortsById).slice(0, 400),
+            (filters, cohortsById) =>
+                summarizePlaylistFilters(filters || {}, cohortsById)?.slice(0, 400) || '(Untitled)',
         ],
     })),
 

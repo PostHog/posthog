@@ -18,7 +18,7 @@ function getOperatorSymbol(operator: PropertyOperator | null): string {
 export function summarizePlaylistFilters(
     filters: Partial<RecordingFilters>,
     cohortsById: cohortsModelType['values']['cohortsById']
-): string {
+): string | null {
     let summary: string
     const localFilters = toLocalFilters(filters)
 
@@ -53,5 +53,5 @@ export function summarizePlaylistFilters(
         summary += `${summary ? ', on ' : ''}${propertiesSummary}`
     }
 
-    return summary
+    return summary.trim() || null
 }

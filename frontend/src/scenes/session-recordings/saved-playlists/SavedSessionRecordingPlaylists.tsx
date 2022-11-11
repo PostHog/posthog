@@ -11,6 +11,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { TZLabel } from '@posthog/apps-common'
 import { SavedSessionRecordingPlaylistsEmptyState } from 'scenes/session-recordings/saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
+import clsx from 'clsx'
 
 export type SavedSessionRecordingPlaylistsProps = {
     tab: SessionRecordingsTabs.Playlists
@@ -44,8 +45,11 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
             render: function Render(name, { short_id, derived_name, description }) {
                 return (
                     <>
-                        <Link className="font-semibold" to={urls.sessionRecordingPlaylist(short_id)}>
-                            {name || derived_name || 'Untitled'}
+                        <Link
+                            className={clsx('font-semibold', !name && 'italic')}
+                            to={urls.sessionRecordingPlaylist(short_id)}
+                        >
+                            {name || derived_name || '(Untitled)'}
                         </Link>
                         {description ? <div className="truncate">{description}</div> : null}
                     </>
