@@ -8,6 +8,8 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { router } from 'kea-router'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface PlayerUpNextProps extends SessionRecordingPlayerLogicProps {
     nextSessionRecording?: Partial<SessionRecordingType>
@@ -22,6 +24,11 @@ export function PlayerUpNext({
     const { endReached } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const { reportNextRecordingTriggered } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const [animate, setAnimate] = useState(false)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.RECORDING_AUTOPLAY]) {
+        nextSessionRecording = undefined
+    }
 
     const goToRecording = (automatic: boolean): void => {
         reportNextRecordingTriggered(automatic)
@@ -33,7 +40,7 @@ export function PlayerUpNext({
     useEffect(() => {
         clearTimeout(timeoutRef.current)
 
-        if (endReached) {
+        if (endReached && nextSessionRecording) {
             setAnimate(true)
             timeoutRef.current = setTimeout(() => {
                 goToRecording(true)
@@ -41,7 +48,7 @@ export function PlayerUpNext({
         }
 
         return () => clearTimeout(timeoutRef.current)
-    }, [endReached])
+    }, [endReached, !!nextSessionRecording])
 
     const onHover = (): void => {
         clearTimeout(timeoutRef.current)
