@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'lib/components/Link'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { useActions, useValues } from 'kea'
@@ -13,6 +13,7 @@ import PasswordStrength from 'lib/components/PasswordStrength'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import RegionSelect from '../../../RegionSelect'
 import { IconArrowLeft } from 'lib/components/icons'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 export const scene: SceneExport = {
     component: SignupForm,
@@ -26,6 +27,15 @@ export function SignupForm(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { isSignupSubmitting, signupManualErrors, panel } = useValues(signupLogic)
     const { setPanel } = useActions(signupLogic)
+    const [showSpinner, setShowSpinner] = useState(true)
+
+    useEffect(() => {
+        setShowSpinner(true)
+        const t = setTimeout(() => {
+            setShowSpinner(false)
+        }, 500)
+        return () => clearTimeout(t)
+    }, [panel])
 
     return !user ? (
         <div className="space-y-2">
@@ -57,8 +67,8 @@ export function SignupForm(): JSX.Element | null {
                 </AlertMessage>
             )}
             <Form logic={signupLogic} formKey={'signup'} className="space-y-4" enableFormOnSubmit>
-                {/* <SignupFormPanel1 /> */}
                 {panel === SignupFormSteps.START ? <SignupFormPanel1 /> : <SignupFormPanel2 />}
+                {showSpinner ? <SpinnerOverlay /> : null}
             </Form>
         </div>
     ) : null
@@ -76,7 +86,7 @@ export function SignupFormPanel1(): JSX.Element | null {
     }, [preflight?.demo])
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-4 SignupForm__panel__1">
             <Field name="email" label="Email">
                 <LemonInput
                     className="ph-ignore-input"
@@ -137,7 +147,7 @@ export function SignupFormPanel2(): JSX.Element | null {
     const { isSignupSubmitting } = useValues(signupLogic)
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-4 SignupForm__panel__2">
             <RegionSelect />
             <Field name="first_name" label="Your name">
                 <LemonInput
