@@ -18,7 +18,7 @@ def update_using_template(dashboard: Dashboard, template: DashboardTemplate) -> 
                 name=tag, team_id=dashboard.team_id, defaults={"team_id": dashboard.team_id}
             )
             dashboard.tagged_items.create(tag_id=created_tag.id)
-    dashboard.name = template.dashboard_name
+
     dashboard.description = template.dashboard_description
     dashboard.save(update_fields=["filters", "name", "description"])
 

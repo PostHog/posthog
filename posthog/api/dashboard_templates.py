@@ -17,7 +17,6 @@ class DashboardTemplateSerializer(serializers.Serializer):
     id: serializers.UUIDField = serializers.UUIDField(read_only=True)
     template_name: serializers.CharField = serializers.CharField(max_length=400)
     source_dashboard: serializers.IntegerField = serializers.IntegerField(allow_null=True)
-    dashboard_name: serializers.CharField = serializers.CharField(max_length=400)
     dashboard_description: serializers.CharField = serializers.CharField(max_length=400, allow_blank=True)
     dashboard_filters: serializers.JSONField = serializers.JSONField(allow_null=True, required=False)
     tiles: serializers.JSONField = serializers.JSONField(default=dict)
