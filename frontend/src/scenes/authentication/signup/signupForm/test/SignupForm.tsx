@@ -29,6 +29,13 @@ export function SignupForm(): JSX.Element | null {
     const { setPanel } = useActions(signupLogic)
     const [showSpinner, setShowSpinner] = useState(true)
 
+    const getPreviousPanel = (panel: string): string => {
+        const vals: SignupFormSteps[] = Object.values(SignupFormSteps)
+        const currentPanelIndex: number = vals.indexOf(panel as unknown as SignupFormSteps)
+        const nextPanel: string = vals[currentPanelIndex - 1]
+        return nextPanel
+    }
+
     useEffect(() => {
         setShowSpinner(true)
         const t = setTimeout(() => {
@@ -39,16 +46,6 @@ export function SignupForm(): JSX.Element | null {
 
     return !user ? (
         <div className="space-y-2">
-            {panel !== SignupFormSteps.START ? (
-                <LemonButton
-                    type="tertiary"
-                    icon={<IconArrowLeft />}
-                    onClick={() => setPanel(SignupFormSteps.START)}
-                    className="-ml-4 -mt-4 mb-4"
-                >
-                    Go back
-                </LemonButton>
-            ) : null}
             <h2>{!preflight?.demo ? panel : 'Explore PostHog yourself'}</h2>
             {!preflight?.demo && (preflight?.cloud || preflight?.initiated) && (
                 // If we're in the demo environment, login is unified with signup and it's passwordless
@@ -67,7 +64,25 @@ export function SignupForm(): JSX.Element | null {
                 </AlertMessage>
             )}
             <Form logic={signupLogic} formKey={'signup'} className="space-y-4" enableFormOnSubmit>
-                {panel === SignupFormSteps.START ? <SignupFormPanel1 /> : <SignupFormPanel2 />}
+                {panel === SignupFormSteps.START ? (
+                    <SignupFormPanel1 />
+                ) : (
+                    <>
+                        <SignupFormPanel2 />
+                        <div className="flex justify-center">
+                            <LemonButton
+                                type="tertiary"
+                                status="muted"
+                                icon={<IconArrowLeft />}
+                                onClick={() => setPanel(getPreviousPanel(panel))}
+                                size="small"
+                                center
+                            >
+                                or go back
+                            </LemonButton>
+                        </div>
+                    </>
+                )}
                 {showSpinner ? <SpinnerOverlay /> : null}
             </Form>
         </div>
