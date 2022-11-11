@@ -18,6 +18,7 @@ export interface SignupForm {
     password: string
     first_name: string
     organization_name: string
+    role_at_organization: string
 }
 
 export enum SignupFormSteps {
@@ -47,8 +48,14 @@ export const signupLogic = kea<signupLogicType>([
         signup: {
             alwaysShowErrors: true,
             showErrorsOnTouch: true,
-            defaults: { email: '', password: '', first_name: '', organization_name: '' } as SignupForm,
-            errors: ({ email, password, first_name, organization_name }) => ({
+            defaults: {
+                email: '',
+                password: '',
+                first_name: '',
+                organization_name: '',
+                role_at_organization: '',
+            } as SignupForm,
+            errors: ({ email, password, first_name, organization_name, role_at_organization }) => ({
                 email: !email
                     ? 'Please enter your email to continue'
                     : !emailRegex.test(email)
@@ -63,6 +70,7 @@ export const signupLogic = kea<signupLogicType>([
                     : undefined,
                 first_name: !first_name ? 'Please enter your name' : undefined,
                 organization_name: !organization_name ? 'Please enter your organization name' : undefined,
+                role_at_organization: !role_at_organization ? 'Please select your role' : undefined,
             }),
             submit: async (payload, breakpoint) => {
                 await breakpoint()

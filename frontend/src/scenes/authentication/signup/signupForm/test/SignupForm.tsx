@@ -180,7 +180,7 @@ export function SignupFormPanel2(): JSX.Element | null {
                     disabled={isSignupSubmitting}
                 />
             </Field>
-            <Field name="role" label="What is your role?">
+            <Field name="role_at_organization" label="What is your role?">
                 <LemonSelect
                     fullWidth
                     options={[
@@ -203,6 +203,10 @@ export function SignupFormPanel2(): JSX.Element | null {
                         {
                             label: 'Sales',
                             value: 'sales',
+                        },
+                        {
+                            label: 'Other',
+                            value: 'other',
                         },
                     ]}
                 />
