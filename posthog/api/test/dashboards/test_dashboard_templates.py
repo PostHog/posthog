@@ -29,7 +29,7 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
 
         assert list_response.json() == {"count": 3, "next": None, "previous": None, "results": templates}
 
-    def test_create_dashboard_from_template(self):
+    def test_create_dashboard_from_template(self) -> None:
         a_response = self._create_template("a")
 
         response = self.client.post(
