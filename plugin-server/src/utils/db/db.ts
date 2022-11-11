@@ -1,5 +1,5 @@
 import ClickHouse from '@posthog/clickhouse'
-import { CacheOptions, Properties } from '@posthog/plugin-scaffold'
+import { CacheOptions, PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
 import { Pool as GenericPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
@@ -129,6 +129,7 @@ export interface CachedGroupData {
     properties: Properties
     created_at: ClickHouseTimestamp
 }
+
 
 const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'connection to server at',
@@ -1453,6 +1454,31 @@ export class DB {
         return selectResult.rows[0]
     }
 
+    // fetchTeamFromToken
+    public async fetchTeamFromToken(token: string): Promise<Team> {
+        const selectResult = await this.postgresQuery<Team>(
+            `
+            SELECT
+                id,
+                uuid,
+                organization_id,
+                name,
+                anonymize_ips,
+                api_token,
+                slack_incoming_webhook,
+                session_recording_opt_in,
+                ingested_event
+            FROM posthog_team
+            WHERE api_token = $1
+            LIMIT 1
+                `,  
+            [token],
+            'fetchTeamFromToken'
+        )
+        return selectResult.rows[0]
+    }
+
+
     /** Return the ID of the team that is used exclusively internally by the instance for storing metrics data. */
     public async fetchInternalMetricsTeam(): Promise<Team['id'] | null> {
         const { rows } = await this.postgresQuery(
@@ -1874,4 +1900,13 @@ export class DB {
         )
         return response.rowCount > 0
     }
+
+    // public async getTeamIngestionContextFromToken(token: string): Promise<[TeamId, PluginEvent['ip']] | null> {
+    //     const response = await this.postgresQuery(
+    //         `SELECT id, anonymize_ips FROM posthog_team WHERE api_token=$1 LIMIT 1`,
+    //         [token],
+    //         'getTeamIngestionContextFromToken'
+    //     )
+    //     return response.rows[0] ?? null
+    // }
 }

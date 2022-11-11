@@ -8,12 +8,13 @@ import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { generateEventDeadLetterQueueMessage } from '../utils'
-import { emitToBufferStep } from './1-emitToBufferStep'
-import { pluginsProcessEventStep } from './2-pluginsProcessEventStep'
-import { processPersonsStep } from './3-processPersonsStep'
-import { prepareEventStep } from './4-prepareEventStep'
-import { createEventStep } from './5-createEventStep'
-import { runAsyncHandlersStep } from './6-runAsyncHandlersStep'
+import { populateTeamDataStep } from './1-populateTeamDataStep'
+import { emitToBufferStep } from './2-emitToBufferStep'
+import { pluginsProcessEventStep } from './3-pluginsProcessEventStep'
+import { processPersonsStep } from './4-processPersonsStep'
+import { prepareEventStep } from './5-prepareEventStep'
+import { createEventStep } from './6-createEventStep'
+import { runAsyncHandlersStep } from './7-runAsyncHandlersStep'
 
 export type StepParameters<T extends (...args: any[]) => any> = T extends (
     runner: EventPipelineRunner,
@@ -23,6 +24,7 @@ export type StepParameters<T extends (...args: any[]) => any> = T extends (
     : never
 
 const EVENT_PIPELINE_STEPS = {
+    populateTeamDataStep,
     emitToBufferStep,
     pluginsProcessEventStep,
     processPersonsStep,
@@ -37,6 +39,7 @@ export type NextStep<Step extends StepType> = [StepType, StepParameters<EventPip
 
 export type StepResult =
     | null
+    | NextStep<'populateTeamDataStep'>
     | NextStep<'emitToBufferStep'>
     | NextStep<'pluginsProcessEventStep'>
     | NextStep<'processPersonsStep'>
@@ -52,6 +55,7 @@ export type EventPipelineResult = {
 }
 
 const STEPS_TO_EMIT_TO_DLQ_ON_FAILURE: Array<StepType> = [
+    'populateTeamDataStep',
     'emitToBufferStep',
     'pluginsProcessEventStep',
     'processPersonsStep',
@@ -70,7 +74,13 @@ export class EventPipelineRunner {
 
     async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
-        const result = await this.runPipeline('emitToBufferStep', event)
+        let result: EventPipelineResult
+        // TODO: Set up team-based gating
+        if (this.hub.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED) {
+            result = await this.runPipeline('populateTeamDataStep', event)
+        } else {
+            result = await this.runPipeline('emitToBufferStep', event)
+        }
         this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
         return result
     }

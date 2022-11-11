@@ -103,6 +103,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: 10 * 60 * 1000,
         HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: 1.5,
         APP_METRICS_GATHERED_FOR_ALL: false,
+        LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED: false
     }
 }
 
@@ -185,6 +186,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         OBJECT_STORAGE_BUCKET: 'the object storage bucket name',
         HISTORICAL_EXPORTS_ENABLED: 'enables historical exports for export apps',
         APP_METRICS_GATHERED_FOR_ALL: 'whether to gather app metrics for all teams',
+        LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED: 'whether the lightweight capture endpoint feature is enabled i.e. the capture endpoint not depending on postgres'
     }
 }
 
