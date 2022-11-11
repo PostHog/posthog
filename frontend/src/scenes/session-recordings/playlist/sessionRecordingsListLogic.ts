@@ -15,7 +15,6 @@ import type { sessionRecordingsListLogicType } from './sessionRecordingsListLogi
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
-import { teamLogic } from '../../teamLogic'
 import { dayjs } from 'lib/dayjs'
 import { loaders } from 'kea-loaders'
 import { urls } from 'scenes/urls'
@@ -108,7 +107,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     props({} as SessionRecordingListLogicProps),
     key((props) => `${props.key}-${props.updateSearchParams ?? '-with-search'}`),
     connect({
-        values: [teamLogic, ['currentTeamId']],
         actions: [
             eventUsageLogic,
             ['reportRecordingsListFetched', 'reportRecordingsListPropertiesFetched', 'reportRecordingsListFilterAdded'],
