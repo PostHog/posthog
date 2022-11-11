@@ -10,15 +10,10 @@ import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { LemonModal } from 'lib/components/LemonModal'
 import { Form } from 'kea-forms'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export function NewDashboardModal(): JSX.Element {
     const { hideNewDashboardModal, createAndGoToDashboard } = useActions(newDashboardLogic)
     const { isNewDashboardSubmitting, newDashboardModalVisible } = useValues(newDashboardLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const websiteAnalyticsTemplate = !!featureFlags[FEATURE_FLAGS.WEBSITE_ANALYTICS_TEMPLATE]
 
     const templates = [
         {
@@ -26,14 +21,13 @@ export function NewDashboardModal(): JSX.Element {
             label: 'Product analytics',
             'data-attr': 'dashboard-select-default-app',
         },
-    ]
-    if (websiteAnalyticsTemplate) {
-        templates.push({
+
+        {
             value: 'WEBSITE_TRAFFIC',
             label: 'Website traffic',
             'data-attr': 'dashboard-select-wesbite-template',
-        })
-    }
+        },
+    ]
 
     return (
         <LemonModal

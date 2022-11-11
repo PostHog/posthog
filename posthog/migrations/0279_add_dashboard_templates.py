@@ -7,6 +7,26 @@ from django.db import migrations, models
 import posthog.models.utils
 
 
+def add_dashboard_templates(apps, _):
+    DashboardTemplate = apps.get_model("posthog", "DashboardTemplate")
+    Team = apps.get_model("posthog", "Team")
+
+    for team in Team.objects.all():
+        DashboardTemplate.objects.create(
+            team=team,
+            template_name="Default",
+            source_dashboard=0,
+            dashboard_name="Default",
+            dashboard_description="Default",
+            tiles=[],
+            tags=[],
+        )
+
+
+def reverse(apps, _):
+    pass
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -40,4 +60,5 @@ class Migration(migrations.Migration):
                 "abstract": False,
             },
         ),
+        migrations.RunPython(add_dashboard_templates, reverse),
     ]
