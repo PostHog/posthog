@@ -2,13 +2,13 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
 import { Hub, WorkerMethods } from '../../../types'
-import { formPluginEvent } from '../../../utils/event'
+import { formPipelineEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { IngestionConsumer } from '../kafka-queue'
 import { eachBatch } from './each-batch'
 
 export async function eachMessageIngestion(message: KafkaMessage, queue: IngestionConsumer): Promise<void> {
-    await ingestEvent(queue.pluginsServer, queue.workerMethods, formPluginEvent(message))
+    await ingestEvent(queue.pluginsServer, queue.workerMethods, formPipelineEvent(message))
 }
 
 export async function eachBatchIngestion(payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> {
@@ -18,7 +18,7 @@ export async function eachBatchIngestion(payload: EachBatchPayload, queue: Inges
         const seenIds: Set<string> = new Set()
         let currentBatch: KafkaMessage[] = []
         for (const message of kafkaMessages) {
-            const pluginEvent = formPluginEvent(message)
+            const pluginEvent = formPipelineEvent(message)
             const seenKey = `${pluginEvent.team_id}:${pluginEvent.distinct_id}`
             if (currentBatch.length === batchSize || seenIds.has(seenKey)) {
                 seenIds.clear()
