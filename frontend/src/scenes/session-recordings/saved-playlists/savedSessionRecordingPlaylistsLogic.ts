@@ -9,6 +9,7 @@ import { Sorting } from 'lib/components/LemonTable'
 import { PaginationManual } from 'lib/components/PaginationControl'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { createPlaylist, deletePlaylistWithUndo, duplicatePlaylist } from '../playlist/playlistUtils'
 
 export const PLAYLISTS_PER_PAGE = 30
 
@@ -47,11 +48,18 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             filters,
         }),
         loadPlaylists: true,
+        createPlaylist: true,
         updatePlaylist: (
             shortId: SessionRecordingPlaylistType['short_id'],
             playlist: Partial<SessionRecordingPlaylistType>
         ) => ({
             shortId,
+            playlist,
+        }),
+        deletePlaylist: (playlist: SessionRecordingPlaylistType) => ({
+            playlist,
+        }),
+        duplicatePlaylist: (playlist: SessionRecordingPlaylistType) => ({
             playlist,
         }),
     })),
@@ -69,7 +77,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             },
         ],
     })),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         playlists: {
             __default: { results: [], count: 0, filters: null } as SavedSessionRecordingPlaylistsResult,
             loadPlaylists: async (_, breakpoint) => {
@@ -104,6 +112,31 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                     values.playlists.results[index] = res
                 }
 
+                return values.playlists
+            },
+            deletePlaylist: async ({ playlist }) => {
+                await deletePlaylistWithUndo(playlist, () => {
+                    actions.loadPlaylists()
+                })
+
+                values.playlists.results = values.playlists.results.filter((x) => x.short_id !== playlist.short_id)
+
+                return values.playlists
+            },
+        },
+
+        newPlaylist: {
+            createPlaylist: async (_, breakpoint) => {
+                await breakpoint(100)
+                const response = await createPlaylist({})
+                await breakpoint(1000)
+                return response
+            },
+
+            duplicatePlaylist: async ({ playlist }) => {
+                await duplicatePlaylist(playlist)
+
+                // Duplication redirects so we don't need to do anything here
                 return values.playlists
             },
         },

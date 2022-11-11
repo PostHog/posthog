@@ -1,5 +1,5 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { Breadcrumb, SessionRecordingsTabs } from '~/types'
+import { Breadcrumb, SessionRecordingPlaylistType, SessionRecordingsTabs } from '~/types'
 import { urls } from 'scenes/urls'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -7,6 +7,8 @@ import type { sessionRecordingsLogicType } from './sessionRecordingsLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { loaders } from 'kea-loaders'
+import { createPlaylist } from './playlist/playlistUtils'
 
 export const humanFriendlyTabName = (tab: SessionRecordingsTabs): string => {
     switch (tab) {
@@ -28,6 +30,7 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
     }),
     actions({
         setTab: (tab: SessionRecordingsTabs = SessionRecordingsTabs.Recent) => ({ tab }),
+        saveNewPlaylist: true,
     }),
     reducers(({}) => ({
         tab: [
@@ -37,6 +40,22 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
             },
         ],
     })),
+
+    loaders(({ values }) => ({
+        newPlaylist: [
+            null as SessionRecordingPlaylistType | null,
+            {
+                saveNewPlaylist: async () => {
+                    // NOTE: We do it from the url so we aren't always loading recent recordings
+                    const filters = router.values.searchParams?.filters
+                    return await createPlaylist({
+                        filters: values.tab === SessionRecordingsTabs.Recent ? filters : undefined,
+                    })
+                },
+            },
+        ],
+    })),
+
     actionToUrl(({ values }) => {
         return {
             setTab: () => [urls.sessionRecordings(values.tab), router.values.searchParams],

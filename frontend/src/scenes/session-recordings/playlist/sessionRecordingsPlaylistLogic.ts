@@ -6,29 +6,9 @@ import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlay
 import { urls } from 'scenes/urls'
 import equal from 'fast-deep-equal'
 import { lemonToast } from '@posthog/lemon-ui'
-import { beforeUnload, router } from 'kea-router'
+import { beforeUnload } from 'kea-router'
 import { cohortsModel } from '~/models/cohortsModel'
-import { openBillingPopupModal } from 'scenes/billing/v2/BillingPopup'
-import { PLAYLIST_LIMIT_REACHED_MESSAGE } from 'scenes/session-recordings/sessionRecordingsLogic'
-import { summarizePlaylistFilters } from 'scenes/session-recordings/playlist/playlistUtils'
-
-export async function createPlaylist(
-    playlist: Partial<SessionRecordingPlaylistType>
-): Promise<SessionRecordingPlaylistType | null> {
-    try {
-        return await api.recordings.createPlaylist(playlist)
-    } catch (e: any) {
-        if (e.status === 403) {
-            openBillingPopupModal({
-                title: `Upgrade now to unlock unlimited playlists`,
-                description: PLAYLIST_LIMIT_REACHED_MESSAGE,
-            })
-        } else {
-            throw e
-        }
-    }
-    return null
-}
+import { duplicatePlaylist, summarizePlaylistFilters } from 'scenes/session-recordings/playlist/playlistUtils'
 
 export interface SessionRecordingsPlaylistLogicProps {
     shortId: string
@@ -57,13 +37,34 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                 updatePlaylist: async (playlist: Partial<SessionRecordingPlaylistType>, breakpoint) => {
                     await breakpoint(100)
-                    const response = api.recordings.updatePlaylist(props.shortId, {
+                    const response = await api.recordings.updatePlaylist(props.shortId, {
                         ...playlist,
                         derived_name: values.derivedName, // Makes sure derived name is kept up to date
                     })
                     breakpoint()
 
                     lemonToast.success('Playlist updated successfully')
+
+                    return response
+                },
+
+                updatePlaylistSilently: async (playlist: Partial<SessionRecordingPlaylistType>, breakpoint) => {
+                    await breakpoint(100)
+                    const response = await api.recordings.updatePlaylist(props.shortId, {
+                        ...playlist,
+                        derived_name: values.derivedName, // Makes sure derived name is kept up to date
+                    })
+                    breakpoint()
+
+                    return response
+                },
+
+                duplicatePlaylist: async (_, breakpoint) => {
+                    await breakpoint(100)
+                    if (!values.playlist) {
+                        return null
+                    }
+                    const response = await duplicatePlaylist(values.playlist)
 
                     return response
                 },
@@ -85,22 +86,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         saveChanges: async () => {
             actions.updatePlaylist({ filters: values.filters || undefined })
         },
-
-        duplicatePlaylist: async () => {
-            if (!values.playlist) {
-                return
+        loadPlaylistSuccess: async () => {
+            if (values.playlist?.derived_name !== values.derivedName) {
+                // This keeps the derived name up to date if the playlist changes
+                actions.updatePlaylistSilently({ derived_name: values.derivedName })
             }
-
-            const { id, short_id, ...playlist } = values.playlist
-            playlist.name = playlist.name ? playlist.name + ' (copy)' : ''
-            playlist.derived_name = playlist.derived_name ? playlist.derived_name + ' (copy)' : ''
-
-            const newPlaylist = await createPlaylist(playlist)
-            if (!newPlaylist) {
-                return
-            }
-            lemonToast.success('Playlist duplicated successfully')
-            router.actions.push(urls.sessionRecordingPlaylist(newPlaylist.short_id))
         },
     })),
 
@@ -121,7 +111,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     path: urls.sessionRecordings(SessionRecordingsTabs.Playlists),
                 },
                 {
-                    name: playlist?.name || playlist?.derived_name || 'Untitled Playlist',
+                    name: playlist?.name || playlist?.derived_name || '(Untitled)',
                     path: urls.sessionRecordingPlaylist(playlist?.short_id || ''),
                 },
             ],

@@ -1,9 +1,16 @@
-import { PropertyOperator, RecordingFilters } from '~/types'
+import { PropertyOperator, RecordingFilters, SessionRecordingPlaylistType } from '~/types'
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
-import { convertPropertyGroupToProperties, genericOperatorMap } from 'lib/utils'
+import { convertPropertyGroupToProperties, deleteWithUndo, genericOperatorMap } from 'lib/utils'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
+
+import { openBillingPopupModal } from 'scenes/billing/v2/BillingPopup'
+import api from 'lib/api'
+import { PLAYLIST_LIMIT_REACHED_MESSAGE } from '../sessionRecordingsLogic'
+import { lemonToast } from '@posthog/lemon-ui'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 function getOperatorSymbol(operator: PropertyOperator | null): string {
     if (!operator) {
@@ -54,4 +61,58 @@ export function summarizePlaylistFilters(
     }
 
     return summary.trim() || null
+}
+
+export async function createPlaylist(
+    playlist: Partial<SessionRecordingPlaylistType>,
+    redirect = true
+): Promise<SessionRecordingPlaylistType | null> {
+    try {
+        const res = await api.recordings.createPlaylist(playlist)
+        if (redirect) {
+            router.actions.push(urls.sessionRecordingPlaylist(res.short_id))
+        }
+        return res
+    } catch (e: any) {
+        if (e.status === 403) {
+            openBillingPopupModal({
+                title: `Upgrade now to unlock unlimited playlists`,
+                description: PLAYLIST_LIMIT_REACHED_MESSAGE,
+            })
+        } else {
+            throw e
+        }
+    }
+
+    return null
+}
+
+export async function duplicatePlaylist(
+    playlist: Partial<SessionRecordingPlaylistType>,
+    redirect = true
+): Promise<SessionRecordingPlaylistType | null> {
+    const { id, short_id, ...partialPlaylist } = playlist
+    partialPlaylist.name = partialPlaylist.name ? partialPlaylist.name + ' (copy)' : ''
+    partialPlaylist.derived_name = partialPlaylist.derived_name
+
+    const newPlaylist = await createPlaylist(playlist, redirect)
+    if (!newPlaylist) {
+        return null
+    }
+
+    lemonToast.success('Playlist duplicated successfully')
+
+    return newPlaylist
+}
+
+export async function deletePlaylistWithUndo(
+    playlist: SessionRecordingPlaylistType,
+    callback?: () => void
+): Promise<void> {
+    return deleteWithUndo({
+        object: playlist,
+        idField: 'short_id',
+        endpoint: `projects/@current/session_recording_playlists`,
+        callback,
+    })
 }
