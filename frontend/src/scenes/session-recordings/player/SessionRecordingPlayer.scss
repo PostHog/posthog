@@ -20,12 +20,9 @@
         min-width: 1px;
         height: 500px;
         min-height: 500px;
-        padding: 0.5rem;
+        margin: 0.5rem;
         overflow: hidden;
-
-        @include screen($md) {
-            width: 100%;
-        }
+        border-radius: var(--radius);
     }
 
     &--fullscreen {
@@ -37,6 +34,7 @@
         overflow-y: auto;
         background-color: var(--white);
         z-index: var(--z-modal);
+        border-radius: 0;
 
         .SessionRecordingPlayer__main {
             flex: 1;
@@ -45,11 +43,7 @@
         .SessionRecordingPlayer__body {
             height: 100%;
             min-height: auto;
-            padding: 0rem;
-
-            .PlayerFrame {
-                border-radius: 0px;
-            }
+            margin: 0rem;
         }
     }
 

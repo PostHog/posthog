@@ -14,12 +14,16 @@ import { playerSettingsLogic } from './playerSettingsLogic'
 
 export interface PlayerUpNextProps extends SessionRecordingPlayerLogicProps {
     nextSessionRecording?: Partial<SessionRecordingType>
+    interrupted?: boolean
+    clearInterrupted?: () => void
 }
 
 export function PlayerUpNext({
     sessionRecordingId,
     playerKey,
     nextSessionRecording,
+    interrupted,
+    clearInterrupted,
 }: PlayerUpNextProps): JSX.Element | null {
     const timeoutRef = useRef<any>()
     const { endReached } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
@@ -44,6 +48,7 @@ export function PlayerUpNext({
 
         if (endReached && nextSessionRecording) {
             setAnimate(true)
+            clearInterrupted?.()
             timeoutRef.current = setTimeout(() => {
                 goToRecording(true)
             }, 3000) // NOTE: Keep in sync with SCSS
@@ -52,10 +57,12 @@ export function PlayerUpNext({
         return () => clearTimeout(timeoutRef.current)
     }, [endReached, !!nextSessionRecording])
 
-    const onHover = (): void => {
-        clearTimeout(timeoutRef.current)
-        setAnimate(false)
-    }
+    useEffect(() => {
+        if (interrupted) {
+            clearTimeout(timeoutRef.current)
+            setAnimate(false)
+        }
+    }, [interrupted])
 
     if (!nextSessionRecording) {
         return null
@@ -67,7 +74,6 @@ export function PlayerUpNext({
                 <div className="PlayerUpNext">
                     <div
                         className={clsx('PlayerUpNextButton', animate && 'PlayerUpNextButton--animating')}
-                        onMouseMove={() => onHover()}
                         onClick={() => goToRecording(false)}
                     >
                         <div className="PlayerUpNextButtonBackground" />

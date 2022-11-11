@@ -492,7 +492,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 )
                 if (!nextPlayerPosition) {
                     // At the end of the recording. Pause the player and set to the end of the recording
-                    actions.setPause()
+                    actions.setEndReached()
                     nextPlayerPosition = values.sessionPlayerData.metadata.segments.slice(-1)[0].endPlayerPosition
                 }
                 actions.seek(nextPlayerPosition)
@@ -502,6 +502,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (!values.currentPlayerPosition) {
                 return
             }
+
+            actions.setEndReached(false)
 
             const currentPlayerTime = getPlayerTimeFromPlayerPosition(
                 values.currentPlayerPosition,

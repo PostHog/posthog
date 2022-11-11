@@ -20,7 +20,7 @@ import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { SessionRecordingType } from '~/types'
-import { PlayerUpNext } from './PlayerUpNext'
+import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 
 export function useFrameRef({
     sessionRecordingId,
@@ -140,8 +140,7 @@ export function SessionRecordingPlayer({
                 ) : null}
                 <div className="SessionRecordingPlayer__body">
                     <PlayerFrame sessionRecordingId={sessionRecordingId} ref={frame} playerKey={playerKey} />
-
-                    <PlayerUpNext
+                    <PlayerFrameOverlay
                         sessionRecordingId={sessionRecordingId}
                         playerKey={playerKey}
                         nextSessionRecording={nextSessionRecording}
