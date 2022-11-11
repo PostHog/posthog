@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { SessionPlayerState, SessionRecordingPlayerProps } from '~/types'
+import { SessionPlayerState } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
@@ -13,7 +14,7 @@ import clsx from 'clsx'
 import { PlayerInspectorPicker } from './PlayerInspector'
 import { openPlayerShareDialog } from './share/PlayerShare'
 
-interface PlayerControllerProps extends SessionRecordingPlayerProps {
+interface PlayerControllerProps extends SessionRecordingPlayerLogicProps {
     hideInspectorPicker?: boolean
 }
 

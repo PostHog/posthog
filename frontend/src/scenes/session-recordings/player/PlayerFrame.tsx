@@ -1,8 +1,11 @@
 import React, { MutableRefObject, Ref, useEffect, useRef } from 'react'
 import { Handler, viewportResizeDimension } from 'rrweb/typings/types'
 import { useActions, useValues } from 'kea'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { SessionPlayerState, SessionRecordingPlayerProps } from '~/types'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { SessionPlayerState } from '~/types'
 import useSize from '@react-hook/size'
 import { IconErrorOutline, IconPlay } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -54,7 +57,7 @@ const PlayerFrameOverlay = ({ currentPlayerState }: { currentPlayerState: Sessio
 }
 
 export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
-    { sessionRecordingId, playerKey }: SessionRecordingPlayerProps,
+    { sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps,
     ref: Ref<HTMLDivElement>
 ): JSX.Element {
     const replayDimensionRef = useRef<viewportResizeDimension>()

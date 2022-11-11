@@ -1,7 +1,7 @@
 import './PlayerList.scss'
 import { ReactElement, useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { SessionRecordingPlayerProps, SessionRecordingPlayerTab } from '~/types'
+import { SessionRecordingPlayerTab } from '~/types'
 import {
     DEFAULT_EXPANDED_ROW_HEIGHT,
     DEFAULT_ROW_HEIGHT,
@@ -22,6 +22,7 @@ import { getRowExpandedState } from 'scenes/session-recordings/player/playerUtil
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { openSessionRecordingSettingsDialog } from 'scenes/session-recordings/settings/SessionRecordingSettings'
+import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 
 interface RowConfig<T extends Record<string, any>> {
     /** Class to append to each row. */
@@ -41,7 +42,7 @@ export interface PlayerListExpandableConfig<T extends Record<string, any>> exten
     expandedPreviewContentRender?: (record: T, recordIndex: number) => any
 }
 
-export interface PlayerListProps<T> extends SessionRecordingPlayerProps {
+export interface PlayerListProps<T> extends SessionRecordingPlayerLogicProps {
     tab: SessionRecordingPlayerTab
     expandable?: PlayerListExpandableConfig<T>
     row?: RowConfig<T>

@@ -6,10 +6,11 @@ import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLo
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
+    MatchedRecording,
     PlayerPosition,
     RecordingSegment,
     SessionPlayerState,
-    SessionRecordingPlayerProps,
+    SessionRecordingId,
     SessionRecordingType,
 } from '~/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
@@ -27,13 +28,17 @@ import { fromParamsGivenUrl } from 'lib/utils'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
+export const NEXT_UP_ENDING_MS = 10000
 
 export interface Player {
     replayer: Replayer
     windowId: string
 }
 
-export interface SessionRecordingPlayerLogicProps extends SessionRecordingPlayerProps {
+export interface SessionRecordingPlayerLogicProps {
+    sessionRecordingId: SessionRecordingId
+    playerKey: string
+    matching?: MatchedRecording[]
     recordingStartTime?: string
 }
 
@@ -42,7 +47,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     props({} as SessionRecordingPlayerLogicProps),
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect(({ sessionRecordingId, playerKey, recordingStartTime }: SessionRecordingPlayerLogicProps) => ({
-        logic: [eventUsageLogic],
         values: [
             sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }),
             [
@@ -65,6 +69,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['setTab'],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting', 'setIsFullScreen'],
+            eventUsageLogic,
+            [
+                'reportNextRecordingTriggered',
+                'reportRecordingPlayerSkipInactivityToggled',
+                'reportRecordingPlayerSpeedChanged',
+                'reportRecordingViewedSummary',
+            ],
         ],
     })),
     propsChanged(({ actions, props: { matching } }, { matching: oldMatching }) => {
@@ -78,6 +89,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setPlayer: (player: Player | null) => ({ player }),
         setPlay: true,
         setPause: true,
+        setEndReached: true,
         startBuffer: true,
         endBuffer: true,
         startScrub: true,
@@ -145,12 +157,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         isBuffering: [true, { startBuffer: () => true, endBuffer: () => false }],
         isErrored: [false, { setErrorPlayerState: (_, { show }) => show }],
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
+
         errorCount: [0, { incrementErrorCount: (prevErrorCount, {}) => prevErrorCount + 1 }],
         warningCount: [0, { incrementWarningCount: (prevWarningCount, {}) => prevWarningCount + 1 }],
         matching: [
             props.matching ?? ([] as SessionRecordingType['matching_events']),
             {
                 setMatching: (_, { matching }) => matching,
+            },
+        ],
+        endReached: [
+            false,
+            {
+                setEndReached: () => true,
+                setPlay: () => false,
+                tryInitReplayer: () => false,
             },
         ],
     })),
@@ -247,7 +268,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.seek(values.currentPlayerPosition)
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
-            eventUsageLogic.actions.reportRecordingPlayerSkipInactivityToggled(skipInactivitySetting)
+            actions.reportRecordingPlayerSkipInactivityToggled(skipInactivitySetting)
             if (!values.currentSegment?.isActive && skipInactivitySetting) {
                 actions.setSkippingInactivity(true)
             } else {
@@ -353,12 +374,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // Use the start of the current segment if there is no currentPlayerPosition
             // (theoretically, should never happen, but Typescript doesn't know that)
+
             let nextPlayerPosition = values.currentPlayerPosition || values.currentSegment?.startPlayerPosition
 
-            if (values.currentSegment === values.sessionPlayerData.metadata.segments.slice(-1)[0]) {
-                // If we're at the end of the recording, go back to the beginning
+            if (values.endReached) {
                 nextPlayerPosition = values.sessionPlayerData.metadata.segments[0].startPlayerPosition
             }
+
             if (nextPlayerPosition) {
                 actions.seek(nextPlayerPosition, true)
             }
@@ -367,6 +389,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.stopAnimation()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
             values.player?.replayer?.pause()
+        },
+        setEndReached: () => {
+            actions.setPause()
         },
         startBuffer: () => {
             actions.stopAnimation()
@@ -380,7 +405,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.stopAnimation()
         },
         setSpeed: ({ speed }) => {
-            eventUsageLogic.actions.reportRecordingPlayerSpeedChanged(speed)
+            actions.reportRecordingPlayerSpeedChanged(speed)
             actions.syncPlayerSpeed()
         },
         seek: async ({ playerPosition, forcePlay }, breakpoint) => {
@@ -535,7 +560,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.setCurrentSegment(nextSegment)
                 } else {
                     // At the end of the recording. Pause the player and set fully to the end
-                    actions.setPause()
+                    actions.setEndReached()
                 }
             }
             // If next position tries to access snapshot that is not loaded, show error state
@@ -622,7 +647,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (cache.errorHandler) {
                 window.removeEventListener('error', cache.errorHandler)
             }
-            eventUsageLogic.actions.reportRecordingViewedSummary({
+            actions.reportRecordingViewedSummary({
                 viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
                 recording_duration_ms: values.sessionPlayerData?.metadata
                     ? values.sessionPlayerData.metadata.recordingDurationMs

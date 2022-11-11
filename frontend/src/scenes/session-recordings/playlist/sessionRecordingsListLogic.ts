@@ -8,7 +8,6 @@ import {
     SessionRecordingId,
     SessionRecordingPropertiesType,
     SessionRecordingsResponse,
-    SessionRecordingsTabs,
     SessionRecordingType,
 } from '~/types'
 import type { sessionRecordingsListLogicType } from './sessionRecordingsListLogicType'
@@ -18,7 +17,6 @@ import equal from 'fast-deep-equal'
 import { teamLogic } from '../../teamLogic'
 import { dayjs } from 'lib/dayjs'
 import { loaders } from 'kea-loaders'
-import { urls } from 'scenes/urls'
 
 export type PersonUUID = string
 interface Params {
@@ -268,6 +266,19 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                     : sessionRecordings[0]
             },
         ],
+        nextSessionRecording: [
+            (s) => [s.activeSessionRecording, s.sessionRecordings],
+            (activeSessionRecording, sessionRecordings): Partial<SessionRecordingType> | undefined => {
+                if (!activeSessionRecording) {
+                    return
+                }
+                const activeSessionRecordingIndex = sessionRecordings.findIndex(
+                    (x) => x.id === activeSessionRecording.id
+                )
+                return sessionRecordings[activeSessionRecordingIndex + 1]
+            },
+        ],
+
         hasPrev: [(s) => [s.filters], (filters) => (filters.offset || 0) > 0],
         hasNext: [
             (s) => [s.sessionRecordingsResponse],
@@ -285,10 +296,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     }),
 
     actionToUrl(({ props, values }) => {
-        if (!props.updateSearchParams) {
-            return {}
-        }
-
         const buildURL = (
             replace: boolean
         ): [
@@ -299,9 +306,11 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 replace: boolean
             }
         ] => {
-            const params: Params = {
-                filters: values.filters,
-            }
+            const params: Params = props.updateSearchParams
+                ? {
+                      filters: values.filters,
+                  }
+                : {}
             const hashParams: HashParams = {
                 ...router.values.hashParams,
             }
@@ -323,25 +332,20 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
 
     urlToAction(({ actions, values, props }) => {
         const urlToAction = (_: any, params: Params, hashParams: HashParams): void => {
-            if (!props.updateSearchParams) {
-                return
-            }
             const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
             if (nulledSessionRecordingId !== values.selectedRecordingId) {
                 actions.setSelectedRecordingId(nulledSessionRecordingId)
             }
 
             const filters = params.filters
-            if (filters) {
+            if (filters && props.updateSearchParams) {
                 if (!equal(filters, values.filters)) {
                     actions.replaceFilters(filters)
                 }
             }
         }
         return {
-            [urls.sessionRecordings()]: urlToAction,
-            [urls.sessionRecordings(SessionRecordingsTabs.Recent)]: urlToAction,
-            [urls.person('*')]: urlToAction,
+            '*': urlToAction,
         }
     }),
 ])

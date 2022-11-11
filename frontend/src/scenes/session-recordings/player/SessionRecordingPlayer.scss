@@ -21,6 +21,7 @@
         height: 500px;
         min-height: 500px;
         padding: 0.5rem;
+        overflow: hidden;
 
         @include screen($md) {
             width: 100%;

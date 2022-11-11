@@ -2223,15 +2223,6 @@ export enum YesOrNoResponse {
     No = 'no',
 }
 
-export interface SessionRecordingPlayerProps {
-    sessionRecordingId: SessionRecordingId
-    playerKey: string
-    includeMeta?: boolean
-    recordingStartTime?: string
-    matching?: MatchedRecording[]
-    noBorder?: boolean
-}
-
 export enum FeatureFlagReleaseType {
     ReleaseToggle = 'Release toggle',
     Variants = 'Multiple variants',

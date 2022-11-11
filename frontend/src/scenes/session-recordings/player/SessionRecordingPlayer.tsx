@@ -1,13 +1,12 @@
 import './SessionRecordingPlayer.scss'
 import { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
 import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
 import { PlayerController } from 'scenes/session-recordings/player/PlayerController'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { PlayerInspector, PlayerInspectorPicker } from 'scenes/session-recordings/player/PlayerInspector'
 import { PlayerFilter } from 'scenes/session-recordings/player/list/PlayerFilter'
-import { SessionRecordingPlayerProps } from '~/types'
 import { PlayerMeta } from './PlayerMeta'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import clsx from 'clsx'
@@ -15,11 +14,13 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { SessionRecordingType } from '~/types'
+import { PlayerUpNext } from './PlayerUpNext'
 
 export function useFrameRef({
     sessionRecordingId,
     playerKey,
-}: SessionRecordingPlayerProps): React.MutableRefObject<HTMLDivElement | null> {
+}: SessionRecordingPlayerLogicProps): React.MutableRefObject<HTMLDivElement | null> {
     const { setRootFrame } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const frame = useRef<HTMLDivElement | null>(null)
     // Need useEffect to populate replayer on component paint
@@ -32,6 +33,12 @@ export function useFrameRef({
     return frame
 }
 
+export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
+    includeMeta?: boolean
+    noBorder?: boolean
+    nextSessionRecording?: Partial<SessionRecordingType>
+}
+
 export function SessionRecordingPlayer({
     sessionRecordingId,
     playerKey,
@@ -39,6 +46,7 @@ export function SessionRecordingPlayer({
     recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
     matching,
     noBorder = false,
+    nextSessionRecording,
 }: SessionRecordingPlayerProps): JSX.Element {
     const { handleKeyDown, setIsFullScreen, setPause } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey, recordingStartTime, matching })
@@ -92,6 +100,12 @@ export function SessionRecordingPlayer({
                 ) : null}
                 <div className="SessionRecordingPlayer__body">
                     <PlayerFrame sessionRecordingId={sessionRecordingId} ref={frame} playerKey={playerKey} />
+
+                    <PlayerUpNext
+                        sessionRecordingId={sessionRecordingId}
+                        playerKey={playerKey}
+                        nextSessionRecording={nextSessionRecording}
+                    />
                 </div>
                 <LemonDivider className="my-0" />
                 <PlayerController
