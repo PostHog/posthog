@@ -1,6 +1,5 @@
 from typing import Dict, List
 
-from posthog.constants import AvailableFeature
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_template import DashboardTemplate
 from posthog.models.dashboard_tile import DashboardTile, Text
@@ -12,12 +11,12 @@ DASHBOARD_COLORS: List[str] = ["white", "blue", "green", "purple", "black"]
 
 def update_using_template(dashboard: Dashboard, template: DashboardTemplate) -> None:
     dashboard.filters = template.dashboard_filters or {}
-    if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
-        for tag in template.tags:
-            created_tag, _ = Tag.objects.get_or_create(
-                name=tag, team_id=dashboard.team_id, defaults={"team_id": dashboard.team_id}
-            )
-            dashboard.tagged_items.create(tag_id=created_tag.id)
+
+    for tag in template.tags:
+        created_tag, _ = Tag.objects.get_or_create(
+            name=tag, team_id=dashboard.team_id, defaults={"team_id": dashboard.team_id}
+        )
+        dashboard.tagged_items.create(tag_id=created_tag.id)
 
     dashboard.description = template.dashboard_description
     dashboard.save(update_fields=["filters", "name", "description"])
@@ -51,7 +50,7 @@ def _create_insight_tile(dashboard: Dashboard, tile: Dict) -> None:
 def _create_text_tile(dashboard: Dashboard, tile: Dict) -> None:
     text = Text.objects.create(
         team=dashboard.team,
-        body=tile.get("text", None),
+        body=tile.get("body", None),
     )
     DashboardTile.objects.create(
         text=text,

@@ -164,10 +164,14 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         dashboard_id, dashboard_json = self.dashboard_api.update_text_tile(dashboard_id, updated_tile)
 
         assert len(dashboard_json["tiles"]) == 2
-        assert sorted([(t["id"], t["color"]) for t in dashboard_json["tiles"]], key=lambda item: item[0]) == [
-            (tile_ids[0], "purple"),
-            (tile_ids[1], None),
-        ]
+        sort_by_first_element = lambda item: item[0]
+        assert sorted([(t["id"], t["color"]) for t in dashboard_json["tiles"]], key=sort_by_first_element) == sorted(
+            [
+                (tile_ids[0], "purple"),
+                (tile_ids[1], None),
+            ],
+            key=sort_by_first_element,
+        )
 
     def test_can_remove_text_tiles_from_dashboard(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})

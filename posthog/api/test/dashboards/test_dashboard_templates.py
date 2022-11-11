@@ -38,6 +38,8 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["creation_mode"], "template")
         self.assertEqual(len(response.json()["tiles"]), 2)
+        self.assertEqual(response.json()["tags"], [])  # not licensed so no tags
+        self.assertEqual(response.json()["tiles"][0]["text"]["body"], "Test template text")
 
     def _create_template(self, name: str = "Test template") -> HttpResponse:
         create_response = self.client.post(
