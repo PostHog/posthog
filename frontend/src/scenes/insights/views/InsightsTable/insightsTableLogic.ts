@@ -23,9 +23,13 @@ export const insightsTableLogic = kea<insightsTableLogicType>({
     }),
     selectors: () => ({
         // Only allow table aggregation options when the math is total volume otherwise double counting will happen when the math is set to uniques
+        // Except when view type is Table
         showTotalCount: [
             () => [(_, props) => props.filters],
             (filters: Partial<FilterType>) => {
+                if (filters.display == ChartDisplayType.ActionsTable) {
+                    return true
+                }
                 return (
                     filters.display == ChartDisplayType.ActionsTable ||
                     (filters.actions?.every(

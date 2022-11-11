@@ -251,7 +251,6 @@ export function ProjectSettings(): JSX.Element {
                     </>
                 )}
                 <LemonDivider className="my-6" />
-                <div id="permitted-domains" /> {/** DEPRECATED: Remove after Jun 1, 2022 */}
                 <div id="authorized-urls" />
                 <h2 className="subtitle" id="urls">
                     Authorized URLs
@@ -261,7 +260,7 @@ export function ProjectSettings(): JSX.Element {
                     <b>
                         <Link to={urls.toolbarLaunch()}>Toolbar</Link> will automatically launch
                     </b>{' '}
-                    (if you're logged in) and where we'll <b>record sessions</b> (if <a href="#recordings">enabled</a>).
+                    (if you're logged in).
                 </p>
                 <p>
                     <b>Domains and wilcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).

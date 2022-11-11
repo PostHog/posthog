@@ -1,10 +1,12 @@
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconPlus } from 'lib/components/icons'
-import { useActions } from 'kea'
-import { sessionRecordingsLogic } from 'scenes/session-recordings/sessionRecordingsLogic'
+import { useActions, useValues } from 'kea'
+import { SessionRecordingsTabs } from '~/types'
+import { savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
 
-export function SavedSessionRecordingPlaylistsEmptyState(): JSX.Element {
-    const { saveNewPlaylist } = useActions(sessionRecordingsLogic)
+export function SavedSessionRecordingPlaylistsEmptyState({ tab }: { tab: SessionRecordingsTabs }): JSX.Element {
+    const { newPlaylistLoading } = useValues(savedSessionRecordingPlaylistsLogic({ tab }))
+    const { createPlaylist } = useActions(savedSessionRecordingPlaylistsLogic({ tab }))
 
     return (
         <div className="flex items-center justify-center">
@@ -16,8 +18,9 @@ export function SavedSessionRecordingPlaylistsEmptyState(): JSX.Element {
                     type="primary"
                     data-attr="add-session-playlist-button-empty-state"
                     icon={<IconPlus />}
+                    loading={newPlaylistLoading}
                     onClick={() => {
-                        saveNewPlaylist({})
+                        createPlaylist()
                     }}
                 >
                     New Playlist
