@@ -12,6 +12,7 @@ import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import RegionSelect from '../../../RegionSelect'
+import { IconArrowLeft } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: SignupForm,
@@ -24,10 +25,21 @@ export function SignupForm(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const { isSignupSubmitting, signupManualErrors, panel } = useValues(signupLogic)
+    const { setPanel } = useActions(signupLogic)
 
     return !user ? (
         <div className="space-y-2">
-            <h2>{!preflight?.demo ? `${panel} TEST` : 'Explore PostHog yourself'}</h2>
+            {panel !== SignupFormSteps.START ? (
+                <LemonButton
+                    type="tertiary"
+                    icon={<IconArrowLeft />}
+                    onClick={() => setPanel(SignupFormSteps.START)}
+                    className="-ml-4 -mt-4 mb-4"
+                >
+                    Go back
+                </LemonButton>
+            ) : null}
+            <h2>{!preflight?.demo ? panel : 'Explore PostHog yourself'}</h2>
             {!preflight?.demo && (preflight?.cloud || preflight?.initiated) && (
                 // If we're in the demo environment, login is unified with signup and it's passwordless
                 // For now, if you're not on Cloud, you wouldn't see this page,
@@ -54,7 +66,7 @@ export function SignupForm(): JSX.Element | null {
 
 export function SignupFormPanel1(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
-    const { isSignupSubmitting, signup } = useValues(signupLogic)
+    const { isSignupSubmitting, signupValidationErrors, signup } = useValues(signupLogic)
     const { setPanel } = useActions(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -103,7 +115,11 @@ export function SignupFormPanel1(): JSX.Element | null {
                 type="primary"
                 center
                 data-attr="signup-start"
-                onClick={() => setPanel(SignupFormSteps.FINISH)}
+                onClick={() => {
+                    if (!signupValidationErrors.email && !signupValidationErrors.password) {
+                        setPanel(SignupFormSteps.FINISH)
+                    }
+                }}
             >
                 Continue
             </LemonButton>
@@ -139,7 +155,7 @@ export function SignupFormPanel2(): JSX.Element | null {
                     disabled={isSignupSubmitting}
                 />
             </Field>
-            <Field name="referral_source" label="What is your role?">
+            <Field name="role" label="What is your role?">
                 <LemonSelect
                     fullWidth
                     options={[
