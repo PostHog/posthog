@@ -78,8 +78,10 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             actions.submitNewDashboard()
         },
         showNewDashboardModal: () => {
-            actions.resetNewDashboard()
             actions.getAllDashboardTemplates()
+        },
+        hideNewDashboardModal: () => {
+            actions.resetNewDashboard()
         },
         createAndGoToDashboard: () => {
             actions.setNewDashboardValue('show', true)

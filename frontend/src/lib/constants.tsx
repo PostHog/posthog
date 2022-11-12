@@ -133,6 +133,7 @@ export const FEATURE_FLAGS = {
     VARIANT_OVERRIDES: 'variant-overrides', // owner: @neilkakkar
     RECORDING_PLAYLISTS: 'recording-playlists', // owner: #team-recordings
     ONBOARDING_V2_EXPERIMENT: 'onboarding-v2-experiment', // owner: #team-growth
+    DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
