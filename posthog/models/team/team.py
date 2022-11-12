@@ -9,8 +9,9 @@ from django.db import models
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
-from posthog.helpers.dashboard_templates import create_dashboard_from_template
+from posthog.helpers.dashboard_templates import create_dashboard_from_template, create_default_team_templates
 from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_template import DashboardTemplate
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team.util import person_on_events_ready
 from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
@@ -58,11 +59,15 @@ class TeamManager(models.Manager):
     def create_with_data(self, user: Any = None, default_dashboards: bool = True, **kwargs) -> "Team":
         kwargs["test_account_filters"] = self.set_test_account_filters(kwargs.get("organization"))
         team = Team.objects.create(**kwargs)
+        DashboardTemplate.objects.bulk_create(create_default_team_templates(team))
 
         # Create default dashboards (skipped for demo projects)
         if default_dashboards:
             dashboard = Dashboard.objects.create(name="My App Dashboard", pinned=True, team=team)
-            create_dashboard_from_template("DEFAULT_APP", dashboard)
+            template_id = (
+                DashboardTemplate.objects.filter(template_name="Product analytics").values_list("id", flat=True).first()
+            )
+            create_dashboard_from_template(str(template_id), dashboard)
             team.primary_dashboard = dashboard
             team.save()
         return team
