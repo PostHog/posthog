@@ -12,3 +12,4 @@ class DashboardTemplate(UUIDModel):
     dashboard_filters: models.JSONField = models.JSONField(null=True)
     tiles: models.JSONField = models.JSONField(default=list)
     tags: ArrayField = ArrayField(models.CharField(max_length=255), default=list)
+    deleted: models.BooleanField = models.BooleanField(default=False)

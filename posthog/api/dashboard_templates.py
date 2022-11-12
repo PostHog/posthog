@@ -2,6 +2,7 @@ from typing import Dict, Type
 
 from rest_framework import authentication, mixins, serializers, viewsets
 
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models import DashboardTemplate, Team
@@ -75,7 +76,7 @@ class DashboardTemplatesViewSet(
     mixins.CreateModelMixin,
     mixins.ListModelMixin,
     mixins.UpdateModelMixin,
-    # mixins.DestroyModelMixin,
+    ForbidDestroyModel,
 ):
     queryset = DashboardTemplate.objects.all()
     serializer_class = DashboardTemplateSerializer
