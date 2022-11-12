@@ -1,6 +1,13 @@
 import { randomString } from 'cypress/support/random'
 import { urls } from 'scenes/urls'
-import { insight, savedInsights, dashboards, dashboard, duplicateDashboardFromMenu } from 'cypress/productAnalytics'
+import {
+    insight,
+    savedInsights,
+    dashboards,
+    dashboard,
+    duplicateDashboardFromMenu,
+    createInsight,
+} from 'cypress/productAnalytics'
 
 describe('Dashboard', () => {
     beforeEach(() => {
@@ -103,10 +110,14 @@ describe('Dashboard', () => {
         it('create a new template', () => {
             const dashboardName = randomString('dashboard-')
             const dashboardFromTemplate = randomString('dashboard-from-template-')
-            const insightNameOne = randomString('insight-one')
-            const insightNameTwo = randomString('insight-two')
-            const insightNameThree = randomString('insight-three')
+            const insightNameOne = randomString('insight-one-')
+            const insightNameTwo = randomString('insight-two-')
+            const insightNameThree = randomString('insight-three-')
             const templateName = randomString('template-')
+
+            createInsight(insightNameOne)
+            createInsight(insightNameTwo)
+            createInsight(insightNameThree)
 
             cy.visit(urls.savedInsights()) // get insights list into turbo mode
             cy.clickNavMenu('dashboards')
@@ -133,6 +144,7 @@ describe('Dashboard', () => {
             cy.get('[data-attr="save-dashboard-template-name"]').type(templateName)
             cy.get('[data-attr="save-dashboard-template-submit"]').click()
 
+            cy.clickNavMenu('dashboards')
             dashboards.createDashboardFromTemplate(dashboardFromTemplate, templateName)
             cy.get('.InsightCard').its('length').should('eql', 3)
         })
