@@ -11,6 +11,7 @@ import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { LemonModal } from 'lib/components/LemonModal'
 import { Form } from 'kea-forms'
 import { dashboardTemplateLogic } from 'scenes/dashboard/dashboardTemplates/dashboardTemplateLogic'
+import { slugify } from 'lib/utils'
 
 export function NewDashboardModal(): JSX.Element {
     const { hideNewDashboardModal, createAndGoToDashboard } = useActions(newDashboardLogic)
@@ -22,7 +23,7 @@ export function NewDashboardModal(): JSX.Element {
         return {
             value: template.id,
             label: template.template_name,
-            'data-attr': `dashboard-template-${template.id}`,
+            'data-attr': `dashboard-template-${slugify(template.template_name)}`,
         }
     })
 
