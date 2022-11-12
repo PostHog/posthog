@@ -42,7 +42,7 @@ export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { setSearchTerm, setCurrentTab } = useActions(dashboardsLogic)
-    const { dashboards, searchTerm, currentTab } = useValues(dashboardsLogic)
+    const { dashboards, filteredDashboardTemplates, searchTerm, currentTab } = useValues(dashboardsLogic)
     const { showNewDashboardModal, addDashboard, setNewDashboardValue } = useActions(newDashboardLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -266,7 +266,7 @@ export function Dashboards(): JSX.Element {
                 <LemonTable
                     data-attr="dashboards-template-table"
                     pagination={{ pageSize: 100 }}
-                    dataSource={dashboards as DashboardTemplateListing[]}
+                    dataSource={filteredDashboardTemplates}
                     rowKey="template_name"
                     columns={
                         [

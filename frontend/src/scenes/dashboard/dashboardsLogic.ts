@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import type { dashboardsLogicType } from './dashboardsLogicType'
-import { DashboardTemplateListing, DashboardType } from '~/types'
+import { DashboardType } from '~/types'
 import { uniqueBy } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 import { dashboardTemplateLogic } from 'scenes/dashboard/dashboardTemplates/dashboardTemplateLogic'
@@ -37,42 +37,51 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
         ],
     },
     selectors: {
+        filteredDashboardTemplates: [
+            (selectors) => [selectors.dashboardTemplates, selectors.searchTerm],
+            (dashboardTemplates, searchTerm) => {
+                if (!searchTerm) {
+                    return dashboardTemplates
+                }
+                return new Fuse(dashboardTemplates, {
+                    keys: ['template_name'],
+                    threshold: 0.3,
+                })
+                    .search(searchTerm)
+                    .map((result) => result.item)
+            },
+        ],
         dashboards: [
             (selectors) => [
                 dashboardsModel.selectors.nameSortedDashboards,
                 selectors.searchTerm,
                 selectors.currentTab,
                 selectors.user,
-                selectors.dashboardTemplates,
             ],
-            (
-                dashboards,
-                searchTerm,
-                currentTab,
-                user,
-                dashboardTemplates
-            ): DashboardType[] | DashboardTemplateListing[] => {
-                let listToFilter: DashboardType[] | DashboardTemplateListing[]
+            (dashboards, searchTerm, currentTab, user): DashboardType[] => {
+                let listToFilter: DashboardType[]
 
                 if (currentTab === DashboardsTab.Templates) {
-                    listToFilter = dashboardTemplates
+                    return []
                 } else {
                     listToFilter = dashboards
                         .filter((d) => !d.deleted)
                         .sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'))
                     if (currentTab === DashboardsTab.Pinned) {
-                        dashboards = dashboards.filter((d) => d.pinned)
+                        listToFilter = dashboards.filter((d) => d.pinned)
                     } else if (currentTab === DashboardsTab.Shared) {
-                        dashboards = dashboards.filter((d) => d.is_shared)
+                        listToFilter = dashboards.filter((d) => d.is_shared)
                     } else if (currentTab === DashboardsTab.Yours) {
-                        dashboards = dashboards.filter((d) => d.created_by && user && d.created_by?.uuid === user.uuid)
+                        listToFilter = dashboards.filter(
+                            (d) => d.created_by && user && d.created_by?.uuid === user.uuid
+                        )
                     }
                 }
                 if (!searchTerm) {
                     return listToFilter
                 }
-                return new Fuse(dashboards, {
-                    keys: ['key', 'name', 'template_name', 'description'],
+                return new Fuse(listToFilter, {
+                    keys: ['key', 'name', 'description'],
                     threshold: 0.3,
                 })
                     .search(searchTerm)
