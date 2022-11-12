@@ -131,6 +131,7 @@ describe('Dashboard', () => {
             cy.get('[data-attr="dashboard-three-dots-options-menu"]').click()
             cy.contains('.LemonButton', 'Save as template').click()
             cy.get('[data-attr="save-dashboard-template-name"]').type(templateName)
+            cy.get('[data-attr="save-dashboard-template-submit"]').click()
 
             dashboards.createDashboardFromTemplate(dashboardFromTemplate, templateName)
             cy.get('.InsightCard').its('length').should('eql', 3)
