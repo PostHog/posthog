@@ -53,11 +53,11 @@ export const insight = {
 }
 
 export const dashboards = {
-    createDashboardFromDefaultTemplate: (dashboardName) => {
+    createDashboardFromDefaultTemplate: (dashboardName, templateSelector = 'productAnalytics') => {
         cy.get('[data-attr="new-dashboard"]').click()
         cy.get('[data-attr=dashboard-name-input]').clear().type(dashboardName)
         cy.get('[data-attr=copy-from-template]').click()
-        cy.get('[data-attr=dashboard-select-default-app]').click()
+        cy.get(`[data-attr=dashboard-template-${templateSelector}]`).click()
 
         cy.get('[data-attr=dashboard-submit-and-go]').click()
 

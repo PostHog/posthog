@@ -86,17 +86,19 @@ describe('Dashboard', () => {
         cy.get('button').contains('Pin dashboard').should('exist')
     })
 
-    it('Create dashboard from a template', () => {
-        const TEST_DASHBOARD_NAME = 'XDefault'
+    describe('dashboard templates', () => {
+        it('Create dashboard from a template', () => {
+            const TEST_DASHBOARD_NAME = 'XDefault'
 
-        dashboards.createDashboardFromDefaultTemplate(TEST_DASHBOARD_NAME)
+            dashboards.createDashboardFromDefaultTemplate(TEST_DASHBOARD_NAME)
 
-        cy.get('.InsightCard').its('length').should('be.gte', 2)
-        // Breadcrumbs work
-        cy.get('[data-attr=breadcrumb-0]').should('contain', 'Hogflix')
-        cy.get('[data-attr=breadcrumb-1]').should('contain', 'Hogflix Demo App')
-        cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Dashboards')
-        cy.get('[data-attr=breadcrumb-3]').should('have.text', TEST_DASHBOARD_NAME)
+            cy.get('.InsightCard').its('length').should('be.gte', 2)
+            // Breadcrumbs work
+            cy.get('[data-attr=breadcrumb-0]').should('contain', 'Hogflix')
+            cy.get('[data-attr=breadcrumb-1]').should('contain', 'Hogflix Demo App')
+            cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Dashboards')
+            cy.get('[data-attr=breadcrumb-3]').should('have.text', TEST_DASHBOARD_NAME)
+        })
     })
 
     it('Click on a dashboard item dropdown and view graph', () => {
