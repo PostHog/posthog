@@ -31,13 +31,10 @@ export const insightsTableLogic = kea<insightsTableLogicType>({
                     return true
                 }
                 return (
-                    filters.display == ChartDisplayType.ActionsTable ||
-                    (filters.actions?.every(
+                    filters.actions?.every(
                         (entity) => entity.math === 'total' || entity.math === 'sum' || !entity.math
                     ) &&
-                        filters.events?.every(
-                            (entity) => entity.math === 'total' || entity.math === 'sum' || !entity.math
-                        ))
+                    filters.events?.every((entity) => entity.math === 'total' || entity.math === 'sum' || !entity.math)
                 )
             },
         ],
