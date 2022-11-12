@@ -49,7 +49,7 @@ export function Dashboards(): JSX.Element {
     const { closePrompts } = useActions(inAppPromptLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
-    const { renameDashboardTemplate } = useActions(dashboardTemplateLogic)
+    const { renameDashboardTemplate, deleteDashboardTemplate } = useActions(dashboardTemplateLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -312,7 +312,7 @@ export function Dashboards(): JSX.Element {
 
                                                     <LemonButton
                                                         onClick={() => {
-                                                            console.log('delete')
+                                                            deleteDashboardTemplate(id)
                                                         }}
                                                         fullWidth
                                                         status="danger"

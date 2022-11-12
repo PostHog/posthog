@@ -88,12 +88,21 @@ export const dashboardTemplateLogic = kea<dashboardTemplateLogicType>([
                         ...templateFrom(dashboard),
                     })
                 },
+                deleteDashboardTemplate: async (id: string) => {
+                    await api.dashboardTemplates.softDelete(id)
+                    return null
+                },
             },
         ],
     }),
     listeners(({ actions }) => ({
         saveDashboardTemplateSuccess: () => {
             lemonToast.success('Template saved successfully')
+            actions.getAllDashboardTemplates()
+        },
+        deleteDashboardTemplateSuccess: () => {
+            lemonToast.success('Template deleted successfully')
+            actions.getAllDashboardTemplates()
         },
         renameDashboardTemplate: async ({ id, currentName }) => {
             console.log('here?')

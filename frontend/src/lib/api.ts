@@ -275,6 +275,13 @@ class ApiRequest {
         return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
     }
 
+    public dashboardTemplate(id: string, basic: boolean = false, teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('dashboard_templates')
+            .addPathComponent(id)
+            .withQueryString(toParams({ basic: basic ? 'true' : 'false' }))
+    }
+
     public dashboardTemplates(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('dashboard_templates')
     }
@@ -897,6 +904,9 @@ const api = {
     dashboardTemplates: {
         async create(data: Record<string, any>): Promise<any> {
             return await new ApiRequest().dashboardTemplates().create({ data })
+        },
+        async softDelete(id: string): Promise<any> {
+            return await new ApiRequest().dashboardTemplate(id, true).update({ data: { deleted: true } })
         },
         async list(): Promise<PaginatedResponse<DashboardTemplateListing>> {
             return await new ApiRequest().dashboardTemplates().get()

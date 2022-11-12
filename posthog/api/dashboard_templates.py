@@ -11,17 +11,36 @@ from posthog.utils import str_to_bool
 
 class DashboardTemplateBasicSerializer(serializers.Serializer):
     id: serializers.UUIDField = serializers.UUIDField(read_only=True)
-    template_name: serializers.CharField = serializers.CharField(max_length=400)
+    template_name: serializers.CharField = serializers.CharField(max_length=400, required=False)
+    deleted: serializers.BooleanField = serializers.BooleanField(write_only=True, default=False, required=False)
 
     def validate(self, data: Dict) -> Dict:
-        template_name = data.get("template_name", None)
-        if not template_name or not isinstance(template_name, str) or str.isspace(template_name):
-            raise serializers.ValidationError("Must provide a template name")
+        if "template_name" in data:
+            template_name = data.get("template_name", None)
+            if not template_name or not isinstance(template_name, str) or str.isspace(template_name):
+                raise serializers.ValidationError("Must provide a template name")
+
+        if "deleted" in data:
+            deleted = data.get("deleted", None)
+            if not isinstance(str_to_bool(deleted), bool):
+                raise serializers.ValidationError("Must provide a valid deleted value")
+
         return data
 
     def update(self, instance: DashboardTemplate, validated_data: dict) -> DashboardTemplate:
-        instance.template_name = validated_data.get("template_name")
-        instance.save(update_fields=["template_name"])
+        updated_fields = []
+
+        if "template_name" in validated_data:
+            instance.template_name = validated_data["template_name"]
+            updated_fields.append("template_name")
+
+        if "deleted" in validated_data:
+            instance.deleted = validated_data["deleted"]
+            updated_fields.append("deleted")
+
+        if updated_fields:
+            instance.save(update_fields=updated_fields)
+
         return instance
 
 
@@ -92,4 +111,4 @@ class DashboardTemplatesViewSet(
         return super().get_serializer_class()
 
     def get_queryset(self):
-        return self.filter_queryset_by_parents_lookups(DashboardTemplate.objects.all())
+        return self.filter_queryset_by_parents_lookups(DashboardTemplate.objects.exclude(deleted=True).all())

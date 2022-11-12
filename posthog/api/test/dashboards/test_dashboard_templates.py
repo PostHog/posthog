@@ -51,6 +51,32 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["template_name"], "a new name, for a new age")
 
+    def test_cannot_rename_template_with_blank_name(self) -> None:
+        a_response = self._create_template("a")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboard_templates/{a_response.json().get('id')}?basic=true",
+            {"template_name": "     "},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    def test_soft_delete_template(self) -> None:
+        a_response = self._create_template("a")
+        self._create_template("b")
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/dashboard_templates/?basic=true")
+        assert len(list_response.json()["results"]) == 2
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboard_templates/{a_response.json().get('id')}?basic=true",
+            {"deleted": "true"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/dashboard_templates/?basic=true")
+        assert len(list_response.json()["results"]) == 1
+        assert list_response.json()["results"][0]["template_name"] == "b"
+
     def _create_template(self, name: str = "Test template") -> HttpResponse:
         create_response = self.client.post(
             f"/api/projects/{self.team.id}/dashboard_templates/",
