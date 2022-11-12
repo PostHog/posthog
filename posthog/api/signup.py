@@ -30,6 +30,7 @@ class SignupSerializer(serializers.Serializer):
     email: serializers.Field = serializers.EmailField()
     password: serializers.Field = serializers.CharField(allow_null=True, required=True)
     organization_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    role_at_organization: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
     referral_source: serializers.Field = serializers.CharField(max_length=1000, required=False, allow_blank=True)
 
@@ -63,6 +64,7 @@ class SignupSerializer(serializers.Serializer):
         is_instance_first_user: bool = not User.objects.exists()
 
         organization_name = validated_data.pop("organization_name", validated_data["first_name"])
+        role_at_organization = validated_data.pop("role_at_organization", "")
         referral_source = validated_data.pop("referral_source", "")
 
         try:
@@ -89,6 +91,7 @@ class SignupSerializer(serializers.Serializer):
             backend_processor="OrganizationSignupSerializer",
             user_analytics_metadata=user.get_analytics_metadata(),
             org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
+            role_at_organization=role_at_organization,
             referral_source=referral_source,
         )
 
@@ -158,6 +161,8 @@ class InviteSignupSerializer(serializers.Serializer):
         user: Optional[User] = None
         is_new_user: bool = False
 
+        role_at_organization = validated_data.pop("role_at_organization", "")
+
         if self.context["request"].user.is_authenticated:
             user = cast(User, self.context["request"].user)
 
@@ -199,6 +204,7 @@ class InviteSignupSerializer(serializers.Serializer):
                 backend_processor="OrganizationInviteSignupSerializer",
                 user_analytics_metadata=user.get_analytics_metadata(),
                 org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
+                role_at_organization=role_at_organization,
                 referral_source="signed up from invite link",
             )
 
@@ -253,6 +259,7 @@ class SocialSignupSerializer(serializers.Serializer):
 
     organization_name: serializers.Field = serializers.CharField(max_length=128)
     first_name: serializers.Field = serializers.CharField(max_length=128)
+    role_at_organization: serializers.Field = serializers.CharField(max_length=123, required=False, allow_blank=True)
 
     def create(self, validated_data, **kwargs):
         request = self.context["request"]
@@ -264,10 +271,17 @@ class SocialSignupSerializer(serializers.Serializer):
 
         email = request.session.get("email")
         organization_name = validated_data["organization_name"]
+        role_at_organization = validated_data["role_at_organization"]
         first_name = validated_data["first_name"]
 
         serializer = SignupSerializer(
-            data={"organization_name": organization_name, "first_name": first_name, "email": email, "password": None},
+            data={
+                "organization_name": organization_name,
+                "first_name": first_name,
+                "email": email,
+                "password": None,
+                "role_at_organization": role_at_organization,
+            },
             context={"request": request},
         )
         serializer.is_social_signup = True
