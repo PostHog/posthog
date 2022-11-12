@@ -50,7 +50,7 @@ export function SaveDashboardTemplateModal(): JSX.Element {
                 className="space-y-2"
             >
                 <Field name="templateName" label={'Template name'}>
-                    <LemonInput data-attr={'save-dashboard-template-name'} />
+                    <LemonInput autoFocus={true} data-attr={'save-dashboard-template-name'} />
                 </Field>
             </Form>
         </LemonModal>

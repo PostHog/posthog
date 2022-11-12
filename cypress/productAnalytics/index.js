@@ -14,6 +14,9 @@ export const savedInsights = {
         cy.get('[data-attr=saved-insights-new-insight-dropdown]').click()
         cy.get(`[data-attr-insight-type="${insightType || 'TRENDS'}"`).click()
     },
+    visit: (insightName) => {
+        cy.contains('.saved-insights table tr', insightName).should('exist').click()
+    },
 }
 
 export const insight = {
@@ -53,7 +56,7 @@ export const insight = {
 }
 
 export const dashboards = {
-    createDashboardFromDefaultTemplate: (dashboardName, templateSelector = 'productAnalytics') => {
+    createDashboardFromTemplate: (dashboardName, templateSelector = 'productAnalytics') => {
         cy.get('[data-attr="new-dashboard"]').click()
         cy.get('[data-attr=dashboard-name-input]').clear().type(dashboardName)
         cy.get('[data-attr=copy-from-template]').click()

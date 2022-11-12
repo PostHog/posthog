@@ -56,7 +56,7 @@ describe('Dashboard', () => {
     })
 
     it('Share dashboard', () => {
-        dashboards.createDashboardFromDefaultTemplate('to be shared')
+        dashboards.createDashboardFromTemplate('to be shared')
 
         cy.get('.InsightCard').should('exist')
 
@@ -88,9 +88,9 @@ describe('Dashboard', () => {
 
     describe('dashboard templates', () => {
         it('Create dashboard from a template', () => {
-            const TEST_DASHBOARD_NAME = 'XDefault'
+            const TEST_DASHBOARD_NAME = randomString('XDefault')
 
-            dashboards.createDashboardFromDefaultTemplate(TEST_DASHBOARD_NAME)
+            dashboards.createDashboardFromTemplate(TEST_DASHBOARD_NAME)
 
             cy.get('.InsightCard').its('length').should('be.gte', 2)
             // Breadcrumbs work
@@ -98,6 +98,42 @@ describe('Dashboard', () => {
             cy.get('[data-attr=breadcrumb-1]').should('contain', 'Hogflix Demo App')
             cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Dashboards')
             cy.get('[data-attr=breadcrumb-3]').should('have.text', TEST_DASHBOARD_NAME)
+        })
+
+        it('create a new template', () => {
+            const dashboardName = randomString('dashboard-')
+            const dashboardFromTemplate = randomString('dashboard-from-template-')
+            const insightNameOne = randomString('insight-one')
+            const insightNameTwo = randomString('insight-two')
+            const insightNameThree = randomString('insight-three')
+            const templateName = randomString('template-')
+
+            cy.visit(urls.savedInsights()) // get insights list into turbo mode
+            cy.clickNavMenu('dashboards')
+
+            dashboards.createAndGoToEmptyDashboard(dashboardName)
+
+            cy.visit(urls.savedInsights())
+            savedInsights.visit(insightNameOne)
+            insight.addInsightToDashboard(dashboardName)
+
+            cy.visit(urls.savedInsights())
+            savedInsights.visit(insightNameTwo)
+            insight.addInsightToDashboard(dashboardName)
+
+            cy.visit(urls.savedInsights())
+            savedInsights.visit(insightNameThree)
+            insight.addInsightToDashboard(dashboardName)
+
+            // create the template
+            cy.clickNavMenu('dashboards')
+            dashboards.visitDashboard(dashboardName)
+            cy.get('[data-attr="dashboard-three-dots-options-menu"]').click()
+            cy.contains('.LemonButton', 'Save as template').click()
+            cy.get('[data-attr="save-dashboard-template-name"]').type(templateName)
+
+            dashboards.createDashboardFromTemplate(dashboardFromTemplate, templateName)
+            cy.get('.InsightCard').its('length').should('eql', 3)
         })
     })
 
