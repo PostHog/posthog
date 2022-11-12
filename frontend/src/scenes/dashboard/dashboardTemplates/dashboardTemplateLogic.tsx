@@ -105,7 +105,6 @@ export const dashboardTemplateLogic = kea<dashboardTemplateLogicType>([
             actions.getAllDashboardTemplates()
         },
         renameDashboardTemplate: async ({ id, currentName }) => {
-            console.log('here?')
             prompt({ key: 'rename-dashboard-template' }).actions.prompt({
                 title: 'Rename template',
                 placeholder: 'Please enter the new name',
