@@ -183,7 +183,7 @@ export const DashboardsTable = (): JSX.Element => {
                 )
             },
         },
-    ] as LemonTableColumns<DashboardType>
+    ]
 
     return (
         <LemonTable
