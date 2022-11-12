@@ -41,6 +41,16 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["tags"], [])  # not licensed so no tags
         self.assertEqual(response.json()["tiles"][0]["text"]["body"], "Test template text")
 
+    def test_rename_template(self) -> None:
+        a_response = self._create_template("a")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboard_templates/{a_response.json().get('id')}?basic=true",
+            {"template_name": "a new name, for a new age"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["template_name"], "a new name, for a new age")
+
     def _create_template(self, name: str = "Test template") -> HttpResponse:
         create_response = self.client.post(
             f"/api/projects/{self.team.id}/dashboard_templates/",

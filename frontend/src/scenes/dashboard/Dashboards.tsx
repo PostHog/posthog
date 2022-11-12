@@ -31,6 +31,7 @@ import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { dashboardTemplateLogic } from 'scenes/dashboard/dashboardTemplates/dashboardTemplateLogic'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -48,6 +49,7 @@ export function Dashboards(): JSX.Element {
     const { closePrompts } = useActions(inAppPromptLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
+    const { renameDashboardTemplate } = useActions(dashboardTemplateLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -280,7 +282,7 @@ export function Dashboards(): JSX.Element {
                             },
                             {
                                 width: 0,
-                                render: function RenderActions(_, { id }: DashboardTemplateListing) {
+                                render: function RenderActions(_, { id, template_name }: DashboardTemplateListing) {
                                     return (
                                         <More
                                             overlay={
@@ -298,7 +300,8 @@ export function Dashboards(): JSX.Element {
                                                     <LemonButton
                                                         status="stealth"
                                                         onClick={() => {
-                                                            console.log('rename')
+                                                            console.log('boo!')
+                                                            renameDashboardTemplate(id, template_name)
                                                         }}
                                                         fullWidth
                                                     >

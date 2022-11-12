@@ -1,10 +1,12 @@
-import { afterMount, kea, listeners, path } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path } from 'kea'
 
 import type { dashboardTemplateLogicType } from './dashboardTemplateLogicType'
 import { loaders } from 'kea-loaders'
 import { DashboardTemplateListing, DashboardType, FilterType, Tileable } from '~/types'
 import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
+import { prompt } from 'lib/logic/prompt'
+import { teamLogic } from 'scenes/teamLogic'
 
 type TextTilePayload = {
     type: 'TEXT'
@@ -56,6 +58,10 @@ const templateFrom = (dashboard: DashboardType): DashboardTemplateRequest => ({
 
 export const dashboardTemplateLogic = kea<dashboardTemplateLogicType>([
     path(['scenes', 'dashboard', 'dashboardTemplates', 'dashboardTemplateLogic']),
+    connect({ logic: [prompt({ key: 'rename-dashboard-template' })] }),
+    actions({
+        renameDashboardTemplate: (id: string, currentName: string) => ({ id, currentName }),
+    }),
     loaders({
         dashboardTemplates: [
             [] as DashboardTemplateListing[],
@@ -85,9 +91,32 @@ export const dashboardTemplateLogic = kea<dashboardTemplateLogicType>([
             },
         ],
     }),
-    listeners(() => ({
+    listeners(({ actions }) => ({
         saveDashboardTemplateSuccess: () => {
             lemonToast.success('Template saved successfully')
+        },
+        renameDashboardTemplate: async ({ id, currentName }) => {
+            console.log('here?')
+            prompt({ key: 'rename-dashboard-template' }).actions.prompt({
+                title: 'Rename template',
+                placeholder: 'Please enter the new name',
+                value: currentName,
+                error: 'You must enter a template name',
+                success: async (name: string) => {
+                    await api.update(
+                        `api/projects/${teamLogic.values.currentTeamId}/dashboard_templates/${id}?basic=true`,
+                        {
+                            template_name: name,
+                        }
+                    )
+                    lemonToast.success(
+                        <>
+                            Renamed template from <b>{currentName}</b> to <b>{name}</b>
+                        </>
+                    )
+                    actions.getAllDashboardTemplates()
+                },
+            })
         },
     })),
     afterMount(({ actions }) => {

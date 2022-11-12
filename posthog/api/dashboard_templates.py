@@ -12,6 +12,17 @@ class DashboardTemplateBasicSerializer(serializers.Serializer):
     id: serializers.UUIDField = serializers.UUIDField(read_only=True)
     template_name: serializers.CharField = serializers.CharField(max_length=400)
 
+    def validate(self, data: Dict) -> Dict:
+        template_name = data.get("template_name", None)
+        if not template_name or not isinstance(template_name, str) or str.isspace(template_name):
+            raise serializers.ValidationError("Must provide a template name")
+        return data
+
+    def update(self, instance: DashboardTemplate, validated_data: dict) -> DashboardTemplate:
+        instance.template_name = validated_data.get("template_name")
+        instance.save(update_fields=["template_name"])
+        return instance
+
 
 class DashboardTemplateSerializer(serializers.Serializer):
     id: serializers.UUIDField = serializers.UUIDField(read_only=True)
@@ -23,7 +34,8 @@ class DashboardTemplateSerializer(serializers.Serializer):
     tags: serializers.ListField = serializers.ListField(child=serializers.CharField(), allow_null=True)
 
     def validate(self, data: Dict) -> Dict:
-        if not data["template_name"] or str.isspace(data.get("template_name")):
+        template_name = data.get("template_name", None)
+        if not template_name or not isinstance(template_name, str) or str.isspace(template_name):
             raise serializers.ValidationError("Must provide a template name")
 
         if not data.get("source_dashboard"):
@@ -62,7 +74,7 @@ class DashboardTemplatesViewSet(
     viewsets.GenericViewSet,
     mixins.CreateModelMixin,
     mixins.ListModelMixin,
-    # mixins.UpdateModelMixin,
+    mixins.UpdateModelMixin,
     # mixins.DestroyModelMixin,
 ):
     queryset = DashboardTemplate.objects.all()
@@ -74,7 +86,7 @@ class DashboardTemplatesViewSet(
     ]
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
-        if (self.action == "list") and str_to_bool(self.request.query_params.get("basic", "0")):
+        if str_to_bool(self.request.query_params.get("basic", "0")):
             return DashboardTemplateBasicSerializer
         return super().get_serializer_class()
 
