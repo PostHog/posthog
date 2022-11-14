@@ -74,7 +74,7 @@ class SessionRecordingList(EventQuery):
             MAX(last_event_timestamp) as end_time,
             SUM(click_count) as click_count,
             SUM(keypress_count) as keypress_count,
-            any(arrayJoin(urls)) as url,
+            groupArrayArray(urls) as urls,
             dateDiff('second', start_time, end_time) as duration,
             any(distinct_id) as distinct_id,
             SUM(has_full_snapshot) as full_snapshots
@@ -95,7 +95,7 @@ class SessionRecordingList(EventQuery):
         any(session_recordings.end_time) as end_time,
         any(session_recordings.click_count) as click_count,
         any(session_recordings.keypress_count) as keypress_count,
-        any(session_recordings.url) as url,
+        any(session_recordings.urls) as urls,
         any(session_recordings.duration) as duration,
         any(session_recordings.distinct_id) as distinct_id
         {event_filter_aggregate_select_clause}
@@ -125,7 +125,7 @@ class SessionRecordingList(EventQuery):
         any(session_recordings.end_time) as end_time,
         any(session_recordings.click_count) as click_count,
         any(session_recordings.keypress_count) as keypress_count,
-        any(session_recordings.url) as url,
+        any(session_recordings.urls) as urls,
         any(session_recordings.duration) as duration,
         any(session_recordings.distinct_id) as distinct_id
     FROM (
@@ -369,7 +369,7 @@ class SessionRecordingList(EventQuery):
             "end_time",
             "click_count",
             "keypress_count",
-            "url",
+            "urls",
             "duration",
             "distinct_id",
             "start_url",

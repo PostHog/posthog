@@ -38,9 +38,9 @@ class SessionRecordingSerializer(serializers.Serializer):
     duration = serializers.DurationField()
     start_time = serializers.DateTimeField()
     end_time = serializers.DateTimeField()
-    click_count = serializers.IntegerField()
-    keypress_count = serializers.IntegerField()
-    url = serializers.CharField()
+    click_count = serializers.IntegerField(required=False)
+    keypress_count = serializers.IntegerField(required=False)
+    urls = serializers.ListField(required=False)
     distinct_id = serializers.CharField()
     matching_events = serializers.ListField(required=False)
 
@@ -54,7 +54,7 @@ class SessionRecordingSerializer(serializers.Serializer):
             "end_time": instance["end_time"],
             "click_count": instance["click_count"],
             "keypress_count": instance["keypress_count"],
-            "url": instance["url"],
+            "urls": instance.get("urls"),
             "distinct_id": instance["distinct_id"],
             "matching_events": instance["matching_events"],
         }
