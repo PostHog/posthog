@@ -284,6 +284,8 @@ export const insightLogic = kea<insightLogicType>([
                 },
                 // using values.filters, query for new insight results
                 loadResults: async ({ refresh, queryId }, breakpoint) => {
+                    const usingDataExplorationQueries = false // !!values.featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_ENGINE]
+
                     // fetch this now, as it might be different when we report below
                     const scene = sceneLogic.isMounted() ? sceneLogic.values.scene : null
 
@@ -309,6 +311,7 @@ export const insightLogic = kea<insightLogicType>([
                     if (!currentTeamId) {
                         throw new Error("Can't load insight before current project is determined.")
                     }
+
                     try {
                         if (
                             values.savedInsight?.id &&
@@ -320,11 +323,16 @@ export const insightLogic = kea<insightLogicType>([
                                 `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`,
                                 cache.abortController.signal
                             )
-                        } else if (
-                            isTrendsFilter(filters) ||
-                            isStickinessFilter(filters) ||
-                            isLifecycleFilter(filters)
-                        ) {
+                        } else if (usingDataExplorationQueries) {
+                            response = await api.create(
+                                `api/projects/${currentTeamId}/query/`,
+                                {
+                                    query: filterTrendsClientSideParams(params),
+                                },
+                                cache.abortController.signal
+                            )
+                        }
+                        if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
                             response = await api.get(
                                 `api/projects/${currentTeamId}/insights/trend/?${toParams(
                                     filterTrendsClientSideParams(params)
