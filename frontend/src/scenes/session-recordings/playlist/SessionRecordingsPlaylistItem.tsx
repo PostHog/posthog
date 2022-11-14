@@ -2,7 +2,7 @@ import { SessionRecordingType } from '~/types'
 import { colonDelimitedDuration } from 'lib/utils'
 import clsx from 'clsx'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
-import { IconSchedule } from 'lib/components/icons'
+import { IconAutocapture, IconKeyboard, IconSchedule } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TimezoneAware'
@@ -69,6 +69,15 @@ export function SessionRecordingPlaylistItem({
         </div>
     )
 
+    const firstPath =
+        '/' +
+        recording.urls?.[0]
+            .replace(/https?:\/\//g, '')
+            .split('/')
+            .slice(1)
+            .join('/')
+            .split(/[?|#]/)[0]
+
     return (
         <li
             key={recording.id}
@@ -89,15 +98,35 @@ export function SessionRecordingPlaylistItem({
                     </Tooltip>
                 ) : null}
             </div>
-            <div className="grow">
-                <div className="flex items-center justify-between">
-                    <div className="truncate font-medium text-primary ph-no-capture">
-                        {asDisplay(recording.person, 25)}
-                    </div>
+            <div className="grow overflow-hidden space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                    <div className="truncate font-medium text-primary ph-no-capture">{asDisplay(recording.person)}</div>
 
                     <div className="flex-1" />
 
                     {propertyIcons}
+                </div>
+
+                <div className="flex items-center gap-2 text-xs text-muted-alt w-3/4">
+                    <Tooltip title={`Click count: ${recording.click_count}`}>
+                        <span className="flex items-center gap-1  overflow-hidden shrink-0">
+                            <IconAutocapture />
+                            {recording.click_count}
+                        </span>
+                    </Tooltip>
+
+                    <Tooltip title={`Keyboard inputs: ${recording.keypress_count}`}>
+                        <span className="flex items-center gap-1  overflow-hidden shrink-0">
+                            <IconKeyboard />
+                            {recording.keypress_count}
+                        </span>
+                    </Tooltip>
+                    <Tooltip title={`First URL: ${recording.urls?.[0]}`}>
+                        <span className="flex items-center gap-1  overflow-hidden">
+                            {/* <Iconbr /> */}
+                            <span className="truncate">{firstPath}</span>
+                        </span>
+                    </Tooltip>
                 </div>
 
                 <div className="flex items-center justify-between">

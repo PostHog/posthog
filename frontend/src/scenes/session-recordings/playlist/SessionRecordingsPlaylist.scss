@@ -15,6 +15,7 @@
 
     .SessionRecordingsPlaylist__left-column {
         flex-shrink: 0;
+        max-width: 100%;
 
         @include screen($md) {
             width: 30%;

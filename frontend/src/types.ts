@@ -809,7 +809,7 @@ export interface SessionRecordingType {
 
     click_count?: number
     keypress_count?: number
-    url?: string
+    urls?: string[]
 }
 
 export interface SessionRecordingPropertiesType {
