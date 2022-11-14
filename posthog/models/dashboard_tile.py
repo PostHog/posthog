@@ -79,6 +79,11 @@ class DashboardTile(models.Model):
 
         super(DashboardTile, self).save(*args, **kwargs)
 
+    def copy_to_dashboard(self, dashboard: Dashboard) -> None:
+        DashboardTile.objects.create(
+            dashboard=dashboard, insight=self.insight, text=self.text, color=self.color, layouts=self.layouts
+        )
+
     @staticmethod
     def dashboard_queryset(queryset: QuerySet) -> QuerySet:
         return (

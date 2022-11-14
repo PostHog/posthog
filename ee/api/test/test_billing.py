@@ -18,13 +18,19 @@ def create_billing_response(**kwargs) -> Dict[str, Any]:
 
 
 def create_missing_billing_customer(**kwargs) -> Dict[str, Any]:
-    data: Any = {"custom_limits_usd": {}, "has_active_subscription": False, "available_features": []}
+    data: Any = {
+        "customer_id": "cus_123",
+        "custom_limits_usd": {},
+        "has_active_subscription": False,
+        "available_features": [],
+    }
     data.update(kwargs)
     return data
 
 
 def create_billing_customer(**kwargs) -> Dict[str, Any]:
     data: Any = {
+        "customer_id": "cus_123",
         "custom_limits_usd": {},
         "has_active_subscription": True,
         "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
@@ -122,7 +128,7 @@ class TestBillingAPI(APILicensedTest):
         mock_request.return_value.json.return_value = create_billing_response(customer=create_billing_customer())
 
         self.client.get("/api/billing-v2")
-        assert mock_request.call_args.args[0] == "http://localhost:8100/api/billing"
+        assert mock_request.call_args.args[0].endswith("/api/billing")
         token = mock_request.call_args.kwargs["headers"]["Authorization"].split(" ")[1]
 
         secret = self.license.key.split("::")[1]
@@ -147,6 +153,7 @@ class TestBillingAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
 
         assert response.json() == {
+            "customer_id": "cus_123",
             "license": {"plan": "enterprise"},
             "custom_limits_usd": {},
             "has_active_subscription": True,
@@ -197,6 +204,7 @@ class TestBillingAPI(APILicensedTest):
         response = self.client.get("/api/billing-v2")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
+            "customer_id": "cus_123",
             "license": {"plan": "enterprise"},
             "custom_limits_usd": {},
             "has_active_subscription": False,
@@ -334,6 +342,7 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.api.billing.requests.get")
     def test_organization_usage_update(self, mock_request):
+        self.organization.customer_id = None
         self.organization.usage = None
         self.organization.save()
 
@@ -387,3 +396,4 @@ class TestBillingAPI(APILicensedTest):
                 "usage": 0,
             },
         }
+        assert self.organization.customer_id == "cus_123"

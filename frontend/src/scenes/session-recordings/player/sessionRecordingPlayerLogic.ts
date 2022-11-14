@@ -1,7 +1,6 @@
 import { KeyboardEvent } from 'react'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
-import * as Sentry from '@sentry/react'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -23,6 +22,7 @@ import {
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 import equal from 'fast-deep-equal'
+import { fromParamsGivenUrl } from 'lib/utils'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -193,12 +193,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (s) => [s.matching],
             (matching) => (matching ?? []).map((filterMatches) => filterMatches.events).flat(),
         ],
-        isSmallPlayer: [
-            (s) => [s.rootFrame, () => window.innerWidth],
-            (rootFrame) => {
-                return !!rootFrame?.parentElement && rootFrame.parentElement.clientWidth < getBreakpoint('sm')
-            },
-        ],
     }),
     listeners(({ values, actions, cache }) => ({
         setRootFrame: () => {
@@ -296,8 +290,22 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (initialSegment) {
                 actions.setCurrentSegment(initialSegment)
                 actions.setCurrentPlayerPosition(initialSegment.startPlayerPosition)
+
                 if (!values.player) {
                     actions.tryInitReplayer()
+                }
+
+                // Check for the "t" search param in the url
+                if (!cache.initializedFromUrl) {
+                    const searchParams = fromParamsGivenUrl(window.location.search)
+                    if (searchParams.t) {
+                        const newPosition = getPlayerPositionFromPlayerTime(
+                            Number(searchParams.t) * 1000,
+                            values.sessionPlayerData?.metadata?.segments
+                        )
+                        actions.seek(newPosition)
+                        cache.initializedFromUrl = true
+                    }
                 }
             }
         },
@@ -639,8 +647,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         afterMount: () => {
             cache.openTime = performance.now()
 
-            cache.errorHandler = (error: ErrorEvent) => {
-                Sentry.captureException(error)
+            cache.errorHandler = () => {
                 actions.incrementErrorCount()
             }
             window.addEventListener('error', cache.errorHandler)

@@ -469,7 +469,6 @@ function useMathSelectorOptions({
                             }))}
                             onClick={(e) => e.stopPropagation()}
                             size="small"
-                            className="-mr-1"
                             dropdownMatchSelectWidth={false}
                             optionTooltipPlacement="right"
                         />
@@ -498,7 +497,6 @@ function useMathSelectorOptions({
                         }))}
                         onClick={(e) => e.stopPropagation()}
                         size="small"
-                        className="-mr-1"
                         dropdownMatchSelectWidth={false}
                         optionTooltipPlacement="right"
                     />

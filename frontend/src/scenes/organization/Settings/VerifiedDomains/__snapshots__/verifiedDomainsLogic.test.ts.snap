@@ -10,6 +10,7 @@ Object {
       "saml",
     ],
     "created_at": "2020-09-24T15:05:01.254111Z",
+    "customer_id": null,
     "id": "ABCD",
     "is_member_join_email_enabled": true,
     "membership_level": 8,

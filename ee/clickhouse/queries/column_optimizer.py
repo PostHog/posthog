@@ -29,7 +29,7 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
             columns_to_query = columns_to_query.union(
                 self.columns_to_query(
                     "events",
-                    set([property for property in used_properties if property[2] == group_type_index]),
+                    {property for property in used_properties if property[2] == group_type_index},
                     f"group{group_type_index}_properties",
                 )
             )

@@ -175,7 +175,7 @@ class QueryDateRange:
             )
 
     def _timezone_date_clause(self, date_clause: str) -> str:
-        clause = f"{self.interval_annotation}(toDateTime(%({date_clause})s, %(timezone)s))"
+        clause = f"toDateTime({self.interval_annotation}(toDateTime(%({date_clause})s, %(timezone)s)), %(timezone)s)"
 
         if self.interval_annotation == "toStartOfWeek":
             return f"toStartOfWeek(toDateTime(%({date_clause})s, %(timezone)s), 0)"

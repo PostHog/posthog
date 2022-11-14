@@ -5,7 +5,7 @@ import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
 import { PlayerController } from 'scenes/session-recordings/player/PlayerController'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { PlayerInspector } from 'scenes/session-recordings/player/PlayerInspector'
+import { PlayerInspector, PlayerInspectorPicker } from 'scenes/session-recordings/player/PlayerInspector'
 import { PlayerFilter } from 'scenes/session-recordings/player/list/PlayerFilter'
 import { SessionRecordingPlayerProps } from '~/types'
 import { PlayerMeta } from './PlayerMeta'
@@ -14,7 +14,7 @@ import clsx from 'clsx'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
-import { urls } from 'scenes/urls'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 
 export function useFrameRef({
     sessionRecordingId,
@@ -38,7 +38,7 @@ export function SessionRecordingPlayer({
     includeMeta = true,
     recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
     matching,
-    isDetail = false, // True if player is shown in separate detail page
+    noBorder = false,
 }: SessionRecordingPlayerProps): JSX.Element {
     const { handleKeyDown, setIsFullScreen, setPause } = useActions(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey, recordingStartTime, matching })
@@ -53,7 +53,6 @@ export function SessionRecordingPlayer({
                 action: () => setIsFullScreen(!isFullScreen),
             },
             ...(isFullScreen ? { escape: { action: () => setIsFullScreen(false) } } : {}),
-            ...(!isDetail ? { d: { action: () => open(urls.sessionRecording(sessionRecordingId), '_blank') } } : {}),
         },
         [isFullScreen]
     )
@@ -62,6 +61,11 @@ export function SessionRecordingPlayer({
         if (!pageIsVisible) {
             setPause()
         }
+    })
+
+    const { ref, size } = useResizeBreakpoints({
+        0: 'small',
+        1000: 'medium',
     })
 
     if (isNotFound) {
@@ -74,24 +78,39 @@ export function SessionRecordingPlayer({
 
     return (
         <div
-            className={clsx('SessionRecordingPlayer', { 'SessionRecordingPlayer--fullscreen': isFullScreen })}
+            ref={ref}
+            className={clsx('SessionRecordingPlayer', {
+                'SessionRecordingPlayer--fullscreen': isFullScreen,
+                'SessionRecordingPlayer--no-border': noBorder,
+                'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
+            })}
             onKeyDown={handleKeyDown}
         >
-            {includeMeta || isFullScreen ? (
-                <PlayerMeta sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-            ) : null}
-            <div className="SessionRecordingPlayer__body">
-                <PlayerFrame sessionRecordingId={sessionRecordingId} ref={frame} playerKey={playerKey} />
+            <div className="SessionRecordingPlayer__main">
+                {includeMeta || isFullScreen ? (
+                    <PlayerMeta sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+                ) : null}
+                <div className="SessionRecordingPlayer__body">
+                    <PlayerFrame sessionRecordingId={sessionRecordingId} ref={frame} playerKey={playerKey} />
+                </div>
+                <LemonDivider className="my-0" />
+                <PlayerController
+                    sessionRecordingId={sessionRecordingId}
+                    playerKey={playerKey}
+                    hideInspectorPicker={size !== 'small'}
+                />
             </div>
-            <LemonDivider className="my-0" />
-            <PlayerController sessionRecordingId={sessionRecordingId} playerKey={playerKey} isDetail={isDetail} />
             {!isFullScreen && (
-                <>
-                    <LemonDivider className="my-0" />
+                <div className="SessionRecordingPlayer__inspector">
+                    {size !== 'small' && (
+                        <div className="border-b p-2">
+                            <PlayerInspectorPicker sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+                        </div>
+                    )}
                     <PlayerFilter sessionRecordingId={sessionRecordingId} playerKey={playerKey} matching={matching} />
                     <LemonDivider className="my-0" />
                     <PlayerInspector sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-                </>
+                </div>
             )}
         </div>
     )

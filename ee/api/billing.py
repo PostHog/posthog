@@ -136,7 +136,6 @@ class BillingViewset(viewsets.GenericViewSet):
             raise NotFound("Billing V2 is not supported for this license type")
 
         org = self._get_org()
-        distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
 
         # If on Cloud and we have the property billing - return 404 as we always use legacy billing it it exists
         if hasattr(org, "billing"):
@@ -180,11 +179,6 @@ class BillingViewset(viewsets.GenericViewSet):
         # Before responding ensure the org is updated with the latest info
         if org:
             self._update_org_details(org, response)
-
-        if distinct_id and billing_service_response.get("stripe_customer_id"):
-            posthoganalytics.identify(
-                distinct_id, {"$groups": {"customer": billing_service_response["stripe_customer_id"]}}
-            )
 
         return Response(response)
 
@@ -344,6 +338,10 @@ class BillingViewset(viewsets.GenericViewSet):
         Ensure the relevant organization details are up-to-date locally
         """
         org_modified = False
+
+        if data.get("customer_id") and organization.customer_id != data["customer_id"]:
+            organization.customer_id = data["customer_id"]
+            org_modified = True
 
         usage: Dict[str, OrganizationUsageInfo] = {
             "events": {

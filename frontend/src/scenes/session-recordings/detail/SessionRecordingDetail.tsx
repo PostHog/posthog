@@ -33,9 +33,9 @@ export function SessionRecordingDetail({ id }: SessionRecordingDetailLogicProps 
                     </AlertMessage>
                 </div>
             ) : null}
-            <div className="border rounded mt-4">
+            <div className="mt-4">
                 {id ? (
-                    <SessionRecordingPlayer sessionRecordingId={id} playerKey={`${id}-detail`} isDetail />
+                    <SessionRecordingPlayer sessionRecordingId={id} playerKey={`${id}-detail`} />
                 ) : (
                     <RecordingNotFound />
                 )}
