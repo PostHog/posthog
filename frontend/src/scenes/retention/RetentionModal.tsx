@@ -72,7 +72,7 @@ export function RetentionModal({
                     {actors.missing_persons > 1
                         ? `${aggregationTargetLabel.plural} are`
                         : `${aggregationTargetLabel.singular} is`}{' '}
-                    not shown because they've been lost.{' '}
+                    not shown because they've been merged with those listed, or deleted.{' '}
                     <a href="https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons">
                         Read more here for when this can happen
                     </a>
