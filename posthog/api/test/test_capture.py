@@ -19,7 +19,6 @@ from rest_framework import status
 
 from posthog.api.capture import get_distinct_id
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
@@ -950,20 +949,6 @@ class TestCapture(BaseTest):
 
         statsd_incr_first_call = statsd_incr.call_args_list[0]
         self.assertEqual(statsd_incr_first_call.args[0], "invalid_event_uuid")
-
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_add_feature_flags_if_missing(self, kafka_produce) -> None:
-        self.assertListEqual(self.team.event_properties_numerical, [])
-        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test-ff", rollout_percentage=100)
-        self.client.post(
-            "/track/",
-            data={
-                "data": json.dumps([{"event": "purchase", "properties": {"distinct_id": "xxx", "$lib": "web"}}]),
-                "api_key": self.team.api_token,
-            },
-        )
-        arguments = self._to_arguments(kafka_produce)
-        self.assertEqual(arguments["data"]["properties"]["$active_feature_flags"], ["test-ff"])
 
     def test_handle_lacking_event_name_field(self):
         response = self.client.post(

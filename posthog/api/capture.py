@@ -15,19 +15,12 @@ from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
-from posthog.api.utils import (
-    EventIngestionContext,
-    get_data,
-    get_event_ingestion_context,
-    get_token,
-    safe_clickhouse_string,
-)
+from posthog.api.utils import get_data, get_event_ingestion_context, get_token, safe_clickhouse_string
 from posthog.exceptions import generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events_for_clickhouse
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.logging.timing import timed
-from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.utils import cors_response, get_ip_address
@@ -162,17 +155,6 @@ def get_distinct_id(data: Dict[str, Any]) -> str:
     return str(raw_value)[0:200]
 
 
-def _ensure_web_feature_flags_in_properties(
-    event: Dict[str, Any], ingestion_context: EventIngestionContext, distinct_id: str
-):
-    """If the event comes from web, ensure that it contains property $active_feature_flags."""
-    if event["properties"].get("$lib") == "web" and "$active_feature_flags" not in event["properties"]:
-        flags, _ = get_active_feature_flags(team_id=ingestion_context.team_id, distinct_id=distinct_id)
-        event["properties"]["$active_feature_flags"] = list(flags.keys())
-        for k, v in flags.items():
-            event["properties"][f"$feature/{k}"] = v
-
-
 @csrf_exempt
 @timed("posthog_cloud_event_endpoint")
 def get_event(request):
@@ -299,14 +281,14 @@ def validate_events(events, ingestion_context):
                 statsd.incr("invalid_event_uuid")
                 raise ValueError('Event field "uuid" is not a valid UUID!')
 
-        event = parse_event(event, distinct_id, ingestion_context)
+        event = parse_event(event)
         if not event:
             continue
 
         yield event, event_uuid, distinct_id
 
 
-def parse_event(event, distinct_id, ingestion_context):
+def parse_event(event):
     if not event.get("event"):
         statsd.incr("invalid_event", tags={"error": "missing_event_name"})
         return
@@ -317,9 +299,6 @@ def parse_event(event, distinct_id, ingestion_context):
     with configure_scope() as scope:
         scope.set_tag("library", event["properties"].get("$lib", "unknown"))
         scope.set_tag("library.version", event["properties"].get("$lib_version", "unknown"))
-
-    if ingestion_context:
-        _ensure_web_feature_flags_in_properties(event, ingestion_context, distinct_id)
 
     return event
 
