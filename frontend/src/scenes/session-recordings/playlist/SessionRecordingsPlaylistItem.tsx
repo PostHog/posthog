@@ -103,12 +103,22 @@ export function SessionRecordingPlaylistItem({
                     <div className="truncate font-medium text-primary ph-no-capture">{asDisplay(recording.person)}</div>
 
                     <div className="flex-1" />
-                    <TZLabel
-                        className="overflow-hidden text-ellipsis text-muted text-xs"
-                        time={recording.start_time}
-                        formatDate="DD MMM, YYYY"
-                        formatTime="hh:mm"
-                    />
+                    <div className="flex items-center flex-1 justify-end font-semibold">
+                        <IconSchedule className={iconClassnames} />
+                        <span>
+                            <span className={clsx(durationParts[0] === '00' && 'opacity-50 font-normal')}>
+                                {durationParts[0]}:
+                            </span>
+                            <span
+                                className={clsx({
+                                    'opacity-50 font-normal': durationParts[0] === '00' && durationParts[1] === '00',
+                                })}
+                            >
+                                {durationParts[1]}:
+                            </span>
+                            {durationParts[2]}
+                        </span>
+                    </div>
                 </div>
 
                 <div className="flex items-center justify-between gap-2">
@@ -131,22 +141,12 @@ export function SessionRecordingPlaylistItem({
                             {recording.keypress_count}
                         </span>
                     </div>
-                    <div className="flex items-center flex-1 justify-end font-semibold">
-                        <IconSchedule className={iconClassnames} />
-                        <span>
-                            <span className={clsx(durationParts[0] === '00' && 'opacity-50 font-normal')}>
-                                {durationParts[0]}:
-                            </span>
-                            <span
-                                className={clsx({
-                                    'opacity-50 font-normal': durationParts[0] === '00' && durationParts[1] === '00',
-                                })}
-                            >
-                                {durationParts[1]}:
-                            </span>
-                            {durationParts[2]}
-                        </span>
-                    </div>
+                    <TZLabel
+                        className="overflow-hidden text-ellipsis text-muted text-xs"
+                        time={recording.start_time}
+                        formatDate="DD MMM, YYYY"
+                        formatTime="hh:mm"
+                    />
                 </div>
 
                 <div className="flex items-center justify-between gap-4 w-2/3">
