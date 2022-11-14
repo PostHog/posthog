@@ -69,12 +69,7 @@ export function SessionRecordingPlaylistItem({
         </div>
     )
 
-    const firstPath = recording.urls?.[0]
-        .replace(/https?:\/\//g, '')
-        // .split('/')
-        // .slice(1)
-        // .join('/')
-        .split(/[?|#]/)[0]
+    const firstPath = recording.urls?.[0].replace(/https?:\/\//g, '').split(/[?|#]/)[0]
 
     // TODO: Modify onClick to only react to shift+click
 
