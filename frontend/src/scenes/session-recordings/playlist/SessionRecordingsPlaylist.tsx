@@ -202,6 +202,7 @@ export function SessionRecordingsPlaylist({
         filters,
         totalFiltersCount,
         showFilters,
+        quickFilters,
     } = useValues(logic)
     const { setSelectedRecordingId, loadNext, loadPrev, setFilters, reportRecordingsListFilterAdded, setShowFilters } =
         useActions(logic)
@@ -263,26 +264,34 @@ export function SessionRecordingsPlaylist({
     return (
         <>
             <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={
-                        <IconWithCount count={totalFiltersCount}>
-                            <IconFilter />
-                        </IconWithCount>
-                    }
-                    onClick={() => {
-                        setShowFilters(!showFilters)
-                        if (personUUID) {
-                            const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
-                            if (entityFilterButtons.length > 0) {
-                                ;(entityFilterButtons[0] as HTMLElement).click()
-                            }
+                <div className="flex items-center gap-2">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={
+                            <IconWithCount count={totalFiltersCount}>
+                                <IconFilter />
+                            </IconWithCount>
                         }
-                    }}
-                >
-                    {showFilters ? 'Hide filters' : 'Filter recordings'}
-                </LemonButton>
+                        onClick={() => {
+                            setShowFilters(!showFilters)
+                            if (personUUID) {
+                                const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
+                                if (entityFilterButtons.length > 0) {
+                                    ;(entityFilterButtons[0] as HTMLElement).click()
+                                }
+                            }
+                        }}
+                    >
+                        {showFilters ? 'Hide filters' : 'Filter recordings'}
+                    </LemonButton>
+
+                    {quickFilters.map((x, i) => (
+                        <LemonButton key={i} size="small" onClick={() => x.onClick()}>
+                            {x.title}
+                        </LemonButton>
+                    ))}
+                </div>
 
                 <div className="flex items-center gap-4">
                     <DateFilter

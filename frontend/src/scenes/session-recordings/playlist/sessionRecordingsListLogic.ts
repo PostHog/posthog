@@ -247,7 +247,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             actions.getSessionRecordingsProperties({})
         },
     })),
-    selectors({
+    selectors(({ actions }) => ({
         sessionRecordingIdToProperties: [
             (s) => [s.sessionRecordingsPropertiesResponse],
             (propertiesResponse: PaginatedResponse<SessionRecordingPropertiesType>) => {
@@ -276,7 +276,44 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             (filters) =>
                 (filters?.actions?.length || 0) + (filters?.events?.length || 0) + (filters?.properties?.length || 0),
         ],
-    }),
+        quickFilters: [
+            (s) => [s.filters],
+            (filters): { title: string; onClick: () => void }[] => {
+                const quickFilters: { title: string; onClick: () => void }[] = []
+
+                if (!filters.events?.find((e) => e.id === '$pageview')) {
+                    quickFilters.push({
+                        title: 'for pageviews on...',
+                        onClick: () => {
+                            actions.setShowFilters(true)
+                            actions.setFilters({
+                                ...filters,
+                                events: [
+                                    ...(filters?.events || []),
+                                    {
+                                        id: '$pageview',
+                                        type: 'events',
+                                        order: 0,
+                                        name: '$pageview',
+                                        properties: [
+                                            {
+                                                key: '$current_url',
+                                                value: 'enter',
+                                                operator: 'icontains',
+                                                type: 'event',
+                                            },
+                                        ],
+                                    },
+                                ],
+                            })
+                        },
+                    })
+                }
+
+                return quickFilters
+            },
+        ],
+    })),
 
     afterMount(({ actions }) => {
         actions.getSessionRecordings()
