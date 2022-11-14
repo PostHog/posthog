@@ -13,6 +13,7 @@ import { projectUsage } from './billing-utils'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
+import { pluralize } from 'lib/utils'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 
@@ -96,8 +97,25 @@ export const billingLogic = kea<billingLogicType>([
         billingAlert: [
             (s) => [s.billing, s.preflight],
             (billing, preflight): BillingAlertConfig | undefined => {
-                if (!billing || !preflight?.cloud || (billing.free_trial_until && billing.free_trial_until < dayjs())) {
+                if (!billing || !preflight?.cloud) {
                     return
+                }
+
+                if (billing.free_trial_until && billing.free_trial_until.isAfter(dayjs())) {
+                    const remainingDays = billing.free_trial_until.diff(dayjs(), 'days')
+                    const remainingHours = billing.free_trial_until.diff(dayjs(), 'hours')
+
+                    if (remainingHours > 72) {
+                        return
+                    }
+
+                    return {
+                        status: 'info',
+                        title: `Your free trial will end in ${
+                            remainingHours < 24 ? pluralize(remainingHours, 'hour') : pluralize(remainingDays, 'day')
+                        }.`,
+                        message: `Setup billing now to ensure you don't lose access to premium features.`,
+                    }
                 }
 
                 const productOverLimit = billing.products.find((x) => {
