@@ -69,14 +69,12 @@ export function SessionRecordingPlaylistItem({
         </div>
     )
 
-    const firstPath =
-        '/' +
-        recording.urls?.[0]
-            .replace(/https?:\/\//g, '')
-            .split('/')
-            .slice(1)
-            .join('/')
-            .split(/[?|#]/)[0]
+    const firstPath = recording.urls?.[0]
+        .replace(/https?:\/\//g, '')
+        // .split('/')
+        // .slice(1)
+        // .join('/')
+        .split(/[?|#]/)[0]
 
     return (
         <li
@@ -141,12 +139,7 @@ export function SessionRecordingPlaylistItem({
                             {recording.keypress_count}
                         </span>
                     </div>
-                    <TZLabel
-                        className="overflow-hidden text-ellipsis text-muted text-xs"
-                        time={recording.start_time}
-                        formatDate="DD MMM, YYYY"
-                        formatTime="hh:mm"
-                    />
+                    <TZLabel className="overflow-hidden text-ellipsis text-xs" time={recording.start_time} />
                 </div>
 
                 <div className="flex items-center justify-between gap-4 w-2/3">
