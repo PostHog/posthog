@@ -14,7 +14,7 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
 import clsx from 'clsx'
-import { AlertMessage } from 'lib/components/AlertMessage'
+import { MissingPersonsAlert } from 'scenes/trends/persons-modal/PersonsModal'
 import { Noun } from '~/models/groupsModel'
 
 export function RetentionModal({
@@ -67,17 +67,7 @@ export function RetentionModal({
             title={results[selectedRow] ? dayjs(results[selectedRow].date).format('MMMM D, YYYY') : ''}
         >
             {actors && !!actors.missing_persons && (
-                <AlertMessage type="info" className="mb-2">
-                    {actors.missing_persons}{' '}
-                    {actors.missing_persons > 1
-                        ? `${aggregationTargetLabel.plural} are`
-                        : `${aggregationTargetLabel.singular} is`}{' '}
-                    not shown because they've been merged with those listed, or deleted.{' '}
-                    <a href="https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons">
-                        Read more here for when this can happen
-                    </a>
-                    .
-                </AlertMessage>
+                <MissingPersonsAlert actorLabel={aggregationTargetLabel} missingActorsCount={actors.missing_persons} />
             )}
             <div className="min-h-20">
                 {actorsLoading ? (
