@@ -59,19 +59,20 @@ export function BridgePage({
         <div className={clsx('BridgePage', fixedWidth && 'BridgePage--fixed-width', className)}>
             <div className="BridgePage__main">
                 {!noHedgehog ? (
-                    <div className="BridgePage__art">
-                        {!noLogo && sideLogo && (
-                            <div className="BridgePage__header-logo mb-4">
-                                <WelcomeLogo view={view} />
-                            </div>
-                        )}
-                        <LaptopHog3 alt="" draggable="false" />
-                        {message ? (
-                            <CSSTransition in={messageShowing} timeout={200} classNames="BridgePage__art__message-">
-                                <div className="BridgePage__art__message">{message}</div>
-                            </CSSTransition>
-                        ) : null}
-
+                    <div className="BridgePage__art-wrapper">
+                        <div className="BridgePage__art">
+                            {!noLogo && sideLogo && (
+                                <div className="BridgePage__header-logo mb-4">
+                                    <WelcomeLogo view={view} />
+                                </div>
+                            )}
+                            <LaptopHog3 alt="" draggable="false" />
+                            {message ? (
+                                <CSSTransition in={messageShowing} timeout={200} classNames="BridgePage__art__message-">
+                                    <div className="BridgePage__art__message">{message}</div>
+                                </CSSTransition>
+                            ) : null}
+                        </div>
                         {showSelfHostCta && (
                             <div className="border rounded p-4 mt-8 text-center">
                                 Did you know? You can{' '}
