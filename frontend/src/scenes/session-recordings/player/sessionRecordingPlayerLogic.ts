@@ -1,7 +1,6 @@
 import { KeyboardEvent } from 'react'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
-import * as Sentry from '@sentry/react'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -648,8 +647,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         afterMount: () => {
             cache.openTime = performance.now()
 
-            cache.errorHandler = (error: ErrorEvent) => {
-                Sentry.captureException(error)
+            cache.errorHandler = () => {
                 actions.incrementErrorCount()
             }
             window.addEventListener('error', cache.errorHandler)
