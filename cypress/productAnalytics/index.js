@@ -68,6 +68,13 @@ export const dashboards = {
         cy.get('[data-attr=dashboard-name-input]').clear().type(dashboardName)
         cy.get('button[data-attr="dashboard-submit-and-go"]').click()
     },
+    visitDashboard: (dashboardName) => {
+        cy.get('[placeholder="Search for dashboards"]').type(dashboardName)
+
+        cy.contains('[data-attr="dashboards-table"] tr', dashboardName).within(() => {
+            cy.get('a').click()
+        })
+    },
 }
 
 export const dashboard = {
@@ -81,6 +88,7 @@ export const dashboard = {
             cy.get('[data-attr="insight-name"] [data-attr="edit-prop-name"]').click()
             cy.get('[data-attr="insight-name"] input').type(insightName)
             cy.get('[data-attr="insight-name"] [title="Save"]').click()
+            cy.get('h1.page-title').should('have.text', insightName)
         }
 
         cy.get('[data-attr=insight-save-button]').contains('Save & add to dashboard').click()
@@ -93,4 +101,12 @@ export function createInsight(insightName) {
     insight.applyFilter()
     insight.editName(insightName)
     insight.save()
+}
+
+export function duplicateDashboardFromMenu(duplicateTiles) {
+    cy.contains('.LemonButton', 'Duplicate').click()
+    if (duplicateTiles) {
+        cy.contains('.LemonCheckbox', "Duplicate this dashboard's tiles").click()
+    }
+    cy.get('[data-attr="dashboard-submit-and-go"]').click()
 }

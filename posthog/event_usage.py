@@ -209,6 +209,8 @@ def groups(organization: Optional[Organization] = None, team: Optional[Team] = N
     result = {"instance": SITE_URL}
     if organization is not None:
         result["organization"] = str(organization.pk)
+        if organization.customer_id:
+            result["customer"] = organization.customer_id
     if team is not None:
         result["project"] = str(team.uuid)
     return result

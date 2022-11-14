@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { EventType, SessionRecordingPlayerProps, SessionRecordingPlayerTab } from '~/types'
 import { PlayerList } from 'scenes/session-recordings/player/list/PlayerList'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -7,6 +7,9 @@ import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 import { EventDetails } from 'scenes/events'
 import React from 'react'
+import { LemonButton } from '@posthog/lemon-ui'
+import { UnverifiedEvent, IconTerminal } from 'lib/components/icons'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 
 export function PlayerInspector({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { tab } = useValues(sharedListLogic({ sessionRecordingId, playerKey }))
@@ -63,7 +66,7 @@ export function PlayerInspector({ sessionRecordingId, playerKey }: SessionRecord
                     }
 
                     return (
-                        <div className="flex flex-row justify-start">
+                        <div className="flex flex-row justify-start whitespace-nowrap">
                             <PropertyKeyInfo
                                 className="font-medium"
                                 disableIcon
@@ -115,5 +118,40 @@ export function PlayerInspector({ sessionRecordingId, playerKey }: SessionRecord
                 },
             }}
         />
+    )
+}
+
+export function PlayerInspectorPicker({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+    const { tab } = useValues(sharedListLogic({ sessionRecordingId, playerKey }))
+    const { setTab } = useActions(sharedListLogic({ sessionRecordingId, playerKey }))
+
+    const { ref, size } = useResizeBreakpoints({
+        0: 'compact',
+        200: 'normal',
+    })
+
+    return (
+        <div ref={ref} className="flex flex-1 items-center gap-1">
+            <LemonButton
+                size="small"
+                icon={<UnverifiedEvent />}
+                status={tab === SessionRecordingPlayerTab.EVENTS ? 'primary' : 'primary-alt'}
+                active={tab === SessionRecordingPlayerTab.EVENTS}
+                onClick={() => setTab(SessionRecordingPlayerTab.EVENTS)}
+            >
+                {size === 'compact' ? '' : 'Events'}
+            </LemonButton>
+            <LemonButton
+                size="small"
+                icon={<IconTerminal />}
+                status={tab === SessionRecordingPlayerTab.CONSOLE ? 'primary' : 'primary-alt'}
+                active={tab === SessionRecordingPlayerTab.CONSOLE}
+                onClick={() => {
+                    setTab(SessionRecordingPlayerTab.CONSOLE)
+                }}
+            >
+                {size === 'compact' ? '' : 'Console'}
+            </LemonButton>
+        </div>
     )
 }

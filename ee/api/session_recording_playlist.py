@@ -5,13 +5,16 @@ from django.db.models import Q, QuerySet
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import request, serializers, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.constants import SESSION_RECORDINGS_PLAYLIST_FREE_COUNT, AvailableFeature
 from posthog.models import SessionRecordingPlaylist, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
+from posthog.models.team.team import get_available_features_for_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
@@ -69,7 +72,6 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "short_id",
-            "derived_name",
             "team",
             "created_at",
             "created_by",
@@ -83,6 +85,8 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args, **kwargs) -> SessionRecordingPlaylist:
         request = self.context["request"]
         team = Team.objects.get(id=self.context["team_id"])
+
+        self._check_can_create_playlist(team)
 
         created_by = validated_data.pop("created_by", request.user)
         playlist = SessionRecordingPlaylist.objects.create(
@@ -126,6 +130,18 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         )
 
         return updated_playlist
+
+    def _check_can_create_playlist(self, team: Team) -> bool:
+        available_features = get_available_features_for_team(team.id)
+        playlist_count = SessionRecordingPlaylist.objects.filter(deleted=False, team=team).count()
+
+        if (
+            AvailableFeature.RECORDINGS_PLAYLISTS not in (available_features or [])
+            and playlist_count >= SESSION_RECORDINGS_PLAYLIST_FREE_COUNT
+        ):
+            raise PermissionDenied("You have hit the limit for playlists for this team.")
+
+        return True
 
 
 class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):

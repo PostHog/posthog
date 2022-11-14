@@ -49,6 +49,7 @@ export enum AvailableFeature {
     WHITE_LABELLING = 'white_labelling',
     SUBSCRIPTIONS = 'subscriptions',
     APP_METRICS = 'app_metrics',
+    RECORDINGS_PLAYLISTS = 'recordings_playlists',
 }
 
 export enum LicensePlan {
@@ -69,6 +70,7 @@ export enum Region {
 }
 
 export type SSOProviders = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+
 export interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
@@ -110,6 +112,7 @@ export interface UserType extends UserBaseType {
     realm?: Realm
     posthog_version?: string
 }
+
 export interface NotificationSettings {
     plugin_disabled: boolean
 }
@@ -141,6 +144,7 @@ interface OrganizationMetadata {
     taxonomy_set_events_count: number
     taxonomy_set_properties_count: number
 }
+
 export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
@@ -148,6 +152,7 @@ export interface OrganizationType extends OrganizationBasicType {
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
     is_member_join_email_enabled: boolean
+    customer_id: string | null
     metadata?: OrganizationMetadata
 }
 
@@ -602,19 +607,22 @@ export interface MatchedRecordingEvents {
     window_id: string
     timestamp: string
 }
+
 export interface MatchedRecording {
     session_id?: string
     events: MatchedRecordingEvents[]
 }
 
 interface CommonActorType {
-    id?: string | number
+    id: string | number
     properties: Record<string, any>
-    created_at?: string
-    matched_recordings?: MatchedRecording[]
+    created_at: string
+    matched_recordings: MatchedRecording[]
+    value_at_data_point: number | null
 }
 
 export interface PersonActorType extends CommonActorType {
+    id: number // person serial ID
     type: 'person'
     uuid?: string
     name?: string
@@ -623,6 +631,7 @@ export interface PersonActorType extends CommonActorType {
 }
 
 export interface GroupActorType extends CommonActorType {
+    id: string // group key
     type: 'group'
     group_key: string
     group_type_index: number
@@ -855,6 +864,7 @@ export interface BillingProductV2Type {
 }
 
 export interface BillingV2Type {
+    customer_id: string
     has_active_subscription: boolean
     stripe_portal_url?: string
     deactivated?: boolean
@@ -895,6 +905,7 @@ export interface PlanInterface {
 
 // Creating a nominal type: https://github.com/microsoft/TypeScript/issues/202#issuecomment-961853101
 export type InsightShortId = string & { readonly '': unique symbol }
+
 export enum InsightColor {
     White = 'white',
     Black = 'black',
@@ -997,6 +1008,7 @@ export interface DashboardCollaboratorType {
 
 /** Explicit (dashboard privilege) OR implicit (project admin) dashboard collaborator. */
 export type FusedDashboardCollaboratorType = Pick<DashboardCollaboratorType, 'user' | 'level'>
+
 export interface OrganizationInviteType {
     id: string
     target_email: string
@@ -1061,6 +1073,7 @@ export interface JobPayloadFieldOptions {
 export interface JobSpec {
     payload?: Record<string, JobPayloadFieldOptions>
 }
+
 export interface PluginConfigType {
     id?: number
     plugin: number
@@ -1349,6 +1362,7 @@ export interface SystemStatusAnalyzeResult {
     }
     flamegraphs: Record<string, string>
 }
+
 export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
@@ -1596,7 +1610,8 @@ export interface PrevalidatedInvite {
 }
 
 interface InstancePreferencesInterface {
-    debug_queries: boolean /** Whether debug queries option should be shown on the command palette. */
+    debug_queries: boolean
+    /** Whether debug queries option should be shown on the command palette. */
     disable_paid_fs: boolean /** Whether paid features showcasing / upsells are completely disabled throughout the app. */
 }
 
@@ -1795,6 +1810,7 @@ export interface Experiment {
     created_at: string
     created_by: UserBasicType | null
 }
+
 export interface ExperimentResults {
     insight: FunnelStep[][] | TrendResult[]
     probability: Record<string, number>
@@ -2009,6 +2025,7 @@ export type GraphDataset = ChartDataset<ChartType> &
     }
 
 export type GraphPoint = InteractionItem & { dataset: GraphDataset }
+
 interface PointsPayload {
     pointsIntersectingLine: GraphPoint[]
     pointsIntersectingClick: GraphPoint[]
@@ -2212,7 +2229,7 @@ export interface SessionRecordingPlayerProps {
     includeMeta?: boolean
     recordingStartTime?: string
     matching?: MatchedRecording[]
-    isDetail?: boolean
+    noBorder?: boolean
 }
 
 export enum FeatureFlagReleaseType {

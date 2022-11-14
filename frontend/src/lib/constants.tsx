@@ -156,6 +156,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
     [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
     [AvailableFeature.APP_METRICS]: LicensePlan.Scale,
+    [AvailableFeature.RECORDINGS_PLAYLISTS]: LicensePlan.Scale,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
@@ -199,3 +200,5 @@ export const CLOUD_HOSTNAMES = {
     [Region.US]: 'app.posthog.com',
     [Region.EU]: 'eu.posthog.com',
 }
+
+export const SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5

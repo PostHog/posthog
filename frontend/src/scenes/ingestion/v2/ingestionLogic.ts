@@ -50,18 +50,21 @@ export const ingestionLogic = kea<ingestionLogicType>([
     }),
     actions({
         setTechnical: (technical: boolean) => ({ technical }),
+        setHasInvitedMembers: (hasInvitedMembers: boolean) => ({ hasInvitedMembers }),
         setPlatform: (platform: PlatformType) => ({ platform }),
         setFramework: (framework: Framework) => ({ framework: framework as Framework }),
         setVerify: (verify: boolean) => ({ verify }),
         setAddBilling: (addBilling: boolean) => ({ addBilling }),
         setState: (
             technical: boolean | null,
+            hasInvitedMembers: boolean | null,
             platform: PlatformType,
             framework: string | null,
             verify: boolean,
             addBilling: boolean
         ) => ({
             technical,
+            hasInvitedMembers,
             platform,
             framework,
             verify,
@@ -86,6 +89,13 @@ export const ingestionLogic = kea<ingestionLogicType>([
             {
                 setTechnical: (_, { technical }) => technical,
                 setState: (_, { technical }) => technical,
+            },
+        ],
+        hasInvitedMembers: [
+            null as null | boolean,
+            {
+                setHasInvitedMembers: (_, { hasInvitedMembers }) => hasInvitedMembers,
+                setState: (_, { hasInvitedMembers }) => hasInvitedMembers,
             },
         ],
         platform: [
@@ -214,6 +224,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
 
     actionToUrl(({ values }) => ({
         setTechnical: () => getUrl(values),
+        setHasInvitedMembers: () => getUrl(values),
         setPlatform: () => getUrl(values),
         setFramework: () => getUrl(values),
         setVerify: () => getUrl(values),
@@ -229,9 +240,11 @@ export const ingestionLogic = kea<ingestionLogicType>([
     })),
 
     urlToAction(({ actions }) => ({
-        '/ingestion': () => actions.setState(null, null, null, false, false),
+        '/ingestion': () => actions.setState(null, null, null, null, false, false),
+        '/ingestion/invites-sent': () => actions.setState(false, true, null, null, false, false),
         '/ingestion/billing': (_: any, { platform, framework }) => {
             actions.setState(
+                null,
                 null,
                 platform === 'mobile'
                     ? MOBILE
@@ -252,6 +265,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
         '/ingestion/verify': (_: any, { platform, framework }) => {
             actions.setState(
                 true,
+                null,
                 platform === 'mobile'
                     ? MOBILE
                     : platform === 'web'
@@ -271,6 +285,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
         '/ingestion/api': (_: any, { platform }) => {
             actions.setState(
                 true,
+                null,
                 platform === 'mobile' ? MOBILE : platform === 'web' ? WEB : platform === 'backend' ? BACKEND : null,
                 API,
                 false,
@@ -280,6 +295,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
         '/ingestion(/:platform)(/:framework)': ({ platform, framework }) => {
             actions.setState(
                 true,
+                null,
                 platform === 'mobile'
                     ? MOBILE
                     : platform === 'web'
@@ -343,16 +359,23 @@ export const ingestionLogic = kea<ingestionLogicType>([
         onBack: () => {
             switch (values.currentStep) {
                 case INGESTION_STEPS.BILLING:
-                    actions.setState(values.technical, values.platform, values.framework, true, false)
+                    actions.setState(
+                        values.technical,
+                        values.hasInvitedMembers,
+                        values.platform,
+                        values.framework,
+                        true,
+                        false
+                    )
                     return
                 case INGESTION_STEPS.VERIFY:
-                    actions.setState(values.technical, values.platform, null, false, false)
+                    actions.setState(values.technical, values.hasInvitedMembers, values.platform, null, false, false)
                     return
                 case INGESTION_STEPS.CONNECT_PRODUCT:
-                    actions.setState(values.technical, null, null, false, false)
+                    actions.setState(values.technical, values.hasInvitedMembers, null, null, false, false)
                     return
                 case INGESTION_STEPS.PLATFORM:
-                    actions.setState(null, null, null, false, false)
+                    actions.setState(null, null, null, null, false, false)
                     return
                 default:
                     return
@@ -378,7 +401,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
 ])
 
 function getUrl(values: ingestionLogicType['values']): string | [string, Record<string, undefined | string>] {
-    const { technical, platform, framework, verify, addBilling } = values
+    const { technical, platform, framework, verify, addBilling, hasInvitedMembers } = values
 
     let url = '/ingestion'
 
@@ -447,6 +470,10 @@ function getUrl(values: ingestionLogicType['values']): string | [string, Record<
 
     if (technical && !platform) {
         url += '/platform'
+    }
+
+    if (!technical && !platform && hasInvitedMembers) {
+        url += '/invites-sent'
     }
 
     if (framework) {

@@ -15,10 +15,15 @@ export function Timestamp({ sessionRecordingId, playerKey }: SessionRecordingPla
     )
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic({ sessionRecordingId, playerKey }))
 
+    const startTimeSeconds = ((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000
+    const endTimeSeconds = Math.floor((sessionPlayerData?.metadata?.recordingDurationMs ?? 0) / 1000)
+
+    const fixedUnits = endTimeSeconds > 3600 ? 3 : 2
+
     return (
         <div className="whitespace-nowrap mr-4">
-            {colonDelimitedDuration(((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000)} /{' '}
-            {colonDelimitedDuration(Math.floor((sessionPlayerData?.metadata?.recordingDurationMs ?? 0) / 1000))}
+            {colonDelimitedDuration(startTimeSeconds, fixedUnits)} /{' '}
+            {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
         </div>
     )
 }

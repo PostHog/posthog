@@ -24,6 +24,7 @@ from posthog.constants import INSIGHT_TRENDS, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
+from posthog.models.team.team import get_available_features_for_team
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import should_refresh
@@ -109,11 +110,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared"]
 
     def validate_description(self, value: str) -> str:
-        available_features: Optional[List[str]] = (
-            Team.objects.select_related("organization")
-            .values_list("organization__available_features", flat=True)
-            .get(id=self.context["team_id"])
-        )
+        available_features = get_available_features_for_team(self.context["team_id"])
 
         if value and AvailableFeature.DASHBOARD_COLLABORATION not in (available_features or []):
             raise PermissionDenied("You must have paid for dashboard collaboration to set the dashboard description")
@@ -152,29 +149,13 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         elif use_dashboard:
             try:
-                from posthog.api.insight import InsightSerializer
-
                 existing_dashboard = Dashboard.objects.get(id=use_dashboard, team=team)
                 existing_tiles = DashboardTile.objects.filter(dashboard=existing_dashboard).select_related("insight")
                 for existing_tile in existing_tiles:
-                    new_data = {
-                        **InsightSerializer(existing_tile.insight, context=self.context).data,
-                        "id": None,  # to create a new Insight
-                        "last_refresh": now(),
-                    }
-                    new_data.pop("dashboards", None)
-                    new_tags = new_data.pop("tags", None)
-                    insight_serializer = InsightSerializer(data=new_data, context=self.context)
-                    insight_serializer.is_valid()
-                    insight_serializer.save()
-                    insight = cast(Insight, insight_serializer.instance)
-
-                    # Create new insight's tags separately. Force create tags on dashboard duplication.
-                    self._attempt_set_tags(new_tags, insight, force_create=True)
-
-                    DashboardTile.objects.create(
-                        dashboard=dashboard, insight=insight, layouts=existing_tile.layouts, color=existing_tile.color
-                    )
+                    if self.initial_data.get("duplicate_tiles", False):
+                        self._deep_duplicate_tiles(dashboard, existing_tile)
+                    else:
+                        existing_tile.copy_to_dashboard(dashboard)
 
             except Dashboard.DoesNotExist:
                 raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
@@ -209,6 +190,44 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         )
 
         return dashboard
+
+    def _deep_duplicate_tiles(self, dashboard: Dashboard, existing_tile: DashboardTile) -> None:
+        if existing_tile.insight:
+            new_data = {
+                **InsightSerializer(existing_tile.insight, context=self.context).data,
+                "id": None,  # to create a new Insight
+                "last_refresh": now(),
+                "name": (existing_tile.insight.name + " (Copy)") if existing_tile.insight.name else None,
+            }
+            new_data.pop("dashboards", None)
+            new_tags = new_data.pop("tags", None)
+            insight_serializer = InsightSerializer(data=new_data, context=self.context)
+            insight_serializer.is_valid()
+            insight_serializer.save()
+            insight = cast(Insight, insight_serializer.instance)
+
+            # Create new insight's tags separately. Force create tags on dashboard duplication.
+            self._attempt_set_tags(new_tags, insight, force_create=True)
+
+            DashboardTile.objects.create(
+                dashboard=dashboard,
+                insight=insight,
+                layouts=existing_tile.layouts,
+                color=existing_tile.color,
+            )
+        elif existing_tile.text:
+            new_data = {
+                **TextSerializer(existing_tile.text, context=self.context).data,
+                "id": None,  # to create a new Text
+            }
+            new_data.pop("dashboards", None)
+            text_serializer = TextSerializer(data=new_data, context=self.context)
+            text_serializer.is_valid()
+            text_serializer.save()
+            text = cast(Text, text_serializer.instance)
+            DashboardTile.objects.create(
+                dashboard=dashboard, text=text, layouts=existing_tile.layouts, color=existing_tile.color
+            )
 
     def update(self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         user = cast(User, self.context["request"].user)

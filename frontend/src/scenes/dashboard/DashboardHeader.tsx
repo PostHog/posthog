@@ -28,6 +28,8 @@ import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
+import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
+import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 
 export function DashboardHeader(): JSX.Element | null {
     const {
@@ -43,12 +45,14 @@ export function DashboardHeader(): JSX.Element | null {
     } = useValues(dashboardLogic)
     const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
-    const { updateDashboard, pinDashboard, unpinDashboard, duplicateDashboard } = useActions(dashboardsModel)
+    const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
 
     const { hasAvailableFeature } = useValues(userLogic)
 
-    const { push } = useActions(router)
+    const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
+
+    const { push } = useActions(router)
 
     return dashboard || dashboardLoading ? (
         <>
@@ -77,6 +81,7 @@ export function DashboardHeader(): JSX.Element | null {
                         />
                     )}
                     {canEditDashboard && <DeleteDashboardModal />}
+                    {canEditDashboard && <DuplicateDashboardModal />}
                 </>
             )}
 
@@ -217,13 +222,9 @@ export function DashboardHeader(): JSX.Element | null {
                                             />
                                             <LemonDivider />
                                             <LemonButton
-                                                onClick={() =>
-                                                    duplicateDashboard({
-                                                        id: dashboard.id,
-                                                        name: dashboard.name,
-                                                        show: true,
-                                                    })
-                                                }
+                                                onClick={() => {
+                                                    showDuplicateDashboardModal(dashboard.id, dashboard.name)
+                                                }}
                                                 status="stealth"
                                                 fullWidth
                                             >

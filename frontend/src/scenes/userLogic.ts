@@ -135,6 +135,10 @@ export const userLogic = kea<userLogicType>([
                             available_features: user.organization.available_features,
                             ...user.organization.metadata,
                         })
+
+                        if (user.organization.customer_id) {
+                            posthog.group('customer', user.organization.customer_id)
+                        }
                     }
                 }
             }

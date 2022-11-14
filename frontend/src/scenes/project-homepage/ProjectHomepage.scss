@@ -50,29 +50,3 @@
         flex-direction: column;
     }
 }
-
-.ProjectHomePage__listrow {
-    display: flex;
-    flex-direction: row;
-    flex: 1;
-    gap: 0.5rem;
-    height: 2.5rem;
-    align-items: center;
-    font-weight: 400; // Overrides font-weight from LemonButton
-    color: var(--default);
-    overflow: hidden;
-
-    .ProjectHomePage__listrow__details {
-        flex: 1;
-        overflow: hidden;
-
-        div:first-child {
-            color: var(--primary);
-            font-weight: 600;
-            margin-bottom: 0.25rem;
-            text-overflow: ellipsis;
-            overflow: hidden;
-            white-space: nowrap;
-        }
-    }
-}

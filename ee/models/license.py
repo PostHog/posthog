@@ -47,6 +47,7 @@ class License(models.Model):
     # DEPRECATED: This is no longer used
     max_users: models.IntegerField = models.IntegerField(default=None, null=True)  # None = no restriction
 
+    # NOTE: Remember to update the Billing Service as well. Long-term it will be the source of truth.
     SCALE_PLAN = "scale"
     SCALE_FEATURES = [
         AvailableFeature.ZAPIER,
