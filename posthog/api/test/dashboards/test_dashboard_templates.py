@@ -7,6 +7,7 @@ from rest_framework import status
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.models import OrganizationMembership, User
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 
 default_templates = [
@@ -16,6 +17,33 @@ default_templates = [
 
 
 class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
+    def setUp(self):
+        super().setUp()
+
+        self.org_admin = User.objects.create_and_join(
+            organization=self.organization,
+            email="org-admin-user@posthog.com",
+            password=None,
+            level=OrganizationMembership.Level.ADMIN,
+        )
+
+        self.org_one_staff_user = create_user("staff_user@posthog.com", password="1234", organization=self.organization)
+        self.org_one_staff_user.is_staff = True
+        self.org_one_staff_user.save()
+
+        self.org_one_team_two = create_team(organization=self.organization)
+        self.org_one_team_two_user = create_user(
+            email="team_two@posthog.com", password="1234", organization=self.organization
+        )
+        self.org_one_team_two_user.current_team = self.org_one_team_two
+        self.org_one_team_two_user.save()
+
+        self.another_organization = create_organization(name="org two")
+        self.org_two_team_one = create_team(organization=self.another_organization)
+        self.org_two_user = create_user(
+            email="team_two_user@posthog.com", password="1234", organization=self.another_organization
+        )
+
     def test_can_create_template(self) -> None:
         response = self._create_template()
 
@@ -25,7 +53,9 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["scope"], "project")
         self.assertEqual(response.json()["tiles"][0]["body"], "Test template text")
 
-    def test_can_create_template_in_organization_scope(self) -> None:
+    def test_org_admin_can_create_template_in_organization_scope(self) -> None:
+        self.client.force_login(self.org_admin)
+
         response = self._create_template(scope="organization")
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
@@ -53,49 +83,65 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
         self.assertEqual(rename_response.status_code, status.HTTP_403_FORBIDDEN, rename_response.json())
 
     def test_staff_user_can_create_template_in_global_scope(self) -> None:
-        self.user.is_staff = True
-        self.user.save()
+        self.client.force_login(self.org_one_staff_user)
 
         response = self._create_template(scope="global")
 
         self.assertEqual(response.json()["scope"], "global")
 
-    def test_cannot_create_templates_in_other_organization(self) -> None:
-        another_organization = create_organization(name="test")
-        create_team(organization=another_organization)
-        other_team_user = create_user(
-            email="test_other_org@posthog.com", password="1234", organization=another_organization
-        )
+    def test_normal_user_cannot_create_template_in_organization_scope(self) -> None:
+        self._create_template(scope="organization", expected_status=status.HTTP_403_FORBIDDEN)
 
-        self.client.force_login(other_team_user)
+    def test_normal_user_cannot_delete_template_in_organization_scope(self) -> None:
+        self.client.force_login(self.org_admin)
+        self._create_template("in org scope", scope="organization")
+
+        self.client.force_login(self.user)
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/dashboard_templates/?basic=true")
+        global_template = next(r for r in list_response.json()["results"] if r["scope"] == "organization")
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboard_templates/{global_template.get('id')}?basic=true",
+            {"deleted": "true"},
+        )
+        self.assertEqual(delete_response.status_code, status.HTTP_403_FORBIDDEN, delete_response.json())
+
+    def test_normal_user_cannot_rename_template_in_organization_scope(self) -> None:
+        self.client.force_login(self.org_admin)
+        self._create_template("in org scope", scope="organization")
+
+        self.client.force_login(self.user)
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/dashboard_templates/?basic=true")
+        global_template = next(r for r in list_response.json()["results"] if r["scope"] == "organization")
+        rename_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboard_templates/{global_template.get('id')}?basic=true",
+            {"template_name": "renamed"},
+        )
+        self.assertEqual(rename_response.status_code, status.HTTP_403_FORBIDDEN, rename_response.json())
+
+    def test_cannot_create_templates_in_other_organization(self) -> None:
+        self.client.force_login(self.org_two_user)
         self._create_template("a", team_id=self.team.id, expected_status=status.HTTP_403_FORBIDDEN)
 
     def test_can_list_templates_for_use_in_UI(self) -> None:
-        team_two = create_team(organization=self.organization)
-        team_two_user = create_user(email="team_two@posthog.com", password="1234", organization=self.organization)
-        team_two_user.current_team = team_two
-        team_two_user.save()
-
-        another_organization = create_organization(name="test")
-        team_three = create_team(organization=another_organization)
-        team_three_user = create_user(
-            email="test_other_org@posthog.com", password="1234", organization=another_organization
-        )
 
         a_response = self._create_template("a")  # only visible in Team One
         b_response = self._create_template("b")  # only visible in Team One
+
+        self.client.force_login(self.org_admin)
         c_response = self._create_template("c", scope="organization")  # only visible in Org One
 
-        self.user.is_staff = True
-        self.user.save()
-
+        self.client.force_login(self.org_one_staff_user)
         d_response = self._create_template("d", scope="global")  # visible in all orgs
 
-        self.client.force_login(team_two_user)
-        e_response = self._create_template("e", scope="project", team_id=team_two.id)  # only visible in Team Two
+        self.client.force_login(self.org_one_team_two_user)
+        e_response = self._create_template(
+            "e", scope="project", team_id=self.org_one_team_two.id
+        )  # only visible in Team Two
 
-        self.client.force_login(team_three_user)
-        f_response = self._create_template("f", team_id=team_three.id)  # only visible in Team Three
+        self.client.force_login(self.org_two_user)
+        f_response = self._create_template("f", team_id=self.org_two_team_one.id)  # only visible in other organization
 
         team_one_expected_templates = default_templates + [
             {"id": a_response.json()["id"], "template_name": "a", "scope": "project"},
@@ -116,8 +162,8 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
             {"id": e_response.json()["id"], "template_name": "e", "scope": "project"},
         ]
 
-        self.client.force_login(team_two_user)
-        list_response = self.client.get(f"/api/projects/{team_two.id}/dashboard_templates/?basic=true")
+        self.client.force_login(self.org_one_team_two_user)
+        list_response = self.client.get(f"/api/projects/{self.org_one_team_two.id}/dashboard_templates/?basic=true")
         self.assertEqual(list_response.status_code, status.HTTP_200_OK, list_response.json())
 
         assert sorted(list_response.json()["results"], key=lambda x: x["template_name"]) == team_two_expected_templates
@@ -127,8 +173,8 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
             {"id": f_response.json()["id"], "template_name": "f", "scope": "project"},
         ]
 
-        self.client.force_login(team_three_user)
-        list_response = self.client.get(f"/api/projects/{team_three.id}/dashboard_templates/?basic=true")
+        self.client.force_login(self.org_two_user)
+        list_response = self.client.get(f"/api/projects/{self.org_two_team_one.id}/dashboard_templates/?basic=true")
         self.assertEqual(list_response.status_code, status.HTTP_200_OK, list_response.json())
 
         assert (

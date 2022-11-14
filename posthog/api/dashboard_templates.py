@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import DashboardTemplate, Team
+from posthog.models import DashboardTemplate, OrganizationMembership, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import str_to_bool
 
@@ -32,9 +32,20 @@ class DashboardTemplateBasicSerializer(serializers.Serializer):
         return data
 
     def update(self, instance: DashboardTemplate, validated_data: dict) -> DashboardTemplate:
-        is_staff = self.context["request"].user.is_staff
+        user = self.context["request"].user
+
+        is_staff = user.is_staff
         if not is_staff and instance.scope == DashboardTemplate.Scope.GLOBAL:
             raise PermissionDenied("You must be a staff user to edit a global template")
+
+        team = Team.objects.get(id=self.context["team_id"])
+        membership_level = team.get_effective_membership_level(self.context["request"].user.id)
+
+        if (
+            membership_level == OrganizationMembership.Level.MEMBER.value
+            and instance.scope == DashboardTemplate.Scope.ORGANIZATION.value
+        ):
+            raise PermissionDenied("You must be an organization admin or higher to edit an organization template")
 
         updated_fields = []
 
@@ -63,6 +74,24 @@ class DashboardTemplateSerializer(serializers.Serializer):
     scope: serializers.CharField = serializers.CharField(max_length=24)
 
     def validate(self, data: Dict) -> Dict:
+        team = Team.objects.get(id=self.context["team_id"])
+        user = self.context["request"].user
+
+        if team != user.team:
+            raise PermissionDenied("You can only create templates for your own team")
+
+        is_staff = self.context["request"].user.is_staff
+        if not is_staff and data.get("scope") == DashboardTemplate.Scope.GLOBAL:
+            raise PermissionDenied("You must be a staff user to create a global template")
+
+        membership_level = team.get_effective_membership_level(self.context["request"].user.id)
+
+        if (
+            membership_level == OrganizationMembership.Level.MEMBER.value
+            and data.get("scope") == DashboardTemplate.Scope.ORGANIZATION.value
+        ):
+            raise PermissionDenied("You must be an organization admin or higher to create an organization template")
+
         template_name = data.get("template_name", None)
         if not template_name or not isinstance(template_name, str) or str.isspace(template_name):
             raise serializers.ValidationError("Must provide a template name")
@@ -72,10 +101,6 @@ class DashboardTemplateSerializer(serializers.Serializer):
 
         if not data.get("tiles") or not isinstance(data["tiles"], list):
             raise serializers.ValidationError("Must provide at least one tile")
-
-        is_staff = self.context["request"].user.is_staff
-        if not is_staff and data.get("scope") == DashboardTemplate.Scope.GLOBAL:
-            raise PermissionDenied("You must be a staff user to create a global template")
 
         for tile in data["tiles"]:
             if "layouts" not in tile or not isinstance(tile["layouts"], dict):
@@ -99,10 +124,6 @@ class DashboardTemplateSerializer(serializers.Serializer):
 
     def create(self, validated_data: Dict) -> DashboardTemplate:
         team = Team.objects.get(id=self.context["team_id"])
-        user = self.context["request"].user
-        if team != user.team:
-            raise PermissionDenied("You can only create templates for your own team")
-
         organization = team.organization
         return DashboardTemplate.objects.create(**validated_data, team=team, organization=organization)
 
