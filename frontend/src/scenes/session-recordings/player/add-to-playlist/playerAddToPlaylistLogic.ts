@@ -1,4 +1,4 @@
-import { kea, props, path, key, actions, reducers, selectors, listeners } from 'kea'
+import { kea, props, path, key, actions, reducers, selectors, listeners, afterMount } from 'kea'
 import { SessionRecordingPlaylistType, SessionRecordingType } from '~/types'
 import type { playerAddToPlaylistLogicType } from './playerAddToPlaylistLogicType'
 import FuseClass from 'fuse.js'
@@ -8,14 +8,18 @@ import api from 'lib/api'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 export interface PlayerAddToPlaylistLogicProps {
-    id: SessionRecordingType['id']
-    playlists: SessionRecordingType['playlists']
+    recording: Pick<SessionRecordingType, 'id' | 'playlists'>
 }
 
 export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
     path(['scenes', 'session-recordings', 'player', 'add-to-playlist', 'playerAddToPlaylistLogic']),
     props({} as PlayerAddToPlaylistLogicProps),
-    key((id) => `${id}`),
+    key(({ recording }) => {
+        if (!recording.id) {
+            throw Error('must provide an insight with a short id')
+        }
+        return recording.id
+    }),
     actions(() => ({
         addNewPlaylist: true,
         setSearchQuery: (query: string) => ({ query }),
@@ -89,4 +93,7 @@ export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
             // update recording
         },
     })),
+    afterMount(({ actions }) => {
+        actions.loadPlaylists({})
+    }),
 ])

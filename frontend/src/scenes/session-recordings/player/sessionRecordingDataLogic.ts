@@ -134,6 +134,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 segments: [],
                 startAndEndTimesByWindowId: {},
                 recordingDurationMs: 0,
+                playlists: [],
             },
             bufferedTo: null,
         } as SessionPlayerMetaData,

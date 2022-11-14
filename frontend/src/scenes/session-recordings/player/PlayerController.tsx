@@ -25,7 +25,8 @@ export function PlayerController({
 }: PlayerControllerProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     const { togglePlayPause, setSpeed, setSkipInactivitySetting, setIsFullScreen, setPause } = useActions(logic)
-    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, isFullScreen } = useValues(logic)
+    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, isFullScreen, sessionPlayerData } =
+        useValues(logic)
 
     const onShare = (): void => {
         setPause()
@@ -38,7 +39,10 @@ export function PlayerController({
     const onAddToPlaylist = (): void => {
         setPause()
         openPlayerAddToPlaylistDialog({
-            id: sessionRecordingId,
+            recording: {
+                id: sessionRecordingId,
+                playlists: sessionPlayerData.metadata.playlists,
+            },
         })
     }
 

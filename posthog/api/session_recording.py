@@ -33,6 +33,7 @@ class SessionRecordingMetadataSerializer(serializers.Serializer):
     start_and_end_times_by_window_id = serializers.DictField(required=False)
     session_id = serializers.CharField()
     viewed = serializers.BooleanField()
+    playlists = serializers.ListField()
 
 
 class SessionRecordingSerializer(serializers.Serializer):
@@ -207,6 +208,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 "start_and_end_times_by_window_id": session_recording_meta_data.start_and_end_times_by_window_id,
                 "session_id": session_recording_id,
                 "viewed": viewed_session_recording,
+                "playlists": session_recording_meta_data.playlists,
             }
         )
         session_recording_serializer.is_valid(raise_exception=True)

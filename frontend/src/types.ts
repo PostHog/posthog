@@ -487,6 +487,7 @@ export interface SessionRecordingMeta {
     segments: RecordingSegment[]
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
     recordingDurationMs: number
+    playlists: SessionRecordingPlaylistType['id'][]
 }
 
 export interface SessionPlayerSnapshotData {
@@ -809,7 +810,7 @@ export interface SessionRecordingType {
     email?: string
     person?: PersonType
     /** List of static playlists that this recording is referenced on */
-    playlists?: string[]
+    playlists?: SessionRecordingPlaylistType['id'][]
 }
 
 export interface SessionRecordingPropertiesType {

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { range } from '~/lib/utils'
 import { RecordingDurationFilter, RecordingFilters, SessionRecordingsTabs, SessionRecordingType } from '~/types'
@@ -348,10 +348,9 @@ export function SessionRecordingsPlaylist({
                         ) : (
                             <ul className={clsx(sessionRecordingsResponseLoading ? 'opacity-50' : '')}>
                                 {sessionRecordings.map((rec, i) => (
-                                    <>
+                                    <Fragment key={rec.id}>
                                         {i > 0 && <div className="border-t" />}
                                         <SessionRecordingPlaylistItem
-                                            key={rec.id}
                                             recording={rec}
                                             recordingProperties={sessionRecordingIdToProperties[rec.id]}
                                             recordingPropertiesLoading={sessionRecordingsPropertiesResponseLoading}
@@ -359,7 +358,7 @@ export function SessionRecordingsPlaylist({
                                             onPropertyClick={onPropertyClick}
                                             isActive={activeSessionRecording?.id === rec.id}
                                         />
-                                    </>
+                                    </Fragment>
                                 ))}
                             </ul>
                         )}

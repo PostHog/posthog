@@ -16,7 +16,7 @@ from posthog.helpers.session_recording import (
     generate_inactive_segments_for_range,
     get_active_segments_from_event_list,
 )
-from posthog.models import SessionRecordingEvent, Team
+from posthog.models import SessionRecordingEvent, SessionRecordingPlaylistItem, Team
 
 
 @dataclasses.dataclass
@@ -24,6 +24,7 @@ class RecordingMetadata:
     distinct_id: str
     segments: List[RecordingSegment]
     start_and_end_times_by_window_id: Dict[WindowId, Dict]
+    playlists: List[str]
 
 
 class SessionRecording:
@@ -119,10 +120,17 @@ class SessionRecording:
 
         segments, start_and_end_times_by_window_id = self._process_snapshots_for_metadata(all_snapshots)
 
+        playlists = (
+            SessionRecordingPlaylistItem.objects.filter(session_id=self._session_recording_id)
+            .exclude(deleted=True)
+            .values_list("id", flat=True)
+        )
+
         return RecordingMetadata(
             segments=segments,
             start_and_end_times_by_window_id=start_and_end_times_by_window_id,
             distinct_id=cast(str, distinct_id),
+            playlists=playlists,
         )
 
     def _process_snapshots_for_metadata(self, all_snapshots) -> Tuple[List[RecordingSegment], Dict[WindowId, Dict]]:
