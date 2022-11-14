@@ -21,7 +21,7 @@ export type BridgePageProps = {
     noLogo?: boolean
     sideLogo?: boolean
     message?: React.ReactNode
-    showSelfHostCta?: boolean
+    showSignupCta?: boolean
     fixedWidth?: boolean
 }
 
@@ -36,7 +36,7 @@ export function BridgePage({
     noLogo = false,
     sideLogo = false,
     fixedWidth = true,
-    showSelfHostCta = false,
+    showSignupCta = false,
 }: BridgePageProps): JSX.Element {
     const [messageShowing, setMessageShowing] = useState(false)
     const { preflight } = useValues(preflightLogic)
@@ -48,11 +48,9 @@ export function BridgePage({
         return () => clearTimeout(t)
     }, [])
 
-    const getAltRegionUrl = (): string => {
+    const getRegionUrl = (region: string): string => {
         const { pathname, search, hash } = router.values.currentLocation
-        return `https://${
-            CLOUD_HOSTNAMES[preflight?.region === Region.EU ? Region.US : Region.EU]
-        }${pathname}${search}${hash}`
+        return `https://${CLOUD_HOSTNAMES[region]}${pathname}${search}${hash}`
     }
 
     return (
@@ -73,17 +71,40 @@ export function BridgePage({
                                 </CSSTransition>
                             ) : null}
                         </div>
-                        {showSelfHostCta && (
-                            <div className="border rounded p-4 mt-8 text-center">
-                                Did you know? You can{' '}
-                                <Link to="https://posthog.com/docs/self-host">
-                                    <strong>self-host PostHog</strong>
-                                </Link>{' '}
-                                or{' '}
-                                <Link to={getAltRegionUrl()}>
-                                    <strong>use our {preflight?.region === Region.EU ? 'US' : 'EU'} cloud</strong>
-                                </Link>
-                                .
+                        {showSignupCta && (
+                            <div className="BridgePage__cta border rounded p-4 mt-8 text-center">
+                                Did you know?
+                                {preflight?.cloud ? (
+                                    <span>
+                                        {' '}
+                                        You can{' '}
+                                        <Link to="https://posthog.com/docs/self-host">
+                                            <strong>self-host PostHog</strong>
+                                        </Link>{' '}
+                                        or{' '}
+                                        <Link
+                                            to={getRegionUrl(preflight?.region === Region.EU ? Region.US : Region.EU)}
+                                        >
+                                            <strong>
+                                                use our {preflight?.region === Region.EU ? 'US' : 'EU'} cloud
+                                            </strong>
+                                        </Link>
+                                        .
+                                    </span>
+                                ) : (
+                                    <span>
+                                        {' '}
+                                        You can use our{' '}
+                                        <Link to={getRegionUrl(Region.EU)}>
+                                            <strong>{Region.EU} cloud</strong>
+                                        </Link>{' '}
+                                        or{' '}
+                                        <Link to={getRegionUrl(Region.US)}>
+                                            <strong>{Region.US} cloud</strong>
+                                        </Link>{' '}
+                                        and we'll take care of the hosting for you.
+                                    </span>
+                                )}
                             </div>
                         )}
                     </div>
