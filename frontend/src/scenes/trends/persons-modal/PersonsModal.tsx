@@ -8,7 +8,7 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { GroupActorHeader, groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { IconPlayCircle, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonDivider, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
 import ReactDOM from 'react-dom'
 import { Spinner } from 'lib/components/Spinner/Spinner'
@@ -18,6 +18,7 @@ import { Skeleton, Tabs } from 'antd'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { AlertMessage } from 'lib/components/AlertMessage'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export interface PersonsModalProps {
     onAfterClose?: () => void
@@ -222,7 +223,7 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
     const matchedRecordings = actor.matched_recordings || []
 
     return (
-        <div className="border rounded overflow-hidden bg-white">
+        <div className="relative border rounded bg-white">
             <div className="flex items-center gap-2 p-2">
                 <LemonButton
                     noPadding
@@ -323,6 +324,17 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
                     </Tabs>
                 </div>
             ) : null}
+
+            {actor.value_at_data_point !== null && (
+                <Tooltip title={`${name}'s count of events for this data point.`}>
+                    <LemonBadge
+                        count={actor.value_at_data_point}
+                        maxDigits={0}
+                        position="top-right"
+                        style={{ pointerEvents: 'auto' }}
+                    />
+                </Tooltip>
+            )}
         </div>
     )
 }
