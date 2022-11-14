@@ -143,7 +143,7 @@
                AND ((replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', '') ILIKE '%test%')) )
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '') ILIKE '%test%'))) person ON pdi.person_id = person.id
+        AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '') ILIKE '%test%'))) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = '$pageview'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-21 00:00:00', 'UTC')
