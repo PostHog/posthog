@@ -27,6 +27,10 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                 "person_out_of_end_date": [
                     {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}}
                 ],
+                # wrong feature set somehow
+                "person_out_of_feature_control": [
+                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "ablahebf"}}
+                ],
                 # for a funnel conversion metric
                 "person1_funnel": [
                     {
