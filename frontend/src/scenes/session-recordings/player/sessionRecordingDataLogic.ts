@@ -207,6 +207,22 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
             },
         ],
+
+        sessionPlayerMetaDataError: [
+            null as string | null,
+            {
+                loadRecordingMetaFailure: (_, { error }) => error,
+                loadRecordingMetaSuccess: () => null,
+            },
+        ],
+
+        sessionPlayerSnapshotDataError: [
+            null as string | null,
+            {
+                loadRecordingSnapshotFailure: (_, { error }) => error,
+                loadRecordingSnapshotSuccess: () => null,
+            },
+        ],
     })),
     listeners(({ values, actions, cache }) => ({
         loadEntireRecording: () => {

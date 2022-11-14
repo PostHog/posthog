@@ -52,6 +52,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'sessionRecordingId',
                 'sessionPlayerData',
                 'sessionPlayerSnapshotDataLoading',
+                'sessionPlayerMetaDataLoading',
                 'loadMetaTimeMs',
                 'loadFirstSnapshotTimeMs',
                 'loadAllSnapshotsTimeMs',
@@ -112,6 +113,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         incrementErrorCount: true,
         incrementWarningCount: true,
         setMatching: (matching: SessionRecordingType['matching_events']) => ({ matching }),
+        updateFromMetadata: true,
     }),
     reducers(({ props }) => ({
         rootFrame: [
@@ -328,15 +330,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             }
         },
-        loadRecordingMetaSuccess: async (_, breakpoint) => {
-            // Once the recording metadata is loaded, we set the player to the
-            // beginning and then try to play the recording
-            actions.initializePlayerFromStart()
-            actions.checkBufferingCompleted()
-            breakpoint()
-        },
-
-        loadRecordingSnapshotsSuccess: async (_, breakpoint) => {
+        updateFromMetadata: async (_, breakpoint) => {
             // On loading more of the recording, trigger some state changes
             const currentEvents = values.player?.replayer?.service.state.context.events ?? []
             const eventsToAdd = []
@@ -358,6 +352,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
             actions.checkBufferingCompleted()
             breakpoint()
+        },
+        loadRecordingMetaSuccess: async () => {
+            // As the connected data logic may be preloaded we call a shared function here and on mount
+            actions.updateFromMetadata()
+        },
+
+        loadRecordingSnapshotsSuccess: async () => {
+            // As the connected data logic may be preloaded we call a shared function here and on mount
+            actions.updateFromMetadata()
         },
 
         loadRecordingSnapshotsFailure: () => {
@@ -649,6 +652,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             })
         },
         afterMount: () => {
+            if (!values.sessionPlayerSnapshotDataLoading || !values.sessionPlayerMetaDataLoading) {
+                // If either value is not loading that indicates we have already loaded and should trigger it
+                actions.updateFromMetadata()
+            }
+
             cache.openTime = performance.now()
 
             cache.errorHandler = (error: ErrorEvent) => {
