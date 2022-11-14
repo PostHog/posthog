@@ -4,6 +4,12 @@ import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
 import { CSSTransition } from 'react-transition-group'
 import './BridgePage.scss'
 import { LaptopHog3 } from '../hedgehogs'
+import { Link } from '../Link'
+import { useValues } from 'kea'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { router } from 'kea-router'
+import { Region } from '~/types'
+import { CLOUD_HOSTNAMES } from 'lib/constants'
 
 export type BridgePageProps = {
     className?: string
@@ -33,6 +39,7 @@ export function BridgePage({
     showSelfHostCta = false,
 }: BridgePageProps): JSX.Element {
     const [messageShowing, setMessageShowing] = useState(false)
+    const { preflight } = useValues(preflightLogic)
 
     useEffect(() => {
         const t = setTimeout(() => {
@@ -40,6 +47,14 @@ export function BridgePage({
         }, 200)
         return () => clearTimeout(t)
     }, [])
+
+    const getAltRegionUrl = (): string => {
+        const { pathname, search, hash } = router.values.currentLocation
+        return `https://${
+            CLOUD_HOSTNAMES[preflight?.region === Region.EU ? Region.US : Region.EU]
+        }${pathname}${search}${hash}`
+    }
+
     return (
         <div className={clsx('BridgePage', fixedWidth && 'BridgePage--fixed-width', className)}>
             <div className="BridgePage__main">
@@ -59,11 +74,15 @@ export function BridgePage({
 
                         {showSelfHostCta && (
                             <div className="border rounded p-4 mt-8 text-center">
-                                Interested in{' '}
-                                <a href="https://posthog.com/docs/self-host">
-                                    <strong>self-hosting PostHog</strong>
-                                </a>
-                                ?
+                                Did you know? You can{' '}
+                                <Link to="https://posthog.com/docs/self-host">
+                                    <strong>self-host PostHog</strong>
+                                </Link>{' '}
+                                or{' '}
+                                <Link to={getAltRegionUrl()}>
+                                    <strong>use our {preflight?.region === Region.EU ? 'US' : 'EU'} cloud</strong>
+                                </Link>
+                                .
                             </div>
                         )}
                     </div>
