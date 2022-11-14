@@ -106,8 +106,8 @@ export function SessionRecordingPlaylistItem({
                     <TZLabel
                         className="overflow-hidden text-ellipsis text-muted text-xs"
                         time={recording.start_time}
-                        formatDate="MMMM DD, YYYY"
-                        formatTime="h:mm A"
+                        formatDate="DD MMM, YYYY"
+                        formatTime="hh:mm"
                     />
                 </div>
 
