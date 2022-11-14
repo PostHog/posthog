@@ -21,7 +21,7 @@ def determine_event_conditions(
 ) -> Tuple[str, Dict]:
     result = ""
     params: Dict[str, Union[str, List[str]]] = {}
-    for idx, (k, v) in enumerate(conditions.items()):
+    for (k, v) in conditions.items():
         if not isinstance(v, str):
             continue
         if k == "after" and not long_date_from:

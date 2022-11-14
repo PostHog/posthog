@@ -38,6 +38,7 @@ import {
     isExternalLink,
     selectorOperatorMap,
     dateStringToDayJs,
+    reverseColonDelimitedDuration,
 } from './utils'
 import {
     ActionFilter,
@@ -270,7 +271,8 @@ describe('dateFilterToText()', () => {
             expect(dateFilterToText(null, null, 'default')).toEqual('default')
             expect(dateFilterToText('-24h', null, 'default')).toEqual('Last 24 hours')
             expect(dateFilterToText('-48h', undefined, 'default')).toEqual('Last 48 hours')
-            expect(dateFilterToText('-1d', null, 'default')).toEqual('Yesterday')
+            expect(dateFilterToText('-1d', null, 'default')).toEqual('Last 1 day')
+            expect(dateFilterToText('-1dStart', 'dStart', 'default')).toEqual('Yesterday')
             expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Previous month')
         })
 
@@ -300,7 +302,8 @@ describe('dateFilterToText()', () => {
             expect(dateFilterToText('-48h', undefined, 'default', dateMapping, true)).toEqual(
                 'February 29 - March 2, 2012'
             )
-            expect(dateFilterToText('-1d', null, 'default', dateMapping, true)).toEqual('March 1, 2012')
+            expect(dateFilterToText('-1d', null, 'default', dateMapping, true)).toEqual('March 1 - March 2, 2012')
+            expect(dateFilterToText('-1dStart', 'dStart', 'default', dateMapping, true)).toEqual('March 1, 2012')
             expect(dateFilterToText('-1mStart', '-1mEnd', 'default', dateMapping, true)).toEqual(
                 'March 1 - March 31, 2012'
             )
@@ -510,10 +513,28 @@ describe('colonDelimitedDuration()', () => {
         expect(colonDelimitedDuration(604800.222, 5)).toEqual('01:00:00:00:00')
         expect(colonDelimitedDuration(604800.999, 6)).toEqual('01:00:00:00:00')
     })
+    it('returns the smallest possible for numUnits = null', () => {
+        expect(colonDelimitedDuration(59, null)).toEqual('00:59')
+        expect(colonDelimitedDuration(3599, null)).toEqual('59:59')
+        expect(colonDelimitedDuration(3600, null)).toEqual('01:00:00')
+    })
     it('returns an empty string for nullish inputs', () => {
         expect(colonDelimitedDuration('')).toEqual('')
         expect(colonDelimitedDuration(null)).toEqual('')
         expect(colonDelimitedDuration(undefined)).toEqual('')
+    })
+})
+
+describe('reverseColonDelimitedDuration()', () => {
+    it('returns correct value', () => {
+        expect(reverseColonDelimitedDuration('59')).toEqual(59)
+        expect(reverseColonDelimitedDuration('59:59')).toEqual(3599)
+        expect(reverseColonDelimitedDuration('23:59:59')).toEqual(86399)
+    })
+    it('returns an null for bad values', () => {
+        expect(reverseColonDelimitedDuration('1232123')).toEqual(null)
+        expect(reverseColonDelimitedDuration('AA:AA:AA')).toEqual(null)
+        expect(reverseColonDelimitedDuration(undefined)).toEqual(null)
     })
 })
 

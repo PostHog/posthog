@@ -4,12 +4,12 @@ from freezegun.api import freeze_time
 from rest_framework import status
 
 from posthog.models import User
-from posthog.models.prompt import UserPromptSequenceState, experiment_config
+from posthog.models.prompt import UserPromptSequenceState, prompts_config
 from posthog.test.base import APIBaseTest
 
 
 class TestPrompt(APIBaseTest):
-    sequences: List[Dict] = experiment_config
+    sequences: List[Dict] = prompts_config
 
     @classmethod
     def setUpTestData(cls):
@@ -26,7 +26,7 @@ class TestPrompt(APIBaseTest):
         response = self.client.patch(f"/api/prompts/my_prompts", {}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         json_response = response.json()
-        self.assertEqual(len(json_response["sequences"]), 1)
+        self.assertEqual(len(json_response["sequences"]), 2)
         self.assertEqual(json_response["sequences"][0]["key"], self.sequences[0]["key"])
 
         # updates the saved state using the more recent local state

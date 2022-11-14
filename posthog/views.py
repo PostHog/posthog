@@ -12,6 +12,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.cache import never_cache
 
+from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.health import is_clickhouse_connected, is_kafka_connected
 from posthog.models import Organization, User
@@ -22,6 +23,7 @@ from posthog.utils import (
     get_celery_heartbeat,
     get_instance_available_sso_providers,
     get_instance_realm,
+    get_instance_region,
     is_celery_alive,
     is_object_storage_available,
     is_plugin_server_alive,
@@ -75,9 +77,7 @@ def stats(request):
 
 
 def robots_txt(request):
-    ROBOTS_TXT_CONTENT = (
-        "User-agent: *\nDisallow: /shared_dashboard/" if settings.MULTI_TENANCY else "User-agent: *\nDisallow: /"
-    )
+    ROBOTS_TXT_CONTENT = "User-agent: *\nDisallow: /shared_dashboard/" if is_cloud() else "User-agent: *\nDisallow: /"
     return HttpResponse(ROBOTS_TXT_CONTENT, content_type="text/plain")
 
 
@@ -103,9 +103,10 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "kafka": is_kafka_connected() or settings.TEST,
         "db": is_postgres_alive(),
         "initiated": Organization.objects.exists(),
-        "cloud": settings.MULTI_TENANCY,
+        "cloud": is_cloud(),
         "demo": settings.DEMO,
         "realm": get_instance_realm(),
+        "region": get_instance_region(),
         "available_social_auth_providers": get_instance_available_sso_providers(),
         "can_create_org": get_can_create_org(request.user),
         "email_service_available": is_email_available(with_absolute_urls=True),

@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 
 import { Spinner as Spinner, SpinnerOverlay } from './Spinner'
@@ -7,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 export default {
     title: 'Lemon UI/Spinner',
     component: Spinner,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof Spinner>
 
 export function Default(): JSX.Element {

@@ -1,4 +1,3 @@
-import React from 'react'
 import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
 import {
     RetentionTablePayload,
@@ -16,6 +15,7 @@ import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
 import clsx from 'clsx'
 import { AlertMessage } from 'lib/components/AlertMessage'
+import { Noun } from '~/models/groupsModel'
 
 export function RetentionModal({
     results,
@@ -36,7 +36,7 @@ export function RetentionModal({
     actorsLoading: boolean
     loadingMore: boolean
     actors: RetentionTablePeoplePayload
-    aggregationTargetLabel: { singular: string; plural: string }
+    aggregationTargetLabel: Noun
 }): JSX.Element | null {
     return (
         <LemonModal

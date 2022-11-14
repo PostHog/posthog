@@ -1,4 +1,4 @@
-# name: RecordingDomainMigrationTestCase.test_backfill_primary_dashboard
+# name: RecordingDomainMigrationTestCase.test_backfill_recording_domain
   '
   
   SELECT c.relname,
@@ -20,7 +20,7 @@
     AND pg_catalog.pg_table_is_visible(c.oid)
   '
 ---
-# name: RecordingDomainMigrationTestCase.test_backfill_primary_dashboard.1
+# name: RecordingDomainMigrationTestCase.test_backfill_recording_domain.1
   '
   SELECT "posthog_team"."id",
          "posthog_team"."app_urls",
@@ -28,7 +28,7 @@
   FROM "posthog_team"
   '
 ---
-# name: RecordingDomainMigrationTestCase.test_backfill_primary_dashboard.2
+# name: RecordingDomainMigrationTestCase.test_backfill_recording_domain.2
   '
   
   SELECT c.relname,
@@ -50,7 +50,7 @@
     AND pg_catalog.pg_table_is_visible(c.oid)
   '
 ---
-# name: RecordingDomainMigrationTestCase.test_backfill_primary_dashboard.3
+# name: RecordingDomainMigrationTestCase.test_backfill_recording_domain.3
   '
   
   SELECT c.relname,
@@ -72,7 +72,7 @@
     AND pg_catalog.pg_table_is_visible(c.oid)
   '
 ---
-# name: RecordingDomainMigrationTestCase.test_backfill_primary_dashboard.4
+# name: RecordingDomainMigrationTestCase.test_backfill_recording_domain.4
   '
   SELECT "django_migrations"."id",
          "django_migrations"."app",

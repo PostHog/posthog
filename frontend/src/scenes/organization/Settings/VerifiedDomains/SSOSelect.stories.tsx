@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ComponentStory, ComponentMeta } from '@storybook/react'
 import { SSOSelect } from './SSOSelect'
 import { SSOProviders } from '~/types'

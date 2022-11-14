@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonSnack, LemonSnackProps } from './LemonSnack'
 import { ProfilePicture } from '../ProfilePicture'
@@ -6,6 +5,7 @@ import { ProfilePicture } from '../ProfilePicture'
 export default {
     title: 'Lemon UI/Lemon Snack',
     component: LemonSnack,
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         children: {
             defaultValue: 'Tasty snacks',

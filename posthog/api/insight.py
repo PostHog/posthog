@@ -3,7 +3,7 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional, Type
 
 import structlog
-from django.db.models import Count, OuterRef, QuerySet, Subquery
+from django.db.models import Count, OuterRef, Prefetch, QuerySet, Subquery
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
@@ -160,7 +160,7 @@ class InsightSerializer(InsightBasicSerializer):
         help_text="A dashboard ID for each of the dashboards that this insight is displayed on.",
         many=True,
         required=False,
-        queryset=Dashboard.objects.filter(deleted=False),
+        queryset=Dashboard.objects.all(),
     )
     filters_hash = serializers.CharField(
         read_only=True,
@@ -214,9 +214,16 @@ class InsightSerializer(InsightBasicSerializer):
 
     @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:
-        dashboard_tile: Optional[DashboardTile] = None
-        if dashboard:
-            dashboard_tile = DashboardTile.objects.filter(insight=insight, dashboard=dashboard).first()
+        dashboard_tile: Optional[DashboardTile] = self.context.get("dashboard_tile", None)
+
+        if dashboard_tile and dashboard_tile.deleted:
+            self.context.update({"dashboard_tile": None})
+            dashboard_tile = None
+
+        if not dashboard_tile and dashboard:
+            dashboard_tile = DashboardTile.dashboard_queryset(
+                DashboardTile.objects.filter(insight=insight, dashboard=dashboard)
+            ).first()
 
         return dashboard_tile
 
@@ -268,38 +275,11 @@ class InsightSerializer(InsightBasicSerializer):
             instance.last_modified_by = self.context["request"].user
 
         if validated_data.get("deleted", False):
-            DashboardTile.objects.filter(insight__id=instance.id).delete()
+            DashboardTile.objects.filter(insight__id=instance.id).update(deleted=True)
         else:
             dashboards = validated_data.pop("dashboards", None)
             if dashboards is not None:
-                old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboardtile_set.all()]
-                new_dashboard_ids = [d.id for d in dashboards]
-
-                ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
-                ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
-
-                # does this user have permission on dashboards to add... if they are restricted
-                # it will mean this dashboard becomes restricted because of the patch
-                dashboard: Dashboard
-                for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
-                    if (
-                        dashboard.get_effective_privilege_level(self.context["request"].user.id)
-                        == Dashboard.PrivilegeLevel.CAN_VIEW
-                    ):
-                        raise PermissionDenied(
-                            f"You don't have permission to add insights to dashboard: {dashboard.id}"
-                        )
-
-                for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
-                    if dashboard.team != instance.team:
-                        raise serializers.ValidationError("Dashboard not found")
-                    DashboardTile.objects.create(insight=instance, dashboard=dashboard)
-
-                if ids_to_remove:
-                    DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).delete()
-
-                # also update in-model dashboards set so activity log can detect the change
-                instance.dashboards.set(dashboards)
+                self._update_insight_dashboards(dashboards, instance)
 
         updated_insight = super().update(instance, validated_data)
 
@@ -317,6 +297,31 @@ class InsightSerializer(InsightBasicSerializer):
         )
 
         return updated_insight
+
+    def _update_insight_dashboards(self, dashboards: List[Dashboard], instance: Insight) -> None:
+        old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboard_tiles.exclude(deleted=True).all()]
+        new_dashboard_ids = [d.id for d in dashboards if not d.deleted]
+        ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
+        ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
+        # does this user have permission on dashboards to add... if they are restricted
+        # it will mean this dashboard becomes restricted because of the patch
+        candidate_dashboards = Dashboard.objects.filter(id__in=ids_to_add).exclude(deleted=True)
+        dashboard: Dashboard
+        for dashboard in candidate_dashboards:
+            if (
+                dashboard.get_effective_privilege_level(self.context["request"].user.id)
+                == Dashboard.PrivilegeLevel.CAN_VIEW
+            ):
+                raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
+        for dashboard in candidate_dashboards:
+            if dashboard.team != instance.team:
+                raise serializers.ValidationError("Dashboard not found")
+            DashboardTile.objects.create(insight=instance, dashboard=dashboard)
+        if ids_to_remove:
+            DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).update(deleted=True)
+        # also update dashboards set so activity log can detect the change
+        changes_to_apply = [d for d in dashboards if not d.deleted]
+        instance.dashboards.set(changes_to_apply, clear=True)
 
     def get_result(self, insight: Insight):
         if not insight.filters:
@@ -366,6 +371,7 @@ class InsightSerializer(InsightBasicSerializer):
         dashboard_tile = self.dashboard_tile_from_context(insight, self.context.get("dashboard", None))
 
         result = self.get_result(insight)
+
         if result is not None:
             if dashboard_tile:
                 return dashboard_tile.last_refresh
@@ -391,6 +397,8 @@ class InsightSerializer(InsightBasicSerializer):
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
+        if "insight" not in representation["filters"]:
+            representation["filters"]["insight"] = "TRENDS"
 
         context_cache_key = self.context.get("filters_hash")
         representation["filters_hash"] = context_cache_key if context_cache_key is not None else instance.filters_hash
@@ -428,8 +436,17 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.prefetch_related(
-            "dashboards", "dashboards__created_by", "dashboards__team", "dashboards__team__organization"
+            Prefetch(
+                "dashboards",
+                queryset=Dashboard.objects.exclude(deleted=True).filter(
+                    id__in=DashboardTile.objects.exclude(deleted=True).values_list("dashboard_id", flat=True)
+                ),
+            ),
+            "dashboards__created_by",
+            "dashboards__team",
+            "dashboards__team__organization",
         )
+
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
@@ -488,6 +505,13 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
                 queryset = queryset.filter(
                     Q(name__icontains=request.GET["search"]) | Q(derived_name__icontains=request.GET["search"])
                 )
+            elif key == "dashboards":
+                dashboards_filter = request.GET["dashboards"]
+                if dashboards_filter:
+                    dashboards_ids = json.loads(dashboards_filter)
+                    for dashboard_id in dashboards_ids:
+                        queryset = queryset.filter(dashboard_tiles__dashboard_id=dashboard_id)
+
         return queryset
 
     def retrieve(self, request, *args, **kwargs):
@@ -499,6 +523,11 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
         Insights can be added to more than one dashboard, this allows the insight to be loaded in the correct context.
 
         Using the correct cache and enriching the response with dashboard specific config (e.g. layouts or colors)
+
+        To improve UI responsiveness if there is not already a result cached the insight is returned without a result.
+        This allows the UI to render and then request the result separately.
+
+        To ensure the result is calculated and returned include a `refresh=true` query parameter.
         """
         instance = self.get_object()
         serializer_context = self.get_serializer_context()

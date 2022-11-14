@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { keyMappingKeys, PropertyKeyInfo } from './PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
@@ -290,7 +290,7 @@ export function PropertiesTable({
             return entries
         }, [properties, sortProperties, searchTerm])
 
-        return Object.keys(properties).length > 0 ? (
+        return (
             <>
                 {searchable && (
                     <div className="flex justify-between items-center gap-4 mb-4">
@@ -313,11 +313,10 @@ export function PropertiesTable({
                     embedded={embedded}
                     dataSource={objectProperties}
                     className={className}
+                    emptyState="This person doesn't have any properties"
                     {...tableProps}
                 />
             </>
-        ) : (
-            <div className="property-value-type">OBJECT (EMPTY)</div>
         )
     }
     // if none of above, it's a value

@@ -270,7 +270,6 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         run_event_table_deletions()
 
         self.assertRowCount(1, "person")
-        self.assertRowCount(1, "person_distinct_id")
         self.assertRowCount(1, "person_distinct_id2")
         self.assertRowCount(1, "groups")
         self.assertRowCount(1, "cohortpeople")

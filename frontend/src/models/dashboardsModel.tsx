@@ -1,11 +1,10 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { delay, idToKey, isUserLoggedIn } from 'lib/utils'
+import { idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import React from 'react'
 import type { dashboardsModelType } from './dashboardsModelType'
-import { InsightModel, DashboardType, InsightShortId } from '~/types'
+import { DashboardType, InsightShortId, DashboardTile, InsightModel } from '~/types'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
 import { lemonToast } from 'lib/components/lemonToast'
@@ -22,8 +21,18 @@ export const dashboardsModel = kea<dashboardsModelType>({
         // can provide extra dashboard ids if not all listeners will choose to respond to this action
         // not providing a dashboard id is a signal that only listeners in the item.dashboards array should respond
         // specifying `number` not `Pick<DashboardType, 'id'> because kea typegen couldn't figure out the import in `savedInsightsLogic`
-        updateDashboardInsight: (item: InsightModel, extraDashboardIds?: number[]) => ({
-            item,
+        // if an update is made against an insight it will hold last_refresh, color, and filters_hash in dashboard context
+        updateDashboardInsight: (
+            insight: InsightModel,
+            extraDashboardIds?: number[],
+            updateTileOnDashboards?: [number]
+        ) => ({
+            insight,
+            extraDashboardIds,
+            updateTileOnDashboards,
+        }),
+        updateDashboardTile: (tile: DashboardTile, extraDashboardIds?: number[]) => ({
+            tile,
             extraDashboardIds,
         }),
         // a side effect on this action exists in dashboardLogic so that individual refresh statuses can be bubbled up
@@ -40,11 +49,28 @@ export const dashboardsModel = kea<dashboardsModelType>({
         pinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         unpinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         loadDashboards: true,
-        duplicateDashboard: ({ id, name, show }: { id: number; name?: string; show?: boolean }) => ({
+        duplicateDashboard: ({
+            id,
+            name,
+            show,
+            duplicateTiles,
+        }: {
+            id: number
+            name?: string
+            show?: boolean
+            duplicateTiles?: boolean
+        }) => ({
             id: id,
             name: name || `#${id}`,
             show: show || false,
+            duplicateTiles: duplicateTiles || false,
         }),
+        tileMovedToDashboard: (tile: DashboardTile, dashboardId: number) => ({ tile, dashboardId }),
+        tileRemovedFromDashboard: ({ tile, dashboardId }: { tile?: DashboardTile; dashboardId?: number }) => ({
+            tile,
+            dashboardId,
+        }),
+        tileAddedToDashboard: (dashboardId: number) => ({ dashboardId }),
     }),
     loaders: ({ values, actions }) => ({
         rawDashboards: [
@@ -53,7 +79,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 loadDashboards: async (_, breakpoint) => {
                     // looking at a fully exported dashboard, return its contents
                     const exportedDashboard = window.POSTHOG_EXPORTED_DATA?.dashboard
-                    if (exportedDashboard?.id && exportedDashboard?.items) {
+                    if (exportedDashboard?.id && exportedDashboard?.tiles) {
                         return { [exportedDashboard.id]: exportedDashboard }
                     }
 
@@ -111,9 +137,10 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 }
                 return response
             },
-            deleteDashboard: async ({ id }) =>
+            deleteDashboard: async ({ id, deleteInsights }) =>
                 (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                     deleted: true,
+                    delete_insights: deleteInsights,
                 })) as DashboardType,
             restoreDashboard: async ({ id }) =>
                 (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
@@ -133,10 +160,11 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 eventUsageLogic.actions.reportDashboardPinToggled(false, source)
                 return response
             },
-            duplicateDashboard: async ({ id, name, show }) => {
+            duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
                 const result = (await api.create(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`, {
                     use_dashboard: id,
                     name: `${name} (Copy)`,
+                    duplicate_tiles: duplicateTiles,
                 })) as DashboardType
                 if (show) {
                     router.actions.push(urls.dashboard(result.id))
@@ -254,20 +282,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 }
             )
 
-            const { id } = dashboard
-            const nextDashboard = values.pinSortedDashboards.find((d) => d.id !== id && !d.deleted)
-
-            if (values.redirect) {
-                if (nextDashboard) {
-                    router.actions.push(urls.dashboard(nextDashboard.id))
-                } else {
-                    router.actions.push(urls.dashboards())
-                }
-
-                await delay(500)
-            }
-
-            actions.delayedDeleteDashboard(id)
+            actions.delayedDeleteDashboard(dashboard.id)
         },
 
         duplicateDashboardSuccess: async ({ dashboard }) => {

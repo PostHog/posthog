@@ -21,6 +21,8 @@
                     }
                 }
                 > td {
+                    // Sneaky hack to make height: 100% work in .StepLegend. The wonders of CSS - there's NO other way!
+                    height: 1px;
                     padding: 0.75rem 0;
                 }
             }
@@ -147,6 +149,7 @@
 .StepLegend {
     border-left: 1px solid var(--border);
     white-space: nowrap;
+    height: 100%;
     > .LemonRow {
         min-height: 1.5rem;
         padding: 0 0.5rem;

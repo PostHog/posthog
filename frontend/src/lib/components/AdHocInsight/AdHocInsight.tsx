@@ -1,9 +1,9 @@
 import { FilterType, InsightLogicProps } from '~/types'
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { BindLogic } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useValues } from 'kea'
-import { InsightViz } from 'lib/components/InsightCard/InsightCard'
+import { InsightViz } from 'lib/components/Cards/InsightCard/InsightCard'
 
 let uniqueMemoizedIndex = 0
 export function AdHocInsight({

@@ -98,6 +98,25 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
+    def test_send_fatal_plugin_error_with_settings(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        plugin = Plugin.objects.create(organization=self.organization)
+        plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
+        self._create_user("test2@posthog.com")
+        self.user.partial_notification_settings = {"plugin_disabled": False}
+        self.user.save()
+
+        send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
+
+        # Should only be sent to user2
+        assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
+
+        self.user.partial_notification_settings = {"plugin_disabled": True}
+        self.user.save()
+        send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
+        # should be sent to both
+        assert len(mocked_email_messages[1].to) == 2
+
     def test_send_canary_email(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         send_canary_email("test@posthog.com")
@@ -142,10 +161,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             send_first_ingestion_reminder_emails()
             self.assertEqual(MessagingRecord.objects.all().count(), 2)
             self.assertEqual(
-                set([record[0] for record in MessagingRecord.objects.all().values_list("email_hash")]),
-                set(
-                    [get_email_hash("in_range_user_not_admin@posthog.com"), get_email_hash("in_range_user@posthog.com")]
-                ),
+                {record[0] for record in MessagingRecord.objects.all().values_list("email_hash")},
+                {get_email_hash("in_range_user_not_admin@posthog.com"), get_email_hash("in_range_user@posthog.com")},
             )
 
             send_first_ingestion_reminder_emails()
@@ -168,10 +185,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             send_second_ingestion_reminder_emails()
             self.assertEqual(MessagingRecord.objects.all().count(), 2)
             self.assertEqual(
-                set([record[0] for record in MessagingRecord.objects.all().values_list("email_hash")]),
-                set(
-                    [get_email_hash("in_range_user_not_admin@posthog.com"), get_email_hash("in_range_user@posthog.com")]
-                ),
+                {record[0] for record in MessagingRecord.objects.all().values_list("email_hash")},
+                {get_email_hash("in_range_user_not_admin@posthog.com"), get_email_hash("in_range_user@posthog.com")},
             )
 
             send_second_ingestion_reminder_emails()

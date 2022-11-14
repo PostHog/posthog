@@ -232,7 +232,7 @@ class LegacyCohortViewSet(CohortViewSet):
 def will_create_loops(cohort: Cohort) -> bool:
     # Loops can only be formed when trying to update a Cohort, not when creating one
     team_id = cohort.team_id
-    cohorts_seen = set([cohort.pk])
+    cohorts_seen = {cohort.pk}
     cohorts_queue = [property.value for property in cohort.properties.flat if property.type == "cohort"]
     while cohorts_queue:
         current_cohort_id = cohorts_queue.pop()

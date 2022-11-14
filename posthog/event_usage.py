@@ -2,7 +2,7 @@
 Module to centralize event reporting on the server-side.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 import posthoganalytics
 
@@ -177,28 +177,6 @@ def report_bulk_invited(
     )
 
 
-def report_org_usage(organization_id: str, distinct_id: str, properties: Dict[str, Any]) -> None:
-    """
-    Triggered daily by Celery scheduler.
-    """
-    posthoganalytics.capture(
-        distinct_id,
-        "organization usage report",
-        properties,
-        groups={"organization": organization_id, "instance": SITE_URL},
-    )
-    posthoganalytics.group_identify("organization", organization_id, properties)
-
-
-def report_org_usage_failure(organization_id: str, distinct_id: str, err: str) -> None:
-    posthoganalytics.capture(
-        distinct_id,
-        "organization usage report failure",
-        properties={"error": err},
-        groups={"organization": organization_id, "instance": SITE_URL},
-    )
-
-
 def report_user_action(user: User, event: str, properties: Dict = {}):
     posthoganalytics.capture(
         user.distinct_id, event, properties=properties, groups=groups(user.current_organization, user.current_team)
@@ -231,6 +209,8 @@ def groups(organization: Optional[Organization] = None, team: Optional[Team] = N
     result = {"instance": SITE_URL}
     if organization is not None:
         result["organization"] = str(organization.pk)
+        if organization.customer_id:
+            result["customer"] = organization.customer_id
     if team is not None:
         result["project"] = str(team.uuid)
     return result

@@ -28,7 +28,7 @@ KAFKA_PRODUCER_RETRIES = 5
 logger = get_logger(__name__)
 
 
-class TestKafkaProducer:
+class KafkaProducerForTests:
     def __init__(self):
         pass
 
@@ -39,7 +39,7 @@ class TestKafkaProducer:
         return
 
 
-class TestKafkaConsumer:
+class KafkaConsumerForTests:
     def __init__(self, topic="test", max=0, **kwargs):
         self.max = max
         self.n = 0
@@ -85,7 +85,7 @@ def _sasl_params():
 class _KafkaProducer:
     def __init__(self, test=TEST):
         if test:
-            self.producer = TestKafkaProducer()
+            self.producer = KafkaProducerForTests()
         elif KAFKA_BASE64_KEYS:
             self.producer = helper.get_kafka_producer(retries=KAFKA_PRODUCER_RETRIES, value_serializer=lambda d: d)
         else:
@@ -163,7 +163,7 @@ def build_kafka_consumer(
     consumer_timeout_ms=float("inf"),
 ):
     if test:
-        consumer = TestKafkaConsumer(
+        consumer = KafkaConsumerForTests(
             topic=topic, auto_offset_reset=auto_offset_reset, max=10, consumer_timeout_ms=consumer_timeout_ms
         )
     elif KAFKA_BASE64_KEYS:

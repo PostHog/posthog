@@ -3,7 +3,7 @@
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
-     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2021-04-28 00:00:00')), dateTrunc('day', toDateTime('2021-05-05 23:59:59') + INTERVAL 1 day))))
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC')), dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC') + INTERVAL 1 day))))
   SELECT groupArray(start_of_period) as date,
          groupArray(counts) as data,
          status
@@ -35,7 +35,7 @@
              (SELECT person_id,
                      period,
                      created_at,
-                     if(dateTrunc('day', toDateTime(created_at, 'UTC')) = period, 'new', if(previous_activity + INTERVAL 1 day = period, 'returning', 'resurrecting')) AS initial_status,
+                     if(dateTrunc('day', toTimeZone(toDateTime(created_at, 'UTC'), 'UTC')) = period, 'new', if(previous_activity + INTERVAL 1 day = period, 'returning', 'resurrecting')) AS initial_status,
                      period + INTERVAL 1 day = following_activity AS next_is_active,
                                                previous_activity,
                                                following_activity
@@ -49,7 +49,7 @@
                                                           created_at
                  FROM
                    (SELECT DISTINCT pdi.person_id as person_id,
-                                    dateTrunc('day', toDateTime(events.timestamp, 'UTC')) AS period,
+                                    dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')) AS period,
                                     toDateTime(person.created_at, 'UTC') AS created_at
                     FROM events AS e
                     INNER JOIN
@@ -68,8 +68,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
-                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00'))) - INTERVAL 1 day
-                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59'))) + INTERVAL 1 day )))
+                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
+                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day )))
            WHERE period_status_pairs.2 != '' SETTINGS allow_experimental_window_functions = 1 )
         WHERE start_of_period <= dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))
           AND start_of_period >= dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))
@@ -86,7 +86,7 @@
   WITH 'month' AS selected_period,
        periods AS
     (SELECT dateSub(month, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
-     FROM numbers(dateDiff('month', dateTrunc('month', toDateTime('2021-02-04 00:00:00')), dateTrunc('month', toDateTime('2021-05-05 23:59:59') + INTERVAL 1 month))))
+     FROM numbers(dateDiff('month', dateTrunc('month', toDateTime('2021-02-04 00:00:00', 'UTC')), dateTrunc('month', toDateTime('2021-05-05 23:59:59', 'UTC') + INTERVAL 1 month))))
   SELECT groupArray(start_of_period) as date,
          groupArray(counts) as data,
          status
@@ -118,7 +118,7 @@
              (SELECT person_id,
                      period,
                      created_at,
-                     if(dateTrunc('month', toDateTime(created_at, 'UTC')) = period, 'new', if(previous_activity + INTERVAL 1 month = period, 'returning', 'resurrecting')) AS initial_status,
+                     if(dateTrunc('month', toTimeZone(toDateTime(created_at, 'UTC'), 'UTC')) = period, 'new', if(previous_activity + INTERVAL 1 month = period, 'returning', 'resurrecting')) AS initial_status,
                      period + INTERVAL 1 month = following_activity AS next_is_active,
                                                  previous_activity,
                                                  following_activity
@@ -132,7 +132,7 @@
                                                           created_at
                  FROM
                    (SELECT DISTINCT pdi.person_id as person_id,
-                                    dateTrunc('month', toDateTime(events.timestamp, 'UTC')) AS period,
+                                    dateTrunc('month', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')) AS period,
                                     toDateTime(person.created_at, 'UTC') AS created_at
                     FROM events AS e
                     INNER JOIN
@@ -151,8 +151,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
-                      AND timestamp >= toDateTime(dateTrunc('month', toDateTime('2021-02-04 00:00:00'))) - INTERVAL 1 month
-                      AND timestamp < toDateTime(dateTrunc('month', toDateTime('2021-05-05 23:59:59'))) + INTERVAL 1 month )))
+                      AND timestamp >= toDateTime(dateTrunc('month', toDateTime('2021-02-04 00:00:00', 'UTC'))) - INTERVAL 1 month
+                      AND timestamp < toDateTime(dateTrunc('month', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 month )))
            WHERE period_status_pairs.2 != '' SETTINGS allow_experimental_window_functions = 1 )
         WHERE start_of_period <= dateTrunc('month', toDateTime('2021-05-05 23:59:59', 'UTC'))
           AND start_of_period >= dateTrunc('month', toDateTime('2021-02-04 00:00:00', 'UTC'))
@@ -169,7 +169,7 @@
   WITH 'week' AS selected_period,
        periods AS
     (SELECT dateSub(week, number, dateTrunc(selected_period, toDateTime('2021-05-06 23:59:59', 'UTC'))) AS start_of_period
-     FROM numbers(dateDiff('week', dateTrunc('week', toDateTime('2021-04-06 00:00:00')), dateTrunc('week', toDateTime('2021-05-06 23:59:59') + INTERVAL 1 week))))
+     FROM numbers(dateDiff('week', dateTrunc('week', toDateTime('2021-04-06 00:00:00', 'UTC')), dateTrunc('week', toDateTime('2021-05-06 23:59:59', 'UTC') + INTERVAL 1 week))))
   SELECT groupArray(start_of_period) as date,
          groupArray(counts) as data,
          status
@@ -201,7 +201,7 @@
              (SELECT person_id,
                      period,
                      created_at,
-                     if(dateTrunc('week', toDateTime(created_at, 'UTC')) = period, 'new', if(previous_activity + INTERVAL 1 week = period, 'returning', 'resurrecting')) AS initial_status,
+                     if(dateTrunc('week', toTimeZone(toDateTime(created_at, 'UTC'), 'UTC')) = period, 'new', if(previous_activity + INTERVAL 1 week = period, 'returning', 'resurrecting')) AS initial_status,
                      period + INTERVAL 1 week = following_activity AS next_is_active,
                                                 previous_activity,
                                                 following_activity
@@ -215,7 +215,7 @@
                                                           created_at
                  FROM
                    (SELECT DISTINCT pdi.person_id as person_id,
-                                    dateTrunc('week', toDateTime(events.timestamp, 'UTC')) AS period,
+                                    dateTrunc('week', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')) AS period,
                                     toDateTime(person.created_at, 'UTC') AS created_at
                     FROM events AS e
                     INNER JOIN
@@ -234,8 +234,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
-                      AND timestamp >= toDateTime(dateTrunc('week', toDateTime('2021-04-06 00:00:00'))) - INTERVAL 1 week
-                      AND timestamp < toDateTime(dateTrunc('week', toDateTime('2021-05-06 23:59:59'))) + INTERVAL 1 week )))
+                      AND timestamp >= toDateTime(dateTrunc('week', toDateTime('2021-04-06 00:00:00', 'UTC'))) - INTERVAL 1 week
+                      AND timestamp < toDateTime(dateTrunc('week', toDateTime('2021-05-06 23:59:59', 'UTC'))) + INTERVAL 1 week )))
            WHERE period_status_pairs.2 != '' SETTINGS allow_experimental_window_functions = 1 )
         WHERE start_of_period <= dateTrunc('week', toDateTime('2021-05-06 23:59:59', 'UTC'))
           AND start_of_period >= dateTrunc('week', toDateTime('2021-04-06 00:00:00', 'UTC'))
@@ -252,7 +252,7 @@
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-18 23:59:59', 'UTC'))) AS start_of_period
-     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-11 00:00:00')), dateTrunc('day', toDateTime('2020-01-18 23:59:59') + INTERVAL 1 day))))
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-11 00:00:00', 'UTC')), dateTrunc('day', toDateTime('2020-01-18 23:59:59', 'UTC') + INTERVAL 1 day))))
   SELECT groupArray(start_of_period) as date,
          groupArray(counts) as data,
          status
@@ -284,7 +284,7 @@
              (SELECT person_id,
                      period,
                      created_at,
-                     if(dateTrunc('day', toDateTime(created_at, 'UTC')) = period, 'new', if(previous_activity + INTERVAL 1 day = period, 'returning', 'resurrecting')) AS initial_status,
+                     if(dateTrunc('day', toTimeZone(toDateTime(created_at, 'UTC'), 'UTC')) = period, 'new', if(previous_activity + INTERVAL 1 day = period, 'returning', 'resurrecting')) AS initial_status,
                      period + INTERVAL 1 day = following_activity AS next_is_active,
                                                previous_activity,
                                                following_activity
@@ -298,7 +298,7 @@
                                                           created_at
                  FROM
                    (SELECT DISTINCT pdi.person_id as person_id,
-                                    dateTrunc('day', toDateTime(events.timestamp, 'UTC')) AS period,
+                                    dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')) AS period,
                                     toDateTime(person.created_at, 'UTC') AS created_at
                     FROM events AS e
                     INNER JOIN
@@ -317,8 +317,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
-                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-11 00:00:00'))) - INTERVAL 1 day
-                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-18 23:59:59'))) + INTERVAL 1 day )))
+                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-11 00:00:00', 'UTC'))) - INTERVAL 1 day
+                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-18 23:59:59', 'UTC'))) + INTERVAL 1 day )))
            WHERE period_status_pairs.2 != '' SETTINGS allow_experimental_window_functions = 1 )
         WHERE start_of_period <= dateTrunc('day', toDateTime('2020-01-18 23:59:59', 'UTC'))
           AND start_of_period >= dateTrunc('day', toDateTime('2020-01-11 00:00:00', 'UTC'))
@@ -335,7 +335,7 @@
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59', 'UTC'))) AS start_of_period
-     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00')), dateTrunc('day', toDateTime('2020-01-19 23:59:59') + INTERVAL 1 day))))
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC')), dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC') + INTERVAL 1 day))))
   SELECT groupArray(start_of_period) as date,
          groupArray(counts) as data,
          status
@@ -367,7 +367,7 @@
              (SELECT person_id,
                      period,
                      created_at,
-                     if(dateTrunc('day', toDateTime(created_at, 'UTC')) = period, 'new', if(previous_activity + INTERVAL 1 day = period, 'returning', 'resurrecting')) AS initial_status,
+                     if(dateTrunc('day', toTimeZone(toDateTime(created_at, 'UTC'), 'UTC')) = period, 'new', if(previous_activity + INTERVAL 1 day = period, 'returning', 'resurrecting')) AS initial_status,
                      period + INTERVAL 1 day = following_activity AS next_is_active,
                                                previous_activity,
                                                following_activity
@@ -381,7 +381,7 @@
                                                           created_at
                  FROM
                    (SELECT DISTINCT pdi.person_id as person_id,
-                                    dateTrunc('day', toDateTime(events.timestamp, 'UTC')) AS period,
+                                    dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')) AS period,
                                     toDateTime(person.created_at, 'UTC') AS created_at
                     FROM events AS e
                     INNER JOIN
@@ -407,8 +407,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event = '$pageview'
-                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00'))) - INTERVAL 1 day
-                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59'))) + INTERVAL 1 day
+                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC'))) - INTERVAL 1 day
+                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC'))) + INTERVAL 1 day
                       AND (has(['value'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'key'), '^"|"$', ''))) )))
            WHERE period_status_pairs.2 != '' SETTINGS allow_experimental_window_functions = 1 )
         WHERE start_of_period <= dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC'))
@@ -426,7 +426,7 @@
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59', 'UTC'))) AS start_of_period
-     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00')), dateTrunc('day', toDateTime('2020-01-19 23:59:59') + INTERVAL 1 day))))
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC')), dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC') + INTERVAL 1 day))))
   SELECT groupArray(start_of_period) as date,
          groupArray(counts) as data,
          status
@@ -491,8 +491,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
-                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00'))) - INTERVAL 1 day
-                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59'))) + INTERVAL 1 day )))
+                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC'))) - INTERVAL 1 day
+                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC'))) + INTERVAL 1 day )))
            WHERE period_status_pairs.2 != '' SETTINGS allow_experimental_window_functions = 1 )
         WHERE start_of_period <= dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC'))
           AND start_of_period >= dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC'))
@@ -509,7 +509,7 @@
   WITH 'day' AS selected_period,
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59', 'US/Pacific'))) AS start_of_period
-     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00')), dateTrunc('day', toDateTime('2020-01-19 23:59:59') + INTERVAL 1 day))))
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'US/Pacific')), dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'US/Pacific') + INTERVAL 1 day))))
   SELECT groupArray(start_of_period) as date,
          groupArray(counts) as data,
          status
@@ -574,8 +574,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event = '$pageview'
-                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00'))) - INTERVAL 1 day
-                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59'))) + INTERVAL 1 day )))
+                      AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'US/Pacific'))) - INTERVAL 1 day
+                      AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'US/Pacific'))) + INTERVAL 1 day )))
            WHERE period_status_pairs.2 != '' SETTINGS allow_experimental_window_functions = 1 )
         WHERE start_of_period <= dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'US/Pacific'))
           AND start_of_period >= dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'US/Pacific'))

@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/node'
-import { Consumer, ConsumerSubscribeTopics, EachBatchPayload, Kafka } from 'kafkajs'
+import { StatsD } from 'hot-shots'
+import { Consumer, ConsumerSubscribeTopics, EachBatchHandler, EachBatchPayload, Kafka } from 'kafkajs'
 
 import { Hub, WorkerMethods } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
@@ -15,8 +16,8 @@ type ConsumerManagementPayload = {
     partitions?: number[] | undefined
 }
 
-type EachBatchFunction = (payload: EachBatchPayload, queue: KafkaQueue) => Promise<void>
-export class KafkaQueue {
+type EachBatchFunction = (payload: EachBatchPayload, queue: IngestionConsumer) => Promise<void>
+export class IngestionConsumer {
     public pluginsServer: Hub
     public workerMethods: WorkerMethods
     public consumerReady: boolean
@@ -31,7 +32,7 @@ export class KafkaQueue {
     constructor(pluginsServer: Hub, workerMethods: WorkerMethods) {
         this.pluginsServer = pluginsServer
         this.kafka = pluginsServer.kafka!
-        this.consumer = KafkaQueue.buildConsumer(this.kafka, this.consumerGroupId())
+        this.consumer = IngestionConsumer.buildConsumer(this.kafka, this.consumerGroupId())
         this.wasConsumerRan = false
         this.workerMethods = workerMethods
         this.consumerGroupMemberId = null
@@ -50,10 +51,14 @@ export class KafkaQueue {
 
         if (this.pluginsServer.capabilities.ingestion) {
             topics.push(this.ingestionTopic)
-        } else if (this.pluginsServer.capabilities.processAsyncHandlers) {
+        }
+
+        if (this.pluginsServer.capabilities.processAsyncHandlers) {
             topics.push(this.eventsTopic)
-        } else {
-            throw Error('No topics to consume, KafkaQueue should not be started')
+        }
+
+        if (topics.length === 0) {
+            throw Error('No topics to consume, IngestionConsumer should not be started')
         }
 
         return { topics }
@@ -65,7 +70,7 @@ export class KafkaQueue {
         } else if (this.pluginsServer.capabilities.processAsyncHandlers) {
             return `${KAFKA_PREFIX}clickhouse-plugin-server-async`
         } else {
-            throw Error('No topics to consume, KafkaQueue should not be started')
+            throw Error('No topics to consume, IngestionConsumer should not be started')
         }
     }
 
@@ -101,46 +106,16 @@ export class KafkaQueue {
                 autoCommitInterval: 1000, // autocommit every 1000 ms…
                 autoCommitThreshold: 1000, // …or every 1000 messages, whichever is sooner
                 partitionsConsumedConcurrently: this.pluginsServer.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
-                eachBatch: async (payload) => {
-                    const topic = payload.batch.topic
-                    try {
-                        await this.eachBatch[topic](payload, this)
-                    } catch (error) {
-                        const eventCount = payload.batch.messages.length
-                        this.pluginsServer.statsd?.increment('kafka_queue_each_batch_failed_events', eventCount, {
-                            topic: topic,
-                        })
-                        status.info('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`)
-                        if (error.type === 'UNKNOWN_MEMBER_ID') {
-                            status.info(
-                                '💀',
-                                "Probably the batch took longer than the session and we couldn't commit the offset"
-                            )
-                        }
-                        if (error.message) {
-                            let logToSentry = true
-                            const messagesToIgnore = {
-                                'The group is rebalancing, so a rejoin is needed': 'group_rebalancing',
-                                'Specified group generation id is not valid': 'generation_id_invalid',
-                                'Could not find person with distinct id': 'person_not_found',
-                                'The coordinator is not aware of this member': 'not_aware_of_member',
-                            }
-                            for (const [msg, metricSuffix] of Object.entries(messagesToIgnore)) {
-                                if (error.message.includes(msg)) {
-                                    this.pluginsServer.statsd?.increment('each_batch_error_' + metricSuffix)
-                                    logToSentry = false
-                                }
-                            }
-                            if (logToSentry) {
-                                Sentry.captureException(error)
-                            }
-                        }
-                        throw error
-                    }
-                },
+                eachBatch: (payload) => this.eachBatchConsumer(payload),
             })
         })
         return await startPromise
+    }
+
+    async eachBatchConsumer(payload: EachBatchPayload): Promise<void> {
+        const topic = payload.batch.topic
+        const eachBatch = this.eachBatch[topic]
+        await instrumentEachBatch(topic, (payload) => eachBatch(payload, this), payload, this.pluginsServer.statsd)
     }
 
     async pause(targetTopic: string, partition?: number): Promise<void> {
@@ -205,21 +180,87 @@ export class KafkaQueue {
             groupId,
             readUncommitted: false,
         })
-        const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT } = consumer.events
-        consumer.on(GROUP_JOIN, ({ payload: { groupId } }) => {
-            status.info('✅', `Kafka consumer joined group ${groupId}!`)
-        })
-        consumer.on(CRASH, ({ payload: { error, groupId } }) => {
-            status.error('⚠️', `Kafka consumer group ${groupId} crashed:\n`, error)
-            Sentry.captureException(error)
-            killGracefully()
-        })
-        consumer.on(CONNECT, () => {
-            status.info('✅', 'Kafka consumer connected!')
-        })
-        consumer.on(DISCONNECT, () => {
-            status.info('🛑', 'Kafka consumer disconnected!')
-        })
+        setupEventHandlers(consumer)
         return consumer
+    }
+}
+
+export const setupEventHandlers = (consumer: Consumer): void => {
+    const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT, COMMIT_OFFSETS } = consumer.events
+    let offsets: { [key: string]: string } = {} // Keep a record of offsets so we can report on process periodically
+    let statusInterval: NodeJS.Timeout
+    let groupId: string
+
+    consumer.on(GROUP_JOIN, ({ payload }) => {
+        offsets = {}
+        groupId = payload.groupId
+        status.info('✅', `Kafka consumer joined group ${groupId}!`)
+        clearInterval(statusInterval)
+        statusInterval = setInterval(() => {
+            status.info('ℹ️', 'consumer_status', { groupId, offsets })
+        }, 10000)
+    })
+    consumer.on(CRASH, ({ payload: { error, groupId } }) => {
+        offsets = {}
+        status.error('⚠️', `Kafka consumer group ${groupId} crashed:\n`, error)
+        clearInterval(statusInterval)
+        Sentry.captureException(error)
+        killGracefully()
+    })
+    consumer.on(CONNECT, () => {
+        offsets = {}
+        status.info('✅', 'Kafka consumer connected!')
+    })
+    consumer.on(DISCONNECT, () => {
+        status.info('ℹ️', 'consumer_status', { groupId, offsets })
+        offsets = {}
+        clearInterval(statusInterval)
+        status.info('🛑', 'Kafka consumer disconnected!')
+    })
+    consumer.on(COMMIT_OFFSETS, ({ payload: { topics } }) => {
+        topics.forEach(({ topic, partitions }) => {
+            partitions.forEach(({ partition, offset }) => {
+                offsets[`${topic}:${partition}`] = offset
+            })
+        })
+    })
+}
+
+export const instrumentEachBatch = async (
+    topic: string,
+    eachBatch: EachBatchHandler,
+    payload: EachBatchPayload,
+    statsd?: StatsD
+): Promise<void> => {
+    try {
+        await eachBatch(payload)
+    } catch (error) {
+        const eventCount = payload.batch.messages.length
+        statsd?.increment('kafka_queue_each_batch_failed_events', eventCount, {
+            topic: topic,
+        })
+        status.warn('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`)
+        if (error.type === 'UNKNOWN_MEMBER_ID') {
+            status.info('💀', "Probably the batch took longer than the session and we couldn't commit the offset")
+        }
+        if (error.message) {
+            let logToSentry = true
+            const messagesToIgnore = {
+                'The group is rebalancing, so a rejoin is needed': 'group_rebalancing',
+                'Specified group generation id is not valid': 'generation_id_invalid',
+                'Could not find person with distinct id': 'person_not_found',
+                'The coordinator is not aware of this member': 'not_aware_of_member',
+            }
+            for (const [msg, metricSuffix] of Object.entries(messagesToIgnore)) {
+                if (error.message.includes(msg)) {
+                    statsd?.increment('each_batch_error_' + metricSuffix)
+                    logToSentry = false
+                }
+            }
+            if (logToSentry) {
+                Sentry.captureException(error)
+            }
+        }
+        throw error
     }
 }

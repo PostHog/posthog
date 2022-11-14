@@ -1,4 +1,3 @@
-import React from 'react'
 import {
     BehavioralFilterKey,
     BehavioralFilterType,
@@ -51,17 +50,17 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
         label: 'Event Aggregation',
         type: FieldOptionsType.EventAggregation,
         values: {
-            [BaseMathType.Total]: {
-                label: 'Total',
+            [BaseMathType.TotalCount]: {
+                label: 'Total count',
             },
-            [BaseMathType.DailyActive]: {
-                label: 'Unique',
+            [BaseMathType.UniqueUsers]: {
+                label: 'Unique users',
             },
-            [BaseMathType.WeeklyActive]: {
-                label: 'Count of weekly active',
+            [BaseMathType.WeeklyActiveUsers]: {
+                label: 'Weekly active users',
             },
-            [BaseMathType.MonthlyActive]: {
-                label: 'Count of weekly active',
+            [BaseMathType.MonthlyActiveUsers]: {
+                label: 'Monthly active users',
             },
         },
     },

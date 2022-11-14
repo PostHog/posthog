@@ -24,6 +24,7 @@ from posthog.models.element.element import chain_to_elements
 from posthog.models.event.util import ElementSerializer
 from posthog.models.filters import Filter
 from posthog.models.property.util import get_property_string_expr
+from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.queries.funnels.utils import get_funnel_order_actor_class
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
@@ -157,6 +158,9 @@ class FunnelCorrelation:
 
             for property_name in cast(list, self._filter.correlation_property_names):
                 if self._filter.aggregation_group_type_index is not None:
+                    if not groups_on_events_querying_enabled():
+                        continue
+
                     if "$all" == property_name:
                         return [f"group{self._filter.aggregation_group_type_index}_properties"]
 
@@ -211,8 +215,8 @@ class FunnelCorrelation:
         query = f"""
             WITH
                 funnel_actors as ({funnel_persons_query}),
-                toDateTime(%(date_to)s) AS date_to,
-                toDateTime(%(date_from)s) AS date_from,
+                toDateTime(%(date_to)s, %(timezone)s) AS date_to,
+                toDateTime(%(date_from)s, %(timezone)s) AS date_from,
                 %(target_step)s AS target_step,
                 %(funnel_step_names)s as funnel_step_names
 
@@ -294,8 +298,8 @@ class FunnelCorrelation:
         query = f"""
             WITH
                 funnel_actors as ({funnel_persons_query}),
-                toDateTime(%(date_to)s) AS date_to,
-                toDateTime(%(date_from)s) AS date_from,
+                toDateTime(%(date_to)s, %(timezone)s) AS date_to,
+                toDateTime(%(date_from)s, %(timezone)s) AS date_from,
                 %(target_step)s AS target_step,
                 %(funnel_step_names)s as funnel_step_names
 
@@ -468,16 +472,16 @@ class FunnelCorrelation:
             WHERE
                 -- add this condition in to ensure we can filter events before
                 -- joining funnel_actors
-                event.timestamp >= date_from
-                AND event.timestamp < date_to
+                toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+                AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
 
                 AND event.team_id = {self._team.pk}
 
                 -- Add in per actor filtering on event time range. We just want
                 -- to include events that happened within the bounds of the
                 -- actors time in the funnel.
-                AND event.timestamp > actors.first_timestamp
-                AND event.timestamp < COALESCE(
+                AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+                AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(
                     actors.final_timestamp,
                     actors.first_timestamp + INTERVAL {self._funnel_actors_generator._filter.funnel_window_interval} {self._funnel_actors_generator._filter.funnel_window_interval_unit_ch()},
                     date_to)
@@ -488,10 +492,10 @@ class FunnelCorrelation:
         """
 
     def _get_aggregation_join_query(self):
-        if self._team.actor_on_events_querying_enabled:
-            return "", {}
-
         if self._filter.aggregation_group_type_index is None:
+            if self._team.actor_on_events_querying_enabled and groups_on_events_querying_enabled():
+                return "", {}
+
             person_query, person_query_params = PersonQuery(
                 self._filter, self._team.pk, EnterpriseColumnOptimizer(self._filter, self._team.pk)
             ).get_query()
@@ -508,7 +512,7 @@ class FunnelCorrelation:
 
     def _get_properties_prop_clause(self):
 
-        if self._team.actor_on_events_querying_enabled:
+        if self._team.actor_on_events_querying_enabled and groups_on_events_querying_enabled():
             group_properties_field = f"group{self._filter.aggregation_group_type_index}_properties"
             aggregation_properties_alias = (
                 "person_properties" if self._filter.aggregation_group_type_index is None else group_properties_field

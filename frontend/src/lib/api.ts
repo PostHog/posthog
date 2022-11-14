@@ -25,6 +25,10 @@ import {
     SubscriptionType,
     TeamType,
     UserType,
+    MediaUploadResponse,
+    SessionRecordingsResponse,
+    SessionRecordingPropertiesType,
+    SessionRecordingPlaylistType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -35,6 +39,7 @@ import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventD
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
+import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -228,6 +233,22 @@ class ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId)
     }
 
+    // Recordings
+    public recordings(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('session_recordings')
+    }
+    public recordingPlaylists(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('session_recording_playlists')
+    }
+    public recordingPlaylist(
+        playlistId?: SessionRecordingPlaylistType['short_id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('session_recording_playlists')
+            .addPathComponent(String(playlistId))
+    }
+
     // # Dashboards
     public dashboards(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('dashboards')
@@ -326,6 +347,10 @@ class ApiRequest {
 
     public integrationSlackChannels(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('channels')
+    }
+
+    public media(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('uploaded_media')
     }
 
     // Request finalization
@@ -662,6 +687,27 @@ const api = {
         async update(id: number, person: Partial<PersonType>): Promise<PersonType> {
             return new ApiRequest().person(id).update({ data: person })
         },
+        async updateProperty(id: number, property: string, value: any): Promise<void> {
+            return new ApiRequest()
+                .person(id)
+                .withAction('update_property')
+                .create({
+                    data: {
+                        key: property,
+                        value: value,
+                    },
+                })
+        },
+        async deleteProperty(id: number, property: string): Promise<void> {
+            return new ApiRequest()
+                .person(id)
+                .withAction('delete_property')
+                .create({
+                    data: {
+                        $unset: property,
+                    },
+                })
+        },
         async list(params: PersonListParams = {}): Promise<PaginatedResponse<PersonType>> {
             return await new ApiRequest().persons().withQueryString(toParams(params)).get()
         },
@@ -763,11 +809,35 @@ const api = {
         async list(): Promise<PaginatedResponse<LicenseType>> {
             return await new ApiRequest().licenses().get()
         },
-        async create(key: LicenseType['key']): Promise<LicenseType> {
+        async create(key: string): Promise<LicenseType> {
             return await new ApiRequest().licenses().create({ data: { key } })
         },
         async delete(licenseId: LicenseType['id']): Promise<LicenseType> {
             return await new ApiRequest().license(licenseId).delete()
+        },
+    },
+
+    recordings: {
+        async list(params: string): Promise<SessionRecordingsResponse> {
+            return await new ApiRequest().recordings().withQueryString(params).get()
+        },
+        async listProperties(params: string): Promise<PaginatedResponse<SessionRecordingPropertiesType>> {
+            return await new ApiRequest().recordings().withAction('properties').withQueryString(params).get()
+        },
+        async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {
+            return await new ApiRequest().recordingPlaylists().withQueryString(params).get()
+        },
+        async getPlaylist(playlistId: SessionRecordingPlaylistType['short_id']): Promise<SessionRecordingPlaylistType> {
+            return await new ApiRequest().recordingPlaylist(playlistId).get()
+        },
+        async createPlaylist(playlist: Partial<SessionRecordingPlaylistType>): Promise<SessionRecordingPlaylistType> {
+            return await new ApiRequest().recordingPlaylists().create({ data: playlist })
+        },
+        async updatePlaylist(
+            playlistId: SessionRecordingPlaylistType['short_id'],
+            playlist: Partial<SessionRecordingPlaylistType>
+        ): Promise<SessionRecordingPlaylistType> {
+            return await new ApiRequest().recordingPlaylist(playlistId).update({ data: playlist })
         },
     },
 
@@ -816,6 +886,12 @@ const api = {
         },
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()
+        },
+    },
+
+    media: {
+        async upload(data: FormData): Promise<MediaUploadResponse> {
+            return await new ApiRequest().media().create({ data })
         },
     },
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useActions } from 'kea'
 import { AsyncMigrationModalProps, asyncMigrationsLogic } from 'scenes/instance/AsyncMigrations/asyncMigrationsLogic'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -44,11 +44,14 @@ export function AsyncMigrationParametersModal(props: AsyncMigrationModalProps): 
                     </p>
 
                     <AnimatedCollapsible collapsed={collapsed}>
-                        {Object.keys(props.migration.parameter_definitions).map((key) => (
-                            <Field name={key} key={key} label={<>{props.migration.parameter_definitions[key][1]}</>}>
-                                <LemonInput type="number" />
-                            </Field>
-                        ))}
+                        {Object.entries(props.migration.parameter_definitions).map(
+                            ([parameterName, [defaultValue, parameterDescription]]) => (
+                                <Field name={parameterName} key={parameterName} label={<>{parameterDescription}</>}>
+                                    {/* TODO: Send the parameter type from the backend */}
+                                    <LemonInput type={typeof defaultValue === 'number' ? 'number' : 'text'} />
+                                </Field>
+                            )
+                        )}
                     </AnimatedCollapsible>
                 </LemonModal.Content>
                 <LemonModal.Footer>

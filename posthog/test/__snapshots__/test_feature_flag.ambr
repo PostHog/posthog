@@ -13,9 +13,11 @@
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
+         "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
+         "posthog_team"."inject_web_apps",
          "posthog_team"."test_account_filters",
          "posthog_team"."test_account_filters_default_checked",
          "posthog_team"."path_cleaning_filters",
@@ -41,28 +43,6 @@
 ---
 # name: TestFeatureFlagMatcher.test_multiple_flags.1
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0003_fill_person_distinct_id2'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
-  LIMIT 1
-  '
----
-# name: TestFeatureFlagMatcher.test_multiple_flags.2
-  '
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."team_id",
          "posthog_grouptypemapping"."group_type",
@@ -73,7 +53,7 @@
   WHERE "posthog_grouptypemapping"."team_id" = 2
   '
 ---
-# name: TestFeatureFlagMatcher.test_multiple_flags.3
+# name: TestFeatureFlagMatcher.test_multiple_flags.2
   '
   SELECT ("posthog_person"."properties" -> 'email') = '"test@posthog.com"' AS "flag_X_condition_0",
          (true) AS "flag_X_condition_1",
@@ -87,7 +67,7 @@
          AND "posthog_person"."team_id" = 2)
   '
 ---
-# name: TestFeatureFlagMatcher.test_multiple_flags.4
+# name: TestFeatureFlagMatcher.test_multiple_flags.3
   '
   SELECT (true) AS "flag_X_condition_0",
          (true) AS "flag_X_condition_0"
@@ -97,7 +77,7 @@
          AND "posthog_group"."group_type_index" = 2)
   '
 ---
-# name: TestFeatureFlagMatcher.test_multiple_flags.5
+# name: TestFeatureFlagMatcher.test_multiple_flags.4
   '
   SELECT ("posthog_group"."group_properties" -> 'name') IN ('"foo.inc"') AS "flag_X_condition_0",
          ("posthog_group"."group_properties" -> 'name') IN ('"foo2.inc"') AS "flag_X_condition_0"
@@ -107,7 +87,7 @@
          AND "posthog_group"."group_type_index" = 2)
   '
 ---
-# name: TestFeatureFlagMatcher.test_multiple_flags.6
+# name: TestFeatureFlagMatcher.test_multiple_flags.5
   '
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."team_id",
@@ -119,7 +99,7 @@
   WHERE "posthog_grouptypemapping"."team_id" = 2
   '
 ---
-# name: TestFeatureFlagMatcher.test_multiple_flags.7
+# name: TestFeatureFlagMatcher.test_multiple_flags.6
   '
   SELECT ("posthog_person"."properties" -> 'email') = '"test@posthog.com"' AS "flag_X_condition_0",
          (true) AS "flag_X_condition_1",
@@ -131,6 +111,16 @@
   WHERE ("posthog_persondistinctid"."distinct_id" = 'test_id'
          AND "posthog_persondistinctid"."team_id" = 2
          AND "posthog_person"."team_id" = 2)
+  '
+---
+# name: TestFeatureFlagMatcher.test_multiple_flags.7
+  '
+  SELECT ("posthog_group"."group_properties" -> 'name') IN ('"foo.inc"') AS "flag_X_condition_0",
+         ("posthog_group"."group_properties" -> 'name') IN ('"foo2.inc"') AS "flag_X_condition_0"
+  FROM "posthog_group"
+  WHERE ("posthog_group"."team_id" = 2
+         AND "posthog_group"."group_key" = 'foo2'
+         AND "posthog_group"."group_type_index" = 2)
   '
 ---
 # name: TestFeatureFlagMatcher.test_multiple_flags.8

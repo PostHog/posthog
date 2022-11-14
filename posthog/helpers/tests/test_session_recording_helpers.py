@@ -99,12 +99,13 @@ def test_compression_and_chunking(raw_snapshot_events, mocker: MockerFixture):
         {
             "event": "$snapshot",
             "properties": {
-                "$window_id": "1",
                 "$session_id": "1234",
+                "$window_id": "1",
                 "$snapshot_data": {
-                    "chunk_count": 1,
                     "chunk_id": "0178495e-8521-0000-8e1c-2652fa57099b",
                     "chunk_index": 0,
+                    "chunk_count": 1,
+                    "data": "H4sIAAAAAAAC/2WMywpAUABEz6fori28k1+RhQVlIYoN8uuY+9hpaprONPM+LReGnYOVQakhIiOWWzoxi25KvdIa+pSSgoqcRKqde91u+X/Mw+PIInlmONXbZ6Ndxwc14H+ijAAAAA==",
                     "compression": "gzip-base64",
                     "data": "H4sIAAAAAAAC//v/L5qhmkGJoYShkqGAIRXIsmJQYDBi0AGSINFMhlygaDGQlQhkFUDlDRlMGUwYzBiMGQyA0AJMQmAtWCemicYUmBjLAAABQ+l7pgAAAA==",
                     "has_full_snapshot": True,
@@ -436,6 +437,68 @@ def test_paginate_list():
     assert paginate_list(list, None, 5) == PaginatedList(has_next=False, paginated_list=list[5:])
     assert paginate_list(list, 5, 5) == PaginatedList(has_next=False, paginated_list=list[5:10])
     assert paginate_list(list, 4, 5) == PaginatedList(has_next=True, paginated_list=list[5:9])
+
+
+def test_get_events_summary_from_snapshot_data():
+    timestamp = round(datetime.now().timestamp() * 1000)
+
+    snapshot_events = [
+        # ignore malformed events
+        {"type": 2, "foo": "bar"},
+        # ignore other props
+        {"type": 2, "timestamp": timestamp, "foo": "bar"},
+        # include standard properties
+        {"type": 1, "timestamp": timestamp, "data": {"source": 3}},
+        # include only allowed values
+        {
+            "type": 1,
+            "timestamp": timestamp,
+            "data": {
+                # Large values we dont want
+                "node": {},
+                "text": "long-useless-text",
+                # Standard core values we want
+                "source": 3,
+                "type": 1,
+                # Values for initial render meta event
+                "href": "https://app.posthog.com/events?foo=bar",
+                "width": 2056,
+                "height": 1120,
+                # Special case for custom pageview events
+                "tag": "$pageview",
+                "plugin": "rrweb/console@1",
+                "payload": {
+                    "href": "https://app.posthog.com/events?eventFilter=",  # from pageview
+                    "level": "log",  # from console plugin
+                    # random
+                    "dont-want": "this",
+                    "or-this": {"foo": "bar"},
+                },
+            },
+        },
+    ]
+
+    assert get_events_summary_from_snapshot_data(snapshot_events) == [
+        {"timestamp": timestamp, "type": 2, "data": {}},
+        {"timestamp": timestamp, "type": 1, "data": {"source": 3}},
+        {
+            "timestamp": timestamp,
+            "type": 1,
+            "data": {
+                "source": 3,
+                "type": 1,
+                "href": "https://app.posthog.com/events?foo=bar",
+                "width": 2056,
+                "height": 1120,
+                "tag": "$pageview",
+                "plugin": "rrweb/console@1",
+                "payload": {
+                    "href": "https://app.posthog.com/events?eventFilter=",
+                    "level": "log",
+                },
+            },
+        },
+    ]
 
 
 @pytest.fixture

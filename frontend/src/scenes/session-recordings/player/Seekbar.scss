@@ -25,7 +25,6 @@ $tick_hover_size: 5px;
             background-color: var(--recording-seekbar-red);
             transform-origin: center;
             transform: translateX(-$thumb_size / 2);
-            transition: transform 50ms;
         }
 
         .slider-bar,
@@ -45,7 +44,7 @@ $tick_hover_size: 5px;
 
         .buffer-bar {
             z-index: 2;
-            transition: width 200ms;
+            // transition: width 10ms;
             background-color: var(--recording-buffer-bg);
             position: absolute;
             height: 2px;
@@ -93,14 +92,12 @@ $tick_hover_size: 5px;
             height: 100%;
             top: -12px;
             width: $tick_hover_size;
-            background-color: green;
             right: -1 * ceil($tick_hover_size / 2);
 
             .tick-marker {
                 position: absolute;
                 width: 1px;
                 height: 21px;
-                background-color: var(--recording-player-container-bg);
                 right: floor($tick_hover_size / 2);
             }
 
@@ -116,9 +113,6 @@ $tick_hover_size: 5px;
                 // Next 2 lines centers the absolute positioned tick info
                 left: 50%;
                 transform: translate(-50%, 0);
-                &.show {
-                    display: flex;
-                }
             }
 
             .tick-thumb {
@@ -128,12 +122,10 @@ $tick_hover_size: 5px;
                 border-radius: 50%;
                 right: -1 * floor($tick_size / 2) + floor($tick_hover_size / 2);
                 top: -1 * floor($tick_size / 2);
-                border: 0.5px solid var(--recording-player-container-bg);
-                background-color: var(--bg-light);
+                border-width: 0.5px;
                 transform-origin: center;
-                transition: transform 200ms;
 
-                &.big {
+                &.tick-thumb__big {
                     transform: scale(1.3);
                 }
             }

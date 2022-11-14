@@ -54,10 +54,13 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
 
         assert str(e.value) == "There are no insights to be sent for this Subscription"
 
-    def test_exludes_deleted_insights_for_dashboard(self, mock_export_task: MagicMock, mock_group: MagicMock) -> None:
+    def test_excludes_deleted_insights_for_dashboard(self, mock_export_task: MagicMock, mock_group: MagicMock) -> None:
         for i in range(1, 10):
-            self.tiles[i].insight.deleted = True
-            self.tiles[i].insight.save()
+            current_tile = self.tiles[i]
+            if current_tile.insight is None:
+                continue
+            current_tile.insight.deleted = True
+            current_tile.insight.save()
         subscription = create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user)
 
         insights, assets = generate_assets(subscription)

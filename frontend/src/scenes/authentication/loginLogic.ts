@@ -1,4 +1,4 @@
-import { kea, path, connect, listeners } from 'kea'
+import { kea, path, connect, listeners, actions, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import { forms } from 'kea-forms'
@@ -7,6 +7,8 @@ import type { loginLogicType } from './loginLogicType'
 import { router } from 'kea-router'
 import { SSOProviders } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface AuthenticateResponseType {
     success: boolean
@@ -41,7 +43,21 @@ export interface LoginForm {
 export const loginLogic = kea<loginLogicType>([
     path(['scenes', 'authentication', 'loginLogic']),
     connect({
-        values: [preflightLogic, ['preflight']],
+        values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
+    }),
+    actions({
+        setGeneralError: (code: string, detail: string) => ({ code, detail }),
+        clearGeneralError: true,
+    }),
+    reducers({
+        // This is separate from the login form, so that the form can be submitted even if a general error is present
+        generalError: [
+            null as { code: string; detail: string } | null,
+            {
+                setGeneralError: (_, error) => error,
+                clearGeneralError: () => null,
+            },
+        ],
     }),
     loaders(() => ({
         precheckResponse: [
@@ -66,8 +82,7 @@ export const loginLogic = kea<loginLogicType>([
             },
         ],
     })),
-
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         login: {
             defaults: { email: '', password: '' } as LoginForm,
             errors: ({ email, password }) => ({
@@ -83,12 +98,12 @@ export const loginLogic = kea<loginLogicType>([
                 try {
                     return await api.create('api/login', { email, password })
                 } catch (e) {
-                    actions.setLoginManualErrors({
-                        generic: {
-                            code: (e as Record<string, any>).code,
-                            detail: (e as Record<string, any>).detail,
-                        },
-                    })
+                    const { code } = e as Record<string, any>
+                    let { detail } = e as Record<string, any>
+                    if (values.featureFlags[FEATURE_FLAGS.REGION_SELECT] && code === 'invalid_credentials') {
+                        detail += ' Make sure you have selected the right data region.'
+                    }
+                    actions.setGeneralError(code, detail)
                     throw e
                 }
             },
@@ -104,7 +119,7 @@ export const loginLogic = kea<loginLogicType>([
     urlToAction(({ actions }) => ({
         '/login': ({}, { error_code, error_detail }) => {
             if (error_code) {
-                actions.setLoginManualErrors({ generic: { code: error_code, detail: error_detail } })
+                actions.setGeneralError(error_code, error_detail)
                 router.actions.replace('/login', {})
             }
         },

@@ -1,8 +1,8 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import React from 'react'
 
 export default {
     title: 'Lemon UI/Utilities',
+    parameters: { chromatic: { disableSnapshot: false } },
 }
 
 export const Overview = (): JSX.Element => {

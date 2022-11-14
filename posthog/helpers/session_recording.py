@@ -74,7 +74,23 @@ RRWEB_MAP_EVENT_DATA_TYPE = [
 ]
 
 
-class RecordingSegment(TypedDict):
+# List of properties from the event payload we care about for our uncompressed `events_summary`
+# NOTE: We should keep this as minimal as possible
+EVENT_SUMMARY_DATA_INCLUSIONS = [
+    "type",
+    "source",
+    "tag",
+    "plugin",
+    "href",
+    "width",
+    "height",
+    "payload.href",
+    "payload.level",
+]
+
+
+@dataclasses.dataclass
+class RecordingSegment:
     start_time: datetime
     end_time: datetime
     window_id: WindowId
@@ -160,6 +176,7 @@ def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> 
                     "data": chunk,
                     "compression": "gzip-base64",
                     "has_full_snapshot": has_full_snapshot,
+                    # We only store this field on the first chunk as it contains all events, not just this chunk
                     "events_summary": get_events_summary_from_snapshot_data(data_list) if index == 0 else None,
                 },
             },
@@ -334,28 +351,41 @@ def get_active_segments_from_event_list(
     return active_recording_segments
 
 
-EVENT_SUMMARY_DATA_EXCLUSIONS = ["text"]
-
-
 def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> List[SessionRecordingEventSummary]:
     """
     Extract a minimal representation of the snapshot data events for easier querying.
-    'data' values are included as long as they are strings or numbers and not in the exclusion list to keep the payload minimal
+    'data' and 'data.payload' values are included as long as they are strings or numbers
+    and in the inclusion list to keep the payload minimal
     """
-    events_summary = [
-        SessionRecordingEventSummary(
-            timestamp=event["timestamp"],
-            type=event["type"],
-            data={
-                key: value
-                for key, value in event.get("data", {}).items()
-                if type(value) in [str, int] and key not in EVENT_SUMMARY_DATA_EXCLUSIONS
-            },
-        )
-        for event in snapshot_data
-    ]
+    events_summary = []
 
-    # Not sure why, but events are sometimes slightly out of order
+    for event in snapshot_data:
+        if "timestamp" not in event or "type" not in event:
+            continue
+
+        # Get all top level data values
+        data = {
+            key: value
+            for key, value in event.get("data", {}).items()
+            if type(value) in [str, int] and key in EVENT_SUMMARY_DATA_INCLUSIONS
+        }
+        # Some events have a payload, some values of which we want
+        if event.get("data", {}).get("payload"):
+            data["payload"] = {
+                key: value
+                for key, value in event["data"]["payload"].items()
+                if type(value) in [str, int] and f"payload.{key}" in EVENT_SUMMARY_DATA_INCLUSIONS
+            }
+
+        events_summary.append(
+            SessionRecordingEventSummary(
+                timestamp=event["timestamp"],
+                type=event["type"],
+                data=data,
+            )
+        )
+
+    # No guarantees are made about order so we sort here to be sure
     events_summary.sort(key=lambda x: x["timestamp"])
 
     return events_summary

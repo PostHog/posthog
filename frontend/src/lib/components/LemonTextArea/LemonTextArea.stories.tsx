@@ -1,11 +1,12 @@
-import React, { useState } from 'react'
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { useState } from 'react'
+import { ComponentMeta, ComponentStory, Story } from '@storybook/react'
 
-import { LemonTextArea, LemonTextAreaProps } from './LemonTextArea'
+import { LemonTextArea, LemonTextAreaProps, LemonTextMarkdown as _LemonTextMarkdown } from './LemonTextArea'
 
 export default {
     title: 'Lemon UI/Lemon Text Area',
     component: LemonTextArea,
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         value: {
             defaultValue:
@@ -24,3 +25,8 @@ Basic.args = {}
 
 export const Disabled = Template.bind({})
 Disabled.args = { disabled: true }
+
+export const LemonTextMarkdown: Story = () => {
+    const [value, setValue] = useState('# Title\n\n**bold** _italic_')
+    return <_LemonTextMarkdown value={value} onChange={(newValue) => setValue(newValue)} />
+}

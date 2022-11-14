@@ -190,7 +190,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
     @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
     def test_feature_available_self_hosted_has_license(self):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             License.objects.create(key="key", plan="enterprise", valid_until=dt.datetime.now() + dt.timedelta(days=1))
 
             # Still only old, empty available_features field value known

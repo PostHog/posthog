@@ -34,7 +34,7 @@ from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, 
 from posthog.decorators import cached_function
 from posthog.logging.timing import timed
 from posthog.models import Cohort, Filter, Person, User
-from posthog.models.activity_logging.activity_log import Change, Detail, Merge, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_all_cohort_ids_by_person_uuid
@@ -42,7 +42,7 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
-from posthog.models.person.util import delete_ch_distinct_ids, delete_person
+from posthog.models.person.util import delete_person
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.actor_base_query import ActorBaseQuery, get_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
@@ -212,7 +212,6 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             person_id = person.id
 
             delete_person(person=person)
-            delete_ch_distinct_ids(person=person)
             if "delete_events" in request.GET:
                 AsyncDeletion.objects.create(
                     deletion_type=DeletionType.Person,
@@ -230,7 +229,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
                 item_id=person_id,
                 scope="Person",
                 activity="deleted",
-                detail=Detail(name=str(person_id)),
+                detail=Detail(name=str(person.uuid)),
             )
 
             return response.Response(status=204)
@@ -281,51 +280,6 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         return result
 
     @action(methods=["POST"], detail=True)
-    def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:
-        people = Person.objects.filter(team_id=self.team_id, uuid__in=request.data.get("uuids"))
-        person = self.get_object()
-        person.merge_people([p for p in people])
-
-        data = PersonSerializer(person).data
-        for p in people:
-            for distinct_id in p.distinct_ids:
-                data["distinct_ids"].append(distinct_id)
-
-            log_activity(
-                organization_id=self.organization.id,
-                team_id=self.team_id,
-                user=request.user,  # type: ignore
-                item_id=p.id,
-                scope="Person",
-                activity="was_merged_into_person",
-                detail=Detail(
-                    merge=Merge(
-                        type="Person",
-                        source=PersonSerializer(p).data,
-                        target=PersonSerializer(person).data,
-                    )
-                ),
-            )
-
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=request.user,  # type: ignore
-            item_id=person.id,
-            scope="Person",
-            activity="people_merged_into",
-            detail=Detail(
-                merge=Merge(
-                    type="Person",
-                    source=[PersonSerializer(p).data for p in people],
-                    target=PersonSerializer(person).data,
-                ),
-            ),
-        )
-
-        return response.Response(data, status=201)
-
-    @action(methods=["POST"], detail=True)
     def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = self.get_object()
         distinct_ids = person.distinct_ids
@@ -339,11 +293,32 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             item_id=person.id,
             scope="Person",
             activity="split_person",
-            detail=Detail(changes=[Change(type="Person", action="split", after={"distinct_ids": distinct_ids})]),
+            detail=Detail(
+                name=str(person.uuid),
+                changes=[Change(type="Person", action="split", after={"distinct_ids": distinct_ids})],
+            ),
         )
 
         return response.Response({"success": True}, status=201)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("key", OpenApiTypes.STR, description="Specify the property key", required=True),
+            OpenApiParameter("value", OpenApiTypes.ANY, description="Specify the property value", required=True),
+        ]
+    )
+    @action(methods=["POST"], detail=True)
+    def update_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
+        self._set_properties({request.data["key"]: request.data["value"]}, request.user)
+        return Response(status=204)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "$unset", OpenApiTypes.STR, description="Specify the property key to delete", required=True
+            ),
+        ]
+    )
     @action(methods=["POST"], detail=True)
     def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
@@ -370,7 +345,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             item_id=person.id,
             scope="Person",
             activity="delete_property",
-            detail=Detail(changes=[Change(type="Person", action="changed")]),
+            detail=Detail(name=str(person.uuid), changes=[Change(type="Person", action="changed")]),
         )
 
         return response.Response({"success": True}, status=201)
@@ -414,6 +389,15 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         return activity_page_response(activity_page, limit, page, request)
 
     def update(self, request, *args, **kwargs):
+        """
+        Only for setting properties on the person. "properties" from the request data will be updated via a "$set" event.
+        This means that only the properties listed will be updated, but other properties won't be removed nor updated.
+        If you would like to remove a property use the `delete_property` endpoint.
+        """
+        self._set_properties(request.data["properties"], request.user)
+        return Response(status=204)
+
+    def _set_properties(self, properties, user):
         instance = self.get_object()
         capture_internal(
             distinct_id=instance.distinct_ids[0],
@@ -424,7 +408,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             sent_at=None,
             event={
                 "event": "$set",
-                "properties": {"$set": request.data["properties"]},
+                "properties": {"$set": properties},
                 "distinct_id": instance.distinct_ids[0],
                 "timestamp": datetime.now().isoformat(),
             },
@@ -433,14 +417,12 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
-            user=request.user,
+            user=user,
             item_id=instance.pk,
             scope="Person",
             activity="updated",
             detail=Detail(changes=[Change(type="Person", action="changed", field="properties")]),
         )
-
-        return Response(status=204)
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
     def _respond_with_cached_results(self, results_package: Dict[str, Tuple[List, Optional[str], Optional[str], int]]):

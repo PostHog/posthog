@@ -1,11 +1,14 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonBadge, LemonBadgeProps } from './LemonBadge'
 import { LemonButton } from '../LemonButton'
 
 export default {
-    title: 'Lemon UI/Lemon Bubble',
+    title: 'Lemon UI/Lemon Badge',
     component: LemonBadge,
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof LemonBadge>
 
 const Template: ComponentStory<typeof LemonBadge> = ({ count, ...props }: LemonBadgeProps) => {
@@ -73,6 +76,19 @@ export const Sizes: ComponentStory<typeof LemonBadge> = () => {
             <LemonBadge count={4} size="medium" />
             <span>large:</span>
             <LemonBadge count={4} size="large" />
+        </div>
+    )
+}
+
+export const Status: ComponentStory<typeof LemonBadge> = () => {
+    return (
+        <div className="flex space-x-2 items-center">
+            <span>primary:</span>
+            <LemonBadge count={4} status="primary" />
+            <span>danger:</span>
+            <LemonBadge count={4} status="danger" />
+            <span>muted:</span>
+            <LemonBadge count={4} status="muted" />
         </div>
     )
 }

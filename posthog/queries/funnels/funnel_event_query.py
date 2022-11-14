@@ -4,6 +4,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.filter import Filter
 from posthog.models.group.util import get_aggregation_target_field
 from posthog.models.property.util import get_property_string_expr
+from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 
@@ -60,24 +61,25 @@ class FunnelEventQuery(EventQuery):
                 for column_name in sorted(self._column_optimizer.person_on_event_columns_to_query)
             )
 
-            _fields.extend(
-                f'{self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
-                for column_name in sorted(self._column_optimizer.group_on_event_columns_to_query)
-            )
-
         else:
             if self._should_join_distinct_ids:
                 _fields += [f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id"]
-            _fields.extend(
-                f"groups_{group_index}.group_properties_{group_index} as group_properties_{group_index}"
-                for group_index in self._column_optimizer.group_types_to_query
-            )
-
             if self._should_join_persons:
                 _fields.extend(
                     f"{self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}"
                     for column_name in self._person_query.fields
                 )
+
+        if self._using_person_on_events and groups_on_events_querying_enabled():
+            _fields.extend(
+                f'{self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
+                for column_name in sorted(self._column_optimizer.group_on_event_columns_to_query)
+            )
+        else:
+            _fields.extend(
+                f"groups_{group_index}.group_properties_{group_index} as group_properties_{group_index}"
+                for group_index in self._column_optimizer.group_types_to_query
+            )
 
         _fields = list(filter(None, _fields))
 
@@ -108,6 +110,10 @@ class FunnelEventQuery(EventQuery):
         groups_query, groups_params = self._get_groups_query()
         self.params.update(groups_params)
 
+        null_person_filter = (
+            f"AND {self.EVENT_TABLE_ALIAS}.person_id != toUUIDOrZero('')" if self._using_person_on_events else ""
+        )
+
         query = f"""
             SELECT {', '.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
@@ -117,6 +123,7 @@ class FunnelEventQuery(EventQuery):
             {entity_query}
             {date_query}
             {prop_query}
+            {null_person_filter}
         """
         return query, self.params
 

@@ -1,4 +1,3 @@
-import React from 'react'
 import { Tabs } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { useValues } from 'kea'

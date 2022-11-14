@@ -6,7 +6,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/components/LemonButton'
 import { sceneConfigurations } from 'scenes/scenes'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import React from 'react'
 
 export interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'to'> {
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */

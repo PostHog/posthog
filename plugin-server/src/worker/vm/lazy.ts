@@ -158,7 +158,10 @@ export class LazyPluginVM {
                         this.ready = true
                     }
                     status.info('🔌', `Loaded ${logInfo}.`)
-                    await this.createLogEntry(`Plugin loaded (instance ID ${this.hub.instanceId}).`)
+                    await this.createLogEntry(
+                        `Plugin loaded (instance ID ${this.hub.instanceId}).`,
+                        PluginLogEntryType.Debug
+                    )
                     resolve(vm)
                 } catch (error) {
                     status.warn('⚠️', `Failed to load ${logInfo}. ${error}`)
@@ -218,8 +221,13 @@ export class LazyPluginVM {
             this.hub.statsd?.increment('plugin.setup.success', { plugin: this.pluginConfig.plugin?.name ?? '?' })
             this.hub.statsd?.timing('plugin.setup.timing', timer, { plugin: this.pluginConfig.plugin?.name ?? '?' })
             this.ready = true
+
             status.info('🔌', `setupPlugin succeeded for ${logInfo}.`)
-            await this.createLogEntry(`setupPlugin succeeded (instance ID ${this.hub.instanceId}).`)
+            await this.createLogEntry(
+                `setupPlugin succeeded (instance ID ${this.hub.instanceId}).`,
+                PluginLogEntryType.Debug
+            )
+
             void clearError(this.hub, this.pluginConfig)
         } catch (error) {
             this.hub.statsd?.increment('plugin.setup.fail', { plugin: this.pluginConfig.plugin?.name ?? '?' })

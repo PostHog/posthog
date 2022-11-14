@@ -23,14 +23,14 @@ class PassThroughBurstRateThrottle(PassThroughThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests
     scope = "burst"
-    rate = "240/minute"
+    rate = "480/minute"
 
 
 class PassThroughSustainedRateThrottle(PassThroughThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block slower but sustained bursts of requests
     scope = "sustained"
-    rate = "2000/hour"
+    rate = "4800/hour"
 
 
 class PassThroughClickHouseBurstRateThrottle(PassThroughThrottle):
@@ -38,7 +38,7 @@ class PassThroughClickHouseBurstRateThrottle(PassThroughThrottle):
     # on endpoints that generally hit ClickHouse
     # Intended to block quick bursts of requests
     scope = "clickhouse_burst"
-    rate = "60/minute"
+    rate = "240/minute"
 
 
 class PassThroughClickHouseSustainedRateThrottle(PassThroughThrottle):
@@ -46,4 +46,4 @@ class PassThroughClickHouseSustainedRateThrottle(PassThroughThrottle):
     # on endpoints that generally hit ClickHouse
     # Intended to block slower but sustained bursts of requests
     scope = "clickhouse_sustained"
-    rate = "600/hour"
+    rate = "1200/hour"

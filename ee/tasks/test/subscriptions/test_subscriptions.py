@@ -36,8 +36,9 @@ class TestSubscriptionsTasks(APIBaseTest):
         self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
         self.asset = ExportedAsset.objects.create(team=self.team, insight_id=self.insight.id, export_format="image/png")
         self.tiles = []
-        for _ in range(10):
-            self.tiles.append(DashboardTile.objects.create(dashboard=self.dashboard, insight=self.insight))
+        for i in range(10):
+            insight = Insight.objects.create(team=self.team, short_id=f"{i}23456{i}", name=f"insight {i}")
+            self.tiles.append(DashboardTile.objects.create(dashboard=self.dashboard, insight=insight))
 
         set_instance_setting("EMAIL_HOST", "fake_host")
         set_instance_setting("EMAIL_ENABLED", True)

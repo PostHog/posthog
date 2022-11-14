@@ -1,5 +1,4 @@
-import React from 'react'
-import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { sortedKeys } from 'lib/utils'
 
 export function EventJSON(props: { event: Record<string, any> }): JSX.Element {

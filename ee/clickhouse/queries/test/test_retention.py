@@ -4,11 +4,16 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.person import Person
 from posthog.queries.retention import Retention
-from posthog.queries.test.test_retention import _create_events, _date, pluck, retention_test_factory
-from posthog.test.base import snapshot_clickhouse_queries, test_with_materialized_columns
+from posthog.queries.test.test_retention import _create_events, _date, pluck
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    snapshot_clickhouse_queries,
+    test_with_materialized_columns,
+)
 
 
-class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignore
+class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
     def _create_groups_and_events(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
@@ -145,12 +150,9 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
         self.assertEqual(actor_result[1]["person"]["id"], "org:6")
         self.assertEqual(actor_result[1]["appearances"], [1, 1, 0, 1, 1, 0, 1])
 
-    @test_with_materialized_columns(group_properties=[(0, "industry")])
+    @test_with_materialized_columns(group_properties=[(0, "industry")], materialize_only_with_person_on_events=True)
     @snapshot_clickhouse_queries
     def test_groups_filtering_person_on_events(self):
-        from posthog.models.team import util
-
-        util.can_enable_person_on_events = True
         self._create_groups_and_events()
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):

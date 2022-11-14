@@ -1,5 +1,4 @@
 import './PropertyKeyInfo.scss'
-import React from 'react'
 import { Popover } from 'antd'
 import { KeyMapping, PropertyDefinition, PropertyFilterValue } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
@@ -37,6 +36,11 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Initial OS',
             description: 'The operating system that the user first used (first-touch).',
             examples: ['Windows', 'Mac OS X'],
+        },
+        $browser_language: {
+            label: 'Browser Language',
+            description: 'Language.',
+            examples: ['en', 'en-US', 'cn', 'pl-PL'],
         },
         $current_url: {
             label: 'Current URL',
@@ -200,6 +204,10 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Autocapture',
             description: 'User interactions that were automatically captured.',
             examples: ['clicked button'],
+        },
+        $screen: {
+            label: 'Screen',
+            description: 'When a user loads a screen in a mobile app.',
         },
         $feature_flag_called: {
             label: 'Feature Flag Called',

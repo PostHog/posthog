@@ -4,7 +4,6 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { LemonModal } from 'lib/components/LemonModal'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PureField } from 'lib/forms/Field'
-import React from 'react'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 export function VerifyDomainModal(): JSX.Element {

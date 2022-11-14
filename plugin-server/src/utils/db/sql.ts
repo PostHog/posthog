@@ -58,9 +58,11 @@ export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
             posthog_plugin.public_jobs,
             posthog_plugin.is_stateless,
             posthog_plugin.log_level,
+            posthog_plugin.updated_at,
             psf__plugin_json.source as source__plugin_json,
             psf__index_ts.source as source__index_ts,
-            psf__frontend_tsx.source as source__frontend_tsx
+            psf__frontend_tsx.source as source__frontend_tsx,
+            psf__site_ts.source as source__site_ts
         FROM posthog_plugin
         LEFT JOIN posthog_pluginsourcefile psf__plugin_json
             ON (psf__plugin_json.plugin_id = posthog_plugin.id AND psf__plugin_json.filename = 'plugin.json')
@@ -68,6 +70,8 @@ export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
             ON (psf__index_ts.plugin_id = posthog_plugin.id AND psf__index_ts.filename = 'index.ts')
         LEFT JOIN posthog_pluginsourcefile psf__frontend_tsx
             ON (psf__frontend_tsx.plugin_id = posthog_plugin.id AND psf__frontend_tsx.filename = 'frontend.tsx')
+        LEFT JOIN posthog_pluginsourcefile psf__site_ts
+            ON (psf__site_ts.plugin_id = posthog_plugin.id AND psf__site_ts.filename = 'site.ts')
         WHERE posthog_plugin.id IN (${pluginConfigsInForceQuery('plugin_id')}
         GROUP BY posthog_pluginconfig.plugin_id)`,
         undefined,

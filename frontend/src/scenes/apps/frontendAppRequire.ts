@@ -1,4 +1,3 @@
-import React from 'react'
 import * as allKea from 'kea'
 import * as allKeaRouter from 'kea-router'
 import * as allKeaLoaders from 'kea-loaders'
@@ -7,6 +6,7 @@ import * as allKeaWindowValues from 'kea-window-values'
 import * as allKeaSubscriptions from 'kea-subscriptions'
 import * as appsCommon from '@posthog/apps-common'
 import * as lemonUi from '@posthog/lemon-ui'
+import React from 'react'
 
 const packages = {
     react: React,

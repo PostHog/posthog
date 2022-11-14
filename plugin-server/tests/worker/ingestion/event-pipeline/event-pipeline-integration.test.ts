@@ -17,7 +17,12 @@ describe('Event Pipeline integration test', () => {
     let hub: Hub
     let closeServer: () => Promise<void>
 
-    const ingestEvent = (event: PluginEvent) => new EventPipelineRunner(hub, event).runEventPipeline(event)
+    const ingestEvent = async (event: PluginEvent) => {
+        const runner = new EventPipelineRunner(hub, event)
+        const result = await runner.runEventPipeline(event)
+        const resultEvent = result.args[0]
+        return runner.runAsyncHandlersEventPipeline(resultEvent)
+    }
 
     beforeEach(async () => {
         await resetTestDatabase()
@@ -211,7 +216,7 @@ describe('Event Pipeline integration test', () => {
             uuid: new UUIDT().toString(),
         }
 
-        await ingestEvent(event)
+        await new EventPipelineRunner(hub, event).runEventPipeline(event)
 
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
     })

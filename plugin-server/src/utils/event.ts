@@ -2,6 +2,7 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { KafkaMessage } from 'kafkajs'
 
 import { ClickHouseEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
+import { convertDatabaseElementsToRawElements } from '../worker/vm/upgrades/utils/fetchEventsForInterval'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties } from './db/utils'
 import { clickHouseTimestampToDateTime, clickHouseTimestampToISO } from './utils'
@@ -17,7 +18,7 @@ export function convertToProcessedPluginEvent(event: PostIngestionEvent): Proces
         $set: event.properties.$set,
         $set_once: event.properties.$set_once,
         uuid: event.eventUuid,
-        elements: event.elementsList,
+        elements: convertDatabaseElementsToRawElements(event.elementsList ?? []),
     }
 }
 
@@ -38,6 +39,21 @@ export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHous
         group2_properties: rawEvent.group2_properties ? JSON.parse(rawEvent.group2_properties) : {},
         group3_properties: rawEvent.group3_properties ? JSON.parse(rawEvent.group3_properties) : {},
         group4_properties: rawEvent.group4_properties ? JSON.parse(rawEvent.group4_properties) : {},
+        group0_created_at: rawEvent.group0_created_at
+            ? clickHouseTimestampToDateTime(rawEvent.group0_created_at)
+            : null,
+        group1_created_at: rawEvent.group1_created_at
+            ? clickHouseTimestampToDateTime(rawEvent.group1_created_at)
+            : null,
+        group2_created_at: rawEvent.group2_created_at
+            ? clickHouseTimestampToDateTime(rawEvent.group2_created_at)
+            : null,
+        group3_created_at: rawEvent.group3_created_at
+            ? clickHouseTimestampToDateTime(rawEvent.group3_created_at)
+            : null,
+        group4_created_at: rawEvent.group4_created_at
+            ? clickHouseTimestampToDateTime(rawEvent.group4_created_at)
+            : null,
     }
 }
 

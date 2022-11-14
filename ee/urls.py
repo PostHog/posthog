@@ -8,11 +8,14 @@ from posthog.api.routing import DefaultRouterPlusPlus
 
 from .api import (
     authentication,
+    billing,
     dashboard_collaborator,
     debug_ch_queries,
     explicit_team_member,
     hooks,
     license,
+    sentry_stats,
+    session_recording_playlist,
     subscription,
 )
 
@@ -23,6 +26,7 @@ def extend_api_router(
     projects_router: NestedRegistryItem,
     project_dashboards_router: NestedRegistryItem,
 ) -> None:
+    root_router.register(r"billing-v2", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
     root_router.register(r"debug_ch_queries", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
@@ -39,6 +43,15 @@ def extend_api_router(
     )
 
     projects_router.register(r"subscriptions", subscription.SubscriptionViewSet, "subscriptions", ["team_id"])
+    projects_router.register(
+        r"session_recording_playlists",
+        session_recording_playlist.SessionRecordingPlaylistViewSet,
+        "project_session_recording_playlists",
+        ["team_id"],
+    )
 
 
-urlpatterns: List[Any] = [path("api/saml/metadata/", authentication.saml_metadata_view)]
+urlpatterns: List[Any] = [
+    path("api/saml/metadata/", authentication.saml_metadata_view),
+    path("api/sentry_errors/", sentry_stats.sentry_stats),
+]

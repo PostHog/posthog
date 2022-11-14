@@ -1,8 +1,9 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
-from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, KAFKA_ENGINE_DEFAULT_SETTINGS, kafka_engine, ttl_period
+from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
+from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL, KAFKA_ENGINE_DLQ_MV_BASE_SQL
 
 SESSION_RECORDING_EVENTS_DATA_TABLE = (
     lambda: "sharded_session_recording_events" if settings.CLICKHOUSE_REPLICATION else "session_recording_events"
@@ -22,45 +23,73 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     {materialized_columns}
     {extra_fields}
 ) ENGINE = {engine}
+{partition_by}
+{order_by}
+{ttl_period}
+{settings}
 """
 
-SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS = """
-    , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'
-    , events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)') COMMENT 'column_materializer::events_summary'
-    , click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2 AND JSONExtractInt(x, 'data', 'type') = 2, events_summary))
-    , keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary))
-    , first_event_timestamp DateTime64(3, 'UTC') MATERIALIZED toDateTime(arrayReduce('min', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary)) / 1000)
-    , last_event_timestamp DateTime64(3, 'UTC') MATERIALIZED toDateTime(arrayReduce('max', arrayMap((x) -> JSONExtractInt(x, 'timestamp'), events_summary)) / 1000)
-    , urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
-"""
+MATERIALIZED_COLUMNS = {
+    "has_full_snapshot": {
+        "schema": "Int8",
+        "materializer": "MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot')",
+    },
+    "events_summary": {
+        "schema": "Array(String)",
+        "materializer": "MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)')",
+    },
+    "click_count": {
+        "schema": "Int8",
+        "materializer": "MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary))",
+    },
+    "keypress_count": {
+        "schema": "Int8",
+        "materializer": "MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary))",
+    },
+    "timestamps_summary": {
+        "schema": "Array(DateTime64(6, 'UTC'))",
+        "materializer": "MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary))",
+    },
+    "first_event_timestamp": {
+        "schema": "DateTime64(6, 'UTC')",
+        "materializer": "MATERIALIZED arrayReduce('min', timestamps_summary)",
+    },
+    "last_event_timestamp": {
+        "schema": "DateTime64(6, 'UTC')",
+        "materializer": "MATERIALIZED arrayReduce('max', timestamps_summary)",
+    },
+    "urls": {
+        "schema": "Array(String)",
+        "materializer": "MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))",
+    },
+}
 
-SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS = """
-    , has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot'
-    , events_summary Array(String) COMMENT 'column_materializer::events_summary'
-    , click_count Int8 COMMENT 'column_materializer::click_count'
-    , keypress_count Int8 COMMENT 'column_materializer::keypress_count'
-    , first_event_timestamp DateTime64(3, 'UTC') COMMENT 'column_materializer::first_event_timestamp'
-    , last_event_timestamp DateTime64(3, 'UTC') COMMENT 'column_materializer::last_event_timestamp'
-    , urls Array(String) COMMENT 'column_materializer::urls'
-"""
+
+# Like "has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'"
+SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS = ", " + ", ".join(
+    f"{column_name} {column['schema']} {column['materializer']}" for column_name, column in MATERIALIZED_COLUMNS.items()
+)
+
+# Like "has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot'"
+SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS = ", " + ", ".join(
+    f"{column_name} {column['schema']} COMMENT 'column_materializer::{column_name}'"
+    for column_name, column in MATERIALIZED_COLUMNS.items()
+)
+
 
 SESSION_RECORDING_EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
     "session_recording_events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
 )
-SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: (
-    SESSION_RECORDING_EVENTS_TABLE_BASE_SQL
-    + """PARTITION BY toYYYYMMDD(timestamp)
-ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
-{ttl_period}
-SETTINGS index_granularity=512
-"""
-).format(
+SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_TABLE_BASE_SQL.format(
     table_name=SESSION_RECORDING_EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     materialized_columns=SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS,
     extra_fields=KAFKA_COLUMNS,
     engine=SESSION_RECORDING_EVENTS_DATA_TABLE_ENGINE(),
+    order_by="ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)",
+    partition_by="PARTITION BY toYYYYMMDD(timestamp)",
     ttl_period=ttl_period(),
+    settings="SETTINGS index_granularity = 512",
 )
 
 KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_TABLE_BASE_SQL.format(
@@ -69,6 +98,23 @@ KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_TABL
     engine=kafka_engine(topic=KAFKA_SESSION_RECORDING_EVENTS),
     materialized_columns="",
     extra_fields="",
+    order_by="",
+    partition_by="",
+    ttl_period="",
+    settings=KAFKA_ENGINE_DEFAULT_SETTINGS,
+)
+
+KAFKA_SESSION_RECORDING_EVENTS_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
+    table="kafka_dlq_session_recording_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=MergeTreeEngine("kafka_dlq_session_recording_events", replication_scheme=ReplicationScheme.REPLICATED),
+)
+
+KAFKA_SESSION_RECORDING_EVENTS_DLQ_MV_SQL = lambda: KAFKA_ENGINE_DLQ_MV_BASE_SQL.format(
+    view_name="kafka_dlq_session_recording_events_mv",
+    target_table=f"{settings.CLICKHOUSE_DATABASE}.kafka_dlq_session_recording_events",
+    kafka_table_name=f"{settings.CLICKHOUSE_DATABASE}.kafka_session_recording_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
 )
 
 SESSION_RECORDING_EVENTS_TABLE_MV_SQL = lambda: """
@@ -86,6 +132,7 @@ created_at,
 _timestamp,
 _offset
 FROM {database}.kafka_session_recording_events
+WHERE length(_error) = 0
 """.format(
     target_table=(
         "writable_session_recording_events"
@@ -106,6 +153,10 @@ WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_T
     engine=Distributed(data_table=SESSION_RECORDING_EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns="",
+    order_by="",
+    partition_by="",
+    ttl_period="",
+    settings="",
 )
 
 # This table is responsible for reading from session_recording_events on a cluster setting
@@ -115,6 +166,10 @@ DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENT
     engine=Distributed(data_table=SESSION_RECORDING_EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS,
+    order_by="",
+    partition_by="",
+    ttl_period="",
+    settings="",
 )
 
 

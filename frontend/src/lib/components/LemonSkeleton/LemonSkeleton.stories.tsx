@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 
 import { LemonSkeleton } from './LemonSkeleton'
@@ -9,6 +8,7 @@ export default {
     title: 'Lemon UI/Lemon Skeleton',
     component: LemonSkeleton,
     parameters: {
+        chromatic: { disableSnapshot: false },
         docs: {
             description: {
                 component: `

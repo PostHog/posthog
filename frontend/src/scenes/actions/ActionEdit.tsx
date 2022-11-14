@@ -1,4 +1,3 @@
-import React from 'react'
 import { compactNumber, uuid } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
@@ -7,7 +6,7 @@ import './Actions.scss'
 import { ActionStep } from './ActionStep'
 import { Button, Col, Row } from 'antd'
 import { InfoCircleOutlined, LoadingOutlined, PlusOutlined } from '@ant-design/icons'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -21,6 +20,7 @@ import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { Form } from 'kea-forms'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
+import { IconPlayCircle } from 'lib/components/icons'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
@@ -137,7 +137,34 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                             </Field>
                         </>
                     }
-                    buttons={!!id ? deleteButton() : cancelButton()}
+                    buttons={
+                        <>
+                            {id ? (
+                                <LemonButton
+                                    type="secondary"
+                                    to={
+                                        combineUrl(urls.sessionRecordings(), {
+                                            filters: {
+                                                actions: [
+                                                    {
+                                                        id: id,
+                                                        type: 'actions',
+                                                        order: 0,
+                                                        name: action.name,
+                                                    },
+                                                ],
+                                            },
+                                        }).url
+                                    }
+                                    sideIcon={<IconPlayCircle />}
+                                    data-attr="action-view-recordings"
+                                >
+                                    View recordings
+                                </LemonButton>
+                            ) : null}
+                            {!!id ? deleteButton() : cancelButton()}
+                        </>
+                    }
                 />
                 {id && (
                     <div className="input-set">
@@ -264,7 +291,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                         />
                                         <small>
                                             <a
-                                                href="https://posthog.com/docs/integrations/message-formatting/"
+                                                href="https://posthog.com/docs/integrate/webhooks/message-formatting"
                                                 target="_blank"
                                                 rel="noopener noreferrer"
                                             >

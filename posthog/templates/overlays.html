@@ -3,7 +3,7 @@
     <div>
         <span>
             <span>Current branch: </span
-            ><b><code style="background: 0; color: white">{{ git_branch|default:"unknown" }}</code></b
+            ><b><code id="bottom-notice-branch" style="background: 0; color: white">{{ git_branch|default:"unknown" }}</code></b
             ><span>.</span>
         </span>
     </div>
@@ -15,7 +15,7 @@
     <div>
         <span
             ><span>Current revision: </span
-            ><b><code style="background: 0; color: white">{{ git_rev|default:"unknown" }}</code></b
+            ><b><code id="bottom-notice-revision" style="background: 0; color: white">{{ git_rev|default:"unknown" }}</code></b
             ><span>.</span></span
         >
     </div>

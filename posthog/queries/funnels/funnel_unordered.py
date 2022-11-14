@@ -1,7 +1,9 @@
-from typing import List, cast
+import uuid
+from typing import Any, Dict, List, Optional, cast
 
 from rest_framework.exceptions import ValidationError
 
+from posthog.models.entity.entity import Entity
 from posthog.queries.funnels.base import ClickhouseFunnelBase
 
 
@@ -30,6 +32,17 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
     If you see an exclusion event => you're discarded.
     See test_advanced_funnel_multiple_exclusions_between_steps for details.
     """
+
+    def _serialize_step(self, step: Entity, count: int, people: Optional[List[uuid.UUID]] = None) -> Dict[str, Any]:
+        return {
+            "action_id": None,
+            "name": f"Completed {step.index+1} step{'s' if step.index != 0 else ''}",
+            "custom_name": None,
+            "order": step.index,
+            "people": people if people else [],
+            "count": count,
+            "type": step.type,
+        }
 
     def get_query(self):
 

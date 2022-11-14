@@ -28,6 +28,7 @@ import {
     FunnelVizType,
     InsightLogicProps,
     InsightType,
+    HistogramGraphDatum,
     PropertyFilter,
     PropertyOperator,
     StepOrderValue,
@@ -42,7 +43,7 @@ import {
     getLastFilledStep,
     getMeanAndStandardDeviation,
     getReferenceStep,
-    getVisibilityIndex,
+    getVisibilityKey,
     isBreakdownFunnelResults,
     isStepsEmpty,
     isValidBreakdownParameter,
@@ -59,7 +60,7 @@ import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { userLogic } from 'scenes/userLogic'
 import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
-import { groupsModel } from '~/models/groupsModel'
+import { Noun, groupsModel } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { LemonSelectOptions } from 'lib/components/LemonSelect'
@@ -304,12 +305,6 @@ export const funnelLogic = kea<funnelLogicType>({
         people: {
             clearFunnel: () => [],
         },
-        stepReference: [
-            FunnelStepReference.total as FunnelStepReference,
-            {
-                setStepReference: (_, { stepReference }) => stepReference,
-            },
-        ],
         isGroupingOutliers: [
             true,
             {
@@ -454,6 +449,10 @@ export const funnelLogic = kea<funnelLogicType>({
 
     selectors: ({ selectors }) => ({
         loadedFilters: [(s) => [s.insight], ({ filters }) => (filters?.insight === InsightType.FUNNELS ? filters : {})],
+        stepReference: [
+            (s) => [s.filters],
+            ({ funnel_step_reference }) => funnel_step_reference || FunnelStepReference.total,
+        ],
         results: [
             (s) => [s.insight],
             ({ filters, result }): FunnelAPIResponse => {
@@ -494,16 +493,16 @@ export const funnelLogic = kea<funnelLogicType>({
         isStepsEmpty: [() => [selectors.filters], (filters: FilterType) => isStepsEmpty(filters)],
         propertiesForUrl: [() => [selectors.filters], (filters: FilterType) => cleanFilters(filters)],
         isValidFunnel: [
-            () => [selectors.filters, selectors.stepsWithCount, selectors.histogramGraphData],
-            (filters, stepsWithCount, histogramGraphData) => {
+            () => [selectors.filters, selectors.steps, selectors.histogramGraphData],
+            (filters, steps, histogramGraphData) => {
                 if (filters.funnel_viz_type === FunnelVizType.Steps || !filters.funnel_viz_type) {
-                    return !!(stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1)
+                    return !!(steps && steps[0] && steps[0].count > -1)
                 }
                 if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
                     return (histogramGraphData?.length ?? 0) > 0
                 }
                 if (filters.funnel_viz_type === FunnelVizType.Trends) {
-                    return (stepsWithCount?.length ?? 0) > 0 && stepsWithCount?.[0]?.labels
+                    return (steps?.length ?? 0) > 0 && steps?.[0]?.labels
                 }
                 return false
             },
@@ -515,12 +514,15 @@ export const funnelLogic = kea<funnelLogicType>({
         barGraphLayout: [() => [selectors.filters], ({ layout }): FunnelLayout => layout || FunnelLayout.vertical],
         histogramGraphData: [
             () => [selectors.timeConversionResults],
-            (timeConversionResults: FunnelsTimeConversionBins) => {
+            (timeConversionResults: FunnelsTimeConversionBins): HistogramGraphDatum[] | null => {
                 if ((timeConversionResults?.bins?.length ?? 0) < 2) {
-                    return []
+                    return null // There are no results
                 }
                 const binSize = timeConversionResults.bins[1][0] - timeConversionResults.bins[0][0]
                 const totalCount = sum(timeConversionResults.bins.map(([, count]) => count))
+                if (totalCount === 0) {
+                    return [] // Nobody has converted in the time period
+                }
                 return timeConversionResults.bins.map(([id, count]: [id: number, count: number]) => {
                     const value = Math.max(0, id)
                     const percent = count / totalCount
@@ -545,9 +547,9 @@ export const funnelLogic = kea<funnelLogicType>({
             (filters): number => (filters.events?.length || 0) + (filters.actions?.length || 0),
         ],
         conversionMetrics: [
-            () => [selectors.stepsWithCount, selectors.loadedFilters, selectors.timeConversionResults],
-            (stepsWithCount, loadedFilters, timeConversionResults): FunnelTimeConversionMetrics => {
-                // stepsWithCount should be empty in time conversion view. Return metrics precalculated on backend
+            () => [selectors.steps, selectors.loadedFilters, selectors.timeConversionResults],
+            (steps, loadedFilters, timeConversionResults): FunnelTimeConversionMetrics => {
+                // steps should be empty in time conversion view. Return metrics precalculated on backend
                 if (loadedFilters.funnel_viz_type === FunnelVizType.TimeToConvert) {
                     return {
                         averageTime: timeConversionResults?.average_conversion_time ?? 0,
@@ -561,13 +563,13 @@ export const funnelLogic = kea<funnelLogicType>({
                     return {
                         averageTime: 0,
                         stepRate: 0,
-                        totalRate: average((stepsWithCount?.[0] as unknown as TrendResult)?.data ?? []) / 100,
+                        totalRate: average((steps?.[0] as unknown as TrendResult)?.data ?? []) / 100,
                     }
                 }
 
                 // Handle metrics for steps
                 // no concept of funnel_from_step and funnel_to_step here
-                if (stepsWithCount.length <= 1) {
+                if (steps.length <= 1) {
                     return {
                         averageTime: 0,
                         stepRate: 0,
@@ -575,16 +577,16 @@ export const funnelLogic = kea<funnelLogicType>({
                     }
                 }
 
-                const toStep = getLastFilledStep(stepsWithCount)
-                const fromStep = getReferenceStep(stepsWithCount, FunnelStepReference.total)
+                const toStep = getLastFilledStep(steps)
+                const fromStep = getReferenceStep(steps, FunnelStepReference.total)
 
                 return {
-                    averageTime: stepsWithCount.reduce(
+                    averageTime: steps.reduce(
                         (conversion_time, step) => conversion_time + (step.average_conversion_time || 0),
                         0
                     ),
                     stepRate: toStep.count / fromStep.count,
-                    totalRate: stepsWithCount[stepsWithCount.length - 1].count / stepsWithCount[0].count,
+                    totalRate: steps[steps.length - 1].count / steps[0].count,
                 }
             },
         ],
@@ -648,10 +650,6 @@ export const funnelLogic = kea<funnelLogicType>({
                     ? stepsWithNestedBreakdown
                     : ([...stepResults] as FunnelStep[]).sort((a, b) => a.order - b.order)
             },
-        ],
-        stepsWithCount: [
-            () => [selectors.steps],
-            (steps) => steps.filter((step) => typeof step.count === 'number' && step.count > 0),
         ],
         stepsWithConversionMetrics: [
             () => [selectors.steps, selectors.stepReference],
@@ -753,12 +751,8 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         visibleStepsWithConversionMetrics: [
-            () => [
-                selectors.stepsWithConversionMetrics,
-                selectors.hiddenLegendKeys,
-                selectors.flattenedStepsByBreakdown,
-            ],
-            (steps, hiddenLegendKeys, flattenedStepsByBreakdown): FunnelStepWithConversionMetrics[] => {
+            (s) => [s.stepsWithConversionMetrics, s.hiddenLegendKeys, s.flattenedStepsByBreakdown, s.isOnlySeries],
+            (steps, hiddenLegendKeys, flattenedStepsByBreakdown, isOnlySeries): FunnelStepWithConversionMetrics[] => {
                 const baseLineSteps = flattenedStepsByBreakdown.find((b) => b.isBaseline)
                 return steps.map((step, stepIndex) => ({
                     ...step,
@@ -770,9 +764,7 @@ export const funnelLogic = kea<funnelLogicType>({
                             ...b,
                             order: breakdownIndex,
                         }))
-                        ?.filter((b) => {
-                            return !hiddenLegendKeys[getVisibilityIndex(step, b.breakdown_value)]
-                        }),
+                        ?.filter((b) => isOnlySeries || !hiddenLegendKeys[getVisibilityKey(b.breakdown_value)]),
                 }))
             },
         ],
@@ -787,7 +779,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         rowKey: step.order,
                         nestedRowKeys: step.nested_breakdown
                             ? step.nested_breakdown.map((breakdownStep) =>
-                                  getVisibilityIndex(step, breakdownStep.breakdown_value)
+                                  getVisibilityKey(breakdownStep.breakdown_value)
                               )
                             : [],
                         isBreakdownParent,
@@ -800,7 +792,7 @@ export const funnelLogic = kea<funnelLogicType>({
                                 ...breakdownStep,
                                 order: step.order,
                                 breakdownIndex: i,
-                                rowKey: getVisibilityIndex(step, breakdownStep.breakdown_value),
+                                rowKey: getVisibilityKey(breakdownStep.breakdown_value),
                                 isBreakdownParent: false,
                             })
                         })
@@ -810,8 +802,12 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         flattenedStepsByBreakdown: [
-            () => [selectors.stepsWithConversionMetrics, selectors.barGraphLayout],
-            (steps, layout): FlattenedFunnelStepByBreakdown[] => {
+            () => [
+                selectors.stepsWithConversionMetrics,
+                selectors.barGraphLayout,
+                selectors.disableFunnelBreakdownBaseline,
+            ],
+            (steps, layout, disableBaseline): FlattenedFunnelStepByBreakdown[] => {
                 // Initialize with two rows for rendering graph and header
                 const flattenedStepsByBreakdown: FlattenedFunnelStepByBreakdown[] = [
                     { rowKey: 'steps-meta' },
@@ -825,7 +821,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         !baseStep.breakdown ||
                         (layout === FunnelLayout.vertical && (baseStep.nested_breakdown?.length ?? 0) > 1)
                     // Baseline - total step to step metrics, only add if more than 1 breakdown or not breakdown
-                    if (hasBaseline) {
+                    if (hasBaseline && !disableBaseline) {
                         flattenedStepsByBreakdown.push({
                             ...getBreakdownStepValues(baseStep, 0, true),
                             isBaseline: true,
@@ -874,6 +870,10 @@ export const funnelLogic = kea<funnelLogicType>({
             (breakdowns): FlattenedFunnelStepByBreakdown[] => {
                 return breakdowns.filter((b) => b.breakdown)
             },
+        ],
+        isOnlySeries: [
+            (s) => [s.flattenedBreakdowns],
+            (flattenedBreakdowns): boolean => flattenedBreakdowns.length <= 1,
         ],
         numericBinCount: [
             () => [selectors.filters, selectors.timeConversionResults],
@@ -1031,6 +1031,10 @@ export const funnelLogic = kea<funnelLogicType>({
             () => [(_, props) => props],
             (props): string => `correlation-${keyForInsightLogicProps('insight_funnel')(props)}`,
         ],
+        disableFunnelBreakdownBaseline: [
+            () => [(_, props) => props],
+            (props: InsightLogicProps): boolean => !!props.cachedInsight?.disable_baseline,
+        ],
 
         isPropertyExcludedFromProject: [
             () => [selectors.excludedPropertyNames],
@@ -1085,13 +1089,7 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         aggregationTargetLabel: [
             (s) => [s.filters, s.aggregationLabel],
-            (
-                filters,
-                aggregationLabel
-            ): {
-                singular: string
-                plural: string
-            } => aggregationLabel(filters.aggregation_group_type_index),
+            (filters, aggregationLabel): Noun => aggregationLabel(filters.aggregation_group_type_index),
         ],
         correlationMatrixAndScore: [
             (s) => [s.funnelCorrelationDetails, s.steps],
@@ -1190,26 +1188,15 @@ export const funnelLogic = kea<funnelLogicType>({
     }),
 
     listeners: ({ actions, values, props }) => ({
-        loadResultsSuccess: async ({ insight }) => {
-            if (insight.filters?.insight !== InsightType.FUNNELS) {
-                return
+        setStepReference: ({ stepReference }) => {
+            if (stepReference !== values.filters.funnel_step_reference) {
+                actions.setFilters({ funnel_step_reference: stepReference }, true, true)
             }
-            // hide all but the first five breakdowns for each step
-            values.steps?.forEach((step) => {
-                values.flattenedStepsByBreakdown
-                    ?.filter((s) => !!s.breakdown)
-                    ?.slice(5)
-                    .forEach((b) => {
-                        actions.setHiddenById({ [getVisibilityIndex(step, b.breakdown_value)]: true })
-                    })
-            })
         },
         toggleVisibilityByBreakdown: ({ breakdownValue }) => {
-            values.visibleStepsWithConversionMetrics?.forEach((step) => {
-                const key = getVisibilityIndex(step, breakdownValue)
-                const currentIsHidden = !!values.hiddenLegendKeys?.[key]
-                actions.setHiddenById({ [key]: currentIsHidden ? undefined : true })
-            })
+            const key = getVisibilityKey(breakdownValue)
+            const currentIsHidden = !!values.hiddenLegendKeys?.[key]
+            actions.setHiddenById({ [key]: !currentIsHidden })
         },
         setFilters: ({ filters, mergeWithExisting }) => {
             const cleanedParams = cleanFilters(
@@ -1263,6 +1250,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     step: typeof stepIndex === 'number' ? stepIndex + 1 : step.order + 1,
                     label: step.name,
                     seriesId: step.order,
+                    order_type: values.filters.funnel_order_type,
                 }),
             })
         },
@@ -1280,6 +1268,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
                     label: step.name,
                     seriesId: step.order,
+                    order_type: values.filters.funnel_order_type,
                 }),
             })
         },
@@ -1294,7 +1283,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     url: success ? correlation.success_people_url : correlation.failure_people_url,
                     title: funnelTitle({
                         converted: success,
-                        step: values.stepsWithCount.length,
+                        step: values.steps.length,
                         breakdown_value,
                         label: breakdown,
                     }),
@@ -1312,7 +1301,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     url: success ? correlation.success_people_url : correlation.failure_people_url,
                     title: funnelTitle({
                         converted: success,
-                        step: values.stepsWithCount.length,
+                        step: values.steps.length,
                         label: name,
                     }),
                 })

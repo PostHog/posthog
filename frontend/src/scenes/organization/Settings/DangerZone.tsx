@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
-import React, { Dispatch, SetStateAction, useState } from 'react'
+import { Dispatch, SetStateAction, useState } from 'react'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { IconDelete } from 'lib/components/icons'
 

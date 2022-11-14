@@ -1,4 +1,3 @@
-import React from 'react'
 import { TeamBasicType } from '~/types'
 import { useActions } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'

@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PropertyFilter, PropertyOperator } from '~/types'
@@ -9,6 +8,7 @@ import { personPropertiesModel } from '~/models/personPropertiesModel'
 export default {
     title: 'Filters/PropertyFilters',
     component: PropertyFilters,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof PropertyFilters>
 
 const propertyFilters = [

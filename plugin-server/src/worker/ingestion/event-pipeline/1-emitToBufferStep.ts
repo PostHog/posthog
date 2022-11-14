@@ -1,6 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { Hub, IngestionPersonData, JobName, TeamId } from '../../../types'
+import { KAFKA_BUFFER } from '../../../config/kafka-topics'
+import { Hub, IngestionPersonData, TeamId } from '../../../types'
+import { status } from '../../../utils/status'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { EventPipelineRunner, StepResult } from './runner'
 
@@ -14,6 +16,7 @@ export async function emitToBufferStep(
         teamId: TeamId
     ) => boolean = shouldSendEventToBuffer
 ): Promise<StepResult> {
+    status.debug('🔁', 'Running emitToBufferStep', { event: event.event, distinct_id: event.distinct_id })
     const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, runner.hub)
 
     if (event.event === '$snapshot') {
@@ -23,14 +26,27 @@ export async function emitToBufferStep(
     const person = await personContainer.get()
     if (shouldBuffer(runner.hub, event, person, event.team_id)) {
         const processEventAt = Date.now() + runner.hub.BUFFER_CONVERSION_SECONDS * 1000
-        const job = {
-            eventPayload: event,
-            timestamp: processEventAt,
-        }
-        await runner.hub.jobQueueManager.enqueue(JobName.BUFFER_JOB, job, {
-            key: 'team_id',
-            tag: event.team_id.toString(),
+        status.debug('🔁', 'Emitting event to buffer', {
+            event: event.event,
+            eventId: event.uuid,
+            processEventAt,
         })
+
+        // TODO: handle delaying offset commit for this message, according to
+        // producer acknowledgement. It's a little tricky as it stands as we do
+        // not have the a reference to resolveOffset here. Rather than do a
+        // refactor I'm just going to let this hang and resolve as a followup.
+        await runner.hub.kafkaProducer.queueMessage({
+            topic: KAFKA_BUFFER,
+            messages: [
+                {
+                    key: event.distinct_id,
+                    value: JSON.stringify(event),
+                    headers: { processEventAt: processEventAt.toString(), eventId: event.uuid },
+                },
+            ],
+        })
+
         runner.hub.statsd?.increment('events_sent_to_buffer')
         return null
     } else {
@@ -69,6 +85,12 @@ export function shouldSendEventToBuffer(
     person: IngestionPersonData | undefined,
     teamId: TeamId
 ): boolean {
+    // Libraries by default create a unique id for this `type-name_value` for $groupidentify,
+    // we don't want to buffer these to make group properties available asap
+    // identify and alias are identical and could merge the person - the sooner we update the person_id the better
+    const isIdentifyingEvent =
+        event.event == '$groupidentify' || event.event == '$identify' || event.event == `$create_alias`
+
     const isAnonymousEvent =
         event.properties && event.properties['$device_id'] && event.distinct_id === event.properties['$device_id']
 
@@ -79,13 +101,15 @@ export function shouldSendEventToBuffer(
     const isMobileLibrary =
         !!event.properties &&
         ['posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'].includes(event.properties['$lib'])
-    const sendToBuffer = !isMobileLibrary && !person && !isAnonymousEvent && event.event !== '$identify'
+
+    const sendToBuffer = !isMobileLibrary && !person && !isAnonymousEvent && !isIdentifyingEvent
 
     if (sendToBuffer) {
         hub.statsd?.increment('conversion_events_buffer_size', { teamId: event.team_id.toString() })
     }
 
     if (!hub.CONVERSION_BUFFER_ENABLED && !hub.conversionBufferEnabledTeams.has(teamId)) {
+        status.debug('🔁', 'Conversion buffer disabled, not sending event to buffer', { event, person })
         return false
     }
 

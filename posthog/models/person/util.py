@@ -13,19 +13,17 @@ from rest_framework import serializers
 
 from posthog.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
-from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
+from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.sql import (
     BULK_INSERT_PERSON_DISTINCT_ID2,
     INSERT_PERSON_BULK_SQL,
-    INSERT_PERSON_DISTINCT_ID,
     INSERT_PERSON_DISTINCT_ID2,
     INSERT_PERSON_SQL,
 )
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.queries.person_distinct_id_query import fetch_person_distinct_id2_ready
 from posthog.settings import TEST
 
 if TEST:
@@ -140,15 +138,6 @@ def create_person(
 
 def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str, version=0, is_deleted=False) -> None:
     p = ClickhouseProducer()
-    if not fetch_person_distinct_id2_ready():
-        data = {
-            "distinct_id": distinct_id,
-            "person_id": person_id,
-            "team_id": team_id,
-            "_sign": -1 if is_deleted else 1,
-        }
-        p.produce(topic=KAFKA_PERSON_UNIQUE_ID, sql=INSERT_PERSON_DISTINCT_ID, data=data)
-
     p.produce(
         topic=KAFKA_PERSON_DISTINCT_ID,
         sql=INSERT_PERSON_DISTINCT_ID2,
@@ -173,6 +162,8 @@ def get_persons_by_uuids(team: Team, uuids: List[str]) -> QuerySet:
 
 
 def delete_person(person: Person) -> None:
+    # This is racy https://github.com/PostHog/posthog/issues/11590
+    distinct_ids_to_version = _get_distinct_ids_with_version(person)
     create_person(
         uuid=str(person.uuid),
         team_id=person.team.id,
@@ -182,73 +173,27 @@ def delete_person(person: Person) -> None:
         version=int(person.version or 0) + 100,  # keep in sync with deletePerson in plugin-server/src/utils/db/db.ts
         is_deleted=True,
     )
+    _delete_ch_distinct_ids(person, distinct_ids_to_version=distinct_ids_to_version)
 
 
-def delete_ch_distinct_ids(person: Person):
-    for distinct_id in person.distinct_ids:
+def _get_distinct_ids_with_version(person: Person) -> Dict[str, int]:
+    return {
+        distinct_id: int(version or 0)
+        for distinct_id, version in PersonDistinctId.objects.filter(person=person, team_id=person.team_id)
+        .order_by("id")
+        .values_list("distinct_id", "version")
+    }
+
+
+def _delete_ch_distinct_ids(person: Person, distinct_ids_to_version: Dict[str, int]):
+    for distinct_id, version in distinct_ids_to_version.items():
         create_person_distinct_id(
             team_id=person.team_id,
             distinct_id=distinct_id,
             person_id=str(person.uuid),
-            version=0,  # this is incorrect, see https://github.com/PostHog/posthog/issues/11590
+            version=version + 100,
             is_deleted=True,
         )
-
-
-def count_duplicate_distinct_ids_for_team(team_id: Union[str, int]) -> Dict:
-    cutoff_date = (datetime.datetime.now() - datetime.timedelta(weeks=1)).strftime("%Y-%m-%d %H:%M:%S")
-    query_result = sync_execute(
-        """
-        SELECT
-            count(if(startdate < toDate(%(cutoff_date)s), 1, NULL)) as prev_ids_with_duplicates,
-            minus(sum(if(startdate < toDate(%(cutoff_date)s), count, 0)), prev_ids_with_duplicates) as prev_total_extra_distinct_id_rows,
-            count(if(startdate >= toDate(%(cutoff_date)s), 1, NULL)) as new_ids_with_duplicates,
-            minus(sum(if(startdate >= toDate(%(cutoff_date)s), count, 0)), prev_ids_with_duplicates) as new_total_extra_distinct_id_rows
-        FROM (
-            SELECT distinct_id, count(*) as count, toDate(min(timestamp)) as startdate
-            FROM (
-                SELECT person_id, distinct_id, max(_timestamp) as timestamp
-                FROM person_distinct_id
-                WHERE team_id = %(team_id)s
-                GROUP BY person_id, distinct_id, team_id
-                HAVING max(is_deleted) = 0
-            )
-            GROUP BY distinct_id
-            HAVING count > 1
-        ) as duplicates
-        """,
-        {"team_id": str(team_id), "cutoff_date": cutoff_date},
-    )
-
-    result = {
-        "prev_total_ids_with_duplicates": query_result[0][0],
-        "prev_total_extra_distinct_id_rows": query_result[0][1],
-        "new_total_ids_with_duplicates": query_result[0][2],
-        "new_total_extra_distinct_id_rows": query_result[0][3],
-    }
-    return result
-
-
-def count_total_persons_with_multiple_ids(team_id: Union[str, int], min_ids: int = 2):
-    query_result = sync_execute(
-        """
-        SELECT count(*) as total_persons, max(_count) as max_distinct_ids_for_one_person FROM (
-            SELECT person_id, count(distinct_id) as _count
-            FROM person_distinct_id
-            WHERE team_id = %(team_id)s
-            GROUP BY person_id, team_id
-            HAVING max(is_deleted) = 0
-        )
-        WHERE _count > %(min_ids)s
-        """,
-        {"team_id": str(team_id), "min_ids": str(min_ids)},
-    )
-
-    result = {
-        f"total_persons_with_more_than_{min_ids}_ids": query_result[0][0],
-        "max_distinct_ids_for_one_person": query_result[0][1],
-    }
-    return result
 
 
 class ClickhousePersonSerializer(serializers.Serializer):

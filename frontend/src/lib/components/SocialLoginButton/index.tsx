@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import React from 'react'
 import './index.scss'
 import clsx from 'clsx'
 import { SocialLoginIcon } from './SocialLoginIcon'

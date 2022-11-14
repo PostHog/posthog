@@ -1,5 +1,4 @@
 .actions-pie-component {
-    position: absolute;
     width: 100%;
     height: 100%;
 
@@ -9,16 +8,7 @@
         height: calc(100% - 100px);
         transition: height 0.5s;
     }
-    h1 {
-        position: absolute;
-        bottom: 0;
-        width: 100%;
-        font-size: 56px;
-        transition: font-size 0.5s;
-        margin: 0;
-        text-align: center;
-        line-height: 1.3em;
-    }
+
     @media (max-width: 700px) {
         .pie-chart {
             height: calc(100% - 60px);

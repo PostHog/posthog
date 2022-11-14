@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { LockOutlined } from '@ant-design/icons'
 import Select from 'rc-select'

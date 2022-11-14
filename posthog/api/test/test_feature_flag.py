@@ -8,8 +8,9 @@ from rest_framework import status
 
 from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
-from posthog.models.person.person import Person
-from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.person import Person
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
 from posthog.test.db_context_capturing import capture_db_queries
 
@@ -170,7 +171,12 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "merge": None, "name": "alpha-feature", "short_id": None},
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "name": "alpha-feature",
+                        "short_id": None,
+                    },
                 }
             ],
         )
@@ -305,6 +311,72 @@ class TestFeatureFlag(APIBaseTest):
         )
         self.assertEqual(FeatureFlag.objects.count(), count)
 
+    def test_cant_create_multivariate_feature_flag_with_invalid_variant_overrides(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Multivariate feature",
+                "key": "multivariate-feature",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None, "variant": "unknown-variant"}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("type"), "validation_error")
+        self.assertEqual(response.json().get("detail"), "Filters are not valid (variant override does not exist)")
+
+    def test_cant_update_multivariate_feature_flag_with_invalid_variant_overrides(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Multivariate feature",
+                "key": "multivariate-feature",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None, "variant": "second-variant"}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        feature_flag_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}",
+            {
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None, "variant": "unknown-variant"}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 0},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("type"), "validation_error")
+        self.assertEqual(response.json().get("detail"), "Filters are not valid (variant override does not exist)")
+
     @patch("posthog.api.feature_flag.report_user_action")
     def test_updating_feature_flag(self, mock_capture):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
@@ -397,7 +469,7 @@ class TestFeatureFlag(APIBaseTest):
                                 },
                             },
                         ],
-                        "merge": None,
+                        "trigger": None,
                         "name": "a-feature-flag-that-is-updated",
                         "short_id": None,
                     },
@@ -410,7 +482,7 @@ class TestFeatureFlag(APIBaseTest):
                     "item_id": str(flag_id),
                     "detail": {
                         "changes": None,
-                        "merge": None,
+                        "trigger": None,
                         "name": "a-feature-flag-that-is-updated",
                         "short_id": None,
                     },
@@ -479,7 +551,7 @@ class TestFeatureFlag(APIBaseTest):
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             }
                         ],
-                        "merge": None,
+                        "trigger": None,
                         "name": "feature_with_activity",
                         "short_id": None,
                     },
@@ -490,7 +562,12 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "merge": None, "name": "feature_with_activity", "short_id": None},
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "name": "feature_with_activity",
+                        "short_id": None,
+                    },
                 },
             ],
         )
@@ -543,7 +620,7 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:29:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(second_flag_id),
-                    "detail": {"changes": None, "merge": None, "name": "flag-two", "short_id": None},
+                    "detail": {"changes": None, "trigger": None, "name": "flag-two", "short_id": None},
                 },
                 {
                     "user": {"first_name": new_user.first_name, "email": new_user.email},
@@ -561,7 +638,7 @@ class TestFeatureFlag(APIBaseTest):
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             }
                         ],
-                        "merge": None,
+                        "trigger": None,
                         "name": "feature_with_activity",
                         "short_id": None,
                     },
@@ -572,7 +649,12 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
-                    "detail": {"changes": None, "merge": None, "name": "feature_with_activity", "short_id": None},
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "name": "feature_with_activity",
+                        "short_id": None,
+                    },
                 },
             ],
         )
@@ -992,9 +1074,8 @@ class TestFeatureFlag(APIBaseTest):
             created_by=self.user,
         )
 
-        key = PersonalAPIKey(label="Test", user=self.user)
-        key.save()
-        personal_api_key = key.value
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
 
         self.client.logout()
         # `local_evaluation` is called by logged out clients!
@@ -1124,9 +1205,8 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         )
 
-        key = PersonalAPIKey(label="Test", user=self.user)
-        key.save()
-        personal_api_key = key.value
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
 
         response = self.client.get(
             f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
@@ -1621,3 +1701,36 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(
             updated_flag.filters, {"groups": [{"properties": [], "rollout_percentage": 100}], "multivariate": None}
         )
+
+    def test_feature_flag_threshold(self):
+        feature_flag = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Beta feature",
+                "key": "beta-feature",
+                "filters": {"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 65}]},
+                "rollback_conditions": [
+                    {
+                        "threshold": 5000,
+                        "threshold_metric": {
+                            "insight": "trends",
+                            "events": [{"order": 0, "id": "$pageview"}],
+                            "properties": [
+                                {
+                                    "key": "$geoip_country_name",
+                                    "type": "person",
+                                    "value": ["france"],
+                                    "operator": "exact",
+                                }
+                            ],
+                        },
+                        "operator": "lt",
+                        "threshold_type": "insight",
+                    }
+                ],
+                "auto-rollback": True,
+            },
+            format="json",
+        ).json()
+
+        self.assertEqual(len(feature_flag["rollback_conditions"]), 1)

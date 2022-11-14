@@ -1,4 +1,3 @@
-import React from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Plan } from './Plan'
 import { CurrentUsage } from './CurrentUsage'
@@ -9,6 +8,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { useValues } from 'kea'
+import { BillingV2 } from './v2/Billing'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -16,7 +17,20 @@ export const scene: SceneExport = {
 }
 
 export function Billing(): JSX.Element {
-    const { billing, isSmallScreen } = useValues(billingLogic)
+    const { billing, isSmallScreen, billingVersion } = useValues(billingLogic)
+
+    if (!billingVersion) {
+        return <SpinnerOverlay />
+    }
+
+    if (billingVersion === 'v2') {
+        return (
+            <div>
+                <PageHeader title="Billing &amp; usage" />
+                <BillingV2 />
+            </div>
+        )
+    }
 
     return (
         <div className="flex flex-col space-y-6">

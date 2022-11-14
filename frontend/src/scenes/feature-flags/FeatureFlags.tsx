@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { featureFlagsLogic, FeatureFlagsTabs } from './featureFlagsLogic'
 import { Tabs } from 'antd'
@@ -18,7 +17,6 @@ import { More } from 'lib/components/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
@@ -73,7 +71,11 @@ function OverViewTab(): JSX.Element {
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
                 return (
                     <>
-                        {featureFlag.active ? (
+                        {featureFlag.performed_rollback ? (
+                            <LemonTag type="warning" className="uppercase">
+                                Rolled Back
+                            </LemonTag>
+                        ) : featureFlag.active ? (
                             <LemonTag type="success" className="uppercase">
                                 Enabled
                             </LemonTag>
@@ -248,7 +250,7 @@ export function FeatureFlags(): JSX.Element {
                     <OverViewTab />
                 </Tabs.TabPane>
                 <Tabs.TabPane tab="History" key="history">
-                    <ActivityLog scope={ActivityScope.FEATURE_FLAG} describer={flagActivityDescriber} />
+                    <ActivityLog scope={ActivityScope.FEATURE_FLAG} />
                 </Tabs.TabPane>
             </Tabs>
         </div>

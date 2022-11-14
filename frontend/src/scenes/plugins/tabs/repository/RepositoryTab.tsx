@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Col, Row } from 'antd'
 import { useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -71,6 +71,7 @@ export function RepositoryTab(): JSX.Element {
                                                 plugin={{
                                                     name: plugin.name,
                                                     url: plugin.url,
+                                                    icon: plugin.icon,
                                                     description: plugin.description,
                                                 }}
                                                 maintainer={plugin.maintainer}
@@ -124,6 +125,7 @@ export function RepositoryTab(): JSX.Element {
                                                 plugin={{
                                                     name: plugin.name,
                                                     url: plugin.url,
+                                                    icon: plugin.icon,
                                                     description: plugin.description,
                                                 }}
                                                 maintainer={plugin.maintainer}

@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import React from 'react'
 import { CSSTransition } from 'react-transition-group'
 import './LemonBadge.scss'
 
@@ -10,10 +9,11 @@ export interface LemonBadgeProps {
     showZero?: boolean
     borderless?: boolean
     className?: string
+    status?: 'primary' | 'danger' | 'muted'
     style?: React.CSSProperties
 }
 
-/** An icon-sized Bubble for displaying a count.
+/** An icon-sized badge for displaying a count.
  *
  * Numbers up to 9 are displayed in full, in integer form, with 9+ for higher values.
  * JSX elements are rendered outright to support use cases where the badge is meant to show an icon.
@@ -25,6 +25,7 @@ export function LemonBadge({
     position = 'none',
     showZero = false,
     className,
+    status = 'primary',
     ...spanProps
 }: LemonBadgeProps): JSX.Element {
     // NOTE: We use 1 for the text if not showing so the fade out animation looks right
@@ -43,7 +44,13 @@ export function LemonBadge({
     return (
         <CSSTransition in={!hide} timeout={150} classNames="LemonBadge-" mountOnEnter unmountOnExit>
             <span
-                className={clsx('LemonBadge', `LemonBadge--${size}`, `LemonBadge--position-${position}`, className)}
+                className={clsx(
+                    'LemonBadge',
+                    `LemonBadge--${size}`,
+                    `LemonBadge--${status}`,
+                    `LemonBadge--position-${position}`,
+                    className
+                )}
                 title={String(count)}
                 {...spanProps}
             >

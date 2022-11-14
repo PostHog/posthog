@@ -398,3 +398,31 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             recording = SessionRecording(team=self.team, session_recording_id="1", request=req).get_metadata()
             assert recording is not None
             assert recording.segments[0]["start_time"] != now()
+
+        def test_get_snapshots_with_date_filter(self):
+            with freeze_time("2020-09-13T12:26:40.000Z"):
+                # This snapshot should be filtered out
+                create_snapshot(
+                    has_full_snapshot=False,
+                    distinct_id="user",
+                    session_id="1",
+                    timestamp=now() - relativedelta(days=2),
+                    team_id=self.team.id,
+                )
+                # This snapshot should appear
+                create_snapshot(
+                    has_full_snapshot=False,
+                    distinct_id="user",
+                    session_id="1",
+                    timestamp=now(),
+                    team_id=self.team.id,
+                )
+
+                req, filter = create_recording_request_and_filter(
+                    "1",
+                )
+                recording: DecompressedRecordingData = session_recording(  # type: ignore
+                    team=self.team, session_recording_id="1", request=req, recording_start_time=now()
+                ).get_snapshots(filter.limit, filter.offset)
+
+                self.assertEqual(len(recording.snapshot_data_by_window_id[""]), 1)

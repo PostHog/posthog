@@ -1,4 +1,3 @@
-import React from 'react'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
@@ -50,6 +49,7 @@ export const personsLogic = kea<personsLogicType>({
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
         showPersonDeleteModal: (person: PersonType | null) => ({ person }),
         deletePerson: (payload: { person: PersonType; deleteEvents: boolean }) => payload,
+        setDistinctId: (distinctId: string) => ({ distinctId }),
     },
     reducers: {
         listFilters: [
@@ -95,6 +95,12 @@ export const personsLogic = kea<personsLogicType>({
             null as PersonType | null,
             {
                 showPersonDeleteModal: (_, { person }) => person,
+            },
+        ],
+        distinctId: [
+            null as string | null,
+            {
+                setDistinctId: (_, { distinctId }) => distinctId,
             },
         ],
     },
@@ -170,7 +176,7 @@ export const personsLogic = kea<personsLogicType>({
                 let parsedValue = newValue
 
                 // Instrumentation stuff
-                let action: 'added' | 'updated' | 'removed'
+                let action: 'added' | 'updated'
                 const oldPropertyType = person.properties[key] === null ? 'null' : typeof person.properties[key]
                 let newPropertyType: string = typeof newValue
 
@@ -198,7 +204,7 @@ export const personsLogic = kea<personsLogicType>({
                 actions.setPerson({ ...person }) // To update the UI immediately while the request is being processed
                 // :KLUDGE: Person properties are updated asynchronosly in the plugin server - the response won't reflect
                 //      the 'updated' properties yet.
-                await api.persons.update(person.id, person)
+                await api.persons.updateProperty(person.id, key, newValue)
                 lemonToast.success(`Person property ${action}`)
 
                 eventUsageLogic.actions.reportPersonPropertyUpdated(
@@ -212,12 +218,13 @@ export const personsLogic = kea<personsLogicType>({
         deleteProperty: async ({ key }) => {
             const person = values.person
 
-            if (person) {
+            if (person && person.id) {
                 const updatedProperties = { ...person.properties }
                 delete updatedProperties[key]
 
-                actions.setPerson({ ...person, properties: updatedProperties })
-                await api.create(`api/person/${person.id}/delete_property`, { $unset: key })
+                actions.setPerson({ ...person, properties: updatedProperties }) // To update the UI immediately
+                // await api.create(`api/person/${person.id}/delete_property`, { $unset: key })
+                await api.persons.deleteProperty(person.id, key)
                 lemonToast.success(`Person property deleted`)
 
                 eventUsageLogic.actions.reportPersonPropertyUpdated('removed', 1, undefined, undefined)

@@ -12,7 +12,7 @@ from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property import GroupTypeIndex
 from posthog.models.utils import sane_repr
 
-MATH_TYPE = Literal[
+MathType = Literal[
     "total",
     "dau",
     "weekly_active",
@@ -26,6 +26,12 @@ MATH_TYPE = Literal[
     "p90",
     "p95",
     "p99",
+    "min_count_per_actor",
+    "max_count_per_actor",
+    "median_count_per_actor",
+    "p90_count_per_actor",
+    "p95_count_per_actor",
+    "p99_count_per_actor",
 ]
 
 
@@ -41,7 +47,7 @@ class Entity(PropertyMixin):
     order: Optional[int]
     name: Optional[str]
     custom_name: Optional[str]
-    math: Optional[MATH_TYPE]
+    math: Optional[MathType]
     math_property: Optional[str]
     math_group_type_index: Optional[GroupTypeIndex]
     # Index is not set at all by default (meaning: access = AttributeError) - it's populated in EntitiesMixin.entities

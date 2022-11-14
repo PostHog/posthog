@@ -1,7 +1,7 @@
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { lemonToast } from 'lib/components/lemonToast'
 import { EmptyPropertyFilter, EventType, PropertyFilter, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
@@ -45,7 +45,7 @@ const secondEvent = makeEvent('1', '2023-05-05T00:00:00.000Z')
 
 const beforeLastEventsTimestamp = '2023-05-05T00:00:00.000Z'
 const afterTheFirstEvent = 'the first timestamp'
-const afterOneYearAgo = '2020-05-05T00:00:00.000Z'
+const fourMonthsAgo = '2021-01-05T00:00:00.000Z'
 const fiveDaysAgo = '2021-04-30T00:00:00.000Z'
 const orderByTimestamp = '["-timestamp"]'
 const emptyProperties = '[]'
@@ -82,11 +82,50 @@ describe('eventsTableLogic', () => {
             expect(logic.key).toEqual('all-test-person-key-/person/first-part%7Csecond-part')
         })
 
-        it('triggers url to action', async () => {
+        it('same properties does not trigger url to action', async () => {
             // before https://github.com/PostHog/posthog/pull/11585 any sceneURLs with encoded characters
             // e.g. `|` becoming `%7C` could not trigger `urlToAction` for this logic
-            router.actions.push(personUrl)
-            await expectLogic(logic).toDispatchActions(['setProperties'])
+            router.actions.push(combineUrl(personUrl, { properties: [] }).url)
+            await expectLogic(logic).toNotHaveDispatchedActions(['setProperties'])
+        })
+
+        it('same event filter does not trigger url to action', async () => {
+            // before https://github.com/PostHog/posthog/pull/11585 any sceneURLs with encoded characters
+            // e.g. `|` becoming `%7C` could not trigger `urlToAction` for this logic
+            router.actions.push(combineUrl(personUrl, { eventFilter: '' }).url)
+            await expectLogic(logic).toNotHaveDispatchedActions(['setEventFilter'])
+        })
+
+        it('different properties triggers url to action', async () => {
+            const properties = [makePropertyFilter()]
+            router.actions.push(combineUrl(personUrl, { properties }).url)
+            await expectLogic(logic).toDispatchActions(['setProperties', 'fetchEvents'])
+        })
+
+        it('different event filter triggers url to action', async () => {
+            const eventFilter = '$pageview'
+            router.actions.push(combineUrl(personUrl, { eventFilter }).url)
+            await expectLogic(logic).toDispatchActions(['setEventFilter', 'fetchEvents'])
+        })
+    })
+
+    describe('with fixed event filters', () => {
+        beforeEach(() => {
+            router.actions.push(urls.events())
+            logic = eventsTableLogic({
+                key: 'test-key',
+                sceneUrl: urls.events(),
+                fixedFilters: {
+                    event_filter: 'dashboard updated',
+                },
+            })
+            logic.mount()
+        })
+
+        it('can not set the fixed event filter', async () => {
+            await expectLogic(logic, () => logic.actions.setEventFilter('')).toMatchValues({
+                eventFilter: 'dashboard updated',
+            })
         })
     })
 
@@ -96,6 +135,7 @@ describe('eventsTableLogic', () => {
             logic = eventsTableLogic({
                 key: 'test-key',
                 sceneUrl: urls.events(),
+                fetchMonths: 4,
             })
             logic.mount()
         })
@@ -264,7 +304,7 @@ describe('eventsTableLogic', () => {
                     })
                 })
 
-                it('fetch events sets after to 5 days ago and then a year ago when there are no events', async () => {
+                it('fetch events sets after to 5 days ago and then fetchMonhs ago when there are no events', async () => {
                     ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
 
                     await expectLogic(logic, () => {
@@ -283,7 +323,7 @@ describe('eventsTableLogic', () => {
                     expect(getUrlParameters(lastGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
-                        after: afterOneYearAgo,
+                        after: fourMonthsAgo,
                     })
                 })
 
@@ -491,7 +531,7 @@ describe('eventsTableLogic', () => {
                     expect(getUrlParameters(lastGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
-                        after: afterOneYearAgo,
+                        after: fourMonthsAgo,
                         before: beforeLastEventsTimestamp,
                     })
                 })
@@ -677,7 +717,8 @@ describe('eventsTableLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.setEventFilter(eventFilter)
                 })
-                expect(router.values.searchParams).toHaveProperty('eventFilter', eventFilter)
+                expect(router.values.searchParams).toHaveProperty('eventFilter')
+                expect(router.values.searchParams.eventFilter.toString()).toEqual(eventFilter)
             })
 
             it('fires two actions to change state, but just one API.get', async () => {

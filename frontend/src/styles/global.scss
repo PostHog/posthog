@@ -360,23 +360,6 @@ input::-ms-clear {
     }
 }
 
-.LemonLinkButton {
-    // TODO: This should become a component at some point
-    padding: 1.3rem 1rem !important;
-    font-weight: var(--font-medium) !important;
-    display: flex !important;
-    align-items: center;
-    justify-content: center;
-
-    &.ant-btn {
-        padding-top: 1.3rem !important;
-    }
-
-    &:not(.ant-btn-primary) {
-        color: var(--primary);
-    }
-}
-
 // Graph series glyph
 
 .graph-series-glyph {

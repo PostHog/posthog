@@ -6,18 +6,24 @@
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
-         countIf(event = '$pageview') as count_event_match_0
+         countIf(event = '$pageview') as count_event_match_0 ,
+         groupUniqArrayIf(100)((events.timestamp,
+                                events.uuid,
+                                events.session_id,
+                                events.window_id), event = '$pageview') as matching_events_0
   FROM
-    (SELECT distinct_id,
+    (SELECT uuid,
+            distinct_id,
             event,
             team_id,
-            timestamp ,
-            "$session_id" as session_id
+            timestamp,
+            $session_id as session_id,
+            $window_id as window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
        AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 11:59:59' ) AS events
+       AND timestamp <= '2021-01-22 08:00:00' ) AS events
   JOIN
     (SELECT session_id,
             any(window_id) as window_id,
@@ -28,18 +34,11 @@
             SUM(has_full_snapshot) as full_snapshots
      FROM session_recording_events PREWHERE team_id = 2
      AND timestamp >= '2021-01-13 12:00:00'
-     AND timestamp <= '2021-01-22 11:59:59'
+     AND timestamp <= '2021-01-22 08:00:00'
      GROUP BY session_id
      HAVING full_snapshots > 0
      AND start_time >= '2021-01-14 00:00:00'
-     AND start_time <= '2021-01-21 23:59:59') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
-  JOIN
-    (SELECT distinct_id,
-            argMax(person_id, version) as person_id
-     FROM person_distinct_id2
-     WHERE team_id = 2
-     GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0) as pdi ON pdi.distinct_id = session_recordings.distinct_id
+     AND start_time <= '2021-01-21 20:00:00') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
   WHERE ((notEmpty(events.session_id)
           AND events.session_id == session_recordings.session_id)
          OR (empty(events.session_id)
@@ -61,18 +60,24 @@
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
-         countIf(event = '$autocapture') as count_event_match_0
+         countIf(event = '$autocapture') as count_event_match_0 ,
+         groupUniqArrayIf(100)((events.timestamp,
+                                events.uuid,
+                                events.session_id,
+                                events.window_id), event = '$autocapture') as matching_events_0
   FROM
-    (SELECT distinct_id,
+    (SELECT uuid,
+            distinct_id,
             event,
             team_id,
-            timestamp ,
-            "$session_id" as session_id
+            timestamp,
+            $session_id as session_id,
+            $window_id as window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$autocapture']
        AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 11:59:59' ) AS events
+       AND timestamp <= '2021-01-22 08:00:00' ) AS events
   JOIN
     (SELECT session_id,
             any(window_id) as window_id,
@@ -83,18 +88,11 @@
             SUM(has_full_snapshot) as full_snapshots
      FROM session_recording_events PREWHERE team_id = 2
      AND timestamp >= '2021-01-13 12:00:00'
-     AND timestamp <= '2021-01-22 11:59:59'
+     AND timestamp <= '2021-01-22 08:00:00'
      GROUP BY session_id
      HAVING full_snapshots > 0
      AND start_time >= '2021-01-14 00:00:00'
-     AND start_time <= '2021-01-21 23:59:59') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
-  JOIN
-    (SELECT distinct_id,
-            argMax(person_id, version) as person_id
-     FROM person_distinct_id2
-     WHERE team_id = 2
-     GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0) as pdi ON pdi.distinct_id = session_recordings.distinct_id
+     AND start_time <= '2021-01-21 20:00:00') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
   WHERE ((notEmpty(events.session_id)
           AND events.session_id == session_recordings.session_id)
          OR (empty(events.session_id)
@@ -158,11 +156,11 @@
             SUM(has_full_snapshot) as full_snapshots
      FROM session_recording_events PREWHERE team_id = 2
      AND timestamp >= '2021-08-13 12:00:00'
-     AND timestamp <= '2021-08-22 11:59:59'
+     AND timestamp <= '2021-08-22 08:00:00'
      GROUP BY session_id
      HAVING full_snapshots > 0
      AND start_time >= '2021-08-14 00:00:00'
-     AND start_time <= '2021-08-21 23:59:59') AS session_recordings
+     AND start_time <= '2021-08-21 20:00:00') AS session_recordings
   JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -201,18 +199,24 @@
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
-         countIf(event = '$pageview') as count_event_match_0
+         countIf(event = '$pageview') as count_event_match_0 ,
+         groupUniqArrayIf(100)((events.timestamp,
+                                events.uuid,
+                                events.session_id,
+                                events.window_id), event = '$pageview') as matching_events_0
   FROM
-    (SELECT distinct_id,
+    (SELECT uuid,
+            distinct_id,
             event,
             team_id,
-            timestamp ,
-            "$session_id" as session_id
+            timestamp,
+            $session_id as session_id,
+            $window_id as window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
        AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 11:59:59' ) AS events
+       AND timestamp <= '2021-01-22 08:00:00' ) AS events
   JOIN
     (SELECT session_id,
             any(window_id) as window_id,
@@ -223,18 +227,11 @@
             SUM(has_full_snapshot) as full_snapshots
      FROM session_recording_events PREWHERE team_id = 2
      AND timestamp >= '2021-01-13 12:00:00'
-     AND timestamp <= '2021-01-22 11:59:59'
+     AND timestamp <= '2021-01-22 08:00:00'
      GROUP BY session_id
      HAVING full_snapshots > 0
      AND start_time >= '2021-01-14 00:00:00'
-     AND start_time <= '2021-01-21 23:59:59') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
-  JOIN
-    (SELECT distinct_id,
-            argMax(person_id, version) as person_id
-     FROM person_distinct_id2
-     WHERE team_id = 2
-     GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0) as pdi ON pdi.distinct_id = session_recordings.distinct_id
+     AND start_time <= '2021-01-21 20:00:00') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
   WHERE ((notEmpty(events.session_id)
           AND events.session_id == session_recordings.session_id)
          OR (empty(events.session_id)
@@ -256,18 +253,24 @@
          any(session_recordings.end_time) as end_time,
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
-         countIf(event = '$autocapture') as count_event_match_0
+         countIf(event = '$autocapture') as count_event_match_0 ,
+         groupUniqArrayIf(100)((events.timestamp,
+                                events.uuid,
+                                events.session_id,
+                                events.window_id), event = '$autocapture') as matching_events_0
   FROM
-    (SELECT distinct_id,
+    (SELECT uuid,
+            distinct_id,
             event,
             team_id,
-            timestamp ,
-            "$session_id" as session_id
+            timestamp,
+            $session_id as session_id,
+            $window_id as window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$autocapture']
        AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 11:59:59' ) AS events
+       AND timestamp <= '2021-01-22 08:00:00' ) AS events
   JOIN
     (SELECT session_id,
             any(window_id) as window_id,
@@ -278,18 +281,11 @@
             SUM(has_full_snapshot) as full_snapshots
      FROM session_recording_events PREWHERE team_id = 2
      AND timestamp >= '2021-01-13 12:00:00'
-     AND timestamp <= '2021-01-22 11:59:59'
+     AND timestamp <= '2021-01-22 08:00:00'
      GROUP BY session_id
      HAVING full_snapshots > 0
      AND start_time >= '2021-01-14 00:00:00'
-     AND start_time <= '2021-01-21 23:59:59') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
-  JOIN
-    (SELECT distinct_id,
-            argMax(person_id, version) as person_id
-     FROM person_distinct_id2
-     WHERE team_id = 2
-     GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0) as pdi ON pdi.distinct_id = session_recordings.distinct_id
+     AND start_time <= '2021-01-21 20:00:00') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
   WHERE ((notEmpty(events.session_id)
           AND events.session_id == session_recordings.session_id)
          OR (empty(events.session_id)
@@ -321,11 +317,11 @@
             SUM(has_full_snapshot) as full_snapshots
      FROM session_recording_events PREWHERE team_id = 2
      AND timestamp >= '2021-01-13 12:00:00'
-     AND timestamp <= '2021-01-22 11:59:59'
+     AND timestamp <= '2021-01-22 08:00:00'
      GROUP BY session_id
      HAVING full_snapshots > 0
      AND start_time >= '2021-01-14 00:00:00'
-     AND start_time <= '2021-01-21 23:59:59') AS session_recordings
+     AND start_time <= '2021-01-21 20:00:00') AS session_recordings
   JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -350,5 +346,18 @@
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsList.test_properties_list
+  '
+  
+  SELECT $session_id as session_id,
+         any(properties) as properties
+  FROM events PREWHERE team_id = 2
+  AND event IN ['$pageview']
+  AND session_id IN ['1']
+  AND timestamp >= '2021-01-13 12:00:00'
+  AND timestamp <= '2021-01-22 11:59:59'
+  GROUP BY session_id
   '
 ---

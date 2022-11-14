@@ -1,4 +1,3 @@
-import React from 'react'
 import { EventDefinition, PropertyDefinition } from '~/types'
 import {
     IconAutocapture,
@@ -38,7 +37,7 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
 
 export function getEventDefinitionIcon(definition: EventDefinition): JSX.Element {
     // Rest are events
-    if (definition.name === '$pageview') {
+    if (definition.name === '$pageview' || definition.name === '$screen') {
         return (
             <Tooltip title="PostHog event">
                 <IconPageview className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />

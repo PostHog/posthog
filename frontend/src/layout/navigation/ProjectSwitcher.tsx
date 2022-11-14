@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 import { IconPlus, IconSettings } from 'lib/components/icons'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import React from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -13,7 +12,7 @@ import { AvailableFeature, TeamBasicType } from '~/types'
 import { navigationLogic } from './navigationLogic'
 
 export function ProjectSwitcherOverlay(): JSX.Element {
-    const { currentOrganization, isProjectCreationForbidden } = useValues(organizationLogic)
+    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
     const { showCreateProjectModal, hideProjectSwitcher } = useActions(navigationLogic)
@@ -32,12 +31,8 @@ export function ProjectSwitcherOverlay(): JSX.Element {
             <LemonButton
                 icon={<IconPlus />}
                 fullWidth
-                disabled={isProjectCreationForbidden}
-                title={
-                    isProjectCreationForbidden
-                        ? "You aren't allowed to create a project. Your organization access level is probably insufficient."
-                        : undefined
-                }
+                disabled={!!projectCreationForbiddenReason}
+                tooltip={projectCreationForbiddenReason}
                 onClick={() => {
                     hideProjectSwitcher()
                     guardAvailableFeature(

@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import {
     LemonButton,
@@ -21,7 +20,7 @@ const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
 export default {
     title: 'Lemon UI/Lemon Button',
     component: LemonButton,
-
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         icon: {
             defaultValue: <IconCalculate />,

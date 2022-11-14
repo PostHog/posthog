@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import './Login.scss'
 import { useActions, useValues } from 'kea'
 import { loginLogic } from './loginLogic'
@@ -15,6 +15,7 @@ import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import RegionSelect from './RegionSelect'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -73,8 +74,7 @@ function SSOLoginButton({
 
 export function Login(): JSX.Element {
     const { precheck } = useActions(loginLogic)
-    const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, loginManualErrors } =
-        useValues(loginLogic)
+    const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
@@ -90,14 +90,15 @@ export function Login(): JSX.Element {
         <BridgePage view="login" noHedgehog>
             <div className="space-y-2">
                 <h2>Get started</h2>
-                {loginManualErrors.generic && (
+                {generalError && (
                     <AlertMessage type="error">
-                        {loginManualErrors.generic.detail ||
-                            ERROR_MESSAGES[loginManualErrors.generic.code] ||
+                        {generalError.detail ||
+                            ERROR_MESSAGES[generalError.code] ||
                             'Could not complete your login. Please try again.'}
                     </AlertMessage>
                 )}
                 <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="space-y-4">
+                    <RegionSelect />
                     <Field name="email" label="Email">
                         <LemonInput
                             className="ph-ignore-input"

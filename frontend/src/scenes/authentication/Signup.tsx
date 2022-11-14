@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { Link } from 'lib/components/Link'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { useValues } from 'kea'
@@ -12,6 +12,9 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import RegionSelect from './RegionSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: Signup,
@@ -25,6 +28,7 @@ export function Signup(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { isSignupSubmitting, signupManualErrors, signup } = useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useEffect(() => {
         // There's no password in the demo environment
@@ -39,6 +43,8 @@ export function Signup(): JSX.Element | null {
             'Community, Slack & email support',
         ],
     }
+
+    const showRegionSelect = !!featureFlags[FEATURE_FLAGS.REGION_SELECT] && !!preflight?.cloud && !!preflight?.region
 
     return !user ? (
         <BridgePage
@@ -58,6 +64,8 @@ export function Signup(): JSX.Element | null {
                     ))}
                 </>
             }
+            sideLogo={showRegionSelect}
+            showSelfHostCta={preflight?.cloud}
         >
             <div className="space-y-2">
                 <h2>{!preflight?.demo ? 'Get started' : 'Explore PostHog yourself'}</h2>
@@ -78,6 +86,7 @@ export function Signup(): JSX.Element | null {
                     </AlertMessage>
                 )}
                 <Form logic={signupLogic} formKey={'signup'} className="space-y-4" enableFormOnSubmit>
+                    <RegionSelect />
                     <Field name="email" label="Email">
                         <LemonInput
                             className="ph-ignore-input"

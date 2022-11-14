@@ -5,6 +5,7 @@ import { format } from 'util'
 import { Action, Hook, IngestionPersonData, PostIngestionEvent } from '../../types'
 import { DB } from '../../utils/db/db'
 import fetch from '../../utils/fetch'
+import { status } from '../../utils/status'
 import { stringify } from '../../utils/utils'
 import { OrganizationManager } from './organization-manager'
 import { SiteUrlManager } from './site-url-manager'
@@ -183,9 +184,12 @@ export class HookCommander {
         person: IngestionPersonData | undefined,
         actionMatches: Action[]
     ): Promise<void> {
+        status.debug('🔍', `Looking for hooks to fire for event "${event.event}"`)
         if (!actionMatches.length) {
+            status.debug('🔍', `No hooks to fire for event "${event.event}"`)
             return
         }
+        status.debug('🔍', `Found ${actionMatches.length} matching actions`)
 
         const team = await this.teamManager.fetchTeam(event.teamId)
 
@@ -194,7 +198,6 @@ export class HookCommander {
         }
 
         const webhookUrl = team.slack_incoming_webhook
-        const organization = await this.organizationManager.fetchOrganization(team.organization_id)
 
         if (webhookUrl) {
             const webhookRequests = actionMatches
@@ -203,7 +206,7 @@ export class HookCommander {
             await Promise.all(webhookRequests).catch((error) => captureException(error))
         }
 
-        if (organization!.available_features.includes('zapier')) {
+        if (await this.organizationManager.hasAvailableFeature(team.id, 'zapier')) {
             const restHooks = actionMatches.map(({ hooks }) => hooks).flat()
 
             if (restHooks.length > 0) {

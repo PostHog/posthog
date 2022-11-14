@@ -1,4 +1,3 @@
-import React from 'react'
 import { kea } from 'kea'
 import api from 'lib/api'
 import type { membersLogicType } from './membersLogicType'

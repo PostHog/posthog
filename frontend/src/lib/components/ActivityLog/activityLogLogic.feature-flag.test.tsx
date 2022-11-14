@@ -1,8 +1,6 @@
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { render } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import React from 'react'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { makeTestSetup } from './activityLogLogic.test.setup'
 
@@ -10,7 +8,6 @@ describe('the activity log logic', () => {
     describe('humanizing feature flags', () => {
         const featureFlagsTestSetup = makeTestSetup(
             ActivityScope.FEATURE_FLAG,
-            flagActivityDescriber,
             `/api/projects/${MOCK_TEAM_ID}/feature_flags/7/activity/`
         )
 
