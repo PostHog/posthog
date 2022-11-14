@@ -1,10 +1,8 @@
 import { useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-// import { signupLogic } from './signupLogic'
 import { userLogic } from 'scenes/userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-// import RegionSelect from '../../RegionSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SignupForm } from './signupForm/control/SignupForm'
@@ -17,7 +15,6 @@ export const scene: SceneExport = {
 export function SignupContainer(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
-    // const { isSignupSubmitting, signupManualErrors, signup } = useValues(signupLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const footerHighlights = {
@@ -28,8 +25,6 @@ export function SignupContainer(): JSX.Element | null {
             'Community, Slack & email support',
         ],
     }
-
-    const showRegionSelect = !!featureFlags[FEATURE_FLAGS.REGION_SELECT] && !!preflight?.cloud && !!preflight?.region
 
     return !user ? (
         <BridgePage
@@ -49,7 +44,7 @@ export function SignupContainer(): JSX.Element | null {
                     ))}
                 </>
             }
-            sideLogo={showRegionSelect}
+            sideLogo={featureFlags[FEATURE_FLAGS.SIGNUP_FORM_EXPERIMENT] !== 'test'}
             showSelfHostCta={preflight?.cloud}
         >
             {featureFlags[FEATURE_FLAGS.SIGNUP_FORM_EXPERIMENT] === 'test' ? <SignupFormTest /> : <SignupForm />}
