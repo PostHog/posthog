@@ -150,7 +150,7 @@ export function SessionRecordingPlaylistItem({
                 </div>
 
                 <div className="flex items-center justify-between gap-4 w-2/3">
-                    <span className="flex items-center gap-1 overflow-hidden text-muted-alt text-xs">
+                    <span className="flex items-center gap-1 overflow-hidden text-muted text-xs">
                         <span title={`First URL: ${recording.urls?.[0]}`} className="truncate">
                             {firstPath}
                         </span>
