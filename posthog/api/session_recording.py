@@ -1,11 +1,6 @@
-<<<<<<< HEAD
-from typing import Any, Union
-=======
-import dataclasses
 import json
 from datetime import datetime
 from typing import Any, List, Optional, Union
->>>>>>> master
 
 from dateutil import parser
 from rest_framework import exceptions, request, response, serializers, viewsets
@@ -47,7 +42,6 @@ class SessionRecordingSerializer(serializers.Serializer):
     keypress_count = serializers.IntegerField()
     url = serializers.CharField()
     distinct_id = serializers.CharField()
-    properties = serializers.DictField(required=False)
     matching_events = serializers.ListField(required=False)
 
     def to_representation(self, instance):
