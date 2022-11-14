@@ -75,7 +75,7 @@ def get_active_prompt_sequences(distinct_id: str, team_id: str) -> List[Dict[str
     prompt_keys = set()
     for event in prompt_events:
         prompt = event_properties_to_prompt_sequence(json.loads(event["properties"]))
-        if prompt["key"] not in prompt_keys:
+        if prompt and prompt["key"] not in prompt_keys:
             prompt_keys.add(prompt["key"])
             active_prompts.append(prompt)
 

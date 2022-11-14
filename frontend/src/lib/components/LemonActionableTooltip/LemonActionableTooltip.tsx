@@ -103,6 +103,7 @@ export const LemonActionableTooltip = ({
                                         onClick={() => window.open(button.url, '_noblank')}
                                         className="max-w-full"
                                         fullWidth
+                                        center
                                     >
                                         {button.label}
                                     </LemonButton>
@@ -113,7 +114,13 @@ export const LemonActionableTooltip = ({
                             <div className="LemonActionableTooltip__action-buttons">
                                 {actionButtons.map((button, index) => {
                                     return (
-                                        <LemonButton key={index} type="primary" onClick={button.action} fullWidth>
+                                        <LemonButton
+                                            key={index}
+                                            type="primary"
+                                            onClick={button.action}
+                                            fullWidth
+                                            center
+                                        >
                                             {button.label}
                                         </LemonButton>
                                     )
