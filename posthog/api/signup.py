@@ -30,7 +30,9 @@ class SignupSerializer(serializers.Serializer):
     email: serializers.Field = serializers.EmailField()
     password: serializers.Field = serializers.CharField(allow_null=True, required=True)
     organization_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
-    role_at_organization: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    role_at_organization: serializers.Field = serializers.CharField(
+        max_length=128, required=False, allow_blank=True, default=""
+    )
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
     referral_source: serializers.Field = serializers.CharField(max_length=1000, required=False, allow_blank=True)
 
@@ -259,7 +261,7 @@ class SocialSignupSerializer(serializers.Serializer):
 
     organization_name: serializers.Field = serializers.CharField(max_length=128)
     first_name: serializers.Field = serializers.CharField(max_length=128)
-    role_at_organization: serializers.Field = serializers.CharField(max_length=123, required=False, allow_blank=True)
+    role_at_organization: serializers.Field = serializers.CharField(max_length=123, required=False, default="")
 
     def create(self, validated_data, **kwargs):
         request = self.context["request"]
