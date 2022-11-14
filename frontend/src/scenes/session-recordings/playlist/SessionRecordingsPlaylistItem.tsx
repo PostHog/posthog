@@ -84,7 +84,7 @@ export function SessionRecordingPlaylistItem({
             className={clsx(
                 'SessionRecordingsPlaylist__list-item',
                 'flex flex-row py-2 pr-4 pl-0 cursor-pointer relative overflow-hidden',
-                isActive && 'bg-primary-highlight font-semibold'
+                isActive && 'bg-primary-highlight'
             )}
             onClick={() => onClick()}
         >
@@ -98,44 +98,39 @@ export function SessionRecordingPlaylistItem({
                     </Tooltip>
                 ) : null}
             </div>
-            <div className="grow overflow-hidden space-y-1">
+            <div className="grow overflow-hidden space-y-px">
                 <div className="flex items-center justify-between gap-2">
                     <div className="truncate font-medium text-primary ph-no-capture">{asDisplay(recording.person)}</div>
 
                     <div className="flex-1" />
-
-                    {propertyIcons}
-                </div>
-
-                <div className="flex items-center gap-2 text-xs text-muted-alt w-3/4">
-                    <Tooltip title={`Click count: ${recording.click_count}`}>
-                        <span className="flex items-center gap-1  overflow-hidden shrink-0">
-                            <IconAutocapture />
-                            {recording.click_count}
-                        </span>
-                    </Tooltip>
-
-                    <Tooltip title={`Keyboard inputs: ${recording.keypress_count}`}>
-                        <span className="flex items-center gap-1  overflow-hidden shrink-0">
-                            <IconKeyboard />
-                            {recording.keypress_count}
-                        </span>
-                    </Tooltip>
-                    <Tooltip title={`First URL: ${recording.urls?.[0]}`}>
-                        <span className="flex items-center gap-1  overflow-hidden">
-                            {/* <Iconbr /> */}
-                            <span className="truncate">{firstPath}</span>
-                        </span>
-                    </Tooltip>
-                </div>
-
-                <div className="flex items-center justify-between">
                     <TZLabel
-                        className="overflow-hidden text-ellipsis"
+                        className="overflow-hidden text-ellipsis text-muted text-xs"
                         time={recording.start_time}
                         formatDate="MMMM DD, YYYY"
                         formatTime="h:mm A"
                     />
+                </div>
+
+                <div className="flex items-center justify-between gap-2">
+                    <div className="flex iems-center gap-2 text-xs text-muted-alt">
+                        {propertyIcons}
+
+                        <span
+                            title={`Click count: ${recording.click_count}`}
+                            className="flex items-center gap-1  overflow-hidden shrink-0"
+                        >
+                            <IconAutocapture />
+                            {recording.click_count}
+                        </span>
+
+                        <span
+                            title={`Keyboard inputs: ${recording.keypress_count}`}
+                            className="flex items-center gap-1  overflow-hidden shrink-0"
+                        >
+                            <IconKeyboard />
+                            {recording.keypress_count}
+                        </span>
+                    </div>
                     <div className="flex items-center flex-1 justify-end font-semibold">
                         <IconSchedule className={iconClassnames} />
                         <span>
@@ -152,6 +147,14 @@ export function SessionRecordingPlaylistItem({
                             {durationParts[2]}
                         </span>
                     </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 w-2/3">
+                    <span className="flex items-center gap-1 overflow-hidden text-muted-alt text-xs">
+                        <span title={`First URL: ${recording.urls?.[0]}`} className="truncate">
+                            {firstPath}
+                        </span>
+                    </span>
                 </div>
             </div>
         </li>
