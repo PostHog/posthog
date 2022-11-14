@@ -34,6 +34,8 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
         })
     }
 
+    data.free_trial_until = data.free_trial_until ? dayjs(data.free_trial_until) : undefined
+
     return data as BillingV2Type
 }
 
@@ -94,9 +96,10 @@ export const billingLogic = kea<billingLogicType>([
         billingAlert: [
             (s) => [s.billing, s.preflight],
             (billing, preflight): BillingAlertConfig | undefined => {
-                if (!billing || !preflight?.cloud) {
+                if (!billing || !preflight?.cloud || (billing.free_trial_until && billing.free_trial_until < dayjs())) {
                     return
                 }
+
                 const productOverLimit = billing.products.find((x) => {
                     return x.percentage_usage > 1
                 })
