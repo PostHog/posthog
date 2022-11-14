@@ -789,6 +789,8 @@ export interface SessionRecordingPlaylistType {
     last_modified_at: string
     last_modified_by: UserBasicType | null
     filters?: RecordingFilters
+    playlist_items?: SessionRecordingType[]
+    is_static?: boolean
 }
 
 export interface SessionRecordingType {
@@ -806,6 +808,8 @@ export interface SessionRecordingType {
     distinct_id?: string
     email?: string
     person?: PersonType
+    /** List of static playlists that this recording is referenced on */
+    playlists?: string[]
 }
 
 export interface SessionRecordingPropertiesType {

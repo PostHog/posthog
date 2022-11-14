@@ -68,6 +68,8 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             "filters",
             "last_modified_at",
             "last_modified_by",
+            "is_static",
+            "playlist_items",
         ]
         read_only_fields = [
             "id",
@@ -77,6 +79,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             "created_by",
             "last_modified_at",
             "last_modified_by",
+            "playlist_items",
         ]
 
     created_by = UserBasicSerializer(read_only=True)

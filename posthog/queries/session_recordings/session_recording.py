@@ -48,6 +48,7 @@ class SessionRecording:
             AND session_id = %(session_id)s
             {date_clause}
         ORDER BY timestamp
+        {limit_param}
     """
 
     def get_recording_snapshot_date_clause(self) -> Tuple[str, Dict]:
@@ -66,7 +67,7 @@ class SessionRecording:
 
     def _query_recording_snapshots(self) -> List[SessionRecordingEvent]:
         date_clause, date_clause_params = self.get_recording_snapshot_date_clause()
-        query = self._recording_snapshot_query.format(date_clause=date_clause)
+        query = self._recording_snapshot_query.format(date_clause=date_clause, limit_param="")
 
         response = sync_execute(
             query, {"team_id": self._team.id, "session_id": self._session_recording_id, **date_clause_params}
@@ -81,6 +82,15 @@ class SessionRecording:
             )
             for session_id, window_id, distinct_id, timestamp, snapshot_data in response
         ]
+
+    # Fast constant time query that checks if session exists.
+    def query_session_exists(self) -> bool:
+        date_clause, date_clause_params = self.get_recording_snapshot_date_clause()
+        query = self._recording_snapshot_query.format(date_clause=date_clause, limit_param="LIMIT 1")
+        response = sync_execute(
+            query, {"team_id": self._team.id, "session_id": self._session_recording_id, **date_clause_params}
+        )
+        return bool(response)
 
     def get_snapshots(self, limit, offset) -> DecompressedRecordingData:
         all_snapshots = [

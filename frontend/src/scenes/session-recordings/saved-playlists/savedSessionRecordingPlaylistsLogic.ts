@@ -100,6 +100,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 }
 
                 const response = await api.recordings.listPlaylists(toParams(params))
+                breakpoint()
 
                 return response
             },

@@ -7,11 +7,12 @@ import { SessionPlayerState, SessionRecordingPlayerProps } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { IconFullScreen, IconPause, IconPlay, IconSkipInactivity, IconLink } from 'lib/components/icons'
+import { IconFullScreen, IconPause, IconPlay, IconSkipInactivity, IconLink, IconPlus } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
 import { PlayerInspectorPicker } from './PlayerInspector'
 import { openPlayerShareDialog } from './share/PlayerShare'
+import { openPlayerAddToPlaylistDialog } from './add-to-playlist/PlayerAddToPlaylist'
 
 interface PlayerControllerProps extends SessionRecordingPlayerProps {
     hideInspectorPicker?: boolean
@@ -30,6 +31,13 @@ export function PlayerController({
         setPause()
         openPlayerShareDialog({
             seconds: Math.floor((logic.values.currentPlayerTime || 0) / 1000),
+            id: sessionRecordingId,
+        })
+    }
+
+    const onAddToPlaylist = (): void => {
+        setPause()
+        openPlayerAddToPlaylistDialog({
             id: sessionRecordingId,
         })
     }
@@ -121,9 +129,12 @@ export function PlayerController({
                     </Tooltip>
                     <Tooltip title={`Share recording`}>
                         <LemonButton size="small" status="primary-alt" onClick={() => onShare()}>
-                            <IconLink
-                                className={clsx('text-2xl', isFullScreen ? 'text-primary' : 'text-primary-alt')}
-                            />
+                            <IconLink className={clsx('text-2xl text-primary-alt')} />
+                        </LemonButton>
+                    </Tooltip>
+                    <Tooltip title={`Add recording to playlist`}>
+                        <LemonButton size="small" status="primary-alt" onClick={() => onAddToPlaylist()}>
+                            <IconPlus className={clsx('text-2xl text-primary-alt')} />
                         </LemonButton>
                     </Tooltip>
                 </div>
