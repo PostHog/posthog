@@ -211,34 +211,34 @@ class SessionRecording:
 
         # Sort the active segments by start time. This will interleave active segments
         # from different windows
-        all_active_segments.sort(key=lambda segment: segment["start_time"])
+        all_active_segments.sort(key=lambda segment: segment.start_time)
 
         # These start and end times are used to make sure the segments span the entire recording
-        first_start_time = min([cast(datetime, x["start_time"]) for x in start_and_end_times_by_window_id.values()])
-        last_end_time = max([cast(datetime, x["end_time"]) for x in start_and_end_times_by_window_id.values()])
+        first_start_time = min([cast(datetime, x.start_time) for x in start_and_end_times_by_window_id.values()])
+        last_end_time = max([cast(datetime, x.end_time) for x in start_and_end_times_by_window_id.values()])
 
         # Now, we fill in the gaps between the active segments with inactive segments
         all_segments: List[RecordingSegment] = []
         current_timestamp = first_start_time
         current_window_id: WindowId = sorted(
-            start_and_end_times_by_window_id, key=lambda x: start_and_end_times_by_window_id[x]["start_time"]
+            start_and_end_times_by_window_id, key=lambda x: start_and_end_times_by_window_id[x].start_time
         )[0]
 
         for index, segment in enumerate(all_active_segments):
             # It's possible that segments overlap and we don't need to fill a gap
-            if segment["start_time"] > current_timestamp:
+            if segment.start_time > current_timestamp:
                 all_segments.extend(
                     generate_inactive_segments_for_range(
                         current_timestamp,
-                        segment["start_time"],
+                        segment.start_time,
                         current_window_id,
                         start_and_end_times_by_window_id,
                         is_first_segment=index == 0,
                     )
                 )
             all_segments.append(segment)
-            current_window_id = segment["window_id"]
-            current_timestamp = max(segment["end_time"], current_timestamp)
+            current_window_id = segment.window_id
+            current_timestamp = max(segment.end_time, current_timestamp)
 
         # If the last segment ends before the recording ends, we need to fill in the gap
         if current_timestamp < last_end_time:

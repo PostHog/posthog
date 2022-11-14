@@ -329,10 +329,10 @@ def get_active_segments_from_event_list(
     for current_timestamp_int in active_event_timestamps:
         current_timestamp = parse_snapshot_timestamp(current_timestamp_int)
         # If the time since the last active event is less than the threshold, continue the existing segment
-        if current_active_segment and (current_timestamp - current_active_segment["end_time"]) <= timedelta(
+        if current_active_segment and (current_timestamp - current_active_segment.end_time) <= timedelta(
             seconds=activity_threshold_seconds
         ):
-            current_active_segment["end_time"] = current_timestamp
+            current_active_segment.end_time = current_timestamp
 
         # Otherwise, start a new segment
         else:
@@ -406,7 +406,7 @@ def generate_inactive_segments_for_range(
     """
 
     window_ids_by_start_time = sorted(
-        start_and_end_times_by_window_id, key=lambda x: start_and_end_times_by_window_id[x]["start_time"]
+        start_and_end_times_by_window_id, key=lambda x: start_and_end_times_by_window_id[x].start_time
     )
 
     # Order of window_ids to use for generating inactive segments. Start with the window_id of the
@@ -417,8 +417,8 @@ def generate_inactive_segments_for_range(
     current_time = range_start_time
 
     for window_id in window_id_priority_list:
-        window_start_time = start_and_end_times_by_window_id[window_id]["start_time"]
-        window_end_time = start_and_end_times_by_window_id[window_id]["end_time"]
+        window_start_time = start_and_end_times_by_window_id[window_id].start_time
+        window_end_time = start_and_end_times_by_window_id[window_id].end_time
         if window_end_time > current_time and current_time < range_end_time:
             # Add/subtract a millisecond to make sure the segments don't exactly overlap
             segment_start_time = max(window_start_time, current_time)
@@ -432,13 +432,13 @@ def generate_inactive_segments_for_range(
 
     # Ensure segments don't exactly overlap. This makes the corresponding player logic simpler
     for index, segment in enumerate(inactive_segments):
-        if (index == 0 and segment["start_time"] == range_start_time and not is_first_segment) or (
-            index > 0 and segment["start_time"] == inactive_segments[index - 1]["end_time"]
+        if (index == 0 and segment.start_time == range_start_time and not is_first_segment) or (
+            index > 0 and segment.start_time == inactive_segments[index - 1].end_time
         ):
-            segment["start_time"] = segment["start_time"] + timedelta(milliseconds=1)
+            segment.start_time = segment.start_time + timedelta(milliseconds=1)
 
-        if index == len(inactive_segments) - 1 and segment["end_time"] == range_end_time and not is_last_segment:
-            segment["end_time"] = segment["end_time"] - timedelta(milliseconds=1)
+        if index == len(inactive_segments) - 1 and segment.end_time == range_end_time and not is_last_segment:
+            segment.end_time = segment.end_time - timedelta(milliseconds=1)
 
     return inactive_segments
 
