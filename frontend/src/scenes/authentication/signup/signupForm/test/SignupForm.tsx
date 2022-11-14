@@ -25,7 +25,7 @@ const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 export function SignupForm(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
-    const { isSignupSubmitting, signupManualErrors, panel } = useValues(signupLogic)
+    const { isSignupPanel2Submitting, signupPanel2ManualErrors, panel } = useValues(signupLogic)
     const { setPanel } = useActions(signupLogic)
     const [showSpinner, setShowSpinner] = useState(true)
 
@@ -58,41 +58,38 @@ export function SignupForm(): JSX.Element | null {
                     </Link>
                 </div>
             )}
-            {!isSignupSubmitting && signupManualErrors.generic && (
+            {!isSignupPanel2Submitting && signupPanel2ManualErrors.generic && (
                 <AlertMessage type="error">
-                    {signupManualErrors.generic?.detail || 'Could not complete your signup. Please try again.'}
+                    {signupPanel2ManualErrors.generic?.detail || 'Could not complete your signup. Please try again.'}
                 </AlertMessage>
             )}
-            <Form logic={signupLogic} formKey={'signup'} className="space-y-4" enableFormOnSubmit>
-                {panel === SIGNUP_FORM_STEPS.START ? (
-                    <SignupFormPanel1 />
-                ) : (
-                    <>
-                        <SignupFormPanel2 />
-                        <div className="flex justify-center">
-                            <LemonButton
-                                type="tertiary"
-                                status="muted"
-                                icon={<IconArrowLeft />}
-                                onClick={() => setPanel(getPreviousPanel(panel))}
-                                size="small"
-                                center
-                            >
-                                or go back
-                            </LemonButton>
-                        </div>
-                    </>
-                )}
-                {showSpinner ? <SpinnerOverlay /> : null}
-            </Form>
+            {panel === SIGNUP_FORM_STEPS.START ? (
+                <SignupFormPanel1 />
+            ) : (
+                <>
+                    <SignupFormPanel2 />
+                    <div className="flex justify-center">
+                        <LemonButton
+                            type="tertiary"
+                            status="muted"
+                            icon={<IconArrowLeft />}
+                            onClick={() => setPanel(getPreviousPanel(panel))}
+                            size="small"
+                            center
+                        >
+                            or go back
+                        </LemonButton>
+                    </div>
+                </>
+            )}
+            {showSpinner ? <SpinnerOverlay /> : null}
         </div>
     ) : null
 }
 
 export function SignupFormPanel1(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
-    const { isSignupSubmitting, signupValidationErrors, signup } = useValues(signupLogic)
-    const { setPanel } = useActions(signupLogic)
+    const { isSignupPanel1Submitting, signupPanel1 } = useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
 
     useEffect(() => {
@@ -102,52 +99,52 @@ export function SignupFormPanel1(): JSX.Element | null {
 
     return (
         <div className="space-y-4 SignupForm__panel__1">
-            <Field name="email" label="Email">
-                <LemonInput
-                    className="ph-ignore-input"
-                    autoFocus
-                    data-attr="signup-email"
-                    placeholder="email@yourcompany.com"
-                    type="email"
-                    ref={emailInputRef}
-                    disabled={isSignupSubmitting}
-                />
-            </Field>
-            {!preflight?.demo && (
-                <Field
-                    name="password"
-                    label={
-                        <div className="flex flex-1 items-center justify-between">
-                            <span>Password</span>
-                            <span className="w-20">
-                                <PasswordStrength password={signup.password} />
-                            </span>
-                        </div>
-                    }
-                >
+            <Form logic={signupLogic} formKey={'signupPanel1'} className="space-y-4" enableFormOnSubmit>
+                <Field name="email" label="Email">
                     <LemonInput
-                        type="password"
-                        autoComplete="new-password"
                         className="ph-ignore-input"
-                        data-attr="password"
-                        placeholder="••••••••••"
-                        disabled={isSignupSubmitting}
+                        autoFocus
+                        data-attr="signup-email"
+                        placeholder="email@yourcompany.com"
+                        type="email"
+                        ref={emailInputRef}
+                        disabled={isSignupPanel1Submitting}
                     />
                 </Field>
-            )}
-            <LemonButton
-                fullWidth
-                type="primary"
-                center
-                data-attr="signup-start"
-                onClick={() => {
-                    if (!signupValidationErrors.email && !signupValidationErrors.password) {
-                        setPanel(SIGNUP_FORM_STEPS.FINISH)
-                    }
-                }}
-            >
-                Continue
-            </LemonButton>
+                {!preflight?.demo && (
+                    <Field
+                        name="password"
+                        label={
+                            <div className="flex flex-1 items-center justify-between">
+                                <span>Password</span>
+                                <span className="w-20">
+                                    <PasswordStrength password={signupPanel1.password} />
+                                </span>
+                            </div>
+                        }
+                    >
+                        <LemonInput
+                            type="password"
+                            autoComplete="new-password"
+                            className="ph-ignore-input"
+                            data-attr="password"
+                            placeholder="••••••••••"
+                            disabled={isSignupPanel1Submitting}
+                        />
+                    </Field>
+                )}
+                <LemonButton
+                    fullWidth
+                    type="primary"
+                    center
+                    htmlType="submit"
+                    data-attr="signup-start"
+                    loading={isSignupPanel1Submitting}
+                    disabled={isSignupPanel1Submitting}
+                >
+                    Continue
+                </LemonButton>
+            </Form>
             {!preflight?.demo && (
                 <div>
                     <SocialLoginButtons caption="Or sign up with" topDivider />
@@ -159,83 +156,85 @@ export function SignupFormPanel1(): JSX.Element | null {
 
 export function SignupFormPanel2(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
-    const { isSignupSubmitting } = useValues(signupLogic)
+    const { isSignupPanel2Submitting } = useValues(signupLogic)
 
     return (
         <div className="space-y-4 SignupForm__panel__2">
-            <RegionSelect />
-            <Field name="first_name" label="Your name">
-                <LemonInput
-                    className="ph-ignore-input"
-                    data-attr="signup-first-name"
-                    placeholder="Jane Doe"
-                    disabled={isSignupSubmitting}
-                />
-            </Field>
-            <Field name="organization_name" label="Organization name">
-                <LemonInput
-                    className="ph-ignore-input"
-                    data-attr="signup-organization-name"
-                    placeholder="Hogflix Movies"
-                    disabled={isSignupSubmitting}
-                />
-            </Field>
-            <Field name="role_at_organization" label="What is your role?">
-                <LemonSelect
-                    fullWidth
-                    options={[
-                        {
-                            label: 'Engineering',
-                            value: 'engineering',
-                        },
-                        {
-                            label: 'Product Management',
-                            value: 'product',
-                        },
-                        {
-                            label: 'Executive',
-                            value: 'executive',
-                        },
-                        {
-                            label: 'Customer Success',
-                            value: 'customer-success',
-                        },
-                        {
-                            label: 'Sales',
-                            value: 'sales',
-                        },
-                        {
-                            label: 'Other',
-                            value: 'other',
-                        },
-                    ]}
-                />
-            </Field>
-            <Field name="referral_source" label="Where did you hear about us?" showOptional>
-                <LemonInput
-                    className="ph-ignore-input"
-                    data-attr="signup-referral-source"
-                    placeholder=""
-                    disabled={isSignupSubmitting}
-                />
-            </Field>
-            <div className="divider" />
+            <Form logic={signupLogic} formKey={'signupPanel2'} className="space-y-4" enableFormOnSubmit>
+                <RegionSelect />
+                <Field name="first_name" label="Your name">
+                    <LemonInput
+                        className="ph-ignore-input"
+                        data-attr="signup-first-name"
+                        placeholder="Jane Doe"
+                        disabled={isSignupPanel2Submitting}
+                    />
+                </Field>
+                <Field name="organization_name" label="Organization name">
+                    <LemonInput
+                        className="ph-ignore-input"
+                        data-attr="signup-organization-name"
+                        placeholder="Hogflix Movies"
+                        disabled={isSignupPanel2Submitting}
+                    />
+                </Field>
+                <Field name="role_at_organization" label="What is your role?">
+                    <LemonSelect
+                        fullWidth
+                        options={[
+                            {
+                                label: 'Engineering',
+                                value: 'engineering',
+                            },
+                            {
+                                label: 'Product Management',
+                                value: 'product',
+                            },
+                            {
+                                label: 'Executive',
+                                value: 'executive',
+                            },
+                            {
+                                label: 'Customer Success',
+                                value: 'customer-success',
+                            },
+                            {
+                                label: 'Sales',
+                                value: 'sales',
+                            },
+                            {
+                                label: 'Other',
+                                value: 'other',
+                            },
+                        ]}
+                    />
+                </Field>
+                <Field name="referral_source" label="Where did you hear about us?" showOptional>
+                    <LemonInput
+                        className="ph-ignore-input"
+                        data-attr="signup-referral-source"
+                        placeholder=""
+                        disabled={isSignupPanel2Submitting}
+                    />
+                </Field>
+                <div className="divider" />
 
-            <LemonButton
-                fullWidth
-                type="primary"
-                center
-                htmlType="submit"
-                data-attr="signup-submit"
-                loading={isSignupSubmitting}
-                disabled={isSignupSubmitting}
-            >
-                {!preflight?.demo
-                    ? 'Create account'
-                    : !isSignupSubmitting
-                    ? 'Enter the demo environment'
-                    : 'Preparing demo data…'}
-            </LemonButton>
+                <LemonButton
+                    fullWidth
+                    type="primary"
+                    center
+                    htmlType="submit"
+                    data-attr="signup-submit"
+                    loading={isSignupPanel2Submitting}
+                    disabled={isSignupPanel2Submitting}
+                >
+                    {!preflight?.demo
+                        ? 'Create account'
+                        : !isSignupPanel2Submitting
+                        ? 'Enter the demo environment'
+                        : 'Preparing demo data…'}
+                </LemonButton>
+            </Form>
 
             <div className="text-center text-muted-alt">
                 By {!preflight?.demo ? 'creating an account' : 'entering the demo environment'}, you agree to our{' '}

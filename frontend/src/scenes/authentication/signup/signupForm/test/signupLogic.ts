@@ -46,17 +46,14 @@ export const signupLogic = kea<signupLogicType>([
         ],
     }),
     forms(({ actions, values }) => ({
-        signup: {
+        signupPanel1: {
             alwaysShowErrors: true,
             showErrorsOnTouch: true,
             defaults: {
                 email: '',
                 password: '',
-                first_name: '',
-                organization_name: '',
-                role_at_organization: '',
             } as SignupForm,
-            errors: ({ email, password, first_name, organization_name, role_at_organization }) => ({
+            errors: ({ email, password }) => ({
                 email: !email
                     ? 'Please enter your email to continue'
                     : !emailRegex.test(email)
@@ -69,6 +66,20 @@ export const signupLogic = kea<signupLogicType>([
                         ? 'Password must be at least 8 characters'
                         : undefined
                     : undefined,
+            }),
+            submit: async () => {
+                actions.setPanel(SIGNUP_FORM_STEPS.FINISH)
+            },
+        },
+        signupPanel2: {
+            alwaysShowErrors: true,
+            showErrorsOnTouch: true,
+            defaults: {
+                first_name: '',
+                organization_name: '',
+                role_at_organization: '',
+            } as SignupForm,
+            errors: ({ first_name, organization_name, role_at_organization }) => ({
                 first_name: !first_name ? 'Please enter your name' : undefined,
                 organization_name: !organization_name ? 'Please enter your organization name' : undefined,
                 role_at_organization: !role_at_organization ? 'Please select your role' : undefined,
@@ -76,10 +87,10 @@ export const signupLogic = kea<signupLogicType>([
             submit: async (payload, breakpoint) => {
                 await breakpoint()
                 try {
-                    const res = await api.create('api/signup/', payload)
+                    const res = await api.create('api/signup/', { ...values.signupPanel1, ...payload })
                     location.href = res.redirect_url || '/'
                 } catch (e) {
-                    actions.setSignupManualErrors({
+                    actions.setSignupPanel2ManualErrors({
                         generic: {
                             code: (e as Record<string, any>).code,
                             detail: (e as Record<string, any>).detail,
@@ -97,13 +108,16 @@ export const signupLogic = kea<signupLogicType>([
                     // In demo mode no password is needed, so we can log in right away
                     // This allows us to give a quick login link in the `generate_demo_data` command
                     // X and Y are placeholders, irrelevant because the account should already exists
-                    actions.setSignupValues({
+                    actions.setSignupPanel1Values({
                         email,
+                    })
+                    actions.setSignupPanel2Values({
                         first_name: 'X',
                         organization_name: 'Y',
+                        role_at_organization: 'other',
                     })
                 } else {
-                    actions.setSignupValue('email', email)
+                    actions.setSignupPanel1Value('email', email)
                 }
             }
         },
