@@ -2229,3 +2229,18 @@ export enum RolloutConditionType {
     Insight = 'insight',
     Sentry = 'sentry',
 }
+
+export interface RoleType {
+    id: string
+    name: string
+    created_at: string
+    created_by: UserBasicType | null
+}
+
+export interface RoleMemberType {
+    user: UserBaseType
+    role_id: string
+    joined_at: string
+    updated_at: string
+    user_uuid: string
+}

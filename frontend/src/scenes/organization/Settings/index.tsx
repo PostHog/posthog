@@ -12,6 +12,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { VerifiedDomains } from './VerifiedDomains/VerifiedDomains'
 import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { Roles } from './Roles/Roles'
 
 export const scene: SceneExport = {
     component: OrganizationSettings,
@@ -84,6 +85,8 @@ export function OrganizationSettings(): JSX.Element {
                 <RestrictedArea Component={DisplayName} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <LemonDivider className="my-6" />
                 <Invites />
+                <LemonDivider className="my-6" />
+                <Roles />
                 <LemonDivider className="my-6" />
                 {user && <Members user={user} />}
                 <LemonDivider className="my-6" />
