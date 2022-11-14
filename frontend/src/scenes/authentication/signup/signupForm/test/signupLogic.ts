@@ -5,11 +5,6 @@ import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import type { signupLogicType } from './signupLogicType'
 
-export enum SIGNUP_FORM_STEPS {
-    START = 'Get Started',
-    FINISH = 'Tell us a bit about yourself',
-}
-
 export interface AccountResponse {
     success: boolean
     redirect_url?: string
@@ -35,11 +30,11 @@ export const signupLogic = kea<signupLogicType>([
         values: [preflightLogic, ['preflight']],
     }),
     actions({
-        setPanel: (panel: string) => ({ panel }),
+        setPanel: (panel: number) => ({ panel }),
     }),
     reducers({
         panel: [
-            SIGNUP_FORM_STEPS.START,
+            0,
             {
                 setPanel: (_, { panel }) => panel,
             },
@@ -68,7 +63,7 @@ export const signupLogic = kea<signupLogicType>([
                     : undefined,
             }),
             submit: async () => {
-                actions.setPanel(SIGNUP_FORM_STEPS.FINISH)
+                actions.setPanel(1)
             },
         },
         signupPanel2: {

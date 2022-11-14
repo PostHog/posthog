@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { SIGNUP_FORM_STEPS, signupLogic } from './signupLogic'
+import { signupLogic } from './signupLogic'
 import { userLogic } from '../../../../userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -24,13 +24,6 @@ export function SignupForm(): JSX.Element | null {
     const { setPanel } = useActions(signupLogic)
     const [showSpinner, setShowSpinner] = useState(true)
 
-    const getPreviousPanel = (panel: string): string => {
-        const vals: SIGNUP_FORM_STEPS[] = Object.values(SIGNUP_FORM_STEPS)
-        const currentPanelIndex: number = vals.indexOf(panel as unknown as SIGNUP_FORM_STEPS)
-        const nextPanel: string = vals[currentPanelIndex - 1]
-        return nextPanel
-    }
-
     useEffect(() => {
         setShowSpinner(true)
         const t = setTimeout(() => {
@@ -41,7 +34,13 @@ export function SignupForm(): JSX.Element | null {
 
     return !user ? (
         <div className="space-y-2">
-            <h2>{!preflight?.demo ? panel : 'Explore PostHog yourself'}</h2>
+            <h2>
+                {preflight?.demo
+                    ? 'Explore PostHog yourself'
+                    : panel === 0
+                    ? 'Get started'
+                    : 'Tell us a bit about yourself'}
+            </h2>
             {!preflight?.demo && (preflight?.cloud || preflight?.initiated) && (
                 // If we're in the demo environment, login is unified with signup and it's passwordless
                 // For now, if you're not on Cloud, you wouldn't see this page,
@@ -58,7 +57,7 @@ export function SignupForm(): JSX.Element | null {
                     {signupPanel2ManualErrors.generic?.detail || 'Could not complete your signup. Please try again.'}
                 </AlertMessage>
             )}
-            {panel === SIGNUP_FORM_STEPS.START ? (
+            {panel === 0 ? (
                 <SignupPanel1 />
             ) : (
                 <>
@@ -68,7 +67,7 @@ export function SignupForm(): JSX.Element | null {
                             type="tertiary"
                             status="muted"
                             icon={<IconArrowLeft />}
-                            onClick={() => setPanel(getPreviousPanel(panel))}
+                            onClick={() => setPanel(panel - 1)}
                             size="small"
                             center
                         >
