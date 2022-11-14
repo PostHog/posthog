@@ -3,7 +3,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { useActions, useValues } from 'kea'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
-import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -25,13 +24,7 @@ export function SessionsRecordings(): JSX.Element {
     const { tab, newPlaylistLoading } = useValues(sessionRecordingsLogic)
     const { saveNewPlaylist } = useActions(sessionRecordingsLogic)
     const showRecordingPlaylists = !!featureFlags[FEATURE_FLAGS.RECORDING_PLAYLISTS]
-    const { filters } = useValues(sessionRecordingsListLogic({ key: 'recents', updateSearchParams: true }))
-
-    const recentRecordings = (
-        <>
-            <SessionRecordingsPlaylist logicKey="recents" updateSearchParams />
-        </>
-    )
+    const recentRecordings = <SessionRecordingsPlaylist logicKey="recents" updateSearchParams />
 
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
 
@@ -41,13 +34,15 @@ export function SessionsRecordings(): JSX.Element {
                 title={<div>Session Recordings</div>}
                 buttons={
                     <>
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconSettings />}
-                            onClick={() => openSessionRecordingSettingsDialog()}
-                        >
-                            Configure
-                        </LemonButton>
+                        {!recordingsDisabled && (
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconSettings />}
+                                onClick={() => openSessionRecordingSettingsDialog()}
+                            >
+                                Configure
+                            </LemonButton>
+                        )}
 
                         {showRecordingPlaylists ? (
                             <>
@@ -61,11 +56,7 @@ export function SessionsRecordings(): JSX.Element {
                                 >
                                     <LemonButton
                                         type="primary"
-                                        onClick={() =>
-                                            saveNewPlaylist({
-                                                filters: tab === SessionRecordingsTabs.Recent ? filters : undefined,
-                                            })
-                                        }
+                                        onClick={() => saveNewPlaylist()}
                                         loading={newPlaylistLoading}
                                         data-attr="save-recordings-playlist-button"
                                         icon={<IconPlus />}

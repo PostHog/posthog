@@ -443,7 +443,9 @@ class TrendsBreakdown:
         if self.filter.breakdown_type == "session":
             # if session duration breakdown, we want ordering based on the time buckets, not the value
             return (-1, "")
-        return (value.get("count", value.get("aggregated_value", 0)) * -1, value.get("label"))  # reverse it
+
+        count_or_aggregated_value = value.get("count", value.get("aggregated_value") or 0)
+        return count_or_aggregated_value * -1, value.get("label")  # reverse it
 
     def _parse_single_aggregate_result(
         self, filter: Filter, entity: Entity, additional_values: Dict[str, Any]

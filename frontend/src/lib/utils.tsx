@@ -521,7 +521,7 @@ export function humanFriendlyDetailedTime(
 // Pad numbers with leading zeros
 export const zeroPad = (num: number, places: number): string => String(num).padStart(places, '0')
 
-export function colonDelimitedDuration(d: string | number | null | undefined, numUnits: number = 3): string {
+export function colonDelimitedDuration(d: string | number | null | undefined, fixedUnits: number | null = 3): string {
     // Convert `d` (seconds) to a colon delimited duration. includes `numUnits` no. of units starting from right
     // Example: `01:10:09:08 = 1d 10hrs 9mins 8s`
     if (d === '' || d === null || d === undefined) {
@@ -535,33 +535,61 @@ export function colonDelimitedDuration(d: string | number | null | undefined, nu
         h = 0,
         m = 0
 
-    if (numUnits >= 5) {
-        weeks = Math.floor(s / 604800)
-        s -= weeks * 604800
-    }
-    if (numUnits >= 4) {
-        days = Math.floor(s / 86400)
-        s -= days * 86400
-    }
-    if (numUnits >= 3) {
-        h = Math.floor(s / 3600)
-        s -= h * 3600
-    }
-    if (numUnits >= 2) {
-        m = Math.floor(s / 60)
-        s -= m * 60
-    }
+    weeks = !fixedUnits || fixedUnits > 4 ? Math.floor(s / 604800) : 0
+    s -= weeks * 604800
+
+    days = !fixedUnits || fixedUnits > 3 ? Math.floor(s / 86400) : 0
+    s -= days * 86400
+
+    h = !fixedUnits || fixedUnits > 2 ? Math.floor(s / 3600) : 0
+    s -= h * 3600
+
+    m = !fixedUnits || fixedUnits > 1 ? Math.floor(s / 60) : 0
+    s -= m * 60
+
     s = Math.floor(s)
 
-    const units = [zeroPad(weeks, 2), zeroPad(days, 2), zeroPad(h, 2), zeroPad(m, 2), zeroPad(s, 2)]
+    let stopTrimming = false
+    const units: string[] = []
 
-    // get the last `numUnits` elements
-    return units.slice(0).slice(-Math.min(numUnits, 5)).join(':')
+    ;[weeks, days, h, m, s].forEach((unit, i) => {
+        if (!fixedUnits && !unit && !stopTrimming && i < 3) {
+            return
+        } else {
+            units.push(zeroPad(unit, 2))
+            stopTrimming = true
+        }
+    })
+
+    if (fixedUnits) {
+        return units.slice(-fixedUnits).join(':')
+    }
+
+    return units.join(':')
 }
 
-export function colonDelimitedDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | string, maxUnits?: number): string {
-    const diff = dayjs(to).diff(dayjs(from), 'seconds')
-    return colonDelimitedDuration(diff, maxUnits)
+export function reverseColonDelimitedDuration(duration?: string | null): number | null {
+    if (!duration) {
+        return null
+    }
+
+    if (!/^(\d\d?:)*(\d\d?)$/.test(duration)) {
+        return null
+    }
+
+    let seconds = 0
+    const units = duration
+        .split(':')
+        .map((unit) => Number(unit))
+        .reverse()
+
+    ;[1, 60, 3600, 86400, 604800].forEach((unit, index) => {
+        if (units[index]) {
+            seconds += units[index] * unit
+        }
+    })
+
+    return seconds
 }
 
 export function stripHTTP(url: string): string {
