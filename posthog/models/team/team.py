@@ -9,7 +9,7 @@ from django.db import models
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
-from posthog.helpers.dashboard_templates import create_dashboard_from_template, create_default_team_templates
+from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_template import DashboardTemplate
 from posthog.models.instance_setting import get_instance_setting
@@ -59,7 +59,6 @@ class TeamManager(models.Manager):
     def create_with_data(self, user: Any = None, default_dashboards: bool = True, **kwargs) -> "Team":
         kwargs["test_account_filters"] = self.set_test_account_filters(kwargs.get("organization"))
         team = Team.objects.create(**kwargs)
-        DashboardTemplate.objects.bulk_create(create_default_team_templates(team))
 
         # Create default dashboards (skipped for demo projects)
         if default_dashboards:

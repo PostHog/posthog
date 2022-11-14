@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path } from 'kea'
 
 import type { dashboardTemplateLogicType } from './dashboardTemplateLogicType'
 import { loaders } from 'kea-loaders'
-import { DashboardTemplateListing, DashboardType, FilterType, Tileable } from '~/types'
+import { DashboardTemplateListing, DashboardTemplateScope, DashboardType, FilterType, Tileable } from '~/types'
 import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
 import { prompt } from 'lib/logic/prompt'
@@ -78,14 +78,17 @@ export const dashboardTemplateLogic = kea<dashboardTemplateLogicType>([
                 saveDashboardTemplate: async ({
                     templateName,
                     dashboard,
+                    templateScope,
                 }: {
                     templateName: string
                     dashboard: DashboardType
+                    templateScope: DashboardTemplateScope
                 }) => {
                     return await api.dashboardTemplates.create({
                         template_name: templateName,
                         source_dashboard: dashboard.id,
                         ...templateFrom(dashboard),
+                        scope: templateScope,
                     })
                 },
                 deleteDashboardTemplate: async (id: string) => {

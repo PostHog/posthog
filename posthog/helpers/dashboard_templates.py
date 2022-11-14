@@ -91,16 +91,17 @@ def _create_text_tile(dashboard: Dashboard, tile: Dict) -> None:
     )
 
 
-# don't add a typehint for team, as it will cause a circular import, but it works so ¯\_(ツ)_/¯
-def create_default_team_templates(team) -> List[DashboardTemplate]:
-    return [
+def create_default_global_templates() -> None:
+    templates_to_create = [
         DashboardTemplate(
             template_name="Product analytics",
             source_dashboard=None,
             dashboard_description="",
             dashboard_filters={},
             tags=[],
-            team=team,
+            team=None,
+            organization=None,
+            scope=DashboardTemplate.Scope.GLOBAL,
             tiles=[
                 {
                     "type": "INSIGHT",
@@ -288,7 +289,9 @@ def create_default_team_templates(team) -> List[DashboardTemplate]:
             dashboard_description="",
             dashboard_filters={},
             tags=[],
-            team=team,
+            team=None,
+            organization=None,
+            scope=DashboardTemplate.Scope.GLOBAL,
             tiles=[
                 {
                     "type": "INSIGHT",
@@ -656,6 +659,7 @@ def create_default_team_templates(team) -> List[DashboardTemplate]:
             ],
         ),
     ]
+    DashboardTemplate.objects.bulk_create(templates_to_create)
 
 
 def create_dashboard_from_template(template_key: str, dashboard: Dashboard) -> None:

@@ -20,6 +20,7 @@ from rest_framework.test import APITestCase as DRFTestCase
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.client import ch_pool, sync_execute
 from posthog.cloud_utils import TEST_clear_cloud_cache
+from posthog.helpers.dashboard_templates import create_default_global_templates
 from posthog.models import Organization, Team, User
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
@@ -50,6 +51,7 @@ persons_ordering_int: int = 1
 
 
 def _setup_test_data(klass):
+    create_default_global_templates()
     klass.organization = Organization.objects.create(name=klass.CONFIG_ORGANIZATION_NAME)
     klass.team = Team.objects.create(
         organization=klass.organization,

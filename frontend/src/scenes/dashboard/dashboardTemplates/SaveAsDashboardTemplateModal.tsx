@@ -7,10 +7,11 @@ import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { saveDashboardTemplateLogic } from 'scenes/dashboard/dashboardTemplates/saveDashboardTemplateLogic'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { LemonSelect } from 'lib/components/LemonSelect'
 
 export function SaveDashboardTemplateModal(): JSX.Element {
     const { hideSaveDashboardTemplateModal } = useActions(saveDashboardTemplateLogic)
-    const { saveDashboardTemplateModalVisible, isSaveDashboardTemplateSubmitting } =
+    const { saveDashboardTemplateModalVisible, isSaveDashboardTemplateSubmitting, templateScopeOptions } =
         useValues(saveDashboardTemplateLogic)
 
     return (
@@ -51,6 +52,9 @@ export function SaveDashboardTemplateModal(): JSX.Element {
             >
                 <Field name="templateName" label={'Template name'}>
                     <LemonInput autoFocus={true} data-attr={'save-dashboard-template-name'} />
+                </Field>
+                <Field name="templateScope" label={'Select template scope'} info={<>With info!</>}>
+                    <LemonSelect options={templateScopeOptions} fullWidth />
                 </Field>
             </Form>
         </LemonModal>

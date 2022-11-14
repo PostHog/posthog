@@ -974,9 +974,13 @@ export interface InsightModel extends Cacheable {
     filters: Partial<FilterType>
 }
 
+export const dashboardTemplateScopes = ['global', 'organization', 'project'] as const
+export type DashboardTemplateScope = typeof dashboardTemplateScopes[number]
+
 export interface DashboardTemplateListing {
     id: string
     template_name: string
+    scope: DashboardTemplateScope
 }
 
 export interface DashboardType {

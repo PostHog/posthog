@@ -1,16 +1,20 @@
 from typing import Dict, Type
 
-from rest_framework import authentication, mixins, serializers, viewsets
+from django.db.models import Q
+from rest_framework import mixins, serializers, viewsets
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models import DashboardTemplate, Team
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import str_to_bool
 
 
 class DashboardTemplateBasicSerializer(serializers.Serializer):
     id: serializers.UUIDField = serializers.UUIDField(read_only=True)
+    scope: serializers.CharField = serializers.CharField(max_length=24)
     template_name: serializers.CharField = serializers.CharField(max_length=400, required=False)
     deleted: serializers.BooleanField = serializers.BooleanField(write_only=True, default=False, required=False)
 
@@ -28,6 +32,10 @@ class DashboardTemplateBasicSerializer(serializers.Serializer):
         return data
 
     def update(self, instance: DashboardTemplate, validated_data: dict) -> DashboardTemplate:
+        is_staff = self.context["request"].user.is_staff
+        if not is_staff and instance.scope == DashboardTemplate.Scope.GLOBAL:
+            raise PermissionDenied("You must be a staff user to edit a global template")
+
         updated_fields = []
 
         if "template_name" in validated_data:
@@ -52,6 +60,7 @@ class DashboardTemplateSerializer(serializers.Serializer):
     dashboard_filters: serializers.JSONField = serializers.JSONField(allow_null=True, required=False)
     tiles: serializers.JSONField = serializers.JSONField(default=dict)
     tags: serializers.ListField = serializers.ListField(child=serializers.CharField(), allow_null=True)
+    scope: serializers.CharField = serializers.CharField(max_length=24)
 
     def validate(self, data: Dict) -> Dict:
         template_name = data.get("template_name", None)
@@ -63,6 +72,10 @@ class DashboardTemplateSerializer(serializers.Serializer):
 
         if not data.get("tiles") or not isinstance(data["tiles"], list):
             raise serializers.ValidationError("Must provide at least one tile")
+
+        is_staff = self.context["request"].user.is_staff
+        if not is_staff and data.get("scope") == DashboardTemplate.Scope.GLOBAL:
+            raise PermissionDenied("You must be a staff user to create a global template")
 
         for tile in data["tiles"]:
             if "layouts" not in tile or not isinstance(tile["layouts"], dict):
@@ -86,7 +99,12 @@ class DashboardTemplateSerializer(serializers.Serializer):
 
     def create(self, validated_data: Dict) -> DashboardTemplate:
         team = Team.objects.get(id=self.context["team_id"])
-        return DashboardTemplate.objects.create(**validated_data, team=team)
+        user = self.context["request"].user
+        if team != user.team:
+            raise PermissionDenied("You can only create templates for your own team")
+
+        organization = team.organization
+        return DashboardTemplate.objects.create(**validated_data, team=team, organization=organization)
 
 
 class DashboardTemplatesViewSet(
@@ -99,11 +117,7 @@ class DashboardTemplatesViewSet(
 ):
     queryset = DashboardTemplate.objects.all()
     serializer_class = DashboardTemplateSerializer
-    authentication_classes = [
-        PersonalAPIKeyAuthentication,
-        authentication.SessionAuthentication,
-        authentication.BasicAuthentication,
-    ]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
         if str_to_bool(self.request.query_params.get("basic", "0")):
@@ -111,4 +125,11 @@ class DashboardTemplatesViewSet(
         return super().get_serializer_class()
 
     def get_queryset(self):
-        return self.filter_queryset_by_parents_lookups(DashboardTemplate.objects.exclude(deleted=True).all())
+        organization_scoped_templates = Q(organization=self.organization) & Q(scope="organization")
+
+        return (
+            DashboardTemplate.objects.exclude(deleted=True)
+            .filter(Q(team=self.team) | organization_scoped_templates | Q(scope="global"))
+            .distinct()
+            .all()
+        )
