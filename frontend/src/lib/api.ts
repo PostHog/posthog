@@ -29,6 +29,8 @@ import {
     SessionRecordingsResponse,
     SessionRecordingPropertiesType,
     SessionRecordingPlaylistType,
+    RoleType,
+    RoleMemberType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -272,6 +274,24 @@ class ApiRequest {
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
+    }
+
+    // # Roles
+
+    public roles(): ApiRequest {
+        return this.organizations().current().addPathComponent('roles')
+    }
+
+    public rolesDetail(roleId: RoleType['id']): ApiRequest {
+        return this.roles().addPathComponent(roleId)
+    }
+
+    public roleMemberships(roleId: RoleType['id']): ApiRequest {
+        return this.rolesDetail(roleId).addPathComponent('role_memberships')
+    }
+
+    public roleMembershipsDetail(roleId: RoleType['id'], userUuid: UserType['uuid']): ApiRequest {
+        return this.rolesDetail(roleId).addPathComponent('role_memberships').addPathComponent(userUuid)
     }
 
     // # Persons
@@ -675,6 +695,40 @@ const api = {
             },
             async delete(dashboardId: DashboardType['id'], userUuid: UserType['uuid']): Promise<void> {
                 return await new ApiRequest().dashboardCollaboratorsDetail(dashboardId, userUuid).delete()
+            },
+        },
+    },
+
+    roles: {
+        async get(roleId: RoleType['id']): Promise<RoleType> {
+            return await new ApiRequest().rolesDetail(roleId).get()
+        },
+        async list(): Promise<RoleType[]> {
+            return await new ApiRequest().roles().get()
+        },
+        async delete(roleId: RoleType['id']): Promise<void> {
+            return await new ApiRequest().rolesDetail(roleId).delete()
+        },
+        async create(roleId: RoleType['id'], level: string): Promise<RoleMemberType> {
+            return await new ApiRequest().rolesDetail(roleId).create({
+                data: {
+                    feature_flag_access_level: level,
+                },
+            })
+        },
+        members: {
+            async list(roleId: RoleType['id']): Promise<RoleMemberType[]> {
+                return await new ApiRequest().roleMemberships(roleId).get()
+            },
+            async create(roleId: RoleType['id'], userUuid: UserType['uuid']): Promise<RoleMemberType> {
+                return await new ApiRequest().roleMembershipsDetail(roleId, userUuid).create({
+                    data: {
+                        user_uuid: userUuid,
+                    },
+                })
+            },
+            async delete(roleId: RoleType['id'], userUuid: UserType['uuid']): Promise<void> {
+                return await new ApiRequest().roleMembershipsDetail(roleId, userUuid).delete()
             },
         },
     },
