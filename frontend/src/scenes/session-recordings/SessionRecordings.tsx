@@ -34,13 +34,15 @@ export function SessionsRecordings(): JSX.Element {
                 title={<div>Session Recordings</div>}
                 buttons={
                     <>
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconSettings />}
-                            onClick={() => openSessionRecordingSettingsDialog()}
-                        >
-                            Configure
-                        </LemonButton>
+                        {!recordingsDisabled && (
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconSettings />}
+                                onClick={() => openSessionRecordingSettingsDialog()}
+                            >
+                                Configure
+                            </LemonButton>
+                        )}
 
                         {showRecordingPlaylists ? (
                             <>
