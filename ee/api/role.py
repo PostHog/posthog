@@ -76,23 +76,35 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = RoleMembership
-        fields = ["role_id", "user", "joined_at", "updated_at", "user_uuids"]
+        fields = ["role_id", "user", "joined_at", "updated_at", "user_uuid"]
+        user_uuid = serializers.UUIDField(required=True, write_only=True)
+
         read_only_fields = ["id", "role_id", "user"]
 
     def create(self, validated_data):
-        user_uuids = validated_data.pop("user_uuids")
+        user_uuid = validated_data.pop("user_uuid")
         try:
-            users = User.objects.filter(uuid__in=user_uuids)
-            role_id = self.context["role_id"]
-            role = Role.objects.get(id=role_id)
-            role_memberships = (RoleMembership(user=user, role=role) for user in users)
+            validated_data["user"] = User.objects.filter(is_active=True).get(uuid=user_uuid)
         except User.DoesNotExist:
             raise serializers.ValidationError("User does not exist.")
+        validated_data["role_id"] = self.context["role_id"]
         try:
-            memberships = RoleMembership.objects.bulk_create(role_memberships)
-            return memberships
+            return super().create(validated_data)
         except IntegrityError:
             raise serializers.ValidationError("User is already part of the role.")
+        # user_uuids = validated_data.pop("user_uuids")
+        # try:
+        #     users = User.objects.filter(uuid__in=user_uuids)
+        #     role_id = self.context["role_id"]
+        #     role = Role.objects.get(id=role_id)
+        #     role_memberships = (RoleMembership(user=user, role=role) for user in users)
+        # except Role.DoesNotExist:
+        #     raise serializers.ValidationError("Role does not exist.")
+        # try:
+        #     memberships = RoleMembership.objects.bulk_create(role_memberships)
+        #     return memberships
+        # except IntegrityError:
+        #     raise serializers.ValidationError("User is already part of the role.")
 
 
 class RoleMembershipViewSet(

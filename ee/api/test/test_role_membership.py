@@ -19,7 +19,7 @@ class TestRoleMembershipAPI(APILicensedTest):
 
         add_user_b_res = self.client.post(
             f"/api/organizations/@current/roles/{self.eng_role.id}/role_memberships",
-            {"user_uuids": [user_b.uuid]},
+            {"user_uuid": user_b.uuid},
         )
         self.assertEqual(add_user_b_res.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -27,7 +27,7 @@ class TestRoleMembershipAPI(APILicensedTest):
         self.organization_membership.save()
         add_user_a_res = self.client.post(
             f"/api/organizations/@current/roles/{self.eng_role.id}/role_memberships",
-            {"user_uuids": [user_a.uuid]},
+            {"user_uuid": user_a.uuid},
         )
         self.assertEqual(add_user_a_res.status_code, status.HTTP_201_CREATED)
         self.assertEqual(RoleMembership.objects.count(), 1)
@@ -41,24 +41,24 @@ class TestRoleMembershipAPI(APILicensedTest):
 
         self.client.post(
             f"/api/organizations/@current/roles/{self.eng_role.id}/role_memberships",
-            {"user_uuids": [user_a.uuid]},
+            {"user_uuid": user_a.uuid},
         )
         self.client.post(
             f"/api/organizations/@current/roles/{self.marketing_role.id}/role_memberships",
-            {"user_uuids": [user_a.uuid]},
+            {"user_uuid": user_a.uuid},
         )
         self.assertEqual(RoleMembership.objects.count(), 2)
 
-    def test_bulk_add_multiple_memberships_to_role(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
-        user_b = User.objects.create_and_join(self.organization, "b@potato.com", None)
-        user_c = User.objects.create_and_join(self.organization, "c@potato.com", None)
-        self.assertEqual(RoleMembership.objects.count(), 0)
-        self.client.post(
-            f"/api/organizations/@current/roles/{self.eng_role.id}/role_memberships",
-            {"user_uuids": [user_a.uuid, user_b.uuid, user_c.uuid]},
-        )
-        self.assertEqual(RoleMembership.objects.count(), 3)
-        # TODO: test for post response json
+    # def test_bulk_add_multiple_memberships_to_role(self):
+    #     self.organization_membership.level = OrganizationMembership.Level.ADMIN
+    #     self.organization_membership.save()
+    #     user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
+    #     user_b = User.objects.create_and_join(self.organization, "b@potato.com", None)
+    #     user_c = User.objects.create_and_join(self.organization, "c@potato.com", None)
+    #     self.assertEqual(RoleMembership.objects.count(), 0)
+    #     self.client.post(
+    #         f"/api/organizations/@current/roles/{self.eng_role.id}/role_memberships",
+    #         {"user_uuid": user_a.uuid, user_b.uuid, user_c.uuid},
+    #     )
+    #     self.assertEqual(RoleMembership.objects.count(), 3)
+    #     # TODO: test for post response json
