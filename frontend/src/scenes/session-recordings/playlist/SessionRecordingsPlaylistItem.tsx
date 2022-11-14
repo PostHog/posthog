@@ -76,6 +76,8 @@ export function SessionRecordingPlaylistItem({
         // .join('/')
         .split(/[?|#]/)[0]
 
+    // TODO: Modify onClick to only react to shift+click
+
     return (
         <li
             key={recording.id}
