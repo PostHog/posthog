@@ -381,7 +381,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 nextPlayerPosition = values.sessionPlayerData.metadata.segments[0].startPlayerPosition
             }
 
-            console.log({ nextPlayerPosition, endReached: values.endReached })
             actions.setEndReached(false)
 
             if (nextPlayerPosition) {
