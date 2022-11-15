@@ -6,6 +6,8 @@ import { DashboardTemplateScope, dashboardTemplateScopes, DashboardType, Realm }
 import { dashboardTemplateLogic } from 'scenes/dashboard/dashboardTemplates/dashboardTemplateLogic'
 import { userLogic } from 'scenes/userLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { OrganizationMembershipLevel } from 'lib/constants'
 
 export interface SaveDashboardTemplateForm {
     dashboard: DashboardType | null
@@ -23,7 +25,7 @@ export const saveDashboardTemplateLogic = kea<saveDashboardTemplateLogicType>([
     path(['scenes', 'dashboard', 'dashboardTemplates', 'saveDashboardTemplateLogic']),
     connect({
         actions: [dashboardTemplateLogic, ['saveDashboardTemplate']],
-        values: [userLogic, ['user'], preflightLogic, ['realm', 'preflight']],
+        values: [userLogic, ['user'], preflightLogic, ['realm', 'preflight'], teamLogic, ['currentTeam']],
     }),
     actions({
         showSaveDashboardTemplateModal: (dashboard: DashboardType) => ({ dashboard }),
@@ -64,11 +66,19 @@ export const saveDashboardTemplateLogic = kea<saveDashboardTemplateLogicType>([
     })),
     selectors(() => ({
         templateScopeOptions: [
-            (s) => [s.user, s.realm, s.preflight],
-            (user, realm, preflight) => {
+            (s) => [s.user, s.realm, s.preflight, s.currentTeam],
+            (user, realm, preflight, currentTeam) => {
                 const showGlobalScope = (realm == Realm.Cloud || preflight?.is_debug) && user?.is_staff
+                const canCreateInOrgScope =
+                    currentTeam?.effective_membership_level &&
+                    currentTeam?.effective_membership_level > OrganizationMembershipLevel.Member
                 return dashboardTemplateScopes
-                    .map((dts) => ({ value: dts, label: dts, disabled: dts === 'global' && !user?.is_staff }))
+                    .map((dts) => ({
+                        value: dts,
+                        label: dts,
+                        disabled:
+                            (dts === 'global' && !user?.is_staff) || (dts === 'organization' && !canCreateInOrgScope),
+                    }))
                     .filter((dts) => dts.value !== 'global' || showGlobalScope)
             },
         ],

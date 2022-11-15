@@ -10,6 +10,8 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { userLogic } from 'scenes/userLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { OrganizationMembershipLevel } from 'lib/constants'
 
 export const DashboardTemplatesTable = (): JSX.Element => {
     const { filteredDashboardTemplates, searchTerm } = useValues(dashboardsLogic)
@@ -17,6 +19,7 @@ export const DashboardTemplatesTable = (): JSX.Element => {
     const { renameDashboardTemplate, deleteDashboardTemplate } = useActions(dashboardTemplateLogic)
     const { dashboardTemplatesLoading } = useValues(dashboardTemplateLogic)
     const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     return (
         <LemonTable
@@ -57,7 +60,10 @@ export const DashboardTemplatesTable = (): JSX.Element => {
                     {
                         width: 0,
                         render: function RenderActions(_, { id, template_name, scope }: DashboardTemplateListing) {
-                            const disabled = scope === 'global' && !user?.is_staff
+                            const disabled =
+                                (scope === 'global' && !user?.is_staff) ||
+                                (scope === 'organization' &&
+                                    currentTeam?.effective_membership_level === OrganizationMembershipLevel.Member)
                             return (
                                 <More
                                     overlay={
