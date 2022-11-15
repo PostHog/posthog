@@ -5,7 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import type { sessionRecordingsLogicType } from './sessionRecordingsLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS, SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
+import { SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { loaders } from 'kea-loaders'
 import { createPlaylist } from './playlist/playlistUtils'
@@ -76,16 +76,9 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
     urlToAction(({ actions, values }) => {
         return {
             [urls.sessionRecordings()]: () => {
-                if (!values.featureFlags[FEATURE_FLAGS.RECORDING_PLAYLISTS]) {
-                    return
-                }
                 router.actions.replace(urls.sessionRecordings(SessionRecordingsTabs.Recent))
             },
             '/recordings/:tab': ({ tab }) => {
-                if (!values.featureFlags[FEATURE_FLAGS.RECORDING_PLAYLISTS]) {
-                    return
-                }
-
                 if (tab !== values.tab) {
                     actions.setTab(tab as SessionRecordingsTabs)
                 }
