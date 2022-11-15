@@ -1,13 +1,9 @@
-import datetime as dt
 import random
 from unittest.mock import ANY, patch
 
-from freezegun.api import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
-from ee.models.license import License
-from posthog.celery import sync_all_organization_available_features
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
 
@@ -187,30 +183,3 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             self.assertEqual(response.status_code, 404, potential_err_message)
             organization.refresh_from_db()
             self.assertTrue(organization.name, "Meow")
-
-    @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
-    def test_feature_available_self_hosted_has_license(self):
-        with self.is_cloud(False):
-            License.objects.create(key="key", plan="enterprise", valid_until=dt.datetime.now() + dt.timedelta(days=1))
-
-            # Still only old, empty available_features field value known
-            self.assertFalse(self.organization.is_feature_available("whatever"))
-            self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
-
-            # New available_features field value that was updated in DB on license creation is known after refresh
-            self.organization.refresh_from_db()
-            self.assertTrue(self.organization.is_feature_available("whatever"))
-            self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
-
-    @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
-    def test_feature_available_self_hosted_no_license(self):
-        self.assertFalse(self.organization.is_feature_available("whatever"))
-        self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
-
-    @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
-    @patch("ee.api.license.requests.post")
-    def test_feature_available_self_hosted_license_expired(self, patch_post):
-        with freeze_time("2070-01-01T12:00:00.000Z"):  # LicensedTestMixin enterprise license expires in 2038
-            sync_all_organization_available_features()  # This is normally ran every hour
-            self.organization.refresh_from_db()
-            self.assertFalse(self.organization.is_feature_available("whatever"))
