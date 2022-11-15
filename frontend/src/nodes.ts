@@ -1,10 +1,10 @@
 import {
+    AnyPartialFilterType,
     AnyPropertyFilter,
     Breakdown,
     BreakdownKeyType,
     BreakdownType,
     EntityType,
-    FilterType,
     FunnelsFilterType,
     IntervalType,
     LifecycleFilterType,
@@ -63,6 +63,25 @@ export interface InterfaceNode extends Node {
     nodeCategory: NodeCategory.InterfaceNode
 }
 
+// app.posthog.com/search#q={ type: persons, line: 2, day: 5, query: {type:trendsGraph, mode: 'edit', filters, settings, query: { type: backend }} }
+// app.posthog.com/search#q={ type: trendsGraph, mode: 'edit', steps: [{ type: events, properties: [] }], settings, query: { type: backend } }
+// app.posthog.com/search#q={ type: events, properties: [] }
+//
+//
+// query = { type: 'legacyInsight', filters: { whatever } as Partial<FilterType> }
+//
+//
+//
+// app.posthog.com/event?insight=FUNNELS
+//
+//     <PostHogThing q={query} />
+//
+// EventsTable.tsx
+// if (propertes.columns contains timestamp) do stuff
+// else show insiight graph
+// else show a table
+
+/** Query the events table with various filtered properties */
 export interface EventsDataNode extends DataNode {
     nodeType: NodeType.EventsNode
     event?: string
@@ -83,7 +102,11 @@ export interface ActionsDataNode extends DataNode {
 
 export interface LegacyQuery extends DataNode {
     nodeType: NodeType.LegacyQuery
-    query: Partial<FilterType>
+    filters: AnyPartialFilterType
+}
+
+export function isLegacyQuery(node?: Node): node is LegacyQuery {
+    return node?.nodeType === NodeType.LegacyQuery
 }
 
 // should not be used directly

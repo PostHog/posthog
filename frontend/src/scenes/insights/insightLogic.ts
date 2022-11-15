@@ -19,9 +19,8 @@ import { captureInternalMetric } from 'lib/internalMetrics'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
-import { filterTrendsClientSideParams, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import {
+    filterTrendsClientSideParams,
     isFilterWithHiddenLegendKeys,
     isFunnelsFilter,
     isLifecycleFilter,
@@ -29,7 +28,9 @@ import {
     isRetentionFilter,
     isStickinessFilter,
     isTrendsFilter,
+    keyForInsightLogicProps,
 } from 'scenes/insights/sharedUtils'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId, summarizeInsightFilters } from './utils'
 import { teamLogic } from '../teamLogic'
@@ -50,6 +51,8 @@ import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { insightsModel } from '~/models/insightsModel'
 import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { loaders } from 'kea-loaders'
+import { LegacyQuery, NodeCategory, NodeType } from '~/nodes'
+import { query } from '~/queries/query'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -284,8 +287,6 @@ export const insightLogic = kea<insightLogicType>([
                 },
                 // using values.filters, query for new insight results
                 loadResults: async ({ refresh, queryId }, breakpoint) => {
-                    const usingDataExplorationQueries = false // !!values.featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_ENGINE]
-
                     // fetch this now, as it might be different when we report below
                     const scene = sceneLogic.isMounted() ? sceneLogic.values.scene : null
 
@@ -323,42 +324,13 @@ export const insightLogic = kea<insightLogicType>([
                                 `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`,
                                 cache.abortController.signal
                             )
-                        } else if (usingDataExplorationQueries) {
-                            response = await api.create(
-                                `api/projects/${currentTeamId}/query/`,
-                                {
-                                    query: filterTrendsClientSideParams(params),
-                                },
-                                cache.abortController.signal
-                            )
-                        }
-                        if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
-                            response = await api.get(
-                                `api/projects/${currentTeamId}/insights/trend/?${toParams(
-                                    filterTrendsClientSideParams(params)
-                                )}`,
-                                cache.abortController.signal
-                            )
-                        } else if (isRetentionFilter(filters)) {
-                            response = await api.get(
-                                `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`,
-                                cache.abortController.signal
-                            )
-                        } else if (isFunnelsFilter(filters)) {
-                            const { refresh, ...bodyParams } = params
-                            response = await api.create(
-                                `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`,
-                                bodyParams,
-                                cache.abortController.signal
-                            )
-                        } else if (isPathsFilter(filters)) {
-                            response = await api.create(
-                                `api/projects/${currentTeamId}/insights/path`,
-                                params,
-                                cache.abortController.signal
-                            )
                         } else {
-                            throw new Error(`Cannot load insight of type ${insight}`)
+                            const queryNode: LegacyQuery = {
+                                nodeCategory: NodeCategory.DataNode,
+                                nodeType: NodeType.LegacyQuery,
+                                filters: filterTrendsClientSideParams(params),
+                            }
+                            response = await query(queryNode, currentTeamId, cache.abortController.signal)
                         }
                     } catch (e: any) {
                         if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
