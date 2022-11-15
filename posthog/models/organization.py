@@ -31,11 +31,6 @@ from posthog.utils import absolute_uri, mask_email_address
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
-try:
-    from ee.models.license import License
-except ImportError:
-    License = None  # type: ignore
-
 
 logger = structlog.get_logger(__name__)
 
@@ -154,6 +149,10 @@ class Organization(UUIDModel):
         Obtains details on the billing plan for the organization.
         Returns a tuple with (billing_plan_key, billing_realm)
         """
+        try:
+            from ee.models.license import License
+        except ImportError:
+            License = None  # type: ignore
         # Demo gets all features
         if settings.DEMO or "generate_demo_data" in sys.argv[1:2]:
             return (License.ENTERPRISE_PLAN, "demo")
@@ -186,6 +185,10 @@ class Organization(UUIDModel):
         if not plan:
             self.available_features = []
         elif realm in ("ee", "demo"):
+            try:
+                from ee.models.license import License
+            except ImportError:
+                License = None  # type: ignore
             self.available_features = License.PLANS.get(plan, [])
         else:
             self.available_features = self.billing.available_features  # type: ignore
