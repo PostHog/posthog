@@ -17,6 +17,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { NoDashboards } from 'scenes/dashboard/dashboards/NoDashboards'
 import { DashboardsTable } from 'scenes/dashboard/dashboards/DashboardsTable'
 import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/DashboardTemplatesTable'
+import { importDashboardTemplateLogic } from 'scenes/dashboard/dashboardTemplates/importDashboardTemplateLogic'
+import { ImportDashboardTemplateModal } from 'scenes/dashboard/dashboardTemplates/ImportDashboardTemplateModal'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -30,25 +32,39 @@ export function Dashboards(): JSX.Element {
     const { showNewDashboardModal } = useActions(newDashboardLogic)
     const { closePrompts } = useActions(inAppPromptLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { showImportDashboardTemplateModal } = useActions(importDashboardTemplateLogic)
 
     return (
         <div>
             <NewDashboardModal />
             <DuplicateDashboardModal />
             <DeleteDashboardModal />
+            <ImportDashboardTemplateModal />
             <PageHeader
                 title="Dashboards"
                 buttons={
-                    <LemonButton
-                        data-attr={'new-dashboard'}
-                        onClick={() => {
-                            closePrompts()
-                            showNewDashboardModal()
-                        }}
-                        type="primary"
-                    >
-                        New dashboard
-                    </LemonButton>
+                    currentTab == DashboardsTab.Templates ? (
+                        <LemonButton
+                            data-attr={'new-dashboard-template'}
+                            onClick={() => {
+                                showImportDashboardTemplateModal()
+                            }}
+                            type="primary"
+                        >
+                            Import Template
+                        </LemonButton>
+                    ) : (
+                        <LemonButton
+                            data-attr={'new-dashboard'}
+                            onClick={() => {
+                                closePrompts()
+                                showNewDashboardModal()
+                            }}
+                            type="primary"
+                        >
+                            New dashboard
+                        </LemonButton>
+                    )
                 }
             />
             <Tabs

@@ -41,7 +41,7 @@ type LemonInputPropsBase = Pick<
 }
 
 type LemonInputPropsText = LemonInputPropsBase & {
-    type?: 'text' | 'email' | 'search' | 'url' | 'password'
+    type?: 'text' | 'email' | 'search' | 'url' | 'password' | 'file'
     value?: string
     defaultValue?: string
     onChange?: (newValue: string) => void
