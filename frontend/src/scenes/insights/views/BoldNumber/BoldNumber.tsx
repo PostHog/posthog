@@ -20,6 +20,7 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import './BoldNumber.scss'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const BOLD_NUMBER_TOOLTIP_OFFSET_PX = 8
@@ -83,7 +84,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const valueRef = useBoldNumberTooltip({ showPersonsModal, isTooltipShown })
 
-    const showComparison = filters.compare && insight.result?.length > 1
+    const showComparison = isTrendsFilter(filters) && filters.compare && insight.result?.length > 1
     const resultSeries = insight?.result?.[0] as TrendResult | undefined
 
     return resultSeries ? (

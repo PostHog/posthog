@@ -3,10 +3,11 @@ import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/Property
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { Breakdown, ChartDisplayType, FilterType, InsightType } from '~/types'
+import { Breakdown, ChartDisplayType, FilterType, InsightType, TrendsFilterType } from '~/types'
 import { BreakdownTag } from './BreakdownTag'
 import './TaxonomicBreakdownFilter.scss'
 import { onFilterChange } from './taxonomicBreakdownFilterUtils'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
@@ -65,13 +66,17 @@ export function BreakdownFilter({
                               })
                           }
                       } else {
-                          setFilters({
+                          const newFilters: Partial<TrendsFilterType> = {
                               breakdown: undefined,
                               breakdown_type: undefined,
                               breakdown_histogram_bin_count: undefined,
                               // Make sure we are no longer in map view after removing the Country Code breakdown
-                              display: filters.display !== ChartDisplayType.WorldMap ? filters.display : undefined,
-                          })
+                              display:
+                                  isTrendsFilter(filters) && filters.display !== ChartDisplayType.WorldMap
+                                      ? filters.display
+                                      : undefined,
+                          }
+                          setFilters(newFilters)
                       }
                   }
               }

@@ -7,7 +7,6 @@ import {
     RecordingSegment,
     RRWebRecordingConsoleLogPayload,
     RecordingWindowFilter,
-    SessionRecordingPlayerProps,
     RecordingConsoleLogsFilters,
 } from '~/types'
 import { eventWithTime } from 'rrweb/typings/types'
@@ -20,14 +19,15 @@ import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedLis
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { parseConsoleLogPayload } from 'scenes/session-recordings/player/list/consoleLogsUtils'
 import Fuse from 'fuse.js'
+import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
 export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'consoleLogsListLogic', key]),
-    props({} as SessionRecordingPlayerProps),
-    key((props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`),
-    connect(({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({
+    props({} as SessionRecordingPlayerLogicProps),
+    key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect(({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps) => ({
         logic: [eventUsageLogic],
         values: [
             sessionRecordingDataLogic({ sessionRecordingId }),

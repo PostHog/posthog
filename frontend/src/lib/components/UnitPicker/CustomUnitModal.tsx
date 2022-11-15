@@ -1,4 +1,4 @@
-import { FilterType } from '~/types'
+import { FilterType, TrendsFilterType } from '~/types'
 import { RefCallback, useEffect, useState } from 'react'
 import { LemonModal } from 'lib/components/LemonModal'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -9,7 +9,7 @@ import { HandleUnitChange } from 'lib/components/UnitPicker/UnitPicker'
 
 function chooseFormativeElementValue(
     formativeElement: 'prefix' | 'postfix' | null,
-    filters: Partial<FilterType>
+    filters: Partial<TrendsFilterType>
 ): string {
     if (formativeElement === 'prefix') {
         return filters.aggregation_axis_prefix || ''

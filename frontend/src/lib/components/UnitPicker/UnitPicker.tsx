@@ -2,15 +2,15 @@ import { AggregationAxisFormat, INSIGHT_UNIT_OPTIONS, axisLabel } from 'scenes/i
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { useMemo, useRef, useState } from 'react'
-import { FilterType, ItemMode } from '~/types'
+import { ItemMode, TrendsFilterType } from '~/types'
 import { useActions } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { CustomUnitModal } from 'lib/components/UnitPicker/CustomUnitModal'
 
 interface UnitPickerProps {
-    filters: FilterType
-    setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode | undefined) => void
+    filters: TrendsFilterType
+    setFilters: (filters: Partial<TrendsFilterType>, insightMode?: ItemMode | undefined) => void
 }
 
 const aggregationDisplayMap = INSIGHT_UNIT_OPTIONS.reduce((acc, option) => {
