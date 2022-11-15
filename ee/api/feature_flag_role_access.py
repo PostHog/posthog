@@ -43,6 +43,7 @@ class FeatureFlagRoleAccessViewSet(
     StructuredViewSetMixin,
     mixins.CreateModelMixin,
     mixins.DestroyModelMixin,
+    mixins.RetrieveModelMixin,
     viewsets.GenericViewSet,
 ):
     permission_classes = [IsAuthenticated, FeatureFlagRoleAccessPermissions]

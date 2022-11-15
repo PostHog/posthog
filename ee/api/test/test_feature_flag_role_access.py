@@ -56,7 +56,7 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
             f"/api/organizations/@current/roles/{self.eng_role.id}/role_memberships", {"user_uuid": self.user.uuid}
         )
         self.assertEqual(
-            self.user.role_memberships.first().role.feature_flags_access_level,
+            self.user.role_memberships.first().role.feature_flags_access_level,  # type: ignore
             Organization.FeatureFlagsAccessLevel.CAN_ALWAYS_EDIT,
         )
         user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
