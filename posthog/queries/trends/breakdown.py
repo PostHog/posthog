@@ -403,7 +403,11 @@ class TrendsBreakdown:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
 
         if self.filter.using_histogram:
-            return f"toFloat64OrNull(toString({breakdown_value}))"
+            breakdown_value = f"toFloat64OrNull(toString({breakdown_value}))"
+
+        if self.filter.breakdown_normalize_url:
+            breakdown_value = f"if( length(trim(TRAILING '/?' from {breakdown_value})) = 0, '/', trim(TRAILING '/?' from {breakdown_value}))"
+
         return breakdown_value
 
     def _get_histogram_breakdown_values(self, raw_breakdown_value: str, buckets: List[int]):

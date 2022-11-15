@@ -240,6 +240,13 @@ class BreakdownMixin(BaseParamMixin):
         else:
             return {}
 
+    @cached_property
+    def breakdown_normalize_url(self) -> bool:
+        """
+        When breaking down by $current_url or $pathname, we ignore trailing slashes and question marks
+        """
+        return self._data.get("breakdown_normalize_url", False)
+
 
 class BreakdownValueMixin(BaseParamMixin):
     @cached_property
