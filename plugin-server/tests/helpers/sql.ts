@@ -335,7 +335,7 @@ export const createOrganization = async (pgClient: Pool) => {
     return organizationId
 }
 
-export const createTeam = async (pgClient: Pool, organizationId: string) => {
+export const createTeam = async (pgClient: Pool, organizationId: string, token?: string) => {
     const team = await insertRow(pgClient, 'posthog_team', {
         organization_id: organizationId,
         app_urls: [],
@@ -355,7 +355,7 @@ export const createTeam = async (pgClient: Pool, organizationId: string) => {
         plugins_opt_in: false,
         opt_out_capture: false,
         is_demo: false,
-        api_token: new UUIDT().toString(),
+        api_token: token ?? new UUIDT().toString(),
         test_account_filters: [],
         timezone: 'UTC',
         data_attributes: ['data-attr'],

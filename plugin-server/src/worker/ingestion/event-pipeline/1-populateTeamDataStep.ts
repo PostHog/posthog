@@ -1,13 +1,13 @@
-import { PipelineEvent } from '../../../types'
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { PipelineEvent } from '../../../types'
 import { EventPipelineRunner, StepResult } from './runner'
 
-export async function populateTeamDataStep(
-    runner: EventPipelineRunner,
-    event: PipelineEvent,
-): Promise<StepResult> {
+// TRICKY: team_id is optional on PipelineEvent but not for PluginEvent
+// Only do the type asserton to PluginEvent having verified team_id exists
+export async function populateTeamDataStep(runner: EventPipelineRunner, event: PipelineEvent): Promise<StepResult> {
     if (event.team_id) {
-        return runner.nextStep('emitToBufferStep', event)
+        return runner.nextStep('emitToBufferStep', event as PluginEvent)
     }
 
     if (!event.token) {
@@ -27,8 +27,5 @@ export async function populateTeamDataStep(
         ip: team.anonymize_ips ? null : event.ip,
     }
 
-    // TODO: handle feature flags
-
-
-    return runner.nextStep('emitToBufferStep', event)
+    return runner.nextStep('emitToBufferStep', event as PluginEvent)
 }

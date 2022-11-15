@@ -14,7 +14,7 @@ import { createHub } from '../../src/utils/db/hub'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
-import { getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
+import { createOrganization,createTeam, getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
 import { plugin60 } from './../helpers/plugins'
 
 jest.mock('../../src/utils/status')
@@ -1183,6 +1183,46 @@ describe('DB', () => {
 
             await hub.db.addPersonToCohort(cohort2.id, person.id, null)
             expect(await hub.db.doesPersonBelongToCohort(cohort2.id, person)).toEqual(true)
+        })
+    })
+
+    describe('fetchTeam()', () => {
+        it('fetches a team by id', async () => {
+            const organizationId = await createOrganization(db.postgres)
+            const teamId = await createTeam(db.postgres, organizationId, 'token1')
+
+            const fetchedTeam = await hub.db.fetchTeam(teamId)
+            expect(fetchedTeam).toEqual({
+                anonymize_ips: false,
+                api_token: 'token1',
+                id: teamId,
+                ingested_event: true,
+                name: 'TEST PROJECT',
+                organization_id: organizationId,
+                session_recording_opt_in: true,
+                slack_incoming_webhook: null,
+                uuid: expect.any(String),
+            })
+        })
+    })
+
+    describe('fetchTeamFromToken()', () => {
+        it('fetches a team by id', async () => {
+            const organizationId = await createOrganization(db.postgres)
+            const teamId = await createTeam(db.postgres, organizationId, 'token1')
+
+            const fetchedTeam = await hub.db.fetchTeamFromToken('token1')
+            expect(fetchedTeam).toEqual({
+                anonymize_ips: false,
+                api_token: 'token1',
+                id: teamId,
+                ingested_event: true,
+                name: 'TEST PROJECT',
+                organization_id: organizationId,
+                session_recording_opt_in: true,
+                slack_incoming_webhook: null,
+                uuid: expect.any(String),
+            })
         })
     })
 })

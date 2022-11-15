@@ -2,7 +2,11 @@ import hashlib
 import json
 import re
 from datetime import datetime
+<<<<<<< HEAD
 from typing import Any, Dict, List, Optional, Tuple
+=======
+from typing import Any, Dict, Iterator, Optional, Tuple
+>>>>>>> e5e577a4b (conditional handlers and tests)
 
 import structlog
 from dateutil import parser
@@ -46,7 +50,7 @@ def parse_kafka_event_data(
     now: datetime,
     sent_at: Optional[datetime],
     event_uuid: UUIDT,
-    token: str
+    token: str,
 ) -> Dict:
     return {
         "uuid": str(event_uuid),
@@ -57,7 +61,7 @@ def parse_kafka_event_data(
         "team_id": team_id,
         "now": now.isoformat(),
         "sent_at": sent_at.isoformat() if sent_at else "",
-        "token": token
+        "token": token,
     }
 
 
@@ -217,14 +221,17 @@ def get_event(request):
             ),
         )
 
-    ingestion_context, db_error, error_response = get_event_ingestion_context(request, data, token)
-
-    if error_response:
-        return error_response
-
+    ingestion_context = None
     send_events_to_dead_letter_queue = False
-    if db_error:
-        send_events_to_dead_letter_queue = True
+
+    if token not in settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
+        ingestion_context, db_error, error_response = get_event_ingestion_context(request, data, token)
+
+        if error_response:
+            return error_response
+
+        if db_error:
+            send_events_to_dead_letter_queue = True
 
     if isinstance(data, dict):
         if data.get("batch"):  # posthog-python and posthog-ruby
@@ -281,9 +288,10 @@ def get_event(request):
             )
             continue
 
+        team_id = ingestion_context.team_id if ingestion_context else None
         try:
             futures.append(
-                capture_internal(event, distinct_id, ip, site_url, now, sent_at, ingestion_context.team_id, event_uuid)  # type: ignore
+                capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid)  # type: ignore
             )
         except Exception as e:
             capture_exception(e, {"data": data})
@@ -323,7 +331,10 @@ def get_event(request):
     return cors_response(request, JsonResponse({"status": 1}))
 
 
-def validate_events(events, ingestion_context):
+# TODO: Rename this function - it doesn't just validate events, it also processes them
+def validate_events(
+    events: Dict[str, Any], ingestion_context: Optional[EventIngestionContext]
+) -> Iterator[Tuple[Dict[str, Any], UUIDT, str]]:
     for event in events:
         event_uuid = UUIDT()
         distinct_id = get_distinct_id(event)
@@ -339,10 +350,14 @@ def validate_events(events, ingestion_context):
         if not event:
             continue
 
+        if ingestion_context:
+            # TODO: Get rid of this code path after informing users about bootstrapping feature flags
+            _ensure_web_feature_flags_in_properties(event, ingestion_context, distinct_id)
+
         yield event, event_uuid, distinct_id
 
 
-def parse_event(event, distinct_id, ingestion_context):
+def parse_event(event):
     if not event.get("event"):
         statsd.incr("invalid_event", tags={"error": "missing_event_name"})
         return
@@ -353,9 +368,6 @@ def parse_event(event, distinct_id, ingestion_context):
     with configure_scope() as scope:
         scope.set_tag("library", event["properties"].get("$lib", "unknown"))
         scope.set_tag("library.version", event["properties"].get("$lib_version", "unknown"))
-
-    if ingestion_context:
-        _ensure_web_feature_flags_in_properties(event, ingestion_context, distinct_id)
 
     return event
 

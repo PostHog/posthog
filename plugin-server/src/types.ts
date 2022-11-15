@@ -160,7 +160,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: number
     HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: number
     APP_METRICS_GATHERED_FOR_ALL: boolean
-    LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -937,7 +936,22 @@ export enum OrganizationMembershipLevel {
     Owner = 15,
 }
 
+export interface PipelineEvent {
+    // same as PluginEvent
+    distinct_id: string
+    ip: string | null
+    site_url: string
+    now: string
+    event: string
+    sent_at?: string
+    properties?: Properties
+    timestamp?: string
+    offset?: number
+    $set?: Properties
+    $set_once?: Properties
+    uuid: string
 
-export interface PipelineEvent extends PluginEvent {
+    // different from PluginEvent
+    team_id?: number | null
     token?: string
 }

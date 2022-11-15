@@ -65,9 +65,9 @@ const STEPS_TO_EMIT_TO_DLQ_ON_FAILURE: Array<StepType> = [
 
 export class EventPipelineRunner {
     hub: Hub
-    originalEvent: PluginEvent | ProcessedPluginEvent
+    originalEvent: PipelineEvent | ProcessedPluginEvent
 
-    constructor(hub: Hub, originalEvent: PluginEvent | ProcessedPluginEvent) {
+    constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent) {
         this.hub = hub
         this.originalEvent = originalEvent
     }
@@ -75,11 +75,10 @@ export class EventPipelineRunner {
     async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
         let result: EventPipelineResult
-        // TODO: Set up team-based gating
-        if (this.hub.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED) {
-            result = await this.runPipeline('populateTeamDataStep', event)
+        if (typeof event.team_id === 'number') {
+            result = await this.runPipeline('emitToBufferStep', event as PluginEvent)
         } else {
-            result = await this.runPipeline('emitToBufferStep', event)
+            result = await this.runPipeline('populateTeamDataStep', event)
         }
         this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
         return result

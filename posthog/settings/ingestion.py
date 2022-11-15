@@ -12,3 +12,5 @@ BUFFER_CONVERSION_SECONDS = get_from_env("BUFFER_CONVERSION_SECONDS", default=60
 # random partitioning for when producing events to the Kafka topic consumed by the plugin server.
 # This is a measure to handle hot partitions in ad-hoc cases.
 EVENT_PARTITION_KEYS_TO_OVERRIDE = get_list(os.getenv("EVENT_PARTITION_KEYS_TO_OVERRIDE", ""))
+
+LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS = get_list(os.getenv("LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS", ""))
