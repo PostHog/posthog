@@ -80,7 +80,7 @@ export function WebInstructions(): JSX.Element {
                 Use this option if you want more granular control of how PostHog runs in your website and the events you
                 capture. Recommended for teams with more stable products and more defined analytics requirements.{' '}
                 <Link
-                    to="https://posthog.com/docs/integrations/js-integration/?utm_medium=in-product&utm_campaign=ingestion-web"
+                    to="https://posthog.com/docs/integrate/client/js/?utm_medium=in-product&utm_campaign=ingestion-web"
                     target="_blank"
                 >
                     Learn more
