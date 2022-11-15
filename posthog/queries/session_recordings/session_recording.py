@@ -37,7 +37,7 @@ class SessionRecording:
         self._recording_start_time = recording_start_time
 
     _recording_snapshot_query = """
-        SELECT session_id, window_id, distinct_id, timestamp, snapshot_data, events_summary
+        SELECT {fields}
         FROM session_recording_events
         PREWHERE
             team_id = %(team_id)s
@@ -60,23 +60,28 @@ class SessionRecording:
             )
         return ("", {})
 
-    def _query_recording_snapshots(self) -> List[SessionRecordingEvent]:
+    def _query_recording_snapshots(self, include_snapshots=False) -> List[SessionRecordingEvent]:
+        fields = ["session_id", "window_id", "distinct_id", "timestamp", "events_summary"]
+        if include_snapshots:
+            fields.append("snapshot_data")
+
         date_clause, date_clause_params = self.get_recording_snapshot_date_clause()
-        query = self._recording_snapshot_query.format(date_clause=date_clause)
+        query = self._recording_snapshot_query.format(date_clause=date_clause, fields=", ".join(fields))
 
         response = sync_execute(
             query, {"team_id": self._team.id, "session_id": self._session_recording_id, **date_clause_params}
         )
+
         return [
             SessionRecordingEvent(
-                session_id=session_id,
-                window_id=window_id,
-                distinct_id=distinct_id,
-                timestamp=timestamp,
-                snapshot_data=json.loads(snapshot_data),
-                events_summary=[json.loads(x) for x in events_summary] if events_summary else [],
+                session_id=columns[0],
+                window_id=columns[1],
+                distinct_id=columns[2],
+                timestamp=columns[3],
+                events_summary=[json.loads(x) for x in columns[4]] if columns[4] else [],
+                snapshot_data=json.loads(columns[5]) if len(columns) > 5 else None,
             )
-            for session_id, window_id, distinct_id, timestamp, snapshot_data, events_summary in response
+            for columns in response
         ]
 
     def get_snapshots(self, limit, offset) -> DecompressedRecordingData:
@@ -84,12 +89,12 @@ class SessionRecording:
             SnapshotDataTaggedWithWindowId(
                 window_id=recording_snapshot["window_id"], snapshot_data=recording_snapshot["snapshot_data"]
             )
-            for recording_snapshot in self._query_recording_snapshots()
+            for recording_snapshot in self._query_recording_snapshots(include_snapshots=True)
         ]
         return decompress_chunked_snapshot_data(self._team.pk, self._session_recording_id, all_snapshots, limit, offset)
 
     def get_metadata(self) -> Optional[RecordingMetadata]:
-        snapshots = self._query_recording_snapshots()
+        snapshots = self._query_recording_snapshots(include_snapshots=False)
 
         if len(snapshots) == 0:
             return None
@@ -106,6 +111,7 @@ class SessionRecording:
             )
         else:
             # ... otherwise use the legacy method
+            snapshots = self._query_recording_snapshots(include_snapshots=True)
             statsd.incr("session_recordings.metadata_parsed_from_snapshot_data")
             segments, start_and_end_times_by_window_id = self._get_recording_segments_from_snapshot(snapshots)
 
@@ -125,18 +131,17 @@ class SessionRecording:
         events_summary_by_window_id: Dict[WindowId, List[SessionRecordingEventSummary]] = {}
 
         for snapshot in snapshots:
-            if snapshot["snapshot_data"].get("chunk_index") == 0:
-                if snapshot["snapshot_data"].get("events_summary") is None:
-                    # NOTE: Old snapshots could be missing this field in which case we ditch the whole session
-                    return None
+            if snapshot["window_id"] not in events_summary_by_window_id:
+                events_summary_by_window_id[snapshot["window_id"]] = []
 
-                if snapshot["window_id"] not in events_summary_by_window_id:
-                    events_summary_by_window_id[snapshot["window_id"]] = []
+            events_summary_by_window_id[snapshot["window_id"]].extend(
+                [cast(SessionRecordingEventSummary, x) for x in snapshot["events_summary"]]
+            )
+            events_summary_by_window_id[snapshot["window_id"]].sort(key=lambda x: x["timestamp"])
 
-                events_summary_by_window_id[snapshot["window_id"]].extend(
-                    [cast(SessionRecordingEventSummary, x) for x in snapshot["snapshot_data"]["events_summary"]]
-                )
-                events_summary_by_window_id[snapshot["window_id"]].sort(key=lambda x: x["timestamp"])
+        # If any of the snapshots are missing the events_summary field, we fallback to the old parsing method
+        if any(len(x) == 0 for x in events_summary_by_window_id.values()):
+            return None
 
         return events_summary_by_window_id
 
