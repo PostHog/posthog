@@ -126,6 +126,7 @@ class _KafkaProducer:
         future = self.producer.send(topic, value=b, key=key, headers=encoded_headers)
         # Record if the send request was successful or not
         future.add_callback(self.on_send_success).add_errback(lambda exc: self.on_send_failure(topic=topic, exc=exc))
+        return future
 
     def close(self):
         self.producer.flush()
