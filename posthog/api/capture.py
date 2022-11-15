@@ -57,7 +57,7 @@ def parse_kafka_event_data(
     }
 
 
-def log_event(data: Dict, event_name: str, partition_key: str) -> None:
+def log_event(data: Dict, event_name: str, partition_key: Optional[str]) -> None:
     logger.debug("logging_event", event_name=event_name, kafka_topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC)
 
     # TODO: Handle Kafka being unavailable with exponential backoff retries
@@ -344,5 +344,14 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
         sent_at=sent_at,
         event_uuid=event_uuid,
     )
-    partition_key = hashlib.sha256(f"{team_id}:{distinct_id}".encode()).hexdigest()
-    log_event(parsed_event, event["event"], partition_key=partition_key)
+
+    # We aim to always partition by {team_id}:{distinct_id} but allow
+    # overriding this to deal with hot partitions in specific cases.
+    # Setting the partition key to None means using random partitioning.
+    kafka_partition_key = None
+    candidate_partition_key = f"{team_id}:{distinct_id}"
+
+    if candidate_partition_key not in settings.EVENT_PARTITION_KEYS_TO_OVERRIDE:
+        kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
+
+    log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
