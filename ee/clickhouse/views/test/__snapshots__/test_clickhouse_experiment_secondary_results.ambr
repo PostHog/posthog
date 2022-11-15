@@ -9,8 +9,7 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 23:59:59', 'UTC')
-       AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -34,13 +33,13 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-06 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2020-01-06 00:00:00', 'UTC') - number * 86400) as day_start
               FROM numbers(6)
               UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['control', 'test'] as breakdown_value) ARRAY
+                (SELECT ['control', 'test', 'ablahebf', ''] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
@@ -50,10 +49,9 @@
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
-             AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') in (['control', 'test'])
+             AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+             AND replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') in (['control', 'test', 'ablahebf', ''])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -75,8 +73,7 @@
      WHERE team_id = 2
        AND event IN ['$pageleave_funnel', '$pageview_funnel']
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 23:59:59', 'UTC')
-       AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -120,7 +117,7 @@
                      min(latest_1) over (PARTITION by aggregation_target,
                                                       prop
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                        if(has([['test'], ['control']], prop), prop, ['Other']) as prop
+                                        if(has([['test'], ['control'], ['']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
@@ -153,8 +150,7 @@
                        WHERE team_id = 2
                          AND event IN ['$pageleave_funnel', '$pageview_funnel']
                          AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 23:59:59', 'UTC')
-                         AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', ''))) ) events
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) )))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))

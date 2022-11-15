@@ -47,6 +47,7 @@ export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
                 pluginConfigId: pluginConfig.id,
                 pluginConfigTeam: pluginConfig.team_id,
             }
+            server.statsd?.increment('job_enqueue_attempt')
             await server.enqueuePluginJob(job)
         } catch (e) {
             await pluginConfig.vm?.createLogEntry(

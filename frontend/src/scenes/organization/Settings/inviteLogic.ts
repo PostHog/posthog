@@ -7,6 +7,7 @@ import type { inviteLogicType } from './inviteLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { router } from 'kea-router'
 import { lemonToast } from 'lib/components/lemonToast'
+import { ingestionLogic } from 'scenes/ingestion/v2/ingestionLogic'
 
 /** State of a single invite row (with input data) in bulk invite creation. */
 export interface InviteRowState {
@@ -31,7 +32,7 @@ export const inviteLogic = kea<inviteLogicType>({
     },
     connect: {
         values: [preflightLogic, ['preflight']],
-        actions: [router, ['locationChanged']],
+        actions: [router, ['locationChanged'], ingestionLogic, ['setHasInvitedMembers']],
     },
     reducers: () => ({
         isInviteModalShown: [
@@ -123,6 +124,10 @@ export const inviteLogic = kea<inviteLogicType>({
 
             organizationLogic.actions.loadCurrentOrganization()
             actions.loadInvites()
+
+            if (router.values.location.pathname.includes('/ingestion')) {
+                ingestionLogic.actions.setHasInvitedMembers(true)
+            }
 
             if (values.preflight?.email_service_available) {
                 actions.hideInviteModal()

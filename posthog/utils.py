@@ -354,7 +354,10 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
     if posthog_distinct_id:
-        feature_flags = posthoganalytics.get_all_flags(posthog_distinct_id, only_evaluate_locally=True)
+        groups = {}
+        if request.user and request.user.is_authenticated and request.user.organization:
+            groups = {"organization": str(request.user.organization.id)}
+        feature_flags = posthoganalytics.get_all_flags(posthog_distinct_id, only_evaluate_locally=True, groups=groups)
         # don't forcefully set distinctID, as this breaks the link for anonymous users coming from `posthog.com`.
         posthog_bootstrap["featureFlags"] = feature_flags
 
@@ -409,7 +412,7 @@ def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
     for p in plugin_configs:
         config = p["pluginconfig__config"] or {}
         config_schema = p["config_schema"] or {}
-        secret_fields = set([field["key"] for field in config_schema if "secret" in field and field["secret"]])
+        secret_fields = {field["key"] for field in config_schema if "secret" in field and field["secret"]}
         for key in secret_fields:
             if key in config:
                 config[key] = "** SECRET FIELD **"

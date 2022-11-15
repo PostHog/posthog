@@ -18,26 +18,27 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { CSSTransition } from 'react-transition-group'
 import { Tooltip } from 'lib/components/Tooltip'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 
 export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
-    const {
-        sessionPerson,
-        resolution,
-        lastPageviewEvent,
-        scale,
-        currentWindowIndex,
-        recordingStartTime,
-        loading,
-        isSmallPlayer,
-    } = useValues(playerMetaLogic({ sessionRecordingId, playerKey }))
+    const { sessionPerson, resolution, lastPageviewEvent, scale, currentWindowIndex, recordingStartTime, loading } =
+        useValues(playerMetaLogic({ sessionRecordingId, playerKey }))
 
     const { isFullScreen, isMetadataExpanded } = useValues(playerSettingsLogic)
     const { setIsMetadataExpanded } = useActions(playerSettingsLogic)
 
     const iconProperties = lastPageviewEvent?.properties || sessionPerson?.properties
 
+    const { ref, size } = useResizeBreakpoints({
+        0: 'compact',
+        550: 'normal',
+    })
+
+    const isSmallPlayer = size === 'compact'
+
     return (
         <div
+            ref={ref}
             className={clsx('PlayerMeta', {
                 'PlayerMeta--fullscreen': isFullScreen,
             })}

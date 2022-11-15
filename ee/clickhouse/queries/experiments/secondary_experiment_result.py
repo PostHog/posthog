@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Dict, Optional
 
+import pytz
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_TRENDS, TRENDS_CUMULATIVE
@@ -29,16 +30,27 @@ class ClickhouseSecondaryExperimentResult:
     ):
 
         breakdown_key = f"$feature/{feature_flag.key}"
-        variants = [variant["key"] for variant in feature_flag.variants]
+        self.variants = [variant["key"] for variant in feature_flag.variants]
+
+        # our filters assume that the given time ranges are in the project timezone.
+        # while start and end date are in UTC.
+        # so we need to convert them to the project timezone
+        if team.timezone:
+            start_date_in_project_timezone = experiment_start_date.astimezone(pytz.timezone(team.timezone))
+            end_date_in_project_timezone = (
+                experiment_end_date.astimezone(pytz.timezone(team.timezone)) if experiment_end_date else None
+            )
 
         query_filter = filter.with_data(
             {
-                "date_from": experiment_start_date,
-                "date_to": experiment_end_date,
+                "date_from": start_date_in_project_timezone,
+                "date_to": end_date_in_project_timezone,
+                "explicit_date": True,
                 "breakdown": breakdown_key,
                 "breakdown_type": "event",
-                "properties": [{"key": breakdown_key, "value": variants, "operator": "exact", "type": "event"}],
-                # :TRICKY: We don't use properties set on filters, instead using experiment variant options
+                "properties": [],
+                # :TRICKY: We don't use properties set on filters, as these
+                # correspond to feature flag properties, not the funnel properties.
             }
         )
 
@@ -69,7 +81,9 @@ class ClickhouseSecondaryExperimentResult:
             total = result[0]["count"]
             success = result[-1]["count"]
             breakdown_value = result[0]["breakdown_value"][0]
-            variants[breakdown_value] = round(int(success) / int(total), 3)
+
+            if breakdown_value in self.variants:
+                variants[breakdown_value] = round(int(success) / int(total), 3)
 
         return variants
 
@@ -80,6 +94,8 @@ class ClickhouseSecondaryExperimentResult:
         for result in insight_results:
             count = result["count"]
             breakdown_value = result["breakdown_value"]
-            variants[breakdown_value] = count
+
+            if breakdown_value in self.variants:
+                variants[breakdown_value] = count
 
         return variants

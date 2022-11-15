@@ -171,7 +171,6 @@ export const insightLogic = kea<insightLogicType>([
                     if (response?.results?.[0]) {
                         return response.results[0]
                     }
-                    lemonToast.error(`Insight "${shortId}" not found`)
                     throw new Error(`Insight "${shortId}" not found`)
                 },
                 updateInsight: async ({ insight, callback }, breakpoint) => {
@@ -439,6 +438,13 @@ export const insightLogic = kea<insightLogicType>([
                     return { ...state, name: item.name }
                 }
                 return state
+            },
+            [insightsModel.actionTypes.insightsAddedToDashboard]: (state, { dashboardId, insightIds }) => {
+                if (insightIds.includes(state.id)) {
+                    return { ...state, dashboards: [...(state.dashboards || []), dashboardId] }
+                } else {
+                    return state
+                }
             },
             [dashboardsModel.actionTypes.tileRemovedFromDashboard]: (state, { tile, dashboardId }) => {
                 if (tile.insight?.id === state.id) {

@@ -7,14 +7,15 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
+       AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') ) events
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_aggregate.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
@@ -30,9 +31,11 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
+       AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -66,7 +69,7 @@
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
@@ -76,7 +79,8 @@
 # name: ClickhouseTestTrends.test_insight_trends_basic.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
@@ -95,6 +99,8 @@
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-14 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -121,7 +127,7 @@
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
              AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
         GROUP BY date)
@@ -132,7 +138,8 @@
 # name: ClickhouseTestTrends.test_insight_trends_clean_arg.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
@@ -153,6 +160,8 @@
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
        AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -178,7 +187,7 @@
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
@@ -188,7 +197,8 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
@@ -204,9 +214,11 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
+       AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -277,7 +289,7 @@
                     HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
                  WHERE e.team_id = 2
                    AND event = '$pageview'
-                   AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
                    AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval']) )
               GROUP BY person_id,
@@ -295,7 +307,8 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.12
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
@@ -312,10 +325,12 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
+       AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
        AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -352,7 +367,7 @@
                  HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
               WHERE team_id = 2
                 AND event = '$pageview'
-                AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
+                AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
            GROUP BY person_id)
         GROUP BY date)
@@ -363,7 +378,8 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.3
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
@@ -379,9 +395,11 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
+       AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -437,7 +455,7 @@
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval'])
            GROUP BY day_start,
@@ -453,7 +471,8 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.6
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
@@ -470,10 +489,12 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
+       AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
        AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -505,8 +526,8 @@
                     AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', '')))
-             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON pdi.person_id = person.id
+        AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))
+             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = '$pageview'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
@@ -582,8 +603,8 @@
                                 AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))) )
                     GROUP BY id
                     HAVING max(is_deleted) = 0
-                    AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', '')))
-                         AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+                    AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))
+                         AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                  WHERE e.team_id = 2
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
@@ -597,7 +618,7 @@
                        breakdown_value
               ORDER BY d.timestamp)
            WHERE 11111 = 11111
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') ))
      GROUP BY day_start,
               breakdown_value
@@ -610,7 +631,8 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.9
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
@@ -637,14 +659,16 @@
                     AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND (((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))
-             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+        AND (((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))
+             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
      WHERE team_id = 2
        AND event = '$pageview'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
        AND (((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))) )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -678,7 +702,7 @@
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
@@ -750,7 +774,7 @@
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2011-12-31 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2011-12-31 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
@@ -786,7 +810,7 @@
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2012-01-02 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-02 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-16 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
@@ -815,7 +839,7 @@
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND (NOT has([''], "$group_0")) )
         GROUP BY date)
@@ -826,7 +850,8 @@
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT $group_0 AS actor_id
+  SELECT $group_0 AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e."$group_0" as "$group_0"
@@ -838,6 +863,8 @@
        AND (NOT has([''], "$group_0")
             AND NOT has([''], "$group_0")) )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -864,7 +891,7 @@
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
@@ -874,7 +901,8 @@
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_session.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e."$session_id" as "$session_id",
@@ -894,6 +922,8 @@
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '

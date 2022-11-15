@@ -12,10 +12,12 @@ from .api import (
     dashboard_collaborator,
     debug_ch_queries,
     explicit_team_member,
+    feature_flag_role_access,
     hooks,
     license,
     role,
     sentry_stats,
+    session_recording_playlist,
     subscription,
 )
 
@@ -43,6 +45,12 @@ def extend_api_router(
         "organization_role_memberships",
         ["organization_id", "role_id"],
     )
+    organizations_router.register(
+        r"feature_flag_role_access",
+        feature_flag_role_access.FeatureFlagRoleAccessViewSet,
+        "organization_feature_flag_role_access",
+        ["organization_id"],
+    )
     projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
     projects_router.register(
         r"explicit_members", explicit_team_member.ExplicitTeamMemberViewSet, "project_explicit_members", ["team_id"]
@@ -55,6 +63,12 @@ def extend_api_router(
     )
 
     projects_router.register(r"subscriptions", subscription.SubscriptionViewSet, "subscriptions", ["team_id"])
+    projects_router.register(
+        r"session_recording_playlists",
+        session_recording_playlist.SessionRecordingPlaylistViewSet,
+        "project_session_recording_playlists",
+        ["team_id"],
+    )
 
 
 urlpatterns: List[Any] = [
