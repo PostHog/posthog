@@ -141,7 +141,7 @@ export function InsightTooltip({
             const dataColumns: LemonTableColumn<InvertedSeriesDatum, keyof InvertedSeriesDatum | undefined>[] = []
             truncatedCols.forEach((seriesColumn, colIdx) => {
                 dataColumns.push({
-                    key: colIdx,
+                    key: colIdx.toString(),
                     className: 'datum-counts-column',
                     align: 'right',
                     title:
@@ -174,8 +174,8 @@ export function InsightTooltip({
             })
             dataColumns.sort(
                 (a, b) =>
-                    (truncatedCols[a.key as number]?.action?.order || 0) -
-                    (truncatedCols[b.key as number]?.action?.order || 0)
+                    (truncatedCols[parseInt(a.key as string)]?.action?.order || 0) -
+                    (truncatedCols[parseInt(b.key as string)]?.action?.order || 0)
             )
             columns.push(...dataColumns)
         }
