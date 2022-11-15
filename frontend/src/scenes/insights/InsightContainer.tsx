@@ -21,7 +21,6 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import clsx from 'clsx'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepsTable } from './views/Funnels/FunnelStepsTable'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -47,19 +46,21 @@ export function InsightContainer(
         disableTable,
         disableCorrelationTable,
         disableLastComputation,
+        insightMode,
     }: {
         disableHeader?: boolean
         disableTable?: boolean
         disableCorrelationTable?: boolean
         disableLastComputation?: boolean
+        insightMode: ItemMode
     } = {
         disableHeader: false,
         disableTable: false,
         disableCorrelationTable: false,
         disableLastComputation: false,
+        insightMode: ItemMode.View,
     }
 ): JSX.Element {
-    const { insightMode } = useValues(insightSceneLogic)
     const {
         insightProps,
         canEditInsight,
