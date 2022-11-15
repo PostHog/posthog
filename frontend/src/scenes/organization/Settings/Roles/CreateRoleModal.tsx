@@ -86,22 +86,26 @@ export function CreateRoleModal(): JSX.Element {
             {!isNewRole && (
                 <>
                     <h5 className="mt-4">Role Members</h5>
-                    <div
-                        className="mt-2 pb-2 rounded overflow-y-auto"
-                        style={{
-                            maxHeight: 300,
-                        }}
-                    >
-                        {roleMembersInFocus.map((member) => {
-                            return (
-                                <MemberRow
-                                    key={member.id}
-                                    member={member}
-                                    deleteMember={(roleMemberUuid) => deleteRoleMember({ roleMemberUuid })}
-                                />
-                            )
-                        })}
-                    </div>
+                    {roleMembersInFocus.length > 0 ? (
+                        <div
+                            className="mt-2 pb-2 rounded overflow-y-auto"
+                            style={{
+                                maxHeight: 300,
+                            }}
+                        >
+                            {roleMembersInFocus.map((member) => {
+                                return (
+                                    <MemberRow
+                                        key={member.id}
+                                        member={member}
+                                        deleteMember={(roleMemberUuid) => deleteRoleMember({ roleMemberUuid })}
+                                    />
+                                )
+                            })}
+                        </div>
+                    ) : (
+                        <div className="text-muted mb-2">No members added yet</div>
+                    )}
                 </>
             )}
         </LemonModal>

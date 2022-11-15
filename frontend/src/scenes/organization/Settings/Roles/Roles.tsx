@@ -1,6 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { Typography } from 'antd'
 import { useActions, useValues } from 'kea'
+import { More } from 'lib/components/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { RoleType } from '~/types'
 import { CreateRoleModal } from './CreateRoleModal'
@@ -8,7 +8,7 @@ import { rolesLogic } from './rolesLogic'
 
 export function Roles(): JSX.Element {
     const { roles, rolesLoading } = useValues(rolesLogic)
-    const { setRoleInFocus, openCreateRoleModal } = useActions(rolesLogic)
+    const { setRoleInFocus, openCreateRoleModal, deleteRole } = useActions(rolesLogic)
 
     const columns: LemonTableColumns<RoleType> = [
         {
@@ -17,14 +17,30 @@ export function Roles(): JSX.Element {
             dataIndex: 'name',
             render: function RoleNameRender(_, role) {
                 return (
-                    <Typography.Text
-                        className="row-name"
+                    <div
+                        className="row-name text-primary cursor-pointer"
                         onClick={() => {
                             setRoleInFocus(role)
                         }}
                     >
                         {role.name}
-                    </Typography.Text>
+                    </div>
+                )
+            },
+        },
+        {
+            key: 'actions',
+            width: 0,
+            sticky: true,
+            render: function renderActions(_, role) {
+                return (
+                    <More
+                        overlay={
+                            <LemonButton onClick={() => deleteRole(role)} status="danger">
+                                Delete
+                            </LemonButton>
+                        }
+                    />
                 )
             },
         },

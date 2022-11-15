@@ -49,7 +49,7 @@ export const rolesLogic = kea<rolesLogicType>([
                     const response = await api.roles.list()
                     return response?.results || []
                 },
-                createRole: async (roleName) => {
+                createRole: async (roleName: string) => {
                     const { roles, roleMembersToAdd } = values
                     const newRole = await api.roles.create(roleName)
                     await actions.addRoleMembers({ role: newRole, membersToAdd: roleMembersToAdd })
@@ -57,6 +57,10 @@ export const rolesLogic = kea<rolesLogicType>([
                     actions.setRoleMembersToAdd([])
                     actions.setCreateRoleModalShown(false)
                     return [newRole, ...roles]
+                },
+                deleteRole: async (role: RoleType) => {
+                    await api.roles.delete(role.id)
+                    return values.roles.filter((currRoles) => currRoles.id !== role.id)
                 },
             },
         ],
