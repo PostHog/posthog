@@ -40,27 +40,19 @@ const VIEW_MAP = {
     [`${InsightType.PATHS}`]: <Paths />,
 }
 
-export function InsightContainer(
-    {
-        disableHeader,
-        disableTable,
-        disableCorrelationTable,
-        disableLastComputation,
-        insightMode,
-    }: {
-        disableHeader?: boolean
-        disableTable?: boolean
-        disableCorrelationTable?: boolean
-        disableLastComputation?: boolean
-        insightMode: ItemMode
-    } = {
-        disableHeader: false,
-        disableTable: false,
-        disableCorrelationTable: false,
-        disableLastComputation: false,
-        insightMode: ItemMode.View,
-    }
-): JSX.Element {
+export function InsightContainer({
+    disableHeader,
+    disableTable,
+    disableCorrelationTable,
+    disableLastComputation,
+    insightMode,
+}: {
+    disableHeader?: boolean
+    disableTable?: boolean
+    disableCorrelationTable?: boolean
+    disableLastComputation?: boolean
+    insightMode?: ItemMode
+}): JSX.Element {
     const {
         insightProps,
         canEditInsight,
@@ -190,7 +182,7 @@ export function InsightContainer(
                     disableHeader ? null : (
                         <InsightDisplayConfig
                             activeView={activeView as InsightType}
-                            insightMode={insightMode}
+                            insightMode={insightMode || ItemMode.View}
                             filters={filters}
                             disableTable={!!disableTable}
                         />

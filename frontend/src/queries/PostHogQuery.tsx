@@ -25,7 +25,7 @@ export function LegacyInsightQuery({ query }: { query: LegacyQuery }): JSX.Eleme
     const insightProps: InsightLogicProps = { dashboardItemId: 'new', cachedInsight: { filters: query.filters } }
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            <InsightContainer insightMode={ItemMode.View} />
+            <InsightContainer insightMode={ItemMode.View} disableHeader disableTable disableCorrelationTable />
         </BindLogic>
     )
 }
@@ -34,7 +34,7 @@ export function SavedInsightQuery({ query }: { query: SavedInsightNode }): JSX.E
     const insightProps: InsightLogicProps = { dashboardItemId: query.shortId }
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            <InsightContainer insightMode={ItemMode.View} />
+            <InsightContainer insightMode={ItemMode.View} disableHeader disableTable disableCorrelationTable />
         </BindLogic>
     )
 }
