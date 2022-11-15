@@ -65,6 +65,7 @@ class License(models.Model):
         AvailableFeature.WHITE_LABELLING,
         AvailableFeature.SUBSCRIPTIONS,
         AvailableFeature.APP_METRICS,
+        AvailableFeature.RECORDINGS_PLAYLISTS,
     ]
 
     ENTERPRISE_PLAN = "enterprise"
