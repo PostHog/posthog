@@ -1,6 +1,6 @@
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { PostHogQuery, PostHogQueryProps } from '~/queries/PostHogQuery'
-import { EventsDataNode, LegacyQuery, Node, NodeType, SavedInsightNode } from '~/queries/nodes'
+import { EventsNode, LegacyQuery, Node, NodeType, SavedInsightNode } from '~/queries/nodes'
 import { InsightShortId, InsightType, PropertyOperator } from '~/types'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { useState } from 'react'
@@ -52,7 +52,7 @@ const savedInsight: SavedInsightNode = {
 export const SavedInsight = BasicTemplate.bind({})
 SavedInsight.args = { query: savedInsight }
 
-const eventsTable: EventsDataNode = {
+const eventsTable: EventsNode = {
     nodeType: NodeType.EventsNode,
     properties: [{ key: '$browser', value: 'Chrome', operator: PropertyOperator.Exact }],
 }

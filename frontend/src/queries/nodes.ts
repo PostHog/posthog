@@ -84,12 +84,15 @@ export interface InterfaceNode extends Node {
 // else show a table
 
 /** Query the events table with various filtered properties */
-export interface EventsDataNode extends DataNode {
+export interface EventsNode extends DataNode {
     nodeType: NodeType.EventsNode
     event?: string
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
 
     customName?: string
+}
+export function isEventsNode(node?: Node): node is EventsNode {
+    return node?.nodeType === NodeType.EventsNode
 }
 
 export interface ActionsDataNode extends DataNode {
@@ -99,7 +102,7 @@ export interface ActionsDataNode extends DataNode {
         name?: string
         description?: string
     }
-    steps?: EventsDataNode
+    steps?: EventsNode
 }
 
 export interface LegacyQuery extends DataNode {
@@ -130,7 +133,7 @@ interface InsightsQueryBase extends DataNode {
 
 export interface TrendsQuery extends InsightsQueryBase {
     nodeType: NodeType.TrendsQuery
-    steps?: (EventsDataNode | ActionsDataNode)[]
+    steps?: (EventsNode | ActionsDataNode)[]
     interval?: IntervalType
     breakdown?: BreakdownFilter
     trendsFilter?: TrendsFilterType // using everything except what it inherits from FilterType
@@ -138,7 +141,7 @@ export interface TrendsQuery extends InsightsQueryBase {
 
 export interface FunnelsQuery extends InsightsQueryBase {
     nodeType: NodeType.FunnelsQuery
-    steps?: (EventsDataNode | ActionsDataNode)[]
+    steps?: (EventsNode | ActionsDataNode)[]
     breakdown?: BreakdownFilter
     funnelsFilter?: FunnelsFilterType // using everything except what it inherits from FilterType
 }
@@ -157,7 +160,7 @@ export interface LifecycleQuery extends InsightsQueryBase {
 }
 export interface StickinessQuery extends InsightsQueryBase {
     nodeType: NodeType.StickinessQuery
-    steps?: (EventsDataNode | ActionsDataNode)[]
+    steps?: (EventsNode | ActionsDataNode)[]
     interval?: IntervalType
     stickinessFilter?: StickinessFilterType // using everything except what it inherits from FilterType
 }
@@ -171,6 +174,6 @@ export interface PersonsModalQuery extends InsightsQueryBase {
 }
 
 export interface EventsTable extends InterfaceNode {
-    events: EventsDataNode
+    events: EventsNode
     columns?: string[]
 }

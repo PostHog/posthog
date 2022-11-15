@@ -1,4 +1,4 @@
-import { isLegacyQuery, Node } from './nodes'
+import { isEventsNode, isLegacyQuery, Node } from './nodes'
 import api from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
 import {
@@ -39,7 +39,8 @@ export async function query(
         } else {
             throw new Error(`Cannot load insight of type ${filters.insight}`)
         }
+    } else if (isEventsNode(query)) {
+        return await api.events.list({ properties: query.properties })
     }
-
     return await api.create(`api/projects/${teamId}/query/`, { query }, abortSignal)
 }
