@@ -6,13 +6,20 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0278_organization_customer_id'),
+        ("posthog", "0278_organization_customer_id"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='organization',
-            name='feature_flags_access_level',
-            field=models.PositiveSmallIntegerField(choices=[(21, 'Can only view feature flags'), (37, 'Can always edit feature flags'), (25, 'Default view unless role grants access')], default=37),
+            model_name="organization",
+            name="feature_flags_access_level",
+            field=models.PositiveSmallIntegerField(
+                choices=[
+                    (21, "Can only view feature flags"),
+                    (37, "Can always edit feature flags"),
+                    (25, "Default view unless role grants access"),
+                ],
+                default=37,
+            ),
         ),
     ]
