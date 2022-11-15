@@ -71,13 +71,13 @@ class RoleViewSet(
 class RoleMembershipSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer(read_only=True)
     role_id = serializers.UUIDField(read_only=True)
+    user_uuid = serializers.UUIDField(required=True, write_only=True)
 
-    user_uuids = serializers.ListField(child=serializers.UUIDField(), required=True, write_only=True)
+    # user_uuids = serializers.ListField(child=serializers.UUIDField(), required=True, write_only=True)
 
     class Meta:
         model = RoleMembership
         fields = ["role_id", "user", "joined_at", "updated_at", "user_uuid"]
-        user_uuid = serializers.UUIDField(required=True, write_only=True)
 
         read_only_fields = ["id", "role_id", "user"]
 
