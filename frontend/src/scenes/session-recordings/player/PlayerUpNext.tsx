@@ -57,7 +57,6 @@ export function PlayerUpNext({
             }
 
             setAnimate(true)
-
             clearInterrupted?.()
             timeoutRef.current = setTimeout(() => {
                 goToRecording(true)
