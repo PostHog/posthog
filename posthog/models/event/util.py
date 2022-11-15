@@ -176,10 +176,11 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
                 person_created_at = datetime64_default_timestamp
 
         event = {
-            **event,
-            "person_properties": {**person_properties, **event.get("person_properties", {})},
             "person_id": person_id,
+            "person_properties": {**person_properties, **event.get("person_properties", {})},
             "person_created_at": person_created_at,
+            # NOTE: we put this last allowing us to override all properties
+            **event,
         }
 
         # Populate group properties as well

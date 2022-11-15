@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from unittest import mock
 from unittest.mock import patch
 from urllib.parse import unquote, urlencode
 
@@ -150,6 +151,71 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/?person_id={person.uuid}").json()
         self.assertEqual(len(response["results"]), 2)
+
+    @mock.patch("posthog.models.team.Team.actor_on_events_querying_enabled", return_value=True)
+    def test_filter_by_person_for_person_on_events_enabled(self, mock_actor_on_events_querying_enabled):
+        """
+        Check the difference in functionality between
+        actor_on_events_querying_enabled and not. The key difference is that,
+        for a user that performs these events:
+
+            1. navigates to website
+            2. signs up
+            3. navigates to website again on a different device
+            4. logs in
+
+        The events from part 3 will not be associated with the events from the
+        other steps, despite there potentially being a route via distinct_ids.
+        """
+        initial_person = _create_person(
+            properties={"email": "tim@posthog.com"},
+            # We specify all of this, to simulate the case where every event
+            # points to this person via distinct_ids
+            distinct_ids=["initially-anonymous", "signed-up", "anonymous-again", "logged-in"],
+            team=self.team,
+            immediate=True,
+        )
+
+        _create_event(
+            event="initially-anonymous",
+            team=self.team,
+            distinct_id="initially-anonymous",
+        )
+        _create_event(event="signed-up", team=self.team, distinct_id="signed-up")
+        flush_persons_and_events()
+
+        # We create another person, to simulate the case where the user
+        # navigates to the website on a different device.
+        anonymous_then_initial_person = _create_person(
+            properties={"email": "tim@posthog.com"},
+            # Fudge: without doing some work to make the _create_* functions
+            # handle being able to update distinct ids, we just use a dummy
+            # distinct id here. The important thing is that the initial_person
+            # is pointed to by all distinct ids.
+            distinct_ids=["unused distinct id"],
+            team=self.team,
+            immediate=True,
+        )
+
+        _create_event(
+            event="anonymous-again",
+            team=self.team,
+            # This is the important bit, we need to make sure this event points
+            # to the other user, event though the distinct id points to the `initial_person`
+            person_id=anonymous_then_initial_person.uuid,
+            distinct_id="anonymous-again",
+        )
+        _create_event(event="logged-in", team=self.team, distinct_id="logged-in")
+
+        flush_persons_and_events()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?person_id={initial_person.uuid}").json()
+        self.assertEqual(len(response["results"]), 3)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/events/?person_id={anonymous_then_initial_person.uuid}"
+        ).json()
+        self.assertEqual(len(response["results"]), 1)
 
     def test_filter_by_nonexisting_person(self):
         response = self.client.get(f"/api/projects/{self.team.id}/events/?person_id=5555555555")
