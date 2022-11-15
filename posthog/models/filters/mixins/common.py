@@ -16,6 +16,7 @@ from posthog.constants import (
     BREAKDOWN_GROUP_TYPE_INDEX,
     BREAKDOWN_HISTOGRAM_BIN_COUNT,
     BREAKDOWN_LIMIT,
+    BREAKDOWN_NORMALIZE_URL,
     BREAKDOWN_TYPE,
     BREAKDOWN_VALUE,
     BREAKDOWN_VALUES_LIMIT,
@@ -220,6 +221,8 @@ class BreakdownMixin(BaseParamMixin):
             result[BREAKDOWN_ATTRIBUTION_VALUE] = self.breakdown_attribution_value
         if self.breakdown_histogram_bin_count is not None:
             result[BREAKDOWN_HISTOGRAM_BIN_COUNT] = self.breakdown_histogram_bin_count
+        if self.breakdown_normalize_url is not None:
+            result[BREAKDOWN_NORMALIZE_URL] = self.breakdown_normalize_url
         return result
 
     @cached_property
