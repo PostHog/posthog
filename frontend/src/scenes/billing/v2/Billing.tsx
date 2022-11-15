@@ -70,6 +70,11 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
 
     return (
         <div ref={ref}>
+            {billing?.free_trial_until ? (
+                <AlertMessage type="success" className="mb-2">
+                    You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
+                </AlertMessage>
+            ) : null}
             {!billing && !billingLoading ? (
                 <div className="space-y-4">
                     <AlertMessage type="error">

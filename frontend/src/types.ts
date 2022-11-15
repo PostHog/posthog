@@ -866,6 +866,7 @@ export interface BillingProductV2Type {
 export interface BillingV2Type {
     customer_id: string
     has_active_subscription: boolean
+    free_trial_until?: Dayjs
     stripe_portal_url?: string
     deactivated?: boolean
     current_total_amount_usd?: string

@@ -22,7 +22,6 @@ export function ShareRecording(props: PlayerShareLogicProps): JSX.Element {
             </p>
             <LemonButton
                 type="secondary"
-                status="primary-alt"
                 fullWidth
                 center
                 sideIcon={<IconCopy />}
@@ -57,5 +56,9 @@ export function openPlayerShareDialog({ seconds, id }: PlayerShareLogicProps): v
         title: 'Share recording',
         content: <ShareRecording seconds={seconds} id={id} />,
         width: 600,
+        primaryButton: {
+            children: 'Close',
+            type: 'secondary',
+        },
     })
 }

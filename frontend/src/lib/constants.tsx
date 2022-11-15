@@ -123,7 +123,6 @@ export const FEATURE_FLAGS = {
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @tiina303
     HOG_BOOK: 'hog-book', // owner: @pauldambra
     EVENT_COUNT_PER_ACTOR: 'event-count-per-actor', // owner: @Twixes
-    TEXT_CARDS: 'text-cards', // owner: @pauldambra
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
     FEEDBACK_BUTTON: 'feedback-button', // owner: @luke
     RECORDINGS_ON_FEATURE_FLAGS: 'recordings-on-feature-flags', // owner: @EDsCODE
@@ -133,6 +132,7 @@ export const FEATURE_FLAGS = {
     VARIANT_OVERRIDES: 'variant-overrides', // owner: @neilkakkar
     RECORDING_PLAYLISTS: 'recording-playlists', // owner: #team-recordings
     ONBOARDING_V2_EXPERIMENT: 'onboarding-v2-experiment', // owner: #team-growth
+    SIGNUP_FORM_EXPERIMENT: 'signup-form-experiment', // owner: #team-growth
     DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra
 }
 
