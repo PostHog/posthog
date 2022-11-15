@@ -1704,6 +1704,11 @@ export type HotKeys =
     | 'z'
     | 'escape'
     | 'enter'
+    | ' '
+    | 'arrowleft'
+    | 'arrowright'
+    | 'arrowdown'
+    | 'arrowup'
 
 export interface LicenseType {
     id: number
@@ -2222,15 +2227,6 @@ export interface ExportedAssetType {
 export enum YesOrNoResponse {
     Yes = 'yes',
     No = 'no',
-}
-
-export interface SessionRecordingPlayerProps {
-    sessionRecordingId: SessionRecordingId
-    playerKey: string
-    includeMeta?: boolean
-    recordingStartTime?: string
-    matching?: MatchedRecording[]
-    noBorder?: boolean
 }
 
 export enum FeatureFlagReleaseType {

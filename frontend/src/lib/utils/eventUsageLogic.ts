@@ -382,6 +382,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingViewedSummary: (recordingViewedSummary: RecordingViewedSummaryAnalytics) => ({
             recordingViewedSummary,
         }),
+        reportNextRecordingTriggered: (automatic: boolean) => ({
+            automatic,
+        }),
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
@@ -962,6 +965,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportRecordingViewedSummary: ({ recordingViewedSummary }) => {
             posthog.capture('recording viewed summary', { ...recordingViewedSummary })
+        },
+        reportNextRecordingTriggered: ({ automatic }) => {
+            posthog.capture('recording next recording triggered', { automatic })
         },
         reportExperimentArchived: ({ experiment }) => {
             posthog.capture('experiment archived', {

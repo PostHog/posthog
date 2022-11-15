@@ -8,7 +8,6 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { percentage } from 'lib/utils'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { SessionRecordingPlayerProps } from '~/types'
 import clsx from 'clsx'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { LemonButton, Link } from '@posthog/lemon-ui'
@@ -19,10 +18,18 @@ import { CSSTransition } from 'react-transition-group'
 import { Tooltip } from 'lib/components/Tooltip'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
 
-export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
-    const { sessionPerson, resolution, lastPageviewEvent, scale, currentWindowIndex, recordingStartTime, loading } =
-        useValues(playerMetaLogic({ sessionRecordingId, playerKey }))
+export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
+    const {
+        sessionPerson,
+        resolution,
+        lastPageviewEvent,
+        scale,
+        currentWindowIndex,
+        recordingStartTime,
+        sessionPlayerMetaDataLoading,
+    } = useValues(playerMetaLogic({ sessionRecordingId, playerKey }))
 
     const { isFullScreen, isMetadataExpanded } = useValues(playerSettingsLogic)
     const { setIsMetadataExpanded } = useActions(playerSettingsLogic)
@@ -86,7 +93,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                         )}
                     </div>
                     <div className="text-muted">
-                        {loading ? (
+                        {sessionPlayerMetaDataLoading ? (
                             <LemonSkeleton className="w-1/4 my-1" />
                         ) : iconProperties ? (
                             <div className="flex flex-row flex-nowrap shrink-0 gap-2 text-muted-alt">
@@ -164,7 +171,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                     'p-1 px-3 text-xs h-12': isFullScreen,
                 })}
             >
-                {loading || currentWindowIndex === -1 ? (
+                {sessionPlayerMetaDataLoading || currentWindowIndex === -1 ? (
                     <LemonSkeleton className="w-1/3 my-1" />
                 ) : (
                     <>
@@ -196,7 +203,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                     </>
                 )}
                 <div className={clsx('flex-1', isSmallPlayer ? 'min-w-4' : 'min-w-20')} />
-                {loading ? (
+                {sessionPlayerMetaDataLoading ? (
                     <LemonSkeleton className="w-1/3" />
                 ) : (
                     <span className="text-muted-alt">
