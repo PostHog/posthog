@@ -1,4 +1,4 @@
-import { isLegacyQuery, Node } from '~/nodes'
+import { isLegacyQuery, Node } from './nodes'
 import api from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
 import {

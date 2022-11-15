@@ -51,7 +51,7 @@ import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { insightsModel } from '~/models/insightsModel'
 import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { loaders } from 'kea-loaders'
-import { LegacyQuery, NodeCategory, NodeType } from '~/nodes'
+import { LegacyQuery, NodeCategory, NodeType } from '~/queries/nodes'
 import { query } from '~/queries/query'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
