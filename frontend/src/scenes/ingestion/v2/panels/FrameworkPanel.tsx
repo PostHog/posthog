@@ -1,14 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { CardContainer } from 'scenes/ingestion/v2/CardContainer'
-import { ingestionLogic } from '../ingestionLogic'
+import { ingestionLogicV2 } from '../ingestionLogic'
 import { API, mobileFrameworks, BACKEND, webFrameworks } from 'scenes/ingestion/v2/constants'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
 import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
 
 export function FrameworkPanel(): JSX.Element {
-    const { setFramework } = useActions(ingestionLogic)
-    const { platform } = useValues(ingestionLogic)
+    const { setFramework } = useActions(ingestionLogicV2)
+    const { platform } = useValues(ingestionLogicV2)
     const frameworks = platform === BACKEND ? webFrameworks : mobileFrameworks
 
     return (
