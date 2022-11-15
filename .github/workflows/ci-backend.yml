@@ -60,6 +60,7 @@ jobs:
                         # code completely
                         - 'ee/**/*'
                         - 'posthog/**/*'
+                        - .flake8
                         - requirements.txt
                         - requirements-dev.txt
                         - mypy.ini
