@@ -199,6 +199,7 @@ export function SessionRecordingsPlaylist({
         hasNext,
         hasPrev,
         activeSessionRecording,
+        nextSessionRecording,
         filters,
         totalFiltersCount,
         showFilters,
@@ -400,6 +401,7 @@ export function SessionRecordingsPlaylist({
                             sessionRecordingId={activeSessionRecording?.id}
                             matching={activeSessionRecording?.matching_events}
                             recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
+                            nextSessionRecording={nextSessionRecording}
                         />
                     ) : (
                         <div className="mt-20">

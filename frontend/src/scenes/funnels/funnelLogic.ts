@@ -34,6 +34,7 @@ import {
     StepOrderValue,
     TeamType,
     TrendResult,
+    FunnelsFilterType,
 } from '~/types'
 import { BIN_COUNT_AUTO, FunnelLayout } from 'lib/constants'
 
@@ -53,6 +54,7 @@ import {
 } from './funnelUtils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { teamLogic } from '../teamLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
@@ -111,7 +113,7 @@ export const funnelLogic = kea<funnelLogicType>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters', 'insight', 'insightLoading', 'isInDashboardContext', 'hiddenLegendKeys'],
+            ['filters as inflightFilters', 'insight', 'insightLoading', 'isInDashboardContext', 'hiddenLegendKeys'],
             teamLogic,
             ['currentTeamId', 'currentTeam'],
             personPropertiesModel,
@@ -129,7 +131,11 @@ export const funnelLogic = kea<funnelLogicType>({
 
     actions: () => ({
         clearFunnel: true,
-        setFilters: (filters: Partial<FilterType>, refresh: boolean = false, mergeWithExisting: boolean = true) => ({
+        setFilters: (
+            filters: Partial<FunnelsFilterType>,
+            refresh: boolean = false,
+            mergeWithExisting: boolean = true
+        ) => ({
             filters,
             refresh,
             mergeWithExisting,
@@ -448,7 +454,15 @@ export const funnelLogic = kea<funnelLogicType>({
     }),
 
     selectors: ({ selectors }) => ({
-        loadedFilters: [(s) => [s.insight], ({ filters }) => (filters?.insight === InsightType.FUNNELS ? filters : {})],
+        filters: [
+            (s) => [s.inflightFilters],
+            (inflightFilters): Partial<FunnelsFilterType> =>
+                inflightFilters && isFunnelsFilter(inflightFilters) ? inflightFilters : {},
+        ],
+        loadedFilters: [
+            (s) => [s.insight],
+            ({ filters }): Partial<FunnelsFilterType> => (filters && isFunnelsFilter(filters) ? filters : {}),
+        ],
         stepReference: [
             (s) => [s.filters],
             ({ funnel_step_reference }) => funnel_step_reference || FunnelStepReference.total,
@@ -490,8 +504,8 @@ export const funnelLogic = kea<funnelLogicType>({
                     : null
             },
         ],
-        isStepsEmpty: [() => [selectors.filters], (filters: FilterType) => isStepsEmpty(filters)],
-        propertiesForUrl: [() => [selectors.filters], (filters: FilterType) => cleanFilters(filters)],
+        isStepsEmpty: [() => [selectors.filters], (filters: FunnelsFilterType) => isStepsEmpty(filters)],
+        propertiesForUrl: [() => [selectors.filters], (filters: FunnelsFilterType) => cleanFilters(filters)],
         isValidFunnel: [
             () => [selectors.filters, selectors.steps, selectors.histogramGraphData],
             (filters, steps, histogramGraphData) => {
@@ -604,7 +618,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     b) dashboard ID passed as a filter in certain kind of insights when viewing in the dashboard page
                 */
                 const { from_dashboard } = filters
-                const cleanedParams = cleanFilters(filters)
+                const cleanedParams: Partial<FunnelsFilterType> = cleanFilters(filters)
                 return {
                     ...(from_dashboard ? { from_dashboard } : {}),
                     ...cleanedParams,
@@ -623,7 +637,11 @@ export const funnelLogic = kea<funnelLogicType>({
         interval: [() => [selectors.apiParams], (apiParams) => apiParams.interval || ''],
         steps: [
             (s) => [s.filters, s.results, s.apiParams],
-            (filters: Partial<FilterType>, results: FunnelAPIResponse, apiParams): FunnelStepWithNestedBreakdown[] => {
+            (
+                filters: Partial<FunnelsFilterType>,
+                results: FunnelAPIResponse,
+                apiParams
+            ): FunnelStepWithNestedBreakdown[] => {
                 const stepResults =
                     filters.funnel_viz_type !== FunnelVizType.TimeToConvert
                         ? (results as FunnelStep[] | FunnelStep[][])
@@ -893,7 +911,7 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         exclusionFilters: [
             () => [selectors.filters],
-            (filters: FilterType): FilterType => ({
+            (filters): FilterType => ({
                 events: filters.exclusions,
             }),
         ],
@@ -1150,7 +1168,7 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         advancedOptionsUsedCount: [
             (s) => [s.filters, s.stepReference],
-            (filters: FilterType, stepReference: FunnelStepReference): number => {
+            (filters, stepReference): number => {
                 let count = 0
                 if (filters.funnel_order_type && filters.funnel_order_type !== StepOrderValue.ORDERED) {
                     count = count + 1

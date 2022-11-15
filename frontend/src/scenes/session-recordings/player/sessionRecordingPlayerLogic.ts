@@ -1,15 +1,14 @@
-import { KeyboardEvent } from 'react'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
-import * as Sentry from '@sentry/react'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
+    MatchedRecording,
     PlayerPosition,
     RecordingSegment,
     SessionPlayerState,
-    SessionRecordingPlayerProps,
+    SessionRecordingId,
     SessionRecordingType,
 } from '~/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
@@ -27,13 +26,17 @@ import { fromParamsGivenUrl } from 'lib/utils'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
+export const NEXT_UP_ENDING_MS = 10000
 
 export interface Player {
     replayer: Replayer
     windowId: string
 }
 
-export interface SessionRecordingPlayerLogicProps extends SessionRecordingPlayerProps {
+export interface SessionRecordingPlayerLogicProps {
+    sessionRecordingId: SessionRecordingId
+    playerKey: string
+    matching?: MatchedRecording[]
     recordingStartTime?: string
 }
 
@@ -42,13 +45,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     props({} as SessionRecordingPlayerLogicProps),
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect(({ sessionRecordingId, playerKey, recordingStartTime }: SessionRecordingPlayerLogicProps) => ({
-        logic: [eventUsageLogic],
         values: [
             sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }),
             [
                 'sessionRecordingId',
                 'sessionPlayerData',
                 'sessionPlayerSnapshotDataLoading',
+                'sessionPlayerMetaDataLoading',
                 'loadMetaTimeMs',
                 'loadFirstSnapshotTimeMs',
                 'loadAllSnapshotsTimeMs',
@@ -65,6 +68,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['setTab'],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting', 'setIsFullScreen'],
+            eventUsageLogic,
+            [
+                'reportNextRecordingTriggered',
+                'reportRecordingPlayerSkipInactivityToggled',
+                'reportRecordingPlayerSpeedChanged',
+                'reportRecordingViewedSummary',
+            ],
         ],
     })),
     propsChanged(({ actions, props: { matching } }, { matching: oldMatching }) => {
@@ -78,6 +88,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setPlayer: (player: Player | null) => ({ player }),
         setPlay: true,
         setPause: true,
+        setEndReached: (reached: boolean = true) => ({ reached }),
         startBuffer: true,
         endBuffer: true,
         startScrub: true,
@@ -98,10 +109,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setRootFrame: (frame: HTMLDivElement) => ({ frame }),
         checkBufferingCompleted: true,
         initializePlayerFromStart: true,
-        handleKeyDown: (event: KeyboardEvent<HTMLDivElement>) => ({ event }),
         incrementErrorCount: true,
         incrementWarningCount: true,
         setMatching: (matching: SessionRecordingType['matching_events']) => ({ matching }),
+        updateFromMetadata: true,
     }),
     reducers(({ props }) => ({
         rootFrame: [
@@ -145,12 +156,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         isBuffering: [true, { startBuffer: () => true, endBuffer: () => false }],
         isErrored: [false, { setErrorPlayerState: (_, { show }) => show }],
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
+
         errorCount: [0, { incrementErrorCount: (prevErrorCount, {}) => prevErrorCount + 1 }],
         warningCount: [0, { incrementWarningCount: (prevWarningCount, {}) => prevWarningCount + 1 }],
         matching: [
             props.matching ?? ([] as SessionRecordingType['matching_events']),
             {
                 setMatching: (_, { matching }) => matching,
+            },
+        ],
+        endReached: [
+            false,
+            {
+                setEndReached: (_, { reached }) => reached,
+                tryInitReplayer: () => false,
             },
         ],
     })),
@@ -247,7 +266,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.seek(values.currentPlayerPosition)
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
-            eventUsageLogic.actions.reportRecordingPlayerSkipInactivityToggled(skipInactivitySetting)
+            actions.reportRecordingPlayerSkipInactivityToggled(skipInactivitySetting)
             if (!values.currentSegment?.isActive && skipInactivitySetting) {
                 actions.setSkippingInactivity(true)
             } else {
@@ -310,15 +329,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             }
         },
-        loadRecordingMetaSuccess: async (_, breakpoint) => {
-            // Once the recording metadata is loaded, we set the player to the
-            // beginning and then try to play the recording
-            actions.initializePlayerFromStart()
-            actions.checkBufferingCompleted()
-            breakpoint()
-        },
-
-        loadRecordingSnapshotsSuccess: async (_, breakpoint) => {
+        updateFromMetadata: async (_, breakpoint) => {
             // On loading more of the recording, trigger some state changes
             const currentEvents = values.player?.replayer?.service.state.context.events ?? []
             const eventsToAdd = []
@@ -341,6 +352,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.checkBufferingCompleted()
             breakpoint()
         },
+        loadRecordingMetaSuccess: async () => {
+            // As the connected data logic may be preloaded we call a shared function here and on mount
+            actions.updateFromMetadata()
+        },
+
+        loadRecordingSnapshotsSuccess: async () => {
+            // As the connected data logic may be preloaded we call a shared function here and on mount
+            actions.updateFromMetadata()
+        },
 
         loadRecordingSnapshotsFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
@@ -353,12 +373,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // Use the start of the current segment if there is no currentPlayerPosition
             // (theoretically, should never happen, but Typescript doesn't know that)
+
             let nextPlayerPosition = values.currentPlayerPosition || values.currentSegment?.startPlayerPosition
 
-            if (values.currentSegment === values.sessionPlayerData.metadata.segments.slice(-1)[0]) {
-                // If we're at the end of the recording, go back to the beginning
+            if (values.endReached) {
                 nextPlayerPosition = values.sessionPlayerData.metadata.segments[0].startPlayerPosition
             }
+
+            actions.setEndReached(false)
+
             if (nextPlayerPosition) {
                 actions.seek(nextPlayerPosition, true)
             }
@@ -367,6 +390,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.stopAnimation()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
             values.player?.replayer?.pause()
+        },
+        setEndReached: ({ reached }) => {
+            if (reached) {
+                actions.setPause()
+            }
         },
         startBuffer: () => {
             actions.stopAnimation()
@@ -380,7 +408,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.stopAnimation()
         },
         setSpeed: ({ speed }) => {
-            eventUsageLogic.actions.reportRecordingPlayerSpeedChanged(speed)
+            actions.reportRecordingPlayerSpeedChanged(speed)
             actions.syncPlayerSpeed()
         },
         seek: async ({ playerPosition, forcePlay }, breakpoint) => {
@@ -465,7 +493,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 )
                 if (!nextPlayerPosition) {
                     // At the end of the recording. Pause the player and set to the end of the recording
-                    actions.setPause()
+                    actions.setEndReached()
                     nextPlayerPosition = values.sessionPlayerData.metadata.segments.slice(-1)[0].endPlayerPosition
                 }
                 actions.seek(nextPlayerPosition)
@@ -475,6 +503,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (!values.currentPlayerPosition) {
                 return
             }
+
+            actions.setEndReached(false)
 
             const currentPlayerTime = getPlayerTimeFromPlayerPosition(
                 values.currentPlayerPosition,
@@ -535,7 +565,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.setCurrentSegment(nextSegment)
                 } else {
                     // At the end of the recording. Pause the player and set fully to the end
-                    actions.setPause()
+                    actions.setEndReached()
                 }
             }
             // If next position tries to access snapshot that is not loaded, show error state
@@ -582,32 +612,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 cancelAnimationFrame(cache.timer)
             }
         },
-        handleKeyDown: ({ event }) => {
-            // Don't trigger keydown evens if in input box
-            if ((event.target as HTMLInputElement)?.matches('input')) {
-                return
-            }
-            if (event.key === ' ') {
-                actions.togglePlayPause()
-                event.preventDefault()
-            } else if (event.key === 'ArrowLeft') {
-                // If alt key is pressed we pause the video as otherwise moving by one frame makes no sense
-                event.altKey && actions.setPause()
-                actions.seekBackward(event.altKey ? ONE_FRAME_MS : undefined)
-                event.preventDefault()
-            } else if (event.key === 'ArrowRight') {
-                event.altKey && actions.setPause()
-                actions.seekForward(event.altKey ? ONE_FRAME_MS : undefined)
-                event.preventDefault()
-            } else {
-                // Playback speeds shortcuts
-                for (let i = 0; i < PLAYBACK_SPEEDS.length; i++) {
-                    if (event.key === (i + 1).toString()) {
-                        actions.setSpeed(PLAYBACK_SPEEDS[i])
-                    }
-                }
-            }
-        },
     })),
     windowValues({
         isSmallScreen: (window: any) => window.innerWidth < getBreakpoint('md'),
@@ -622,7 +626,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (cache.errorHandler) {
                 window.removeEventListener('error', cache.errorHandler)
             }
-            eventUsageLogic.actions.reportRecordingViewedSummary({
+            actions.reportRecordingViewedSummary({
                 viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
                 recording_duration_ms: values.sessionPlayerData?.metadata
                     ? values.sessionPlayerData.metadata.recordingDurationMs
@@ -646,10 +650,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             })
         },
         afterMount: () => {
+            if (!values.sessionPlayerSnapshotDataLoading || !values.sessionPlayerMetaDataLoading) {
+                // If either value is not loading that indicates we have already loaded and should trigger it
+                actions.updateFromMetadata()
+            }
+
             cache.openTime = performance.now()
 
-            cache.errorHandler = (error: ErrorEvent) => {
-                Sentry.captureException(error)
+            cache.errorHandler = () => {
                 actions.incrementErrorCount()
             }
             window.addEventListener('error', cache.errorHandler)

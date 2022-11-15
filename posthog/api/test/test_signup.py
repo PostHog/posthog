@@ -42,6 +42,7 @@ class TestSignupAPI(APIBaseTest):
                 "email": "hedgehog@posthog.com",
                 "password": "notsecure",
                 "organization_name": "Hedgehogs United, LLC",
+                "role_at_organization": "product",
                 "email_opt_in": False,
             },
         )
