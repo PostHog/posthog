@@ -172,7 +172,6 @@ export function InsightTooltip({
                     },
                 })
             })
-            console.log(truncatedCols)
             dataColumns.sort(
                 (a, b) =>
                     (truncatedCols[a.key as number]?.action?.order || 0) -
