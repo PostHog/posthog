@@ -26,7 +26,9 @@ const BasicTemplate: ComponentStory<typeof PostHogQuery> = (props: PostHogQueryP
 
     return (
         <div className="p-2 space-y-2 flex flex-col border">
+            <strong>Query:</strong>
             <LemonTextArea value={queryString} onChange={(v) => setQueryString(v)} />
+            <strong>Response:</strong>
             {JSONQuery ? (
                 <PostHogQuery query={JSONQuery} />
             ) : (
