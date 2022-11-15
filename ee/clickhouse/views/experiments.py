@@ -117,9 +117,16 @@ class ExperimentSerializer(serializers.ModelSerializer):
         has_start_date = validated_data.get("start_date") is not None
         feature_flag = instance.feature_flag
 
-        expected_keys = set(
-            ["name", "description", "start_date", "end_date", "filters", "parameters", "archived", "secondary_metrics"]
-        )
+        expected_keys = {
+            "name",
+            "description",
+            "start_date",
+            "end_date",
+            "filters",
+            "parameters",
+            "archived",
+            "secondary_metrics",
+        }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys
 

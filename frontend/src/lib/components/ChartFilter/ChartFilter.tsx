@@ -15,6 +15,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { Tooltip } from '../Tooltip'
 import { LemonTag } from '../LemonTag/LemonTag'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { isRetentionFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 interface ChartFilterProps {
     filters: FilterType
@@ -27,27 +28,22 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     const { chartFilter } = useValues(chartFilterLogic(insightProps))
     const { setChartFilter } = useActions(chartFilterLogic(insightProps))
 
-    const cumulativeDisabled = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
-    const pieDisabled: boolean = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
+    const cumulativeDisabled = isStickinessFilter(filters) || isRetentionFilter(filters)
+    const pieDisabled: boolean = isStickinessFilter(filters) || isRetentionFilter(filters)
     const worldMapDisabled: boolean =
-        filters.insight === InsightType.STICKINESS ||
-        (filters.insight === InsightType.RETENTION &&
+        isStickinessFilter(filters) ||
+        (isRetentionFilter(filters) &&
             !!filters.breakdown &&
             filters.breakdown !== '$geoip_country_code' &&
             filters.breakdown !== '$geoip_country_name') ||
         !isSingleSeries || // World map only works with one series
-        !!filters.formula // Breakdowns currently don't work with formulas
-    const boldNumberDisabled: boolean =
-        filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION || !isSingleSeries // Bold number only works with one series
-    const barDisabled: boolean = filters.insight === InsightType.RETENTION
-    const barValueDisabled: boolean =
-        barDisabled || filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
-    const defaultDisplay: ChartDisplayType =
-        filters.insight === InsightType.RETENTION
-            ? ChartDisplayType.ActionsTable
-            : filters.insight === InsightType.FUNNELS
-            ? ChartDisplayType.FunnelViz
-            : ChartDisplayType.ActionsLineGraph
+        (isTrendsFilter(filters) && !!filters.formula) // Breakdowns currently don't work with formulas
+    const boldNumberDisabled: boolean = isStickinessFilter(filters) || isRetentionFilter(filters) || !isSingleSeries // Bold number only works with one series
+    const barDisabled: boolean = isRetentionFilter(filters)
+    const barValueDisabled: boolean = barDisabled || isStickinessFilter(filters) || isRetentionFilter(filters)
+    const defaultDisplay: ChartDisplayType = isRetentionFilter(filters)
+        ? ChartDisplayType.ActionsTable
+        : ChartDisplayType.ActionsLineGraph
 
     function Label({
         icon,
@@ -158,7 +154,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     return (
         <LemonSelect
             key="2"
-            value={chartFilter || defaultDisplay || filters.display}
+            value={chartFilter || defaultDisplay}
             onChange={(value) => {
                 setChartFilter(value as ChartDisplayType | FunnelVizType)
                 onChange?.(value as ChartDisplayType | FunnelVizType)

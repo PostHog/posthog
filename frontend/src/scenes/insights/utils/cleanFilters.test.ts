@@ -1,5 +1,5 @@
 import { cleanFilters } from './cleanFilters'
-import { FilterType, FunnelStepReference, FunnelVizType, InsightType } from '~/types'
+import { FilterType, FunnelsFilterType, FunnelStepReference, FunnelVizType, InsightType } from '~/types'
 import { FEATURE_FLAGS, ShownAsValue } from 'lib/constants'
 
 describe('cleanFilters', () => {
@@ -18,8 +18,12 @@ describe('cleanFilters', () => {
                 breakdowns: [{ property: '$browser', type: 'event' }],
                 insight: InsightType.FUNNELS,
                 funnel_viz_type: FunnelVizType.Steps,
-            },
-            { breakdown: '$browser', insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps }
+            } as FunnelsFilterType,
+            {
+                breakdown: '$browser',
+                insight: InsightType.FUNNELS,
+                funnel_viz_type: FunnelVizType.Steps,
+            } as FunnelsFilterType
         )
 
         expect(cleanedFilters).toHaveProperty('breakdown', undefined)
@@ -36,8 +40,8 @@ describe('cleanFilters', () => {
                 breakdown_type: 'event',
                 insight: InsightType.FUNNELS,
                 funnel_viz_type: FunnelVizType.Steps,
-            },
-            { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps }
+            } as FunnelsFilterType,
+            { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps } as FunnelsFilterType
         )
 
         expect(cleanedFilters).toHaveProperty('breakdown', '$thing')
@@ -51,8 +55,8 @@ describe('cleanFilters', () => {
                 breakdown_type: 'event',
                 insight: InsightType.FUNNELS,
                 funnel_viz_type: FunnelVizType.Steps,
-            },
-            { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps }
+            } as FunnelsFilterType,
+            { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps } as FunnelsFilterType
         )
 
         expect(cleanedFilters).toHaveProperty('breakdowns', [{ property: '$browser', type: 'event' }])
@@ -94,13 +98,13 @@ describe('cleanFilters', () => {
                 breakdowns: [],
                 insight: InsightType.FUNNELS,
                 funnel_viz_type: FunnelVizType.Steps,
-            },
+            } as FunnelsFilterType,
             {
                 breakdowns: [{ property: 'something', type: 'event' }],
                 breakdown_type: 'event',
                 insight: InsightType.FUNNELS,
                 funnel_viz_type: FunnelVizType.Steps,
-            }
+            } as FunnelsFilterType
         )
 
         expect(cleanedFilters).toHaveProperty('breakdowns', undefined)
@@ -117,13 +121,13 @@ describe('cleanFilters', () => {
                 breakdown_group_type_index: 1,
                 insight: InsightType.FUNNELS,
                 funnel_viz_type: FunnelVizType.Trends,
-            },
+            } as FunnelsFilterType,
             {
                 breakdowns: [{ property: 'something', type: 'event' }],
                 breakdown_type: 'event',
                 insight: InsightType.FUNNELS,
                 funnel_viz_type: FunnelVizType.Steps,
-            }
+            } as FunnelsFilterType
         )
 
         expect(cleanedFilters).toHaveProperty('breakdowns', undefined)
@@ -144,7 +148,7 @@ describe('cleanFilters', () => {
                 breakdown_type: 'event',
                 insight: InsightType.FUNNELS,
                 funnel_viz_type: FunnelVizType.Steps,
-            }
+            } as FunnelsFilterType
         )
 
         expect(cleanedFilters).toHaveProperty('breakdowns', undefined)
@@ -160,7 +164,7 @@ describe('cleanFilters', () => {
                 breakdown_type: 'event',
                 insight: InsightType.FUNNELS,
                 funnel_viz_type: FunnelVizType.Steps,
-            },
+            } as FunnelsFilterType,
             {
                 breakdown: 'one thing',
                 breakdown_type: 'event',

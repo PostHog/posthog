@@ -9,6 +9,7 @@ import {
     DashboardType,
     FilterLogicalOperator,
     FilterType,
+    FunnelsFilterType,
     InsightModel,
     InsightShortId,
     InsightType,
@@ -941,7 +942,7 @@ describe('insightLogic', () => {
             logic.mount()
 
             await expectLogic(logic, () => {
-                logic.actions.setFilters({ new_entity: [] })
+                logic.actions.setFilters({ new_entity: [] } as FunnelsFilterType)
             }).toNotHaveDispatchedActions(['loadResults'])
         })
     })
@@ -1162,6 +1163,26 @@ describe('insightLogic', () => {
         it('does not reacts to deletion of dashboard it is not on', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.deleteDashboardSuccess({ id: 1034 } as DashboardType)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                })
+        })
+
+        it('reacts to duplication of dashboard attaching it to new dashboard', async () => {
+            await expectLogic(logic, () => {
+                insightsModel.actions.insightsAddedToDashboard({ dashboardId: 1234, insightIds: [0, 1, 42] })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
+                })
+        })
+
+        it('does not react to duplication of dashboard that did not include this insight', async () => {
+            await expectLogic(logic, () => {
+                insightsModel.actions.insightsAddedToDashboard({ dashboardId: 1234, insightIds: [0, 1, 2] })
             })
                 .toFinishAllListeners()
                 .toMatchValues({

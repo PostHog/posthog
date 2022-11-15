@@ -1106,7 +1106,6 @@ export function Experiment(): JSX.Element {
                                         filters: {
                                             ...experimentResults.filters,
                                             insight: experimentInsightType,
-                                            display: experimentData.filters.display,
                                             ...(experimentInsightType === InsightType.FUNNELS && {
                                                 layout: FunnelLayout.vertical,
                                                 funnel_viz_type: FunnelVizType.Steps,

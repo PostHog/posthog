@@ -49,6 +49,7 @@ export enum AvailableFeature {
     WHITE_LABELLING = 'white_labelling',
     SUBSCRIPTIONS = 'subscriptions',
     APP_METRICS = 'app_metrics',
+    RECORDINGS_PLAYLISTS = 'recordings_playlists',
 }
 
 export enum LicensePlan {
@@ -69,6 +70,7 @@ export enum Region {
 }
 
 export type SSOProviders = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+
 export interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
@@ -110,6 +112,7 @@ export interface UserType extends UserBaseType {
     realm?: Realm
     posthog_version?: string
 }
+
 export interface NotificationSettings {
     plugin_disabled: boolean
 }
@@ -141,6 +144,7 @@ interface OrganizationMetadata {
     taxonomy_set_events_count: number
     taxonomy_set_properties_count: number
 }
+
 export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
@@ -148,6 +152,7 @@ export interface OrganizationType extends OrganizationBasicType {
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
     is_member_join_email_enabled: boolean
+    customer_id: string | null
     metadata?: OrganizationMetadata
 }
 
@@ -383,6 +388,11 @@ export enum SavedInsightsTabs {
     History = 'history',
 }
 
+export enum SessionRecordingsTabs {
+    Recent = 'recent',
+    Playlists = 'playlists',
+}
+
 export enum ExperimentsTabs {
     All = 'all',
     Yours = 'yours',
@@ -499,7 +509,7 @@ export enum SessionRecordingUsageType {
     LOADED = 'loaded',
 }
 
-export enum SessionRecordingTab {
+export enum SessionRecordingPlayerTab {
     EVENTS = 'events',
     CONSOLE = 'console',
 }
@@ -530,12 +540,17 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
 export interface RecordingFilters {
     date_from?: string | null
     date_to?: string | null
-    events?: Record<string, any>[]
-    actions?: Record<string, any>[]
+    events?: FilterType['events']
+    actions?: FilterType['actions']
     properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
 }
+
+export interface LocalRecordingFilters extends RecordingFilters {
+    new_entity?: Record<string, any>[]
+}
+
 export interface SessionRecordingsResponse {
     results: SessionRecordingType[]
     has_next: boolean
@@ -596,19 +611,22 @@ export interface MatchedRecordingEvents {
     window_id: string
     timestamp: string
 }
+
 export interface MatchedRecording {
     session_id?: string
     events: MatchedRecordingEvents[]
 }
 
 interface CommonActorType {
-    id?: string | number
+    id: string | number
     properties: Record<string, any>
-    created_at?: string
-    matched_recordings?: MatchedRecording[]
+    created_at: string
+    matched_recordings: MatchedRecording[]
+    value_at_data_point: number | null
 }
 
 export interface PersonActorType extends CommonActorType {
+    id: number // person serial ID
     type: 'person'
     uuid?: string
     name?: string
@@ -617,6 +635,7 @@ export interface PersonActorType extends CommonActorType {
 }
 
 export interface GroupActorType extends CommonActorType {
+    id: string // group key
     type: 'group'
     group_key: string
     group_type_index: number
@@ -760,6 +779,22 @@ export interface EventsTableRowItem {
     new_events?: boolean
 }
 
+export interface SessionRecordingPlaylistType {
+    /** The primary key in the database, used as well in API endpoints */
+    id: number
+    short_id: string
+    name: string
+    derived_name?: string | null
+    description?: string
+    pinned?: boolean
+    deleted: boolean
+    created_at: string
+    created_by: UserBasicType | null
+    last_modified_at: string
+    last_modified_by: UserBasicType | null
+    filters?: RecordingFilters
+}
+
 export interface SessionRecordingType {
     id: string
     /** Whether this recording has been viewed already. */
@@ -833,7 +868,9 @@ export interface BillingProductV2Type {
 }
 
 export interface BillingV2Type {
+    customer_id: string
     has_active_subscription: boolean
+    free_trial_until?: Dayjs
     stripe_portal_url?: string
     deactivated?: boolean
     current_total_amount_usd?: string
@@ -873,6 +910,7 @@ export interface PlanInterface {
 
 // Creating a nominal type: https://github.com/microsoft/TypeScript/issues/202#issuecomment-961853101
 export type InsightShortId = string & { readonly '': unique symbol }
+
 export enum InsightColor {
     White = 'white',
     Black = 'black',
@@ -975,6 +1013,7 @@ export interface DashboardCollaboratorType {
 
 /** Explicit (dashboard privilege) OR implicit (project admin) dashboard collaborator. */
 export type FusedDashboardCollaboratorType = Pick<DashboardCollaboratorType, 'user' | 'level'>
+
 export interface OrganizationInviteType {
     id: string
     target_email: string
@@ -1039,6 +1078,7 @@ export interface JobPayloadFieldOptions {
 export interface JobSpec {
     payload?: Record<string, JobPayloadFieldOptions>
 }
+
 export interface PluginConfigType {
     id?: number
     plugin: number
@@ -1116,8 +1156,6 @@ export enum ChartDisplayType {
     ActionsPie = 'ActionsPie',
     ActionsBar = 'ActionsBar',
     ActionsBarValue = 'ActionsBarValue',
-    PathsViz = 'PathsViz',
-    FunnelViz = 'FunnelViz',
     WorldMap = 'WorldMap',
     BoldNumber = 'BoldNumber',
 }
@@ -1163,65 +1201,93 @@ export interface Breakdown {
 }
 
 export interface FilterType {
+    // used by all
     insight?: InsightType
-    display?: ChartDisplayType
-    interval?: IntervalType
-
-    // Specifies that we want to smooth the aggregation over the specified
-    // number of intervals, e.g. for a day interval, we may want to smooth over
-    // 7 days to remove weekly variation. Smoothing is performed as a moving average.
-    smoothing_intervals?: number
     date_from?: string | null
     date_to?: string | null
+
+    // used by insights and funnels
+    interval?: IntervalType
+
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
-    event?: string // specify one event
     actions?: Record<string, any>[]
+
+    filter_test_accounts?: boolean
+    from_dashboard?: boolean | number
+
+    // persons modal
+    entity_id?: string | number
+    entity_type?: EntityType
+    entity_math?: string
+
+    // TODO: extract into TrendsFunnelsCommonFilterType
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
     breakdowns?: Breakdown[]
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
-    shown_as?: ShownAsValue
-    session?: string
-    period?: string
+    aggregation_group_type_index?: number | undefined // Groups aggregation
+}
 
-    retention_type?: RetentionType
-    retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
-    total_intervals?: number // retention total intervals
-    new_entity?: Record<string, any>[]
-    returning_entity?: Record<string, any>
-    target_entity?: Record<string, any>
-    path_type?: PathType
-    include_event_types?: PathType[]
-    start_point?: string
-    end_point?: string
-    path_groupings?: string[]
-    stickiness_days?: number
-    type?: EntityType
-    entity_id?: string | number
-    entity_type?: EntityType
-    entity_math?: string
+export interface TrendsFilterType extends FilterType {
+    // Specifies that we want to smooth the aggregation over the specified
+    // number of intervals, e.g. for a day interval, we may want to smooth over
+    // 7 days to remove weekly variation. Smoothing is performed as a moving average.
+    smoothing_intervals?: number
+    show_legend?: boolean // used to show/hide legend next to insights graph
+    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
+    compare?: boolean
+    aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
+    aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
+    aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
+    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
     people_day?: any
     people_action?: any
     formula?: any
-    filter_test_accounts?: boolean
-    from_dashboard?: boolean | number
-    layout?: FunnelLayout // used only for funnels
-    funnel_step?: number
-    entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
-    drop_off?: boolean
+    shown_as?: ShownAsValue
+    display?: ChartDisplayType
+}
+export interface StickinessFilterType extends FilterType {
+    compare?: boolean
+    show_legend?: boolean // used to show/hide legend next to insights graph
+    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
+    stickiness_days?: number
+    shown_as?: ShownAsValue
+    display?: ChartDisplayType
+}
+export interface FunnelsFilterType extends FilterType {
     funnel_viz_type?: FunnelVizType // parameter sent to funnels API for time conversion code path
     funnel_from_step?: number // used in time to convert: initial step index to compute time to convert
     funnel_to_step?: number // used in time to convert: ending step index to compute time to convert
     funnel_step_reference?: FunnelStepReference // whether conversion shown in graph should be across all steps or just from the previous step
     funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
-    compare?: boolean
+    breakdown_attribution_type?: BreakdownAttributionType // funnels breakdown attribution type
+    breakdown_attribution_value?: number // funnels breakdown attribution specific step value
     bin_count?: BinCountValue // used in time to convert: number of bins to show in histogram
     funnel_window_interval_unit?: FunnelConversionWindowTimeUnit // minutes, days, weeks, etc. for conversion window
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
     exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
+    funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
+    funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
+    funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
+    funnel_advanced?: boolean // used to toggle advanced options on or off
+    layout?: FunnelLayout // used only for funnels
+    funnel_step?: number
+    entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
+    drop_off?: boolean
+    new_entity?: Record<string, any>[]
+    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
+}
+export interface PathsFilterType extends FilterType {
+    path_type?: PathType
+    include_event_types?: PathType[]
+    start_point?: string
+    end_point?: string
+    path_groupings?: string[]
+    funnel_paths?: FunnelPathType
+    funnel_filter?: Record<string, any> // Funnel Filter used in Paths
     exclude_events?: string[] // Paths Exclusion type
     step_limit?: number // Paths Step Limit
     path_start_key?: string // Paths People Start Key
@@ -1229,24 +1295,46 @@ export interface FilterType {
     path_dropoff_key?: string // Paths People Dropoff Key
     path_replacements?: boolean
     local_path_cleaning_filters?: Record<string, any>[]
-    funnel_filter?: Record<string, any> // Funnel Filter used in Paths
-    funnel_paths?: FunnelPathType
     edge_limit?: number | undefined // Paths edge limit
     min_edge_weight?: number | undefined // Paths
     max_edge_weight?: number | undefined // Paths
-    funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
-    funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
-    funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
-    aggregation_group_type_index?: number | undefined // Groups aggregation
-    funnel_advanced?: boolean // used to toggle advanced options on or off
-    show_legend?: boolean // used to show/hide legend next to insights graph
-    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
-    breakdown_attribution_type?: BreakdownAttributionType // funnels breakdown attribution type
-    breakdown_attribution_value?: number // funnels breakdown attribution specific step value
-    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
-    aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
-    aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
-    aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
+}
+export interface RetentionFilterType extends FilterType {
+    retention_type?: RetentionType
+    retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
+    total_intervals?: number // retention total intervals
+    returning_entity?: Record<string, any>
+    target_entity?: Record<string, any>
+    period?: string
+}
+export interface LifecycleFilterType extends FilterType {
+    shown_as?: ShownAsValue
+}
+export type AnyFilterType =
+    | TrendsFilterType
+    | StickinessFilterType
+    | FunnelsFilterType
+    | PathsFilterType
+    | RetentionFilterType
+    | LifecycleFilterType
+    | FilterType
+
+export type AnyPartialFilterType =
+    | Partial<TrendsFilterType>
+    | Partial<StickinessFilterType>
+    | Partial<FunnelsFilterType>
+    | Partial<PathsFilterType>
+    | Partial<RetentionFilterType>
+    | Partial<LifecycleFilterType>
+    | Partial<FilterType>
+
+export interface EventsListQueryParams {
+    event?: string
+    properties?: AnyPropertyFilter[] | PropertyGroupFilter
+    orderBy?: string[]
+    action_id?: number
+    after?: string
+    limit?: number
 }
 
 export interface RecordingEventsFilters {
@@ -1327,6 +1415,7 @@ export interface SystemStatusAnalyzeResult {
     }
     flamegraphs: Record<string, string>
 }
+
 export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
@@ -1518,6 +1607,7 @@ export interface SetInsightOptions {
 export interface FeatureFlagGroupType {
     properties: AnyPropertyFilter[]
     rollout_percentage: number | null
+    variant?: string
 }
 
 export interface MultivariateFlagVariant {
@@ -1573,7 +1663,8 @@ export interface PrevalidatedInvite {
 }
 
 interface InstancePreferencesInterface {
-    debug_queries: boolean /** Whether debug queries option should be shown on the command palette. */
+    debug_queries: boolean
+    /** Whether debug queries option should be shown on the command palette. */
     disable_paid_fs: boolean /** Whether paid features showcasing / upsells are completely disabled throughout the app. */
 }
 
@@ -1665,6 +1756,11 @@ export type HotKeys =
     | 'z'
     | 'escape'
     | 'enter'
+    | ' '
+    | 'arrowleft'
+    | 'arrowright'
+    | 'arrowdown'
+    | 'arrowup'
 
 export interface LicenseType {
     id: number
@@ -1772,6 +1868,7 @@ export interface Experiment {
     created_at: string
     created_by: UserBasicType | null
 }
+
 export interface ExperimentResults {
     insight: FunnelStep[][] | TrendResult[]
     probability: Record<string, number>
@@ -1986,6 +2083,7 @@ export type GraphDataset = ChartDataset<ChartType> &
     }
 
 export type GraphPoint = InteractionItem & { dataset: GraphDataset }
+
 interface PointsPayload {
     pointsIntersectingLine: GraphPoint[]
     pointsIntersectingClick: GraphPoint[]
@@ -2181,15 +2279,6 @@ export interface ExportedAssetType {
 export enum YesOrNoResponse {
     Yes = 'yes',
     No = 'no',
-}
-
-export interface SessionRecordingPlayerProps {
-    sessionRecordingId: SessionRecordingId
-    playerKey: string
-    includeMeta?: boolean
-    recordingStartTime?: string
-    matching?: MatchedRecording[]
-    isDetail?: boolean
 }
 
 export enum FeatureFlagReleaseType {

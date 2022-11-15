@@ -19,8 +19,8 @@
                   AND ((has(['something'], replaceRegexpAll(JSONExtractRaw(person.properties, '$another_prop'), '^"|"$', '')))))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND ((((has(['something'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$some_prop'), '^"|"$', ''))))
-           AND ((has(['something'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$another_prop'), '^"|"$', ''))))))) as person
+     AND ((((has(['something'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))
+           AND ((has(['something'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$another_prop'), '^"|"$', ''))))))) as person
   UNION ALL
   SELECT person_id,
          cohort_id,

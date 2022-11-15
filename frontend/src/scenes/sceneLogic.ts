@@ -9,7 +9,7 @@ import { userLogic } from './userLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { teamLogic } from './teamLogic'
 import { urls } from 'scenes/urls'
-import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } from 'scenes/sceneTypes'
+import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -34,6 +34,7 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.FeatureFlag]: Scene.FeatureFlags,
     [Scene.AppMetrics]: Scene.Plugins,
     [Scene.SessionRecording]: Scene.SessionRecordings,
+    [Scene.SessionRecordingPlaylist]: Scene.SessionRecordingPlaylist,
 }
 
 export const sceneLogic = kea<sceneLogicType>({

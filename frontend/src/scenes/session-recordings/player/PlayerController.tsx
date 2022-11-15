@@ -2,34 +2,49 @@ import { useActions, useValues } from 'kea'
 import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { SessionPlayerState, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
+import { SessionPlayerState } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import {
-    IconFullScreen,
-    IconOpenInNew,
-    IconPause,
-    IconPlay,
-    IconSkipInactivity,
-    IconTerminal,
-    UnverifiedEvent,
-} from 'lib/components/icons'
+import { IconFullScreen, IconPause, IconPlay, IconSkipInactivity, IconLink } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
-import { urls } from 'scenes/urls'
+import { PlayerInspectorPicker } from './PlayerInspector'
+import { openPlayerShareDialog } from './share/PlayerShare'
+import { playerSettingsLogic } from './playerSettingsLogic'
+import { More } from 'lib/components/LemonButton/More'
+import { LemonCheckbox } from '@posthog/lemon-ui'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-interface PlayerControllerProps extends SessionRecordingPlayerProps {
-    isDetail: boolean
+interface PlayerControllerProps extends SessionRecordingPlayerLogicProps {
+    hideInspectorPicker?: boolean
 }
 
-export function PlayerController({ sessionRecordingId, playerKey, isDetail }: PlayerControllerProps): JSX.Element {
-    const { togglePlayPause, setSpeed, setSkipInactivitySetting, setTab, setIsFullScreen } = useActions(
-        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    )
-    const { currentPlayerState, speed, isSmallScreen, isSmallPlayer, skipInactivitySetting, tab, isFullScreen } =
-        useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+export function PlayerController({
+    sessionRecordingId,
+    playerKey,
+    hideInspectorPicker = false,
+}: PlayerControllerProps): JSX.Element {
+    const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
+    const { togglePlayPause, setPause } = useActions(logic)
+    const { currentPlayerState, isSmallScreen } = useValues(logic)
+
+    const { speed, skipInactivitySetting, isFullScreen, autoplayEnabled } = useValues(playerSettingsLogic)
+    const { setSpeed, setSkipInactivitySetting, setIsFullScreen, setAutoplayEnabled } = useActions(playerSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const featureAutoplay = !!featureFlags[FEATURE_FLAGS.RECORDING_AUTOPLAY]
+
+    const onShare = (): void => {
+        setPause()
+        openPlayerShareDialog({
+            seconds: Math.floor((logic.values.currentPlayerTime || 0) / 1000),
+            id: sessionRecordingId,
+        })
+    }
 
     return (
         <div className="p-3 bg-light flex flex-col select-none">
@@ -39,29 +54,8 @@ export function PlayerController({ sessionRecordingId, playerKey, isDetail }: Pl
             </div>
             <div className="flex justify-between items-center h-8 gap-2">
                 <div className="flex items-center gap-2 flex-1">
-                    {!isFullScreen && (
-                        <>
-                            <LemonButton
-                                size="small"
-                                icon={<UnverifiedEvent />}
-                                status={tab === SessionRecordingTab.EVENTS ? 'primary' : 'primary-alt'}
-                                active={tab === SessionRecordingTab.EVENTS}
-                                onClick={() => setTab(SessionRecordingTab.EVENTS)}
-                            >
-                                {isSmallScreen || isSmallPlayer ? '' : 'Events'}
-                            </LemonButton>
-                            <LemonButton
-                                size="small"
-                                icon={<IconTerminal />}
-                                status={tab === SessionRecordingTab.CONSOLE ? 'primary' : 'primary-alt'}
-                                active={tab === SessionRecordingTab.CONSOLE}
-                                onClick={() => {
-                                    setTab(SessionRecordingTab.CONSOLE)
-                                }}
-                            >
-                                {isSmallScreen || isSmallPlayer ? '' : 'Console'}
-                            </LemonButton>
-                        </>
+                    {!hideInspectorPicker && !isFullScreen && (
+                        <PlayerInspectorPicker sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                     )}
                 </div>
                 <div className="flex items-center gap-1">
@@ -137,17 +131,31 @@ export function PlayerController({ sessionRecordingId, playerKey, isDetail }: Pl
                             />
                         </LemonButton>
                     </Tooltip>
-                    {!isDetail && (
-                        <Tooltip title={'Open in new tab (D)'}>
-                            <LemonButton
-                                size="small"
-                                status="primary-alt"
-                                to={urls.sessionRecording(sessionRecordingId)}
-                                targetBlank
-                            >
-                                <IconOpenInNew className={'text-xl text-primary-alt'} />
-                            </LemonButton>
-                        </Tooltip>
+                    <Tooltip title={`Share recording`}>
+                        <LemonButton size="small" status="primary-alt" onClick={() => onShare()}>
+                            <IconLink
+                                className={clsx('text-2xl', isFullScreen ? 'text-primary' : 'text-primary-alt')}
+                            />
+                        </LemonButton>
+                    </Tooltip>
+
+                    {featureAutoplay && (
+                        <More
+                            overlay={
+                                <>
+                                    <LemonButton
+                                        status="stealth"
+                                        onClick={() => setAutoplayEnabled(!autoplayEnabled)}
+                                        fullWidth
+                                        sideIcon={
+                                            <LemonCheckbox className="pointer-events-none" checked={autoplayEnabled} />
+                                        }
+                                    >
+                                        Autoplay enabled
+                                    </LemonButton>
+                                </>
+                            }
+                        />
                     )}
                 </div>
             </div>

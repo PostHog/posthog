@@ -123,13 +123,16 @@ export const FEATURE_FLAGS = {
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @tiina303
     HOG_BOOK: 'hog-book', // owner: @pauldambra
     EVENT_COUNT_PER_ACTOR: 'event-count-per-actor', // owner: @Twixes
-    TEXT_CARDS: 'text-cards', // owner: @pauldambra
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
     FEEDBACK_BUTTON: 'feedback-button', // owner: @luke
     RECORDINGS_ON_FEATURE_FLAGS: 'recordings-on-feature-flags', // owner: @EDsCODE
     EXPOSURES_ON_FEATURE_FLAGS: 'exposures-on-feature-flags', // owner: @EDsCODE
     AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE
     WEBSITE_ANALYTICS_TEMPLATE: 'website-analytics-template', // owner: @pauldambra
+    VARIANT_OVERRIDES: 'variant-overrides', // owner: @neilkakkar
+    ONBOARDING_V2_EXPERIMENT: 'onboarding-v2-experiment', // owner: #team-growth
+    RECORDING_AUTOPLAY: 'recording-autoplay', // owner: #team-session-recordings
+    SIGNUP_FORM_EXPERIMENT: 'signup-form-experiment', // owner: #team-growth
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -154,6 +157,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
     [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
     [AvailableFeature.APP_METRICS]: LicensePlan.Scale,
+    [AvailableFeature.RECORDINGS_PLAYLISTS]: LicensePlan.Scale,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
@@ -197,3 +201,5 @@ export const CLOUD_HOSTNAMES = {
     [Region.US]: 'app.posthog.com',
     [Region.EU]: 'eu.posthog.com',
 }
+
+export const SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
