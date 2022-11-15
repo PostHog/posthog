@@ -1,7 +1,9 @@
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { PostHogQuery, PostHogQueryProps } from '~/queries/PostHogQuery'
-import { LegacyQuery, NodeCategory, NodeType } from '~/queries/nodes'
-import { InsightType } from '~/types'
+import { EventsDataNode, LegacyQuery, Node, NodeType, SavedInsightNode } from '~/queries/nodes'
+import { InsightShortId, InsightType, PropertyOperator } from '~/types'
+import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
+import { useState } from 'react'
 
 export default {
     title: 'Components/PostHogQuery',
@@ -13,15 +15,44 @@ export default {
 } as ComponentMeta<typeof PostHogQuery>
 
 const BasicTemplate: ComponentStory<typeof PostHogQuery> = (props: PostHogQueryProps) => {
-    return <PostHogQuery {...props} />
+    const [queryString, setQueryString] = useState(JSON.stringify(props.query, null, 2))
+    let JSONQuery: Node | null = null
+    let error = ''
+    try {
+        JSONQuery = JSON.parse(queryString)
+    } catch (e: any) {
+        error = e.message
+    }
+
+    return (
+        <div className="p-2 space-y-2 flex flex-col border">
+            <LemonTextArea value={queryString} onChange={(v) => setQueryString(v)} />
+            {JSONQuery ? (
+                <PostHogQuery query={JSONQuery} />
+            ) : (
+                <div className="text-danger">Error parsing JSON: {error}</div>
+            )}
+        </div>
+    )
 }
 
-export const LegacyInsight = BasicTemplate.bind({})
 const legacyInsight: LegacyQuery = {
     nodeType: NodeType.LegacyQuery,
-    nodeCategory: NodeCategory.DataNode,
     filters: { insight: InsightType.TRENDS },
 }
-LegacyInsight.args = {
-    query: legacyInsight,
+export const LegacyInsight = BasicTemplate.bind({})
+LegacyInsight.args = { query: legacyInsight }
+
+const savedInsight: SavedInsightNode = {
+    nodeType: NodeType.SavedInsight,
+    shortId: 'insight1234' as InsightShortId,
 }
+export const SavedInsight = BasicTemplate.bind({})
+SavedInsight.args = { query: savedInsight }
+
+const eventsTable: EventsDataNode = {
+    nodeType: NodeType.EventsNode,
+    properties: [{ key: '$browser', value: 'Chrome', operator: PropertyOperator.Exact }],
+}
+export const EventsTable = BasicTemplate.bind({})
+EventsTable.args = { query: eventsTable }

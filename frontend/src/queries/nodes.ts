@@ -6,6 +6,7 @@ import {
     BreakdownType,
     EntityType,
     FunnelsFilterType,
+    InsightShortId,
     IntervalType,
     LifecycleFilterType,
     PathsFilterType,
@@ -35,6 +36,7 @@ export enum NodeType {
     EventsNode = 'EventsNode',
     ActionsNode = 'ActionsNode',
     LegacyQuery = 'LegacyQuery',
+    SavedInsight = 'SavedInsight',
     FunnelsQuery = 'FunnelsQuery',
     TrendsQuery = 'TrendsQuery',
     PathsQuery = 'PathsQuery',
@@ -50,17 +52,17 @@ export enum NodeCategory {
 /** Node base class, everything else inherits from here */
 export interface Node {
     nodeType: NodeType
-    nodeCategory: NodeCategory
+    nodeCategory?: NodeCategory
 }
 
 /** Evaluated on the backend */
 export interface DataNode extends Node {
-    nodeCategory: NodeCategory.DataNode
+    nodeCategory?: NodeCategory.DataNode
 }
 
 /** Evaluated on the frontend */
 export interface InterfaceNode extends Node {
-    nodeCategory: NodeCategory.InterfaceNode
+    nodeCategory?: NodeCategory.InterfaceNode
 }
 
 // app.posthog.com/search#q={ type: persons, line: 2, day: 5, query: {type:trendsGraph, mode: 'edit', filters, settings, query: { type: backend }} }
@@ -107,6 +109,15 @@ export interface LegacyQuery extends DataNode {
 
 export function isLegacyQuery(node?: Node): node is LegacyQuery {
     return node?.nodeType === NodeType.LegacyQuery
+}
+
+export interface SavedInsightNode extends DataNode {
+    nodeType: NodeType.SavedInsight
+    shortId: InsightShortId
+}
+
+export function isSavedInsight(node?: Node): node is SavedInsightNode {
+    return node?.nodeType === NodeType.SavedInsight
 }
 
 // should not be used directly
