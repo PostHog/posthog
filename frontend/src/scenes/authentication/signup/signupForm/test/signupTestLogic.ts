@@ -101,7 +101,6 @@ export const signupTestLogic = kea<signupTestLogicType>([
             if (email) {
                 if (values.preflight?.demo) {
                     // In demo mode no password is needed, so we can log in right away
-                    // This allows us to give a quick login link in the `generate_demo_data` command
                     // X and Y are placeholders, irrelevant because the account should already exists
                     actions.setSignupPanel1Values({
                         email,
