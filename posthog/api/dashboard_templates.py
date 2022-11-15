@@ -1,4 +1,4 @@
-from typing import Dict, Type
+from typing import Dict, Literal, Type
 
 from django.db.models import Q
 from rest_framework import mixins, serializers, viewsets
@@ -12,18 +12,20 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.utils import str_to_bool
 
 
-def _check_permissions(scope: str, team: Team, user: User) -> None:
+def _check_permissions(scope: str, team: Team, user: User, action: Literal["edit", "create"]) -> None:
     if team != user.team:
-        raise PermissionDenied("You can only create templates for your own team")
+        raise PermissionDenied(f"You can only {action} templates for your own team")
+
     is_staff = user.is_staff
-    if not is_staff and scope == DashboardTemplate.Scope.GLOBAL:
-        raise PermissionDenied("You must be a staff user to create a global template")
+    if not is_staff and scope == DashboardTemplate.Scope.GLOBAL.value:
+        raise PermissionDenied(f"You must be a staff user to {action} a global template")
+
     membership_level = team.get_effective_membership_level(user.id)
     if (
         membership_level == OrganizationMembership.Level.MEMBER.value
         and scope == DashboardTemplate.Scope.ORGANIZATION.value
     ):
-        raise PermissionDenied("You must be an organization admin or higher to create an organization template")
+        raise PermissionDenied(f"You must be an organization admin or higher to {action} an organization template")
 
 
 class DashboardTemplateBasicSerializer(serializers.Serializer):
@@ -49,7 +51,7 @@ class DashboardTemplateBasicSerializer(serializers.Serializer):
         team = Team.objects.get(id=self.context["team_id"])
         user = self.context["request"].user
 
-        _check_permissions(instance.scope, team, user)
+        _check_permissions(instance.scope, team, user, "edit")
 
         updated_fields = []
 
@@ -65,18 +67,6 @@ class DashboardTemplateBasicSerializer(serializers.Serializer):
             instance.save(update_fields=updated_fields)
 
         return instance
-
-    def _check_permissions(self, instance: DashboardTemplate, user: User) -> None:
-        is_staff = user.is_staff
-        if not is_staff and instance.scope == DashboardTemplate.Scope.GLOBAL:
-            raise PermissionDenied("You must be a staff user to edit a global template")
-        team = Team.objects.get(id=self.context["team_id"])
-        membership_level = team.get_effective_membership_level(user.id)
-        if (
-            membership_level == OrganizationMembership.Level.MEMBER.value
-            and instance.scope == DashboardTemplate.Scope.ORGANIZATION.value
-        ):
-            raise PermissionDenied("You must be an organization admin or higher to edit an organization template")
 
 
 class DashboardTemplateSerializer(serializers.Serializer):
@@ -96,7 +86,7 @@ class DashboardTemplateSerializer(serializers.Serializer):
         scope = data.get("scope")
         if not scope:
             raise serializers.ValidationError("Must provide a scope")
-        _check_permissions(scope, team, user)
+        _check_permissions(scope, team, user, "create")
 
         template_name = data.get("template_name", None)
         if not template_name or not isinstance(template_name, str) or str.isspace(template_name):
