@@ -1,7 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { Framework, PlatformType } from 'scenes/ingestion/v2/types'
 import { API, MOBILE, BACKEND, WEB, BOOKMARKLET, thirdPartySources, THIRD_PARTY, ThirdPartySource } from './constants'
-import type { ingestionLogicType } from './ingestionLogicType'
+import type { ingestionLogicV2Type } from './ingestionLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
@@ -15,6 +15,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { subscriptions } from 'kea-subscriptions'
 import { BillingType, TeamType } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 
 export enum INGESTION_STEPS {
     START = 'Get started',
@@ -33,7 +34,51 @@ export enum INGESTION_STEPS_WITHOUT_BILLING {
     DONE = 'Done!',
 }
 
-export const ingestionLogic = kea<ingestionLogicType>([
+export enum INGESTION_VIEWS {
+    BILLING = 'billing',
+    INVITE_TEAM = 'invite-team',
+    POST_INVITE_TEAM = 'post-invite-team',
+    CHOOSE_PLATFORM = 'choose-platform',
+    VERIFICATION = 'verification',
+    WEB_INSTRUCTIONS = 'web-instructions',
+    CHOOSE_FRAMEWORK = 'choose-framework',
+    BOOKMARKLET = 'bookmarklet',
+    CHOOSE_THIRD_PARTY = 'choose-third-party',
+}
+
+export const INGESTION_VIEW_TO_STEP = {
+    [INGESTION_VIEWS.BILLING]: INGESTION_STEPS.BILLING,
+    [INGESTION_VIEWS.INVITE_TEAM]: INGESTION_STEPS.START,
+    [INGESTION_VIEWS.POST_INVITE_TEAM]: INGESTION_STEPS.START,
+    [INGESTION_VIEWS.CHOOSE_PLATFORM]: INGESTION_STEPS.PLATFORM,
+    [INGESTION_VIEWS.VERIFICATION]: INGESTION_STEPS.VERIFY,
+    [INGESTION_VIEWS.WEB_INSTRUCTIONS]: INGESTION_STEPS.CONNECT_PRODUCT,
+    [INGESTION_VIEWS.CHOOSE_FRAMEWORK]: INGESTION_STEPS.CONNECT_PRODUCT,
+    [INGESTION_VIEWS.BOOKMARKLET]: INGESTION_STEPS.CONNECT_PRODUCT,
+    [INGESTION_VIEWS.CHOOSE_THIRD_PARTY]: INGESTION_STEPS.CONNECT_PRODUCT,
+}
+
+const stringToPlatformType = (
+    platform: string | null,
+    allowed: string[] = ['mobile', 'web', 'backend', 'just-exploring', 'third-party']
+): PlatformType | null => {
+    if (!platform || !allowed.includes(platform)) {
+        return null
+    }
+    return platform === 'mobile'
+        ? MOBILE
+        : platform === 'web'
+        ? WEB
+        : platform === 'backend'
+        ? BACKEND
+        : platform === 'just-exploring'
+        ? BOOKMARKLET
+        : platform === 'third-party'
+        ? THIRD_PARTY
+        : null
+}
+
+export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
     path(['scenes', 'ingestion', 'ingestionLogic']),
     connect({
         values: [
@@ -45,8 +90,10 @@ export const ingestionLogic = kea<ingestionLogicType>([
             ['currentTeam'],
             preflightLogic,
             ['preflight'],
+            inviteLogic,
+            ['isInviteModalShown'],
         ],
-        actions: [teamLogic, ['updateCurrentTeamSuccess']],
+        actions: [teamLogic, ['updateCurrentTeamSuccess'], inviteLogic, ['inviteTeamMembersSuccess']],
     }),
     actions({
         setTechnical: (technical: boolean) => ({ technical }),
@@ -55,14 +102,21 @@ export const ingestionLogic = kea<ingestionLogicType>([
         setFramework: (framework: Framework) => ({ framework: framework as Framework }),
         setVerify: (verify: boolean) => ({ verify }),
         setAddBilling: (addBilling: boolean) => ({ addBilling }),
-        setState: (
-            technical: boolean | null,
-            hasInvitedMembers: boolean | null,
-            platform: PlatformType,
-            framework: string | null,
-            verify: boolean,
+        setState: ({
+            technical,
+            hasInvitedMembers,
+            platform,
+            framework,
+            verify,
+            addBilling,
+        }: {
+            technical: boolean | null
+            hasInvitedMembers: boolean | null
+            platform: PlatformType
+            framework: string | null
+            verify: boolean
             addBilling: boolean
-        ) => ({
+        }) => ({
             technical,
             hasInvitedMembers,
             platform,
@@ -118,6 +172,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 setPlatform: () => false,
                 setFramework: () => false,
                 setAddBilling: () => false,
+                setTechnical: () => false,
                 setVerify: (_, { verify }) => verify,
                 setState: (_, { verify }) => verify,
             },
@@ -128,6 +183,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 setPlatform: () => false,
                 setFramework: () => false,
                 setVerify: () => false,
+                setTechnical: () => false,
                 setAddBilling: (_, { addBilling }) => addBilling,
                 setState: (_, { addBilling }) => addBilling,
             },
@@ -165,24 +221,59 @@ export const ingestionLogic = kea<ingestionLogicType>([
         ],
     }),
     selectors(() => ({
-        currentStep: [
-            // TODO I think we can take advantage of this project to refactor this logic
-            // we should probably just use a state machine rather than having all these variables
-            (s) => [s.technical, s.platform, s.framework, s.verify, s.addBilling],
-            (technical, platform, framework, verify, addBilling) => {
+        currentView: [
+            (s) => [
+                s.technical,
+                s.platform,
+                s.framework,
+                s.verify,
+                s.addBilling,
+                s.hasInvitedMembers,
+                s.isInviteModalShown,
+            ],
+            (technical, platform, framework, verify, addBilling, hasInvitedMembers, isInviteModalShown) => {
                 if (addBilling) {
-                    return INGESTION_STEPS.BILLING
+                    return INGESTION_VIEWS.BILLING
                 }
+
+                if (hasInvitedMembers && !isInviteModalShown && !technical) {
+                    return INGESTION_VIEWS.POST_INVITE_TEAM
+                }
+
+                if (!platform && !verify && !technical) {
+                    return INGESTION_VIEWS.INVITE_TEAM
+                }
+
+                if (!platform && !verify && technical) {
+                    return INGESTION_VIEWS.CHOOSE_PLATFORM
+                }
+
                 if (verify) {
-                    return INGESTION_STEPS.VERIFY
+                    return INGESTION_VIEWS.VERIFICATION
                 }
-                if (platform || framework) {
-                    return INGESTION_STEPS.CONNECT_PRODUCT
+
+                if (framework || platform === WEB) {
+                    return INGESTION_VIEWS.WEB_INSTRUCTIONS
                 }
-                if (technical) {
-                    return INGESTION_STEPS.PLATFORM
+
+                if (platform === MOBILE || platform === BACKEND) {
+                    return INGESTION_VIEWS.CHOOSE_FRAMEWORK
                 }
-                return INGESTION_STEPS.START
+
+                if (platform === BOOKMARKLET) {
+                    return INGESTION_VIEWS.BOOKMARKLET
+                }
+
+                if (platform === THIRD_PARTY) {
+                    return INGESTION_VIEWS.CHOOSE_THIRD_PARTY
+                }
+                return INGESTION_VIEWS.INVITE_TEAM
+            },
+        ],
+        currentStep: [
+            (s) => [s.currentView],
+            (currentView) => {
+                return INGESTION_VIEW_TO_STEP[currentView]
             },
         ],
         previousStep: [
@@ -240,77 +331,65 @@ export const ingestionLogic = kea<ingestionLogicType>([
     })),
 
     urlToAction(({ actions }) => ({
-        '/ingestion': () => actions.setState(null, null, null, null, false, false),
-        '/ingestion/invites-sent': () => actions.setState(false, true, null, null, false, false),
+        '/ingestion': () =>
+            actions.setState({
+                technical: null,
+                hasInvitedMembers: null,
+                platform: null,
+                framework: null,
+                verify: false,
+                addBilling: false,
+            }),
+        '/ingestion/invites-sent': () =>
+            actions.setState({
+                technical: false,
+                hasInvitedMembers: true,
+                platform: null,
+                framework: null,
+                verify: false,
+                addBilling: false,
+            }),
         '/ingestion/billing': (_: any, { platform, framework }) => {
-            actions.setState(
-                null,
-                null,
-                platform === 'mobile'
-                    ? MOBILE
-                    : platform === 'web'
-                    ? WEB
-                    : platform === 'backend'
-                    ? BACKEND
-                    : platform === 'just-exploring'
-                    ? BOOKMARKLET
-                    : platform === 'third-party'
-                    ? THIRD_PARTY
-                    : null,
+            actions.setState({
+                technical: null,
+                hasInvitedMembers: null,
+                platform: stringToPlatformType(platform),
                 framework,
-                false,
-                true
-            )
+                verify: false,
+                addBilling: false,
+            })
         },
         '/ingestion/verify': (_: any, { platform, framework }) => {
-            actions.setState(
-                true,
-                null,
-                platform === 'mobile'
-                    ? MOBILE
-                    : platform === 'web'
-                    ? WEB
-                    : platform === 'backend'
-                    ? BACKEND
-                    : platform === 'just-exploring'
-                    ? BOOKMARKLET
-                    : platform === 'third-party'
-                    ? THIRD_PARTY
-                    : null,
-                framework,
-                true,
-                false
-            )
+            actions.setState({
+                technical: true,
+                hasInvitedMembers: null,
+                platform: stringToPlatformType(platform),
+                framework: framework,
+                verify: false,
+                addBilling: false,
+            })
         },
         '/ingestion/api': (_: any, { platform }) => {
-            actions.setState(
-                true,
-                null,
-                platform === 'mobile' ? MOBILE : platform === 'web' ? WEB : platform === 'backend' ? BACKEND : null,
-                API,
-                false,
-                false
-            )
+            actions.setState({
+                technical: true,
+                hasInvitedMembers: null,
+                platform: stringToPlatformType(platform, ['web', 'mobile', 'backend']),
+                framework: API,
+                verify: false,
+                addBilling: false,
+            })
         },
         '/ingestion(/:platform)(/:framework)': ({ platform, framework }) => {
-            actions.setState(
-                true,
-                null,
-                platform === 'mobile'
-                    ? MOBILE
-                    : platform === 'web'
-                    ? WEB
-                    : platform === 'backend'
-                    ? BACKEND
-                    : platform === 'just-exploring'
-                    ? BOOKMARKLET
-                    : platform === 'third-party'
-                    ? THIRD_PARTY
-                    : null,
-                framework as Framework,
-                false,
-                false
-            )
+            if (platform && framework) {
+                actions.setState({
+                    technical: true,
+                    hasInvitedMembers: null,
+                    platform: stringToPlatformType(platform),
+                    framework,
+                    verify: false,
+                    addBilling: false,
+                })
+            }
         },
     })),
     listeners(({ actions, values }) => ({
@@ -359,26 +438,52 @@ export const ingestionLogic = kea<ingestionLogicType>([
         onBack: () => {
             switch (values.currentStep) {
                 case INGESTION_STEPS.BILLING:
-                    actions.setState(
-                        values.technical,
-                        values.hasInvitedMembers,
-                        values.platform,
-                        values.framework,
-                        true,
-                        false
-                    )
+                    actions.setState({
+                        technical: values.technical,
+                        hasInvitedMembers: values.hasInvitedMembers,
+                        platform: values.platform,
+                        framework: values.framework,
+                        verify: true,
+                        addBilling: false,
+                    })
                     return
                 case INGESTION_STEPS.VERIFY:
-                    actions.setState(values.technical, values.hasInvitedMembers, values.platform, null, false, false)
+                    actions.setState({
+                        technical: values.technical,
+                        hasInvitedMembers: values.hasInvitedMembers,
+                        platform: values.platform,
+                        framework: null,
+                        verify: false,
+                        addBilling: false,
+                    })
                     return
                 case INGESTION_STEPS.CONNECT_PRODUCT:
-                    actions.setState(values.technical, values.hasInvitedMembers, null, null, false, false)
+                    actions.setState({
+                        technical: values.technical,
+                        hasInvitedMembers: values.hasInvitedMembers,
+                        platform: null,
+                        framework: null,
+                        verify: false,
+                        addBilling: false,
+                    })
                     return
                 case INGESTION_STEPS.PLATFORM:
-                    actions.setState(null, null, null, null, false, false)
+                    actions.setState({
+                        technical: null,
+                        hasInvitedMembers: null,
+                        platform: null,
+                        framework: null,
+                        verify: false,
+                        addBilling: false,
+                    })
                     return
                 default:
                     return
+            }
+        },
+        inviteTeamMembersSuccess: () => {
+            if (router.values.location.pathname.includes('/ingestion')) {
+                actions.setHasInvitedMembers(true)
             }
         },
     })),
@@ -400,7 +505,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
     })),
 ])
 
-function getUrl(values: ingestionLogicType['values']): string | [string, Record<string, undefined | string>] {
+function getUrl(values: ingestionLogicV2Type['values']): string | [string, Record<string, undefined | string>] {
     const { technical, platform, framework, verify, addBilling, hasInvitedMembers } = values
 
     let url = '/ingestion'
@@ -414,18 +519,7 @@ function getUrl(values: ingestionLogicType['values']): string | [string, Record<
         return [
             url,
             {
-                platform:
-                    platform === WEB
-                        ? 'web'
-                        : platform === MOBILE
-                        ? 'mobile'
-                        : platform === BACKEND
-                        ? 'backend'
-                        : platform === BOOKMARKLET
-                        ? 'just-exploring'
-                        : platform === THIRD_PARTY
-                        ? 'third-party'
-                        : undefined,
+                platform: stringToPlatformType(platform) as string,
                 framework: framework?.toLowerCase() || undefined,
             },
         ]
@@ -436,14 +530,7 @@ function getUrl(values: ingestionLogicType['values']): string | [string, Record<
         return [
             url,
             {
-                platform:
-                    platform === WEB
-                        ? 'web'
-                        : platform === MOBILE
-                        ? 'mobile'
-                        : platform === BACKEND
-                        ? 'backend'
-                        : undefined,
+                platform: stringToPlatformType(platform, ['web', 'mobile', 'backend']) as string,
             },
         ]
     }
