@@ -10,7 +10,6 @@ max-complexity = 10
 # - https://flake8.pycqa.org/en/latest/user/error-codes.html
 #
 ignore=
-    B001, # Do not use bare `except:`.
     B006, # Do not use mutable data structures for argument defaults.
     B011, # Do not call assert False since python -O removes these calls
     B017, # assertRaises(Exception): should be considered evil
