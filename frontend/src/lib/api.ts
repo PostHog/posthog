@@ -291,7 +291,7 @@ class ApiRequest {
     }
 
     public roleMembershipsDetail(roleId: RoleType['id'], userUuid: UserType['uuid']): ApiRequest {
-        return this.rolesDetail(roleId).addPathComponent('role_memberships').addPathComponent(userUuid)
+        return this.roleMemberships(roleId).addPathComponent(userUuid)
     }
 
     // # Persons
@@ -703,29 +703,32 @@ const api = {
         async get(roleId: RoleType['id']): Promise<RoleType> {
             return await new ApiRequest().rolesDetail(roleId).get()
         },
-        async list(): Promise<RoleType[]> {
+        async list(): Promise<PaginatedResponse<RoleType>> {
             return await new ApiRequest().roles().get()
         },
         async delete(roleId: RoleType['id']): Promise<void> {
             return await new ApiRequest().rolesDetail(roleId).delete()
         },
-        async create(roleId: RoleType['id'], level: string): Promise<RoleMemberType> {
-            return await new ApiRequest().rolesDetail(roleId).create({
+        async create(roleName: RoleType['name']): Promise<RoleType> {
+            return await new ApiRequest().roles().create({
                 data: {
-                    feature_flag_access_level: level,
+                    name: roleName,
                 },
             })
         },
         members: {
-            async list(roleId: RoleType['id']): Promise<RoleMemberType[]> {
+            async list(roleId: RoleType['id']): Promise<PaginatedResponse<RoleMemberType>> {
                 return await new ApiRequest().roleMemberships(roleId).get()
             },
             async create(roleId: RoleType['id'], userUuid: UserType['uuid']): Promise<RoleMemberType> {
-                return await new ApiRequest().roleMembershipsDetail(roleId, userUuid).create({
+                return await new ApiRequest().roleMemberships(roleId).create({
                     data: {
                         user_uuid: userUuid,
                     },
                 })
+            },
+            async get(roleId: RoleType['id'], userUuid: UserType['uuid']): Promise<void> {
+                return await new ApiRequest().roleMembershipsDetail(roleId, userUuid).get()
             },
             async delete(roleId: RoleType['id'], userUuid: UserType['uuid']): Promise<void> {
                 return await new ApiRequest().roleMembershipsDetail(roleId, userUuid).delete()

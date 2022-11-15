@@ -10,9 +10,10 @@ export const rolesLogic = kea<rolesLogicType>([
     connect({ values: [teamMembersLogic, ['plainMembers']] }),
     actions({
         setCreateRoleModalShown: (shown: boolean) => ({ shown }),
-        setRoleInFocus: (role: RoleType) => ({ role }),
+        setRoleInFocus: (role: null | RoleType) => ({ role }),
         setRoleMembersInFocus: (roleMembers: RoleMemberType[]) => ({ roleMembers }),
         setRoleMembersToAdd: (uuids: string[]) => ({ uuids }),
+        openCreateRoleModal: true,
     }),
     reducers({
         createRoleModalShown: [
@@ -24,44 +25,84 @@ export const rolesLogic = kea<rolesLogicType>([
         roleInFocus: [
             null as null | RoleType,
             {
-                setRoleInFocus: (_, {role}) => role
-            }
+                setRoleInFocus: (_, { role }) => role,
+            },
         ],
         roleMembersInFocus: [
             [] as RoleMemberType[],
             {
-                setRoleMembersInFocus: (_, { roleMembers }) => roleMembers
-            }
+                setRoleMembersInFocus: (_, { roleMembers }) => roleMembers,
+            },
         ],
         roleMembersToAdd: [
             [] as string[],
             {
                 setRoleMembersToAdd: (_, { uuids }) => uuids,
             },
-        ]
+        ],
     }),
-    loaders(() => ({
+    loaders(({ values, actions }) => ({
         roles: [
             [] as RoleType[],
             {
-                loadRoles: async () => await api.roles.list()
+                loadRoles: async () => {
+                    const response = await api.roles.list()
+                    return response?.results || []
+                },
+                createRole: async (roleName) => {
+                    const { roles, roleMembersToAdd } = values
+                    const newRole = await api.roles.create(roleName)
+                    await actions.addRoleMembers({ role: newRole, membersToAdd: roleMembersToAdd })
+                    actions.setRoleMembersInFocus([])
+                    actions.setRoleMembersToAdd([])
+                    actions.setCreateRoleModalShown(false)
+                    return [newRole, ...roles]
+                },
             },
         ],
         roleMembersInFocus: [
             [] as RoleMemberType[],
             {
-                loadRoleMembers: async ({ roleId }) => await api.roles.members.list(roleId)
-            }
-        ]
+                loadRoleMembers: async ({ roleId }) => {
+                    const response = await api.roles.members.list(roleId)
+                    return response?.results || []
+                },
+                addRoleMembers: async ({ role, membersToAdd }) => {
+                    const newMembers = await Promise.all(
+                        membersToAdd.map(async (userUuid: string) => await api.roles.members.create(role.id, userUuid))
+                    )
+                    actions.setRoleMembersToAdd([])
+                    return [...values.roleMembersInFocus, ...newMembers]
+                },
+                deleteRoleMember: async ({ roleMemberUuid }) => {
+                    values.roleInFocus && (await api.roles.members.delete(values.roleInFocus.id, roleMemberUuid))
+                    return values.roleMembersInFocus.filter((member) => member.id !== roleMemberUuid)
+                },
+            },
+        ],
     })),
-
+    listeners(({ actions }) => ({
+        setRoleInFocus: ({ role }) => {
+            role && actions.loadRoleMembers({ roleId: role.id })
+            actions.setCreateRoleModalShown(true)
+        },
+        openCreateRoleModal: () => {
+            actions.setRoleInFocus(null)
+            actions.setRoleMembersInFocus([])
+            actions.setCreateRoleModalShown(true)
+        },
+    })),
     selectors({
         addableMembers: [
             (s) => [s.plainMembers, s.roleMembersInFocus],
             (plainMembers, roleMembersInFocus): UserBasicType[] => {
                 const addableMembers: UserBasicType[] = []
                 for (const plainMember of plainMembers) {
-                    if (!roleMembersInFocus.some((roleMember: RoleMemberType) => roleMember.user.uuid === plainMember.user.uuid)) {
+                    if (
+                        !roleMembersInFocus.some(
+                            (roleMember: RoleMemberType) => roleMember.user.uuid === plainMember.user.uuid
+                        )
+                    ) {
                         addableMembers.push(plainMember.user)
                     }
                 }
@@ -72,5 +113,5 @@ export const rolesLogic = kea<rolesLogicType>([
     }),
     afterMount(({ actions }) => {
         actions.loadRoles()
-    })
+    }),
 ])

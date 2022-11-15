@@ -77,7 +77,7 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = RoleMembership
-        fields = ["role_id", "user", "joined_at", "updated_at", "user_uuid"]
+        fields = ["id", "role_id", "user", "joined_at", "updated_at", "user_uuid"]
 
         read_only_fields = ["id", "role_id", "user"]
 

@@ -1,19 +1,31 @@
-import { LemonButton } from "@posthog/lemon-ui"
-import { useActions } from "kea"
-import { LemonTable, LemonTableColumns } from "lib/components/LemonTable"
-import { CreateRoleModal } from "./CreateRoleModal"
-import { rolesLogic } from "./rolesLogic"
-
+import { LemonButton } from '@posthog/lemon-ui'
+import { Typography } from 'antd'
+import { useActions, useValues } from 'kea'
+import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { RoleType } from '~/types'
+import { CreateRoleModal } from './CreateRoleModal'
+import { rolesLogic } from './rolesLogic'
 
 export function Roles(): JSX.Element {
-    const { setCreateRoleModalShown } = useActions(rolesLogic)
+    const { roles, rolesLoading } = useValues(rolesLogic)
+    const { setRoleInFocus, openCreateRoleModal } = useActions(rolesLogic)
 
-    const columns: LemonTableColumns<{}> = [
+    const columns: LemonTableColumns<RoleType> = [
         {
-            key: 'role',
+            key: 'name',
             title: 'Role',
-            render: function RoleRender(_, role) {
-                return <></>
+            dataIndex: 'name',
+            render: function RoleNameRender(_, role) {
+                return (
+                    <Typography.Text
+                        className="row-name"
+                        onClick={() => {
+                            setRoleInFocus(role)
+                        }}
+                    >
+                        {role.name}
+                    </Typography.Text>
+                )
             },
         },
     ]
@@ -22,16 +34,16 @@ export function Roles(): JSX.Element {
         <>
             <h2 id="roles" className="subtitle" style={{ justifyContent: 'space-between' }}>
                 Roles
-                <LemonButton type="primary" onClick={() => setCreateRoleModalShown(true)} data-attr="create-role-button">
+                <LemonButton type="primary" onClick={openCreateRoleModal} data-attr="create-role-button">
                     Create Role
                 </LemonButton>
             </h2>
             <LemonTable
-                dataSource={[]}
+                dataSource={roles}
                 columns={columns}
-                rowKey={() => "id"}
+                rowKey={() => 'id'}
                 style={{ marginTop: '1rem' }}
-                loading={false}
+                loading={rolesLoading}
                 data-attr="org-roles-table"
                 defaultSorting={{ columnKey: 'level', order: -1 }}
                 pagination={{ pageSize: 50 }}

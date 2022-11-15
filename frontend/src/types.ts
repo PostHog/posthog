@@ -2257,6 +2257,7 @@ export interface RoleType {
 }
 
 export interface RoleMemberType {
+    id: string
     user: UserBaseType
     role_id: string
     joined_at: string
