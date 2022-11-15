@@ -245,7 +245,8 @@ class BreakdownMixin(BaseParamMixin):
         """
         When breaking down by $current_url or $pathname, we ignore trailing slashes and question marks
         """
-        return self._data.get("breakdown_normalize_url", False)
+        bool_to_test = self._data.get("breakdown_normalize_url", False)
+        return process_bool(bool_to_test)
 
 
 class BreakdownValueMixin(BaseParamMixin):

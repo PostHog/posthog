@@ -12,7 +12,7 @@ type BreakdownTagProps = {
     isHistogramable: boolean
     // e.g. example.com and example.com/ should be treated as the same value
     isURLNormalizeable: boolean
-    setFilters?: (filter: Partial<FilterType>) => void
+    setFilters?: (filter: Partial<FilterType>, mergeFilters?: boolean) => void
     filters: FilterType
     onClose?: () => void
     breakdown: string | number
