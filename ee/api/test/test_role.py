@@ -80,7 +80,7 @@ class TestRoleAPI(APILicensedTest):
         )
         self.assertEqual(Role.objects.count(), count)
 
-    def test_updating_feature_flags_access_level(self):
+    def test_updating_feature_flags_access_level_for_a_role(self):
         role = Role.objects.create(organization=self.organization, name="Engineering")
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
