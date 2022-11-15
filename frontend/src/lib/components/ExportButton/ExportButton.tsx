@@ -9,6 +9,7 @@ export interface ExportButtonItem {
     export_context?: TriggerExportProps['export_context']
     dashboard?: number
     insight?: number
+    dashboard_template?: string
 }
 
 export interface ExportButtonProps extends Pick<LemonButtonProps, 'icon' | 'type' | 'status' | 'fullWidth'> {

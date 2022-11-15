@@ -3,7 +3,7 @@ import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { dashboardTemplateLogic } from 'scenes/dashboard/dashboardTemplates/dashboardTemplateLogic'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
-import { DashboardTemplateListing, DashboardTemplateScope } from '~/types'
+import { DashboardTemplateListing, DashboardTemplateScope, ExporterFormat } from '~/types'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
@@ -12,6 +12,9 @@ import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { userLogic } from 'scenes/userLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { slugify } from 'lib/utils'
+import api from 'lib/api'
 
 export const DashboardTemplatesTable = (): JSX.Element => {
     const { filteredDashboardTemplates, searchTerm } = useValues(dashboardsLogic)
@@ -79,6 +82,18 @@ export const DashboardTemplatesTable = (): JSX.Element => {
                                                 Create dashboard using this template
                                             </LemonButton>
 
+                                            <ExportButton
+                                                fullWidth
+                                                items={[
+                                                    {
+                                                        export_format: ExporterFormat.JSON,
+                                                        export_context: {
+                                                            path: api.dashboardTemplates.exportURL(id),
+                                                            filename: `export-${slugify(template_name)}`,
+                                                        },
+                                                    },
+                                                ]}
+                                            />
                                             <LemonButton
                                                 status="stealth"
                                                 onClick={() => {

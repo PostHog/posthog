@@ -2209,6 +2209,7 @@ export enum ExporterFormat {
     PNG = 'image/png',
     CSV = 'text/csv',
     PDF = 'application/pdf',
+    JSON = 'application/json',
 }
 
 export interface ExportedAssetType {

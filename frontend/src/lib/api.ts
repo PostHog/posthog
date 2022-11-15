@@ -908,6 +908,9 @@ const api = {
         async softDelete(id: string): Promise<any> {
             return await new ApiRequest().dashboardTemplate(id, true).update({ data: { deleted: true } })
         },
+        exportURL(id: string): string {
+            return new ApiRequest().dashboardTemplate(id, false).assembleFullUrl()
+        },
         async list(): Promise<PaginatedResponse<DashboardTemplateListing>> {
             return await new ApiRequest().dashboardTemplates().get()
         },

@@ -45,7 +45,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             raise ValidationError("Must provide export format")
 
         if not attrs.get("dashboard") and not attrs.get("insight") and not attrs.get("export_context"):
-            raise ValidationError("Either dashboard, insight or export_context is required for an export.")
+            raise ValidationError("Either dashboard, insight, or export_context is required for an export.")
 
         if attrs.get("dashboard") and attrs["dashboard"].team.id != self.context["team_id"]:
             raise ValidationError({"dashboard": ["This dashboard does not belong to your team."]})
@@ -62,13 +62,16 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
         instance: ExportedAsset = super().create(validated_data)
 
-        task = exporter.export_asset.delay(instance.id)
         try:
+            task = exporter.export_asset.delay(instance.id)
             task.get(timeout=10)
             instance.refresh_from_db()
         except celery.exceptions.TimeoutError:
             # If the rendering times out - fine, the frontend will poll instead for the response
             pass
+        except celery.exceptions.Retry as e:
+            # unwrap retry error for e.g. to get `NotFound` errors from the export attempt
+            raise e.exc or e
         except requests.exceptions.MissingSchema:
             # regression test see https://github.com/PostHog/posthog/issues/11204
             pass

@@ -240,6 +240,15 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
             "b",
         ]
 
+    def test_get_individual_template(self) -> None:
+        a_response = self._create_template("a")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboard_templates/{a_response.json().get('id')}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["template_name"], "a")
+        self.assertEqual(response.json()["scope"], "project")
+        self.assertTrue(len(response.json()["tiles"]) > 0)
+
     def _create_template(
         self,
         name: str = "Test template",

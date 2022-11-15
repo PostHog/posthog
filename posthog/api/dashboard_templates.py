@@ -2,8 +2,9 @@ from typing import Dict, Literal, Type
 
 from django.db.models import Q
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
@@ -150,3 +151,21 @@ class DashboardTemplatesViewSet(
             .distinct()
             .all()
         )
+
+    def retrieve(self, request, *args, **kwargs) -> Response:
+        user = request.user
+        team = user.team
+        organization = team.organization
+
+        try:
+            instance = DashboardTemplate.objects.exclude(deleted=True).get(id=kwargs["pk"])
+        except DashboardTemplate.DoesNotExist:
+            raise NotFound(detail="Dashboard template not found")
+
+        if (instance.scope == "organization" and instance.organization != organization) or (
+            instance.scope == "project" and instance.team != team
+        ):
+            raise PermissionDenied(detail="You cannot access this template")
+
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)

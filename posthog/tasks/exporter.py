@@ -2,6 +2,7 @@ from typing import Optional
 
 from posthog.celery import app
 from posthog.models import ExportedAsset
+from posthog.tasks.exports import json_exporter
 
 
 @app.task(autoretry_for=(Exception,), max_retries=5, retry_backoff=True, acks_late=True)
@@ -15,10 +16,15 @@ def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
     )
 
     is_csv_export = exported_asset.export_format == ExportedAsset.ExportFormat.CSV
+    is_json_export = exported_asset.export_format == ExportedAsset.ExportFormat.JSON
+
     if is_csv_export:
         max_limit = exported_asset.export_context.get("max_limit", 10000)
         csv_exporter.export_csv(exported_asset, limit=limit, max_limit=max_limit)
         statsd.incr("csv_exporter.queued", tags={"team_id": str(exported_asset.team_id)})
+    elif is_json_export:
+        json_exporter.export_json(exported_asset)
+        statsd.incr("json_exporter.queued", tags={"team_id": str(exported_asset.team_id)})
     else:
         image_exporter.export_image(exported_asset)
         statsd.incr("image_exporter.queued", tags={"team_id": str(exported_asset.team_id)})

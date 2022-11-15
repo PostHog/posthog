@@ -1,4 +1,5 @@
 import datetime
+import json
 from typing import Dict, List, Optional
 from unittest.mock import patch
 
@@ -10,6 +11,10 @@ from django.http import HttpResponse
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.api.test.test_organization import create_organization
+from posthog.api.test.test_team import create_team
+from posthog.api.test.test_user import create_user
+from posthog.models import DashboardTemplate
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.filters.filter import Filter
@@ -31,6 +36,8 @@ class TestExports(APIBaseTest):
     exported_asset: ExportedAsset = None  # type: ignore
     dashboard: Dashboard = None  # type: ignore
     insight: Insight = None  # type: ignore
+    dashboard_template: DashboardTemplate = None  # type: ignore
+    global_dashboard_template: DashboardTemplate = None  # type: ignore
 
     def teardown_method(self, method) -> None:
         s3 = resource(
@@ -59,6 +66,11 @@ class TestExports(APIBaseTest):
         )
         cls.exported_asset = ExportedAsset.objects.create(
             team=cls.team, dashboard_id=cls.dashboard.id, export_format="image/png"
+        )
+        cls.dashboard_template = DashboardTemplate.objects.create(team=cls.team, template_name="example template")
+
+        cls.global_dashboard_template = DashboardTemplate.objects.create(
+            team=cls.team, template_name="global template", scope="global"
         )
 
     @patch("posthog.api.exports.exporter")
@@ -157,15 +169,13 @@ class TestExports(APIBaseTest):
     def test_errors_if_missing_related_instance(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "image/png"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "attr": None,
-                "code": "invalid_input",
-                "detail": "Either dashboard, insight or export_context is required for an export.",
-                "type": "validation_error",
-            },
-        )
+
+        assert response.json() == {
+            "attr": None,
+            "code": "invalid_input",
+            "detail": "Either dashboard, insight, or export_context is required for an export.",
+            "type": "validation_error",
+        }
 
     def test_errors_if_bad_format(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "not/allowed"})
@@ -344,6 +354,116 @@ class TestExports(APIBaseTest):
             for line in file_lines[1:]:  # every result has to match the filter though
                 if line != "":  # skip the final empty line of the file
                     self.assertIn("Safari", line)
+
+    @patch("posthog.tasks.exports.json_exporter.requests.request")
+    def test_can_create_new_valid_export_dashboard_template(self, patched_request) -> None:
+        def requests_side_effect(*args, **kwargs):
+            return self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])
+
+        patched_request.side_effect = requests_side_effect
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "application/json",
+                "export_context": {
+                    "filename": "my-incredible-dashboard.json",
+                    "path": "&".join(
+                        [
+                            f"/api/projects/{self.team.id}/dashboard_templates/{self.dashboard_template.id}",
+                        ]
+                    ),
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        exported_assert = response.json()
+
+        download_response: Optional[HttpResponse] = None
+        attempt_count = 0
+        while attempt_count < 10 and not download_response:
+            download_response = self.client.get(
+                f"/api/projects/{self.team.id}/exports/{exported_assert['id']}/content?download=true"
+            )
+            attempt_count += 1
+
+        if not download_response:
+            self.fail("must have a response by this point")  # hi mypy
+
+        self.assertEqual(download_response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(download_response.content)
+        file_content = download_response.content.decode("utf-8")
+        exported_asset_as_dict = json.loads(file_content)
+        assert exported_asset_as_dict == {
+            "dashboard_description": None,
+            "dashboard_filters": None,
+            "id": str(self.dashboard_template.id),
+            "scope": "project",
+            "source_dashboard": None,
+            "tags": [],
+            "template_name": "example template",
+            "tiles": [],
+        }
+
+    @patch("posthog.tasks.exports.json_exporter.requests.request")
+    def test_cannot_create_new_export_dashboard_template_for_a_different_team(self, patched_request) -> None:
+        def requests_side_effect(*args, **kwargs):
+            return self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])
+
+        patched_request.side_effect = requests_side_effect
+
+        another_organization = create_organization(name="org two")
+        org_two_team_one = create_team(organization=another_organization)
+        org_two_user = create_user(
+            email="team_two_user@posthog.com", password="1234", organization=another_organization
+        )
+        self.client.force_login(org_two_user)
+        response = self.client.post(
+            f"/api/projects/{org_two_team_one.id}/exports",
+            {
+                "export_format": "application/json",
+                "export_context": {
+                    "filename": "my-incredible-dashboard.json",
+                    "path": "&".join(
+                        [
+                            f"/api/projects/{org_two_team_one.id}/dashboard_templates/{self.dashboard_template.id}",
+                        ]
+                    ),
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("posthog.tasks.exports.json_exporter.requests.request")
+    def test_can_create_new_export_dashboard_template_for_global_template_from_different_team(
+        self, patched_request
+    ) -> None:
+        def requests_side_effect(*args, **kwargs):
+            return self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])
+
+        patched_request.side_effect = requests_side_effect
+
+        another_organization = create_organization(name="org two")
+        org_two_team_one = create_team(organization=another_organization)
+        org_two_user = create_user(
+            email="team_two_user@posthog.com", password="1234", organization=another_organization
+        )
+        self.client.force_login(org_two_user)
+        response = self.client.post(
+            f"/api/projects/{org_two_team_one.id}/exports",
+            {
+                "export_format": "application/json",
+                "export_context": {
+                    "filename": "my-incredible-dashboard.json",
+                    "path": "&".join(
+                        [
+                            f"/api/projects/{org_two_team_one.id}/dashboard_templates/{self.global_dashboard_template.id}",
+                        ]
+                    ),
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def _get_insight_activity(self, insight_id: int, expected_status: int = status.HTTP_200_OK):
         url = f"/api/projects/{self.team.id}/insights/{insight_id}/activity"
