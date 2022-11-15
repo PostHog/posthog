@@ -39,6 +39,22 @@ class DashboardAPI:
         dashboard_id = response_json["id"] if response.status_code == status.HTTP_201_CREATED else -1
         return dashboard_id, response_json
 
+    def update_dashboard(
+        self,
+        dashboard_id: int,
+        data: Dict[str, Any],
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_200_OK,
+    ) -> Tuple[int, Dict[str, Any]]:
+        if team_id is None:
+            team_id = self.team.id
+        response = self.client.patch(f"/api/projects/{team_id}/dashboards/{dashboard_id}", data)
+        self.assertEqual(response.status_code, expected_status)
+
+        response_json = response.json()
+        dashboard_id = response_json["id"] if response.status_code == status.HTTP_200_OK else -1
+        return dashboard_id, response_json
+
     def get_dashboard(
         self, dashboard_id: int, team_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK
     ) -> Dict[str, Any]:
@@ -85,14 +101,18 @@ class DashboardAPI:
         self,
         dashboard_id: int,
         text: str = "I AM TEXT!",
+        extra_data: Optional[Dict] = None,
         team_id: Optional[int] = None,
         expected_status: int = status.HTTP_200_OK,
     ) -> Tuple[int, Dict[str, Any]]:
         if team_id is None:
             team_id = self.team.id
 
+        if extra_data is None:
+            extra_data = {}
+
         response = self.client.patch(
-            f"/api/projects/{team_id}/dashboards/{dashboard_id}", {"tiles": [{"text": {"body": text}}]}
+            f"/api/projects/{team_id}/dashboards/{dashboard_id}", {"tiles": [{"text": {"body": text}, **extra_data}]}
         )
 
         self.assertEqual(response.status_code, expected_status, response.json())
@@ -116,12 +136,3 @@ class DashboardAPI:
 
         response_json = response.json()
         return response_json.get("id", None), response_json
-
-    def update_tile_layouts(self, dashboard_id: int, layouts: List[Dict]) -> List[Dict]:
-        add_layouts_response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/tiles/layouts",
-            layouts,
-        )
-        self.assertEqual(add_layouts_response.status_code, status.HTTP_200_OK)
-        dashboard_json = self.get_dashboard(dashboard_id)
-        return [t["layouts"] for t in dashboard_json["tiles"]]

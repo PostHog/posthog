@@ -13,6 +13,8 @@ import moment from 'moment'
 import { LemonModal } from 'lib/components/LemonModal'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonCalendarRangeInline } from 'lib/components/LemonCalendarRange/LemonCalendarRangeInline'
+import { dayjs } from 'lib/dayjs'
+import { formatDate, formatDateRange } from 'lib/utils'
 
 // keep in sync with plugin-server's export-historical-events.ts
 export const HISTORICAL_EXPORT_JOB_NAME = 'Export historical events'
@@ -146,6 +148,24 @@ function FieldInput({
                 />
             )
         case 'daterange':
-            return <LemonCalendarRangeInline value={value || null} onChange={onChange} />
+            return (
+                <div className="border rounded p-4">
+                    <div className="pb-4">
+                        <LemonCalendarRangeInline value={value || null} onChange={onChange} />
+                    </div>
+                    <div className="border-t pt-4">
+                        <span className="text-muted">Selected period:</span>{' '}
+                        {value ? (
+                            <span>
+                                {value[0] === value[1]
+                                    ? formatDate(dayjs(value[0]))
+                                    : formatDateRange(dayjs(value[0]), dayjs(value[1]))}
+                            </span>
+                        ) : (
+                            <span className="italic">No period selected.</span>
+                        )}
+                    </div>
+                </div>
+            )
     }
 }

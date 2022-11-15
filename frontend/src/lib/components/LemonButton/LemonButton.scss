@@ -155,7 +155,7 @@
             }
             &:not(:disabled):active {
                 color: var(--#{$status}-dark, var(--primary-dark));
-                .LemonIcon {
+                .LemonButton__icon {
                     color: var(--#{$status}-dark, var(--primary-dark));
                 }
             }

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { cloneElement } from 'react'
 import { SessionRecordingsTabs, SessionRecordingPlaylistType } from '~/types'
 import { PLAYLISTS_PER_PAGE, savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
-import { LemonButton, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
 import { LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { CalendarOutlined, PushpinFilled, PushpinOutlined } from '@ant-design/icons'
 import { urls } from 'scenes/urls'
@@ -11,15 +11,16 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { TZLabel } from '@posthog/apps-common'
 import { SavedSessionRecordingPlaylistsEmptyState } from 'scenes/session-recordings/saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
-
+import clsx from 'clsx'
+import { More } from 'lib/components/LemonButton/More'
 export type SavedSessionRecordingPlaylistsProps = {
     tab: SessionRecordingsTabs.Playlists
 }
 
 export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPlaylistsProps): JSX.Element {
     const logic = savedSessionRecordingPlaylistsLogic({ tab })
-    const { playlists, playlistsLoading, filters, sorting, pagination } = useValues(logic)
-    const { setSavedPlaylistsFilters, updatePlaylist } = useActions(logic)
+    const { playlists, playlistsLoading, filters, sorting, pagination, newPlaylistLoading } = useValues(logic)
+    const { setSavedPlaylistsFilters, updatePlaylist, deletePlaylist, duplicatePlaylist } = useActions(logic)
     const { meFirstMembers } = useValues(membersLogic)
 
     const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
@@ -41,11 +42,14 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
         {
             title: 'Name',
             dataIndex: 'name',
-            render: function Render(name, { short_id, description }) {
+            render: function Render(name, { short_id, derived_name, description }) {
                 return (
                     <>
-                        <Link className="font-semibold" to={urls.sessionRecordingPlaylist(short_id)}>
-                            {name || 'Untitled'}
+                        <Link
+                            className={clsx('font-semibold', !name && 'italic')}
+                            to={urls.sessionRecordingPlaylist(short_id)}
+                        >
+                            {name || derived_name || '(Untitled)'}
                         </Link>
                         {description ? <div className="truncate">{description}</div> : null}
                     </>
@@ -53,14 +57,18 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
             },
         },
 
-        createdByColumn<SessionRecordingPlaylistType>() as LemonTableColumn<
-            SessionRecordingPlaylistType,
-            keyof SessionRecordingPlaylistType | undefined
-        >,
+        {
+            ...(createdByColumn<SessionRecordingPlaylistType>() as LemonTableColumn<
+                SessionRecordingPlaylistType,
+                keyof SessionRecordingPlaylistType | undefined
+            >),
+            width: 0,
+        },
         {
             title: 'Last modified',
             sorter: true,
             dataIndex: 'last_modified_at',
+            width: 0,
             render: function Render(last_modified_at) {
                 return (
                     <div>
@@ -68,6 +76,34 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                             <TZLabel time={last_modified_at} />
                         )}
                     </div>
+                )
+            },
+        },
+
+        {
+            width: 0,
+            render: function Render(_, playlist) {
+                return (
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={() => duplicatePlaylist(playlist)}
+                                    fullWidth
+                                    loading={newPlaylistLoading}
+                                    data-attr="duplicate-playlist"
+                                >
+                                    Duplicate
+                                </LemonButton>
+                                <LemonDivider />
+
+                                <LemonButton status="danger" onClick={() => deletePlaylist(playlist)} fullWidth>
+                                    Delete playlist
+                                </LemonButton>
+                            </>
+                        }
+                    />
                 )
             },
         },
@@ -138,7 +174,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
             </div>
 
             {!playlistsLoading && playlists.count < 1 ? (
-                <SavedSessionRecordingPlaylistsEmptyState />
+                <SavedSessionRecordingPlaylistsEmptyState tab={tab} />
             ) : (
                 <LemonTable
                     loading={playlistsLoading}

@@ -5317,6 +5317,36 @@ def trend_test_factory(trends):
             ]
             assert daily_response[0]["data"] == [2.0, 0.0, 0.0, 1.0, 3.0, 0.0, 0.0]
 
+        def test_trends_breakdown_timezone(self):
+            self.team.timezone = "US/Pacific"
+            self.team.save()
+            self._create_event_count_per_user_events()
+
+            with freeze_time("2020-01-03 19:06:34"):
+                _create_person(team_id=self.team.pk, distinct_ids=["another_user"])
+                _create_event(
+                    team=self.team, event="viewed video", distinct_id="another_user", properties={"color": "orange"}
+                )
+
+            daily_response = trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_LINEAR,
+                        "events": [{"id": "viewed video", "math": "dau"}],
+                        "breakdown": "color",
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-03-07",
+                        "interval": "month",
+                    }
+                ),
+                self.team,
+            )
+
+            # assert len(daily_response) == 4
+            assert daily_response[0]["days"] == ["2020-01-01", "2020-02-01", "2020-03-01"]
+            assert daily_response[1]["days"] == ["2020-01-01", "2020-02-01", "2020-03-01"]
+            assert daily_response[2]["days"] == ["2020-01-01", "2020-02-01", "2020-03-01"]
+
         def test_trends_volume_per_user_average_with_event_property_breakdown(self):
             self._create_event_count_per_user_events()
 

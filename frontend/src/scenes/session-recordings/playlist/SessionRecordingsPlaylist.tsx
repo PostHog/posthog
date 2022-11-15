@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { deleteWithUndo, range } from '~/lib/utils'
+import { range } from '~/lib/utils'
 import { RecordingDurationFilter, RecordingFilters, SessionRecordingsTabs, SessionRecordingType } from '~/types'
 import {
     defaultPageviewPropertyEntityFilter,
@@ -28,9 +28,9 @@ import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic
 import { NotFound } from 'lib/components/NotFound'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { More } from 'lib/components/LemonButton/More'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
+import { deletePlaylistWithUndo } from './playlistUtils'
 
 export const scene: SceneExport = {
     component: SessionRecordingsPlaylistScene,
@@ -41,8 +41,7 @@ export const scene: SceneExport = {
 }
 
 export function SessionRecordingsPlaylistScene(): JSX.Element {
-    const { currentTeamId } = useValues(teamLogic)
-    const { playlist, playlistLoading, hasChanges } = useValues(sessionRecordingsPlaylistLogic)
+    const { playlist, playlistLoading, hasChanges, derivedName } = useValues(sessionRecordingsPlaylistLogic)
     const { updatePlaylist, setFilters, saveChanges, duplicatePlaylist } = useActions(sessionRecordingsPlaylistLogic)
 
     if (!playlist && playlistLoading) {
@@ -81,7 +80,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     <EditableField
                         name="name"
                         value={playlist.name || ''}
-                        placeholder={'Untitled Playlist'}
+                        placeholder={derivedName}
                         onSave={(value) => updatePlaylist({ name: value })}
                         saveOnBlur={true}
                         maxLength={400}
@@ -118,15 +117,10 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                     <LemonButton
                                         status="danger"
                                         onClick={() =>
-                                            deleteWithUndo({
-                                                object: playlist,
-                                                idField: 'short_id',
-                                                endpoint: `projects/${currentTeamId}/session_recording_playlists`,
-                                                callback: () => {
-                                                    router.actions.replace(
-                                                        urls.sessionRecordings(SessionRecordingsTabs.Playlists)
-                                                    )
-                                                },
+                                            deletePlaylistWithUndo(playlist, () => {
+                                                router.actions.replace(
+                                                    urls.sessionRecordings(SessionRecordingsTabs.Playlists)
+                                                )
                                             })
                                         }
                                         fullWidth
