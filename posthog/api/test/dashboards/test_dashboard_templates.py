@@ -7,6 +7,7 @@ from rest_framework import status
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.helpers.dashboard_templates import create_default_global_templates
 from posthog.models import OrganizationMembership, User
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 
@@ -43,6 +44,12 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
         self.org_two_user = create_user(
             email="team_two_user@posthog.com", password="1234", organization=self.another_organization
         )
+
+    def test_create_defaults_does_not_duplicate(self) -> None:
+        create_default_global_templates()
+        create_default_global_templates()
+
+        assert len(self.client.get("/api/projects/@current/dashboard_templates/?basic=true").json()["results"]) == 2
 
     def test_can_create_template(self) -> None:
         response = self._create_template()

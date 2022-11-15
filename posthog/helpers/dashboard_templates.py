@@ -92,17 +92,17 @@ def _create_text_tile(dashboard: Dashboard, tile: Dict) -> None:
 
 
 def create_default_global_templates() -> None:
-    templates_to_create = [
-        DashboardTemplate(
-            template_name="Product analytics",
-            source_dashboard=None,
-            dashboard_description="",
-            dashboard_filters={},
-            tags=[],
-            team=None,
-            organization=None,
-            scope=DashboardTemplate.Scope.GLOBAL,
-            tiles=[
+    DashboardTemplate.objects.get_or_create(
+        template_name="Product analytics",
+        team=None,
+        organization=None,
+        scope=DashboardTemplate.Scope.GLOBAL,
+        source_dashboard=None,
+        defaults={
+            "dashboard_description": "",
+            "dashboard_filters": {},
+            "tags": [],
+            "tiles": [
                 {
                     "type": "INSIGHT",
                     "name": "Daily active users (DAUs)",
@@ -282,17 +282,19 @@ def create_default_global_templates() -> None:
                     "color": "green",
                 },
             ],
-        ),
-        DashboardTemplate(
-            template_name="Website traffic",
-            source_dashboard=None,
-            dashboard_description="",
-            dashboard_filters={},
-            tags=[],
-            team=None,
-            organization=None,
-            scope=DashboardTemplate.Scope.GLOBAL,
-            tiles=[
+        },
+    )
+    DashboardTemplate.objects.get_or_create(
+        template_name="Website traffic",
+        source_dashboard=None,
+        team=None,
+        organization=None,
+        scope=DashboardTemplate.Scope.GLOBAL,
+        defaults={
+            "dashboard_description": "",
+            "dashboard_filters": {},
+            "tags": [],
+            "tiles": [
                 {
                     "type": "INSIGHT",
                     "name": "Website Unique Users (Total)",
@@ -657,9 +659,8 @@ def create_default_global_templates() -> None:
                     "color": None,
                 },
             ],
-        ),
-    ]
-    DashboardTemplate.objects.bulk_create(templates_to_create)
+        },
+    ),
 
 
 def create_dashboard_from_template(template_key: str, dashboard: Dashboard) -> None:
