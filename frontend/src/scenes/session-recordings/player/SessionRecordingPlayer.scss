@@ -20,11 +20,9 @@
         min-width: 1px;
         height: 500px;
         min-height: 500px;
-        padding: 0.5rem;
-
-        @include screen($md) {
-            width: 100%;
-        }
+        margin: 0.5rem;
+        overflow: hidden;
+        border-radius: var(--radius);
     }
 
     &--fullscreen {
@@ -44,11 +42,8 @@
         .SessionRecordingPlayer__body {
             height: 100%;
             min-height: auto;
-            padding: 0rem;
-
-            .PlayerFrame {
-                border-radius: 0px;
-            }
+            margin: 0rem;
+            border-radius: 0;
         }
     }
 

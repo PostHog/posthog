@@ -1,4 +1,4 @@
-import { BreakdownType, FilterType, PropertyDefinition } from '~/types'
+import { BreakdownType, FilterType, PropertyDefinition, TrendsFilterType } from '~/types'
 import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -20,7 +20,7 @@ export function onFilterChange({ useMultiBreakdown, breakdownParts, setFilters, 
         if (changedBreakdownType) {
             const isHistogramable = !useMultiBreakdown && !!getPropertyDefinition(changedBreakdown)?.is_numerical
 
-            const newFilters: Partial<FilterType> = {
+            const newFilters: Partial<TrendsFilterType> = {
                 breakdown_type: changedBreakdownType,
                 breakdown_group_type_index: taxonomicGroup.groupTypeIndex,
                 breakdown_histogram_bin_count: isHistogramable ? 10 : undefined,

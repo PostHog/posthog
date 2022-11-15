@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { EventType, SessionRecordingPlayerProps, SessionRecordingPlayerTab } from '~/types'
+import { EventType, SessionRecordingPlayerTab } from '~/types'
 import { PlayerList } from 'scenes/session-recordings/player/list/PlayerList'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, interleave } from 'lib/utils'
@@ -10,8 +10,9 @@ import React from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 import { UnverifiedEvent, IconTerminal } from 'lib/components/icons'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
 
-export function PlayerInspector({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+export function PlayerInspector({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
     const { tab } = useValues(sharedListLogic({ sessionRecordingId, playerKey }))
 
     return (
@@ -121,7 +122,10 @@ export function PlayerInspector({ sessionRecordingId, playerKey }: SessionRecord
     )
 }
 
-export function PlayerInspectorPicker({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+export function PlayerInspectorPicker({
+    sessionRecordingId,
+    playerKey,
+}: SessionRecordingPlayerLogicProps): JSX.Element {
     const { tab } = useValues(sharedListLogic({ sessionRecordingId, playerKey }))
     const { setTab } = useActions(sharedListLogic({ sessionRecordingId, playerKey }))
 
