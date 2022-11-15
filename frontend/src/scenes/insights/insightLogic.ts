@@ -326,9 +326,10 @@ export const insightLogic = kea<insightLogicType>([
                             isLifecycleFilter(filters)
                         ) {
                             response = await api.get(
-                                `api/projects/${currentTeamId}/insights/trend/?${toParams(
-                                    filterTrendsClientSideParams(params)
-                                )}`,
+                                `api/projects/${currentTeamId}/query/q?${toParams({
+                                    ...filterTrendsClientSideParams(params),
+                                    type: 'legacy_trends',
+                                })}`,
                                 cache.abortController.signal
                             )
                         } else if (isRetentionFilter(filters)) {

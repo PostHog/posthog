@@ -28,6 +28,7 @@ from . import (
     plugin_log_entry,
     prompt,
     property_definition,
+    queries,
     sharing,
     site_app,
     team,
@@ -142,6 +143,8 @@ projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["team_id
 projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id"])
 projects_router.register(r"elements", ElementViewSet, "project_elements", ["team_id"])
 projects_router.register(r"session_recordings", SessionRecordingViewSet, "project_session_recordings", ["team_id"])
+
+projects_router.register(r"query", queries.QueryViewSet, "project_query", ["team_id"])
 
 if EE_AVAILABLE:
     from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet
