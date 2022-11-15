@@ -3,14 +3,14 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { BOOKMARKLET } from '../constants'
-import { ingestionLogic, INGESTION_STEPS } from '../ingestionLogic'
+import { ingestionLogicV2, INGESTION_STEPS } from '../ingestionLogicV2'
 import './Panels.scss'
 import { IconArrowLeft } from 'lib/components/icons'
 import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
 
 export function PanelFooter(): JSX.Element {
-    const { platform } = useValues(ingestionLogic)
-    const { setPlatform, setVerify } = useActions(ingestionLogic)
+    const { platform } = useValues(ingestionLogicV2)
+    const { setPlatform, setVerify } = useActions(ingestionLogicV2)
     const { reportIngestionTryWithBookmarkletClicked } = useActions(eventUsageLogic)
 
     return (
@@ -61,8 +61,8 @@ export function PanelFooter(): JSX.Element {
 }
 
 export function PanelHeader(): JSX.Element | null {
-    const { isSmallScreen, previousStep, currentStep } = useValues(ingestionLogic)
-    const { onBack } = useActions(ingestionLogic)
+    const { isSmallScreen, previousStep, currentStep } = useValues(ingestionLogicV2)
+    const { onBack } = useActions(ingestionLogicV2)
 
     // no back buttons on the first screen
     if (currentStep === INGESTION_STEPS.START) {

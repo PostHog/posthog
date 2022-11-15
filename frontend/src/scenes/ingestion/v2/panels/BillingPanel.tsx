@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { CardContainer } from 'scenes/ingestion/v2/CardContainer'
-import { ingestionLogic } from 'scenes/ingestion/v2/ingestionLogic'
+import { ingestionLogicV2 } from 'scenes/ingestion/v2/ingestionLogicV2'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 import { BillingHero } from 'scenes/billing/v2/BillingHero'
 
 export function BillingPanel(): JSX.Element {
-    const { completeOnboarding } = useActions(ingestionLogic)
+    const { completeOnboarding } = useActions(ingestionLogicV2)
     const { reportIngestionContinueWithoutBilling } = useActions(eventUsageLogic)
     const { billing, billingVersion } = useValues(billingLogic)
     const { billing: billingV2 } = useValues(billingLogicV2)

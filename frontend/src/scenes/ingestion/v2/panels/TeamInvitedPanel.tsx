@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { ingestionLogic } from 'scenes/ingestion/v2/ingestionLogic'
+import { ingestionLogicV2 } from 'scenes/ingestion/v2/ingestionLogicV2'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
 import { LemonDivider } from 'lib/components/LemonDivider'
@@ -8,7 +8,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { BOOKMARKLET } from '../constants'
 
 export function TeamInvitedPanel(): JSX.Element {
-    const { completeOnboarding, setTechnical, setPlatform } = useActions(ingestionLogic)
+    const { completeOnboarding, setTechnical, setPlatform } = useActions(ingestionLogicV2)
     const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
 
     return (

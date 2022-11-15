@@ -1,7 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { Framework, PlatformType } from 'scenes/ingestion/v2/types'
 import { API, MOBILE, BACKEND, WEB, BOOKMARKLET, thirdPartySources, THIRD_PARTY, ThirdPartySource } from './constants'
-import type { ingestionLogicType } from './ingestionLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
@@ -15,6 +14,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { subscriptions } from 'kea-subscriptions'
 import { BillingType, TeamType } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import type { ingestionLogicV2Type } from './ingestionLogicV2Type'
 
 export enum INGESTION_STEPS {
     START = 'Get started',
@@ -33,7 +33,7 @@ export enum INGESTION_STEPS_WITHOUT_BILLING {
     DONE = 'Done!',
 }
 
-export const ingestionLogic = kea<ingestionLogicType>([
+export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
     path(['scenes', 'ingestion', 'ingestionLogic']),
     connect({
         values: [
@@ -400,7 +400,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
     })),
 ])
 
-function getUrl(values: ingestionLogicType['values']): string | [string, Record<string, undefined | string>] {
+function getUrl(values: ingestionLogicV2Type['values']): string | [string, Record<string, undefined | string>] {
     const { technical, platform, framework, verify, addBilling, hasInvitedMembers } = values
 
     let url = '/ingestion'

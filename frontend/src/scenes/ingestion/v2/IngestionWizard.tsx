@@ -5,7 +5,7 @@ import { VerificationPanel } from 'scenes/ingestion/v2/panels/VerificationPanel'
 import { InstructionsPanel } from 'scenes/ingestion/v2/panels/InstructionsPanel'
 import { MOBILE, BACKEND, WEB, BOOKMARKLET, THIRD_PARTY } from 'scenes/ingestion/v2/constants'
 import { useValues, useActions } from 'kea'
-import { ingestionLogic } from 'scenes/ingestion/v2/ingestionLogic'
+import { ingestionLogicV2 } from 'scenes/ingestion/v2/ingestionLogicV2'
 import { FrameworkPanel } from 'scenes/ingestion/v2/panels/FrameworkPanel'
 import { PlatformPanel } from 'scenes/ingestion/v2/panels/PlatformPanel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -24,7 +24,7 @@ import { InviteTeamPanel } from './panels/InviteTeamPanel'
 import { TeamInvitedPanel } from './panels/TeamInvitedPanel'
 
 export function IngestionWizardV2(): JSX.Element {
-    const { platform, framework, verify, addBilling, technical, hasInvitedMembers } = useValues(ingestionLogic)
+    const { platform, framework, verify, addBilling, technical, hasInvitedMembers } = useValues(ingestionLogicV2)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { reportIngestionLandingSeen } = useActions(eventUsageLogic)
 
@@ -112,7 +112,7 @@ export function IngestionWizardV2(): JSX.Element {
 function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
-    const { isSmallScreen } = useValues(ingestionLogic)
+    const { isSmallScreen } = useValues(ingestionLogicV2)
 
     return (
         <div className="flex h-full flex-col">

@@ -15,7 +15,7 @@ import {
 } from 'scenes/ingestion/v2/frameworks'
 import { API, MOBILE, BACKEND, WEB } from '../constants'
 import { useValues } from 'kea'
-import { ingestionLogic } from '../ingestionLogic'
+import { ingestionLogicV2 } from '../ingestionLogicV2'
 import { WebInstructions } from '../frameworks/WebInstructions'
 import { Link } from '@posthog/lemon-ui'
 
@@ -34,7 +34,7 @@ const frameworksSnippet: Record<string, React.ComponentType> = {
 }
 
 export function InstructionsPanel(): JSX.Element {
-    const { platform, framework, frameworkString } = useValues(ingestionLogic)
+    const { platform, framework, frameworkString } = useValues(ingestionLogicV2)
 
     if (platform !== WEB && !framework) {
         return <></>
