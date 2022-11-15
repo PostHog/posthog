@@ -161,8 +161,8 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         session_recording_serializer = SessionRecordingMetadataSerializer(
             data={
-                "segments": session_recording_meta_data.segments,
-                "start_and_end_times_by_window_id": session_recording_meta_data.start_and_end_times_by_window_id,
+                "segments": session_recording_meta_data["segments"],
+                "start_and_end_times_by_window_id": session_recording_meta_data["start_and_end_times_by_window_id"],
                 "session_id": session_recording_id,
                 "viewed": viewed_session_recording,
             }
@@ -171,7 +171,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         try:
             person: Union[Person, None] = Person.objects.get(
-                persondistinctid__distinct_id=session_recording_meta_data.distinct_id,
+                persondistinctid__distinct_id=session_recording_meta_data["distinct_id"],
                 persondistinctid__team_id=self.team,
                 team=self.team,
             )
@@ -206,11 +206,12 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             request, session_recording_id, limit, offset, recording_start_time
         )
 
-        if session_recording_snapshot_data.snapshot_data_by_window_id == {}:
+        if session_recording_snapshot_data["snapshot_data_by_window_id"] == {}:
             raise exceptions.NotFound("Snapshots not found")
+
         next_url = (
             format_query_params_absolute_url(request, offset + limit, limit)
-            if session_recording_snapshot_data.has_next
+            if session_recording_snapshot_data["has_next"]
             else None
         )
 
@@ -218,7 +219,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             {
                 "result": {
                     "next": next_url,
-                    "snapshot_data_by_window_id": session_recording_snapshot_data.snapshot_data_by_window_id,
+                    "snapshot_data_by_window_id": session_recording_snapshot_data["snapshot_data_by_window_id"],
                 }
             }
         )

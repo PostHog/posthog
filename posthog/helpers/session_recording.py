@@ -89,16 +89,14 @@ EVENT_SUMMARY_DATA_INCLUSIONS = [
 ]
 
 
-@dataclasses.dataclass
-class RecordingSegment:
+class RecordingSegment(TypedDict):
     start_time: datetime
     end_time: datetime
     window_id: WindowId
     is_active: bool
 
 
-@dataclasses.dataclass
-class SnapshotDataTaggedWithWindowId:
+class SnapshotDataTaggedWithWindowId(TypedDict):
     window_id: WindowId
     snapshot_data: SnapshotData
 
@@ -110,8 +108,7 @@ class SessionRecordingEventSummary(TypedDict):
     data: Dict[str, Union[int, str]]
 
 
-@dataclasses.dataclass
-class SessionRecordingEvent:
+class SessionRecordingEvent(TypedDict):
     timestamp: datetime
     distinct_id: str
     session_id: str
@@ -120,15 +117,13 @@ class SessionRecordingEvent:
     events_summary: List[SessionRecordingEventSummary]
 
 
-@dataclasses.dataclass
-class RecordingMetadata:
+class RecordingMetadata(TypedDict):
     distinct_id: str
     segments: List[RecordingSegment]
     start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment]
 
 
-@dataclasses.dataclass
-class DecompressedRecordingData:
+class DecompressedRecordingData(TypedDict):
     has_next: bool
     snapshot_data_by_window_id: Dict[WindowId, List[Union[SnapshotData, SessionRecordingEventSummary]]]
 
@@ -236,13 +231,13 @@ def decompress_chunked_snapshot_data(
     snapshot_data_by_window_id = defaultdict(list)
 
     # Handle backward compatibility to the days of uncompressed and unchunked snapshots
-    if "chunk_id" not in all_recording_events[0].snapshot_data:
+    if "chunk_id" not in all_recording_events[0]["snapshot_data"]:
         paginated_list = paginate_list(all_recording_events, limit, offset)
         for event in paginated_list.paginated_list:
             snapshot_data_by_window_id[event.window_id].append(
-                get_events_summary_from_snapshot_data([event.snapshot_data])[0]
+                get_events_summary_from_snapshot_data([event["snapshot_data"]])[0]
                 if return_only_activity_data
-                else event.snapshot_data
+                else event["snapshot_data"]
             )
         return DecompressedRecordingData(
             has_next=paginated_list.has_next, snapshot_data_by_window_id=snapshot_data_by_window_id
@@ -251,7 +246,7 @@ def decompress_chunked_snapshot_data(
     # Split decompressed recording events into their chunks
     chunks_collector: DefaultDict[str, List[SnapshotDataTaggedWithWindowId]] = defaultdict(list)
     for event in all_recording_events:
-        chunks_collector[event.snapshot_data["chunk_id"]].append(event)
+        chunks_collector[event["snapshot_data"]["chunk_id"]].append(event)
 
     # Paginate the list of chunks
     paginated_chunk_list = paginate_list(list(chunks_collector.values()), limit, offset)
@@ -261,20 +256,20 @@ def decompress_chunked_snapshot_data(
 
     # Decompress the chunks and split the resulting events by window_id
     for chunks in chunk_list:
-        if len(chunks) != chunks[0].snapshot_data["chunk_count"]:
+        if len(chunks) != chunks[0]["snapshot_data"]["chunk_count"]:
             capture_message(
                 "Did not find all session recording chunks! Team: {}, Session: {}, Chunk-id: {}. Found {} of {} expected chunks".format(
                     team_id,
                     session_recording_id,
-                    chunks[0].snapshot_data["chunk_id"],
+                    chunks[0]["snapshot_data"]["chunk_id"],
                     len(chunks),
-                    chunks[0].snapshot_data["chunk_count"],
+                    chunks[0]["snapshot_data"]["chunk_count"],
                 )
             )
             continue
 
         b64_compressed_data = "".join(
-            chunk.snapshot_data["data"] for chunk in sorted(chunks, key=lambda c: c.snapshot_data["chunk_index"])
+            chunk["snapshot_data"]["data"] for chunk in sorted(chunks, key=lambda c: c["snapshot_data"]["chunk_index"])
         )
         decompressed_data = json.loads(decompress(b64_compressed_data))
 
@@ -282,9 +277,9 @@ def decompress_chunked_snapshot_data(
         # This pares down the data returned, so we're not passing around a massive object
         if return_only_activity_data:
             events_with_only_activity_data = get_events_summary_from_snapshot_data(decompressed_data)
-            snapshot_data_by_window_id[chunks[0].window_id].extend(events_with_only_activity_data)
+            snapshot_data_by_window_id[chunks[0]["window_id"]].extend(events_with_only_activity_data)
         else:
-            snapshot_data_by_window_id[chunks[0].window_id].extend(decompressed_data)
+            snapshot_data_by_window_id[chunks[0]["window_id"]].extend(decompressed_data)
     return DecompressedRecordingData(has_next=has_next, snapshot_data_by_window_id=snapshot_data_by_window_id)
 
 
@@ -329,10 +324,10 @@ def get_active_segments_from_event_list(
     for current_timestamp_int in active_event_timestamps:
         current_timestamp = parse_snapshot_timestamp(current_timestamp_int)
         # If the time since the last active event is less than the threshold, continue the existing segment
-        if current_active_segment and (current_timestamp - current_active_segment.end_time) <= timedelta(
+        if current_active_segment and (current_timestamp - current_active_segment["end_time"]) <= timedelta(
             seconds=activity_threshold_seconds
         ):
-            current_active_segment.end_time = current_timestamp
+            current_active_segment["end_time"] = current_timestamp
 
         # Otherwise, start a new segment
         else:
@@ -406,7 +401,7 @@ def generate_inactive_segments_for_range(
     """
 
     window_ids_by_start_time = sorted(
-        start_and_end_times_by_window_id, key=lambda x: start_and_end_times_by_window_id[x].start_time
+        start_and_end_times_by_window_id, key=lambda x: start_and_end_times_by_window_id[x]["start_time"]
     )
 
     # Order of window_ids to use for generating inactive segments. Start with the window_id of the
@@ -417,8 +412,8 @@ def generate_inactive_segments_for_range(
     current_time = range_start_time
 
     for window_id in window_id_priority_list:
-        window_start_time = start_and_end_times_by_window_id[window_id].start_time
-        window_end_time = start_and_end_times_by_window_id[window_id].end_time
+        window_start_time = start_and_end_times_by_window_id[window_id]["start_time"]
+        window_end_time = start_and_end_times_by_window_id[window_id]["end_time"]
         if window_end_time > current_time and current_time < range_end_time:
             # Add/subtract a millisecond to make sure the segments don't exactly overlap
             segment_start_time = max(window_start_time, current_time)
@@ -432,13 +427,13 @@ def generate_inactive_segments_for_range(
 
     # Ensure segments don't exactly overlap. This makes the corresponding player logic simpler
     for index, segment in enumerate(inactive_segments):
-        if (index == 0 and segment.start_time == range_start_time and not is_first_segment) or (
-            index > 0 and segment.start_time == inactive_segments[index - 1].end_time
+        if (index == 0 and segment["start_time"] == range_start_time and not is_first_segment) or (
+            index > 0 and segment["start_time"] == inactive_segments[index - 1]["end_time"]
         ):
-            segment.start_time = segment.start_time + timedelta(milliseconds=1)
+            segment["start_time"] = segment["start_time"] + timedelta(milliseconds=1)
 
-        if index == len(inactive_segments) - 1 and segment.end_time == range_end_time and not is_last_segment:
-            segment.end_time = segment.end_time - timedelta(milliseconds=1)
+        if index == len(inactive_segments) - 1 and segment["end_time"] == range_end_time and not is_last_segment:
+            segment["end_time"] = segment["end_time"] - timedelta(milliseconds=1)
 
     return inactive_segments
 
