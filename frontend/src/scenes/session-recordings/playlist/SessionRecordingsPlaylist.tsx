@@ -169,6 +169,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     logicKey={playlist.short_id}
                     filters={playlist.filters}
                     onFiltersChange={setFilters}
+                    isStatic={!!playlist.is_static}
                 />
             ) : null}
         </div>
@@ -181,6 +182,7 @@ export type SessionRecordingsPlaylistProps = {
     filters?: RecordingFilters
     updateSearchParams?: boolean
     onFiltersChange?: (filters: RecordingFilters) => void
+    isStatic: boolean
 }
 
 export function SessionRecordingsPlaylist({
@@ -189,8 +191,15 @@ export function SessionRecordingsPlaylist({
     filters: defaultFilters,
     updateSearchParams,
     onFiltersChange,
+    isStatic,
 }: SessionRecordingsPlaylistProps): JSX.Element {
-    const logic = sessionRecordingsListLogic({ key: logicKey, personUUID, filters: defaultFilters, updateSearchParams })
+    const logic = sessionRecordingsListLogic({
+        key: logicKey,
+        personUUID,
+        filters: defaultFilters,
+        updateSearchParams,
+        isStatic,
+    })
     const {
         sessionRecordings,
         sessionRecordingIdToProperties,
@@ -264,26 +273,30 @@ export function SessionRecordingsPlaylist({
     return (
         <>
             <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={
-                        <IconWithCount count={totalFiltersCount}>
-                            <IconFilter />
-                        </IconWithCount>
-                    }
-                    onClick={() => {
-                        setShowFilters(!showFilters)
-                        if (personUUID) {
-                            const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
-                            if (entityFilterButtons.length > 0) {
-                                ;(entityFilterButtons[0] as HTMLElement).click()
-                            }
+                {isStatic ? (
+                    <div className="flex" />
+                ) : (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={
+                            <IconWithCount count={totalFiltersCount}>
+                                <IconFilter />
+                            </IconWithCount>
                         }
-                    }}
-                >
-                    {showFilters ? 'Hide filters' : 'Filter recordings'}
-                </LemonButton>
+                        onClick={() => {
+                            setShowFilters(!showFilters)
+                            if (personUUID) {
+                                const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
+                                if (entityFilterButtons.length > 0) {
+                                    ;(entityFilterButtons[0] as HTMLElement).click()
+                                }
+                            }
+                        }}
+                    >
+                        {showFilters ? 'Hide filters' : 'Filter recordings'}
+                    </LemonButton>
+                )}
 
                 <div className="flex items-center gap-4">
                     <DateFilter

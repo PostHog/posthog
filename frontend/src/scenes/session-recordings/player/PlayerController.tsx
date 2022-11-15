@@ -8,7 +8,7 @@ import { SessionPlayerState } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { IconFullScreen, IconPause, IconPlay, IconSkipInactivity, IconLink, IconPlus } from 'lib/components/icons'
+import { IconFullScreen, IconPause, IconPlay, IconSkipInactivity, IconLink } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
 import { PlayerInspectorPicker } from './PlayerInspector'
@@ -147,11 +147,6 @@ export function PlayerController({
                             <IconLink className={clsx('text-2xl text-primary-alt')} />
                         </LemonButton>
                     </Tooltip>
-                    <Tooltip title={`Add recording to playlist`}>
-                        <LemonButton size="small" status="primary-alt" onClick={() => onAddToPlaylist()}>
-                            <IconPlus className={clsx('text-2xl text-primary-alt')} />
-                        </LemonButton>
-                    </Tooltip>
 
                     {featureAutoplay && (
                         <More
@@ -166,6 +161,9 @@ export function PlayerController({
                                         }
                                     >
                                         Autoplay enabled
+                                    </LemonButton>
+                                    <LemonButton status="stealth" fullWidth onClick={() => onAddToPlaylist()}>
+                                        Add recording to static playlist
                                     </LemonButton>
                                 </>
                             }

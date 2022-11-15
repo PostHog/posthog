@@ -98,6 +98,7 @@ export interface SessionRecordingListLogicProps {
     personUUID?: PersonUUID
     filters?: RecordingFilters
     updateSearchParams?: boolean
+    isStatic?: boolean
 }
 
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([

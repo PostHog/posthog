@@ -6,6 +6,7 @@ import { Fuse } from 'lib/components/AddToDashboard/addToDashboardModalLogic'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { toParams } from 'lib/utils'
 
 export interface PlayerAddToPlaylistLogicProps {
     recording: Pick<SessionRecordingType, 'id' | 'playlists'>
@@ -33,7 +34,7 @@ export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
             __default: { results: [], count: 0, filters: null } as SavedSessionRecordingPlaylistsResult,
             loadPlaylists: async (_, breakpoint) => {
                 await breakpoint(300)
-                const response = await api.recordings.listPlaylists('')
+                const response = await api.recordings.listPlaylists(toParams({ static: true }))
                 breakpoint()
                 return response
             },

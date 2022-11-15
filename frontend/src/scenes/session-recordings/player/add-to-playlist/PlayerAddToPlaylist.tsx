@@ -9,12 +9,12 @@ import {
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { urls } from 'scenes/urls'
-import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import clsx from 'clsx'
 import { Link } from 'lib/components/Link'
 import { pluralize } from 'lib/utils'
 import { CSSProperties } from 'react'
+import { openPlayerNewPlaylistDialog } from 'scenes/session-recordings/player/new-playlist/PlayerNewPlaylist'
 
 interface PlaylistRelationRowProps {
     playlist: SessionRecordingPlaylistType
@@ -63,7 +63,7 @@ const PlaylistRelationRow = ({
     )
 }
 
-export function AddRecordingToPlaylist({ recording }: PlayerAddToPlaylistLogicProps): JSX.Element {
+function AddRecordingToPlaylist({ recording }: PlayerAddToPlaylistLogicProps): JSX.Element {
     const logic = playerAddToPlaylistLogic({ recording })
 
     const { searchQuery, currentPlaylists, orderedPlaylists, scrollIndex } = useValues(logic)
@@ -122,7 +122,7 @@ export function AddRecordingToPlaylist({ recording }: PlayerAddToPlaylistLogicPr
 
 export function openPlayerAddToPlaylistDialog({ recording }: PlayerAddToPlaylistLogicProps): void {
     LemonDialog.open({
-        title: 'Add recording to playlist',
+        title: 'Add recording to static playlist',
         content: <AddRecordingToPlaylist recording={recording} />,
         width: '30rem',
         primaryButton: {
@@ -133,8 +133,9 @@ export function openPlayerAddToPlaylistDialog({ recording }: PlayerAddToPlaylist
             children: 'Add to new static playlist',
             type: 'secondary',
             onClick: () => {
-                createPlaylist({ is_static: true }, false)
+                openPlayerNewPlaylistDialog()
             },
+            keepOpen: true,
         },
     })
 }
