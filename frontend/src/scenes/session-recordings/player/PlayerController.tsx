@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { SessionPlayerState, SessionRecordingPlayerProps } from '~/types'
+import { SessionPlayerState } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
@@ -12,8 +13,13 @@ import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
 import { PlayerInspectorPicker } from './PlayerInspector'
 import { openPlayerShareDialog } from './share/PlayerShare'
+import { playerSettingsLogic } from './playerSettingsLogic'
+import { More } from 'lib/components/LemonButton/More'
+import { LemonCheckbox } from '@posthog/lemon-ui'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-interface PlayerControllerProps extends SessionRecordingPlayerProps {
+interface PlayerControllerProps extends SessionRecordingPlayerLogicProps {
     hideInspectorPicker?: boolean
 }
 
@@ -23,8 +29,14 @@ export function PlayerController({
     hideInspectorPicker = false,
 }: PlayerControllerProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    const { togglePlayPause, setSpeed, setSkipInactivitySetting, setIsFullScreen, setPause } = useActions(logic)
-    const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, isFullScreen } = useValues(logic)
+    const { togglePlayPause, setPause } = useActions(logic)
+    const { currentPlayerState, isSmallScreen } = useValues(logic)
+
+    const { speed, skipInactivitySetting, isFullScreen, autoplayEnabled } = useValues(playerSettingsLogic)
+    const { setSpeed, setSkipInactivitySetting, setIsFullScreen, setAutoplayEnabled } = useActions(playerSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const featureAutoplay = !!featureFlags[FEATURE_FLAGS.RECORDING_AUTOPLAY]
 
     const onShare = (): void => {
         setPause()
@@ -126,6 +138,25 @@ export function PlayerController({
                             />
                         </LemonButton>
                     </Tooltip>
+
+                    {featureAutoplay && (
+                        <More
+                            overlay={
+                                <>
+                                    <LemonButton
+                                        status="stealth"
+                                        onClick={() => setAutoplayEnabled(!autoplayEnabled)}
+                                        fullWidth
+                                        sideIcon={
+                                            <LemonCheckbox className="pointer-events-none" checked={autoplayEnabled} />
+                                        }
+                                    >
+                                        Autoplay enabled
+                                    </LemonButton>
+                                </>
+                            }
+                        />
+                    )}
                 </div>
             </div>
         </div>

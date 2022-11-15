@@ -1,7 +1,7 @@
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { useActions, useValues } from 'kea'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
-import { RecordingWindowFilter, SessionRecordingPlayerProps, SessionRecordingPlayerTab } from '~/types'
+import { RecordingWindowFilter, SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { IconInfo } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -10,8 +10,13 @@ import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { eventsListLogic } from 'scenes/session-recordings/player/list/eventsListLogic'
 import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
+import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 
-export function PlayerFilter({ sessionRecordingId, playerKey, matching }: SessionRecordingPlayerProps): JSX.Element {
+export function PlayerFilter({
+    sessionRecordingId,
+    playerKey,
+    matching,
+}: SessionRecordingPlayerLogicProps): JSX.Element {
     const logicProps = { sessionRecordingId, playerKey }
     const { windowIdFilter, showOnlyMatching, tab } = useValues(sharedListLogic(logicProps))
     const { setWindowIdFilter, setShowOnlyMatching } = useActions(sharedListLogic(logicProps))

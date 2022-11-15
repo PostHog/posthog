@@ -1,7 +1,8 @@
 import { actions, kea, key, listeners, path, props, reducers } from 'kea'
-import { FilterType } from '~/types'
+import { FilterType, TrendsFilterType } from '~/types'
 
 import type { breakdownTagLogicType } from './breakdownTagLogicType'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export interface BreakdownTagLogicProps {
     setFilters?: (filters: Partial<FilterType>) => void
@@ -19,13 +20,15 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
     })),
     reducers(({ props }) => ({
         useHistogram: [
-            props.filters?.breakdown_histogram_bin_count !== undefined,
+            props.filters && isTrendsFilter(props.filters) && props.filters.breakdown_histogram_bin_count !== undefined,
             {
                 setUseHistogram: (_, { useHistogram }) => useHistogram,
             },
         ],
         binCount: [
-            (props.filters?.breakdown_histogram_bin_count ?? 10) as number | undefined,
+            ((props.filters && isTrendsFilter(props.filters) && props.filters.breakdown_histogram_bin_count) ?? 10) as
+                | number
+                | undefined,
             {
                 setBinCount: (_, { binCount }) => binCount,
             },
@@ -33,11 +36,17 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
     })),
     listeners(({ props, values }) => ({
         setUseHistogram: ({ useHistogram }) => {
-            props.setFilters?.({ breakdown_histogram_bin_count: useHistogram ? values.binCount : undefined })
+            const newFilter: TrendsFilterType = {
+                breakdown_histogram_bin_count: useHistogram ? values.binCount : undefined,
+            }
+            props.setFilters?.(newFilter)
         },
-        setBinCount: ({ binCount }, breakpoint) => {
-            breakpoint(1000)
-            props.setFilters?.({ breakdown_histogram_bin_count: values.useHistogram ? binCount : undefined })
+        setBinCount: async ({ binCount }, breakpoint) => {
+            await breakpoint(1000)
+            const newFilter: TrendsFilterType = {
+                breakdown_histogram_bin_count: values.useHistogram ? binCount : undefined,
+            }
+            props.setFilters?.(newFilter)
         },
     })),
 ])

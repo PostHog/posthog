@@ -10,7 +10,6 @@ import {
     EventType,
     ExportedAssetType,
     FeatureFlagType,
-    FilterType,
     InsightModel,
     IntegrationType,
     LicenseType,
@@ -28,6 +27,7 @@ import {
     MediaUploadResponse,
     SessionRecordingsResponse,
     SessionRecordingPropertiesType,
+    EventsListQueryParams,
     SessionRecordingPlaylistType,
     DashboardTemplateListing,
 } from '~/types'
@@ -509,19 +509,19 @@ const api = {
             return await apiRequest.get()
         },
         async list(
-            filters: Partial<FilterType>,
+            filters: EventsListQueryParams,
             limit: number = 10,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): Promise<PaginatedResponse<EventType[]>> {
-            const params: Record<string, any> = { ...filters, limit, orderBy: ['-timestamp'] }
+            const params: EventsListQueryParams = { ...filters, limit, orderBy: ['-timestamp'] }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).get()
         },
         determineListEndpoint(
-            filters: Partial<FilterType>,
+            filters: EventsListQueryParams,
             limit: number = 10,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): string {
-            const params: Record<string, any> = { ...filters, limit, orderBy: ['-timestamp'] }
+            const params: EventsListQueryParams = { ...filters, limit, orderBy: ['-timestamp'] }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).assembleFullUrl()
         },
     },
