@@ -1198,6 +1198,7 @@ export type BreakdownKeyType = string | number | (string | number)[] | null
 export interface Breakdown {
     property: string | number
     type: BreakdownType
+    normalize_url?: boolean
 }
 
 export interface FilterType {
@@ -1224,6 +1225,7 @@ export interface FilterType {
     // TODO: extract into TrendsFunnelsCommonFilterType
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
+    breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null

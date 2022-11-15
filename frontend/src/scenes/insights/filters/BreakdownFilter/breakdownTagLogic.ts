@@ -17,6 +17,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
     actions(() => ({
         setUseHistogram: (useHistogram: boolean) => ({ useHistogram }),
         setBinCount: (binCount: number | undefined) => ({ binCount }),
+        setNormalizeBreakdownUrl: (normalizeBreakdownUrl: boolean) => ({ normalizeBreakdownUrl }),
     })),
     reducers(({ props }) => ({
         useHistogram: [
@@ -35,6 +36,12 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
         ],
     })),
     listeners(({ props, values }) => ({
+        setNormalizeBreakdownUrl: ({ normalizeBreakdownUrl }) => {
+            const newFilter: TrendsFilterType = {
+                breakdown_normalize_url: normalizeBreakdownUrl,
+            }
+            props.setFilters?.(newFilter)
+        },
         setUseHistogram: ({ useHistogram }) => {
             const newFilter: TrendsFilterType = {
                 breakdown_histogram_bin_count: useHistogram ? values.binCount : undefined,

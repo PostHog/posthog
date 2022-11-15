@@ -1,13 +1,17 @@
-import { LemonButton, LemonDivider, LemonInput, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { cohortsModel } from '~/models/cohortsModel'
 import { FilterType } from '~/types'
 import { breakdownTagLogic } from './breakdownTagLogic'
 import { isAllCohort, isCohort, isPersonEventOrGroup } from './TaxonomicBreakdownFilter'
+import { Tooltip } from 'lib/components/Tooltip'
+import { IconInfo } from 'lib/components/icons'
 
 type BreakdownTagProps = {
     isHistogramable: boolean
+    // e.g. example.com and example.com/ should be treated as the same value
+    isURLNormalizeable: boolean
     setFilters?: (filter: Partial<FilterType>) => void
     filters: FilterType
     onClose?: () => void
@@ -17,6 +21,7 @@ type BreakdownTagProps = {
 
 export function BreakdownTag({
     isHistogramable,
+    isURLNormalizeable,
     setFilters,
     filters,
     onClose,
@@ -36,7 +41,25 @@ export function BreakdownTag({
             onClose={onClose}
             style={{ textTransform: 'capitalize' }}
             popup={{
-                overlay: isHistogramable ? (
+                overlay: isURLNormalizeable ? (
+                    <LemonSwitch
+                        checked={!!filters.breakdown_normalize_url}
+                        fullWidth={true}
+                        onChange={(checked) => setFilters && setFilters({ breakdown_normalize_url: checked })}
+                        label={
+                            <div className={'flex flex-row items-center gap-2'}>
+                                <Tooltip
+                                    title={
+                                        'Whether to treat `example.com/web-page` and `example.com/web-page/` as the same value'
+                                    }
+                                >
+                                    <IconInfo />
+                                </Tooltip>{' '}
+                                Ignore trailing slash or question mark
+                            </div>
+                        }
+                    />
+                ) : isHistogramable ? (
                     <div>
                         <LemonButton
                             onClick={() => {
