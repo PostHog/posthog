@@ -58,7 +58,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "can_edit",
         ]
 
-    def get_can_edit(self, feature_flag: FeatureFlag) -> Organization.FeatureFlagsAccessLevel:
+    def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
         # TODO: make sure this isn't n+1
         try:
             from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
