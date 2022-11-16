@@ -15,6 +15,7 @@ export default {
 const Template: ComponentStory<typeof LemonFileInput> = (props) => {
     const [singleValue, setSingleValue] = useState([] as any[])
     const [multipleValue, setMultipleValue] = useState([] as any[])
+    const [extraTargetValue, setExtraTargetValue] = useState([] as any[])
 
     const additionalDragTarget = createRef<HTMLDivElement>()
 
@@ -49,8 +50,8 @@ const Template: ComponentStory<typeof LemonFileInput> = (props) => {
                     loading={props.loading}
                     {...props}
                     multiple={true}
-                    value={multipleValue}
-                    onChange={(newValue) => setMultipleValue(newValue)}
+                    value={extraTargetValue}
+                    onChange={(newValue) => setExtraTargetValue(newValue)}
                     alternativeDropTargetRef={additionalDragTarget}
                 />
             </div>
