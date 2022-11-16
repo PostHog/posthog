@@ -130,7 +130,6 @@ export const FEATURE_FLAGS = {
     AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE
     WEBSITE_ANALYTICS_TEMPLATE: 'website-analytics-template', // owner: @pauldambra
     VARIANT_OVERRIDES: 'variant-overrides', // owner: @neilkakkar
-    RECORDING_PLAYLISTS: 'recording-playlists', // owner: #team-session-recordings
     ONBOARDING_V2_EXPERIMENT: 'onboarding-v2-experiment', // owner: #team-growth
     RECORDING_AUTOPLAY: 'recording-autoplay', // owner: #team-session-recordings
     SIGNUP_FORM_EXPERIMENT: 'signup-form-experiment', // owner: #team-growth
