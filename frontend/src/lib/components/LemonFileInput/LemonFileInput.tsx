@@ -1,13 +1,16 @@
-import { ChangeEvent, useState } from 'react'
+import { ChangeEvent, createRef, RefObject, useEffect, useState } from 'react'
 import { IconUploadFile } from 'lib/components/icons'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import clsx from 'clsx'
+import './LemonFileInput.scss'
 
 export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' | 'accept'> {
     value?: File[]
     onChange?: (newValue: File[]) => void
     // are the files currently being uploaded?
     loading?: boolean
+    alternativeDropTargetRef?: RefObject<HTMLElement>
 }
 
 export const LemonFileInput = ({
@@ -17,20 +20,110 @@ export const LemonFileInput = ({
     loading,
     // e.g. '.json' or 'image/*'
     accept,
+    /** if this is not provided then this component is the drop target
+    // and is styled when a file is dragged over it
+    // if this alternativeDropTargetRef is provided,
+    // then it is also a drop target for files and
+    styling is applied to the alternativeDropTargetRef **/
+    alternativeDropTargetRef,
 }: LemonFileInputProps): JSX.Element => {
-    const [files, setFiles] = useState(value || ([] as File[]))
+    const [files, setFiles] = useState(value || value || ([] as File[]))
+
+    // dragCounter and drag are used to track whether the user is dragging a file over the textarea
+    // without drag counter the textarea highlight would flicker when the user drags a file over it
+    let dragCounter = 0
+    const [drag, setDrag] = useState(false)
+    const dropRef = createRef<HTMLDivElement>()
+
+    useEffect(() => {
+        if (value && value !== files) {
+            setFiles(value)
+        }
+    }, [value])
 
     const onInputChange = (e: ChangeEvent<HTMLInputElement>): void => {
+        e.preventDefault()
+        e.stopPropagation()
+
         const eventFiles = e.target.files
         const filesArr = Array.prototype.slice.call(eventFiles)
-        setFiles(multiple ? [...files, ...filesArr] : [filesArr[0]])
-        onChange?.(files)
+        const localFiles = multiple ? [...files, ...filesArr] : [filesArr[0]]
+        setFiles(localFiles)
+        onChange?.(localFiles)
     }
+
+    const handleDrag = (e: DragEvent): void => {
+        e.preventDefault()
+        e.stopPropagation()
+    }
+
+    const handleDragIn = (e: DragEvent): void => {
+        e.preventDefault()
+        e.stopPropagation()
+        dragCounter++
+        if (e.dataTransfer?.items && e.dataTransfer.items.length > 0) {
+            setDrag(true)
+        }
+    }
+
+    const handleDragOut = (e: DragEvent): void => {
+        e.preventDefault()
+        e.stopPropagation()
+        dragCounter--
+        if (dragCounter === 0) {
+            setDrag(false)
+        }
+    }
+
+    const handleDrop = (e: DragEvent): void => {
+        e.preventDefault()
+        e.stopPropagation()
+        setDrag(false)
+        if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+            const filesArr = Array.prototype.slice.call(e.dataTransfer?.files)
+            const localFiles = multiple ? [...files, ...filesArr] : [filesArr[0]]
+            setFiles(localFiles)
+            onChange?.(localFiles)
+            dragCounter = 0
+        }
+    }
+
+    useEffect(() => {
+        const div = (alternativeDropTargetRef || dropRef)?.current
+        if (!div) {
+            return
+        }
+        div.addEventListener('dragenter', handleDragIn)
+        div.addEventListener('dragleave', handleDragOut)
+        div.addEventListener('dragover', handleDrag)
+        div.addEventListener('drop', handleDrop)
+        return () => {
+            div?.removeEventListener('dragenter', handleDragIn)
+            div?.removeEventListener('dragleave', handleDragOut)
+            div?.removeEventListener('dragover', handleDrag)
+            div?.removeEventListener('drop', handleDrop)
+        }
+    }, [value])
+
+    useEffect(() => {
+        const extraDragTarget = alternativeDropTargetRef?.current
+        if (!extraDragTarget) {
+            return
+        }
+        if (drag) {
+            extraDragTarget.classList.add('FileDropTarget')
+        } else {
+            extraDragTarget.classList.remove('FileDropTarget')
+        }
+    }, [drag, alternativeDropTargetRef])
 
     return (
         <>
-            <div className={'flex flex-col gap-1'}>
-                <label className="flex flow-row items-center gap-1 cursor-pointer">
+            <div
+                ref={dropRef}
+                className={clsx('flex flex-col gap-1', !alternativeDropTargetRef?.current && drag && 'FileDropTarget')}
+            >
+                <label className="text-muted    inline-flex flex flow-row items-center gap-1 cursor-pointer">
                     <input
                         className={'hidden'}
                         type="file"
@@ -38,7 +131,7 @@ export const LemonFileInput = ({
                         accept={accept}
                         onChange={onInputChange}
                     />
-                    <IconUploadFile /> Click or drag and drop to upload
+                    <IconUploadFile className={'text-2xl'} /> Click or drag and drop to upload
                 </label>
                 <div className={'flex flex-row gap-2'}>
                     {files.map((x, i) => (

@@ -1,6 +1,6 @@
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonFileInput } from 'lib/components/LemonFileInput/LemonFileInput'
-import { useState } from 'react'
+import { createRef, useState } from 'react'
 
 export default {
     title: 'Lemon UI/Lemon File Input',
@@ -15,6 +15,8 @@ export default {
 const Template: ComponentStory<typeof LemonFileInput> = (props) => {
     const [singleValue, setSingleValue] = useState([] as any[])
     const [multipleValue, setMultipleValue] = useState([] as any[])
+
+    const additionalDragTarget = createRef<HTMLDivElement>()
 
     return (
         <div className={'flex flex-col gap-4'}>
@@ -36,6 +38,20 @@ const Template: ComponentStory<typeof LemonFileInput> = (props) => {
                     multiple={true}
                     value={multipleValue}
                     onChange={(newValue) => setMultipleValue(newValue)}
+                />
+            </div>
+            <div>
+                <h5>Extra drag and drop target</h5>
+                <div ref={additionalDragTarget} className={'h-12 w-full border flex items-center justify-center'}>
+                    also a drag target
+                </div>
+                <LemonFileInput
+                    loading={props.loading}
+                    {...props}
+                    multiple={true}
+                    value={multipleValue}
+                    onChange={(newValue) => setMultipleValue(newValue)}
+                    alternativeDropTargetRef={additionalDragTarget}
                 />
             </div>
         </div>
