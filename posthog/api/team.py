@@ -224,21 +224,21 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, team: Team):
         team_id = team.pk
-        with transaction.atomic():
-            delete_bulky_postgres_data(team_ids=[team_id])
-            AsyncDeletion.objects.bulk_create(
-                [
-                    AsyncDeletion(
-                        deletion_type=DeletionType.Team,
-                        team_id=team_id,
-                        key=str(team_id),
-                        created_by=cast(User, self.request.user),
-                    )
-                ],
-                ignore_conflicts=True,
-            )
-            with mute_selected_signals():
-                super().perform_destroy(team)
+        delete_bulky_postgres_data(team_ids=[team_id])
+        with mute_selected_signals():
+            super().perform_destroy(team)
+        # Once the project is deleted, queue deletion of associated data
+        AsyncDeletion.objects.bulk_create(
+            [
+                AsyncDeletion(
+                    deletion_type=DeletionType.Team,
+                    team_id=team_id,
+                    key=str(team_id),
+                    created_by=cast(User, self.request.user),
+                )
+            ],
+            ignore_conflicts=True,
+        )
 
     @action(
         methods=["PATCH"],

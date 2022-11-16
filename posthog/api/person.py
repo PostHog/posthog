@@ -12,7 +12,6 @@ from typing import (
     cast,
 )
 
-from django.db import transaction
 from django.db.models import Prefetch
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
@@ -211,23 +210,8 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         try:
             person = self.get_object()
             person_id = person.id
-
-            with transaction.atomic():
-                delete_ch_person(person=person)
-                if "delete_events" in request.GET:
-                    AsyncDeletion.objects.bulk_create(
-                        [
-                            AsyncDeletion(
-                                deletion_type=DeletionType.Person,
-                                team_id=self.team_id,
-                                key=str(person.uuid),
-                                created_by=cast(User, self.request.user),
-                            )
-                        ],
-                        ignore_conflicts=True,
-                    )
-                self.perform_destroy(person)
-
+            delete_ch_person(person=person)
+            self.perform_destroy(person)
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team_id,
@@ -237,7 +221,19 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
                 activity="deleted",
                 detail=Detail(name=str(person.uuid)),
             )
-
+            # Once the person is deleted, queue deletion of associated data, if that was requested
+            if "delete_events" in request.GET:
+                AsyncDeletion.objects.bulk_create(
+                    [
+                        AsyncDeletion(
+                            deletion_type=DeletionType.Person,
+                            team_id=self.team_id,
+                            key=str(person.uuid),
+                            created_by=cast(User, self.request.user),
+                        )
+                    ],
+                    ignore_conflicts=True,
+                )
             return response.Response(status=204)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
