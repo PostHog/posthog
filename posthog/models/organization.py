@@ -31,11 +31,6 @@ from posthog.utils import absolute_uri, mask_email_address
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
-try:
-    from ee.models.license import License
-except ImportError:
-    License = None  # type: ignore
-
 
 logger = structlog.get_logger(__name__)
 
@@ -95,13 +90,6 @@ class Organization(UUIDModel):
         # This includes installing plugins from the repository and managing plugin installations for all other orgs.
         ROOT = 9, "root"
 
-    class FeatureFlagsAccessLevel(models.IntegerChoices):
-        """Level for which a role or user can edit or view feature flags"""
-
-        CAN_ONLY_VIEW = 21, "Can only view feature flags"
-        CAN_ALWAYS_EDIT = 37, "Can always edit feature flags"
-        DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE = 25, "Default view unless role grants access"
-
     members: models.ManyToManyField = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
@@ -118,10 +106,6 @@ class Organization(UUIDModel):
     )
     for_internal_metrics: models.BooleanField = models.BooleanField(default=False)
     is_member_join_email_enabled: models.BooleanField = models.BooleanField(default=True)
-
-    feature_flags_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        default=FeatureFlagsAccessLevel.CAN_ALWAYS_EDIT, choices=FeatureFlagsAccessLevel.choices
-    )
 
     # Managed by Billing
     customer_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
@@ -154,6 +138,10 @@ class Organization(UUIDModel):
         Obtains details on the billing plan for the organization.
         Returns a tuple with (billing_plan_key, billing_realm)
         """
+        try:
+            from ee.models.license import License
+        except ImportError:
+            License = None  # type: ignore
         # Demo gets all features
         if settings.DEMO or "generate_demo_data" in sys.argv[1:2]:
             return (License.ENTERPRISE_PLAN, "demo")
@@ -186,6 +174,10 @@ class Organization(UUIDModel):
         if not plan:
             self.available_features = []
         elif realm in ("ee", "demo"):
+            try:
+                from ee.models.license import License
+            except ImportError:
+                License = None  # type: ignore
             self.available_features = License.PLANS.get(plan, [])
         else:
             self.available_features = self.billing.available_features  # type: ignore

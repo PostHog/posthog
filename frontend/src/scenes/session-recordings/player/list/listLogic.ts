@@ -1,10 +1,13 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { PlayerPosition, SessionRecordingPlayerProps, SessionRecordingPlayerTab } from '~/types'
+import { PlayerPosition, SessionRecordingPlayerTab } from '~/types'
 import List, { RenderedRows } from 'react-virtualized/dist/es/List'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { eventsListLogic } from 'scenes/session-recordings/player/list/eventsListLogic'
 import { ceilMsToClosestSecond, clamp, findLastIndex, floorMsToClosestSecond } from 'lib/utils'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
 import type { listLogicType } from './listLogicType'
 
@@ -19,7 +22,7 @@ export const DEFAULT_EXPANDED_ROW_HEIGHT = 360 + 4 // Default expanded height + 
 export const OVERSCANNED_ROW_COUNT = 25
 const DEFAULT_SCROLLING_RESET_TIME_INTERVAL = 150 * 5 // https://github.com/bvaughn/react-virtualized/blob/abe0530a512639c042e74009fbf647abdb52d661/source/Grid/Grid.js#L42
 
-export interface ListLogicProps extends SessionRecordingPlayerProps {
+export interface ListLogicProps extends SessionRecordingPlayerLogicProps {
     tab: SessionRecordingPlayerTab
 }
 

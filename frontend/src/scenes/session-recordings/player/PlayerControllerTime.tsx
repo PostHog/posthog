@@ -1,15 +1,18 @@
 import { Tooltip } from 'antd'
 import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
 import { useActions, useValues } from 'kea'
-import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    ONE_FRAME_MS,
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { seekbarLogic } from './seekbarLogic'
-import { SessionRecordingPlayerProps } from '~/types'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/components/icons'
 import clsx from 'clsx'
 
-export function Timestamp({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+export function Timestamp({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
     const { currentPlayerTime, sessionPlayerData } = useValues(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
@@ -32,7 +35,7 @@ export function SeekSkip({
     sessionRecordingId,
     playerKey,
     direction,
-}: SessionRecordingPlayerProps & { direction: 'forward' | 'backward' }): JSX.Element {
+}: SessionRecordingPlayerLogicProps & { direction: 'forward' | 'backward' }): JSX.Element {
     const { seekForward, seekBackward } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const { jumpTimeMs } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
 

@@ -45,7 +45,7 @@ export function SignupContainer(): JSX.Element | null {
                 </>
             }
             sideLogo={featureFlags[FEATURE_FLAGS.SIGNUP_FORM_EXPERIMENT] !== 'test'}
-            showSelfHostCta={preflight?.cloud}
+            showSignupCta={preflight?.cloud}
         >
             {featureFlags[FEATURE_FLAGS.SIGNUP_FORM_EXPERIMENT] === 'test' ? <SignupFormTest /> : <SignupForm />}
         </BridgePage>

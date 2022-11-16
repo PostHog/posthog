@@ -1,6 +1,6 @@
 from django.db import models
 
-from posthog.models.organization import Organization
+from ee.models.organization_resource_access import OrganizationResourceAccess
 from posthog.models.utils import UUIDModel
 
 
@@ -13,8 +13,8 @@ class Role(UUIDModel):
         related_query_name="role",
     )
     feature_flags_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        default=Organization.FeatureFlagsAccessLevel.CAN_ALWAYS_EDIT,
-        choices=Organization.FeatureFlagsAccessLevel.choices,
+        default=OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT,
+        choices=OrganizationResourceAccess.AccessLevel.choices,
     )
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     created_by: models.ForeignKey = models.ForeignKey(

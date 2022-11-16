@@ -65,14 +65,13 @@ export function ThirdPartyPanel(): JSX.Element {
                                     <LemonButton
                                         className="mr-2"
                                         type="secondary"
+                                        to={`https://posthog.com${
+                                            source.type === ThirdPartySourceType.Integration
+                                                ? `/docs/integrate/third-party/${source.name.toLowerCase()}`
+                                                : `/integrations/${source.pluginName?.toLowerCase()}`
+                                        }`}
+                                        targetBlank={true}
                                         onClick={() => {
-                                            window.open(
-                                                `https://posthog.com${
-                                                    source.type === ThirdPartySourceType.Integration
-                                                        ? `/docs/integrate/third-party/${source.name}`
-                                                        : `/integrations/${source.pluginName}`
-                                                }`
-                                            )
                                             reportIngestionThirdPartyAboutClicked(source.name)
                                         }}
                                     >
@@ -212,7 +211,13 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                         <p className="text-muted">
                                             <b>
                                                 In order to access the session recordings feature, you'll also have to{' '}
-                                                <Link to="/ingestion/web">integrate posthog js</Link>.
+                                                <Link
+                                                    to="https://posthog.com/docs/integrate/third-party/segment#full-segment-setup-all-features-supported"
+                                                    target="blank"
+                                                >
+                                                    integrate posthog js
+                                                </Link>
+                                                .
                                             </b>
                                         </p>
                                     </div>

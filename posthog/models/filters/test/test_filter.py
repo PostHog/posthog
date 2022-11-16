@@ -46,6 +46,7 @@ class TestFilter(BaseTest):
                 "smoothing_intervals",
                 "breakdown_attribution_type",
                 "search",
+                "breakdown_normalize_url",
             ],
         )
 

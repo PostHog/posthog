@@ -4,7 +4,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
-import { EntityTypes, FilterType, RecordingFilters } from '~/types'
+import { EntityTypes, FilterType, LocalRecordingFilters, RecordingFilters } from '~/types'
 import { useEffect, useState } from 'react'
 import equal from 'fast-deep-equal'
 
@@ -14,7 +14,7 @@ interface SessionRecordingsFiltersProps {
     showPropertyFilters?: boolean
 }
 
-const filtersToLocalFilters = (filters: RecordingFilters): FilterType => {
+const filtersToLocalFilters = (filters: RecordingFilters): LocalRecordingFilters => {
     if (filters.actions?.length || filters.events?.length) {
         return {
             actions: filters.actions,

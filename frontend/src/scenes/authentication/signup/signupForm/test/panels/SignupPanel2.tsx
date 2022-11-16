@@ -2,7 +2,6 @@ import { LemonInput, LemonSelect, LemonButton, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
-import RegionSelect from 'scenes/authentication/RegionSelect'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { signupLogic } from '../signupLogic'
 
@@ -15,7 +14,6 @@ export function SignupPanel2(): JSX.Element | null {
     return (
         <div className="space-y-4 Signup__panel__2">
             <Form logic={signupLogic} formKey={'signupPanel2'} className="space-y-4" enableFormOnSubmit>
-                <RegionSelect />
                 <Field name="first_name" label="Your name">
                     <LemonInput
                         className="ph-ignore-input"

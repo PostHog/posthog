@@ -137,6 +137,7 @@ export const createOrganization = async (pgClient: Pool) => {
         id: organizationId,
         name: 'TEST ORG',
         plugins_access_level: 9,
+        feature_flags_access_level: 37,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         personalization: '{}', // DEPRECATED

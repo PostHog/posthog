@@ -1359,7 +1359,6 @@ export const dashboard: DashboardType = {
                         },
                     ],
                     layout: FunnelLayout.horizontal,
-                    display: ChartDisplayType.FunnelViz,
                     insight: InsightType.FUNNELS,
                     interval: 'day',
                     breakdowns: [

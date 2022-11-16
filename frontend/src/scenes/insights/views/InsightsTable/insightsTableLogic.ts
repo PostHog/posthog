@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import { ChartDisplayType, FilterType } from '~/types'
 import type { insightsTableLogicType } from './insightsTableLogicType'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export type CalcColumnState = 'total' | 'average' | 'median'
 
@@ -27,7 +28,7 @@ export const insightsTableLogic = kea<insightsTableLogicType>({
         showTotalCount: [
             () => [(_, props) => props.filters],
             (filters: Partial<FilterType>) => {
-                if (filters.display == ChartDisplayType.ActionsTable) {
+                if (isTrendsFilter(filters) && filters.display == ChartDisplayType.ActionsTable) {
                     return true
                 }
                 return (

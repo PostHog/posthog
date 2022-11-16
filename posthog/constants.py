@@ -188,6 +188,7 @@ PATH_MIN_EDGE_WEIGHT = "min_edge_weight"
 PATH_MAX_EDGE_WEIGHT = "max_edge_weight"
 AGGREGATION_GROUP_TYPE_INDEX = "aggregation_group_type_index"
 BREAKDOWN_HISTOGRAM_BIN_COUNT = "breakdown_histogram_bin_count"
+BREAKDOWN_NORMALIZE_URL = "breakdown_normalize_url"
 
 BREAKDOWN_TYPES = Literal["event", "person", "cohort", "group", "session"]
 

@@ -7,7 +7,14 @@ import { BreakdownFilter } from 'scenes/insights/filters/BreakdownFilter'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
 import { apiValueToMathType, MathCategory, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
-import { FilterLogicalOperator, FilterType, InsightModel, InsightType, PropertyGroupFilter } from '~/types'
+import {
+    FilterLogicalOperator,
+    FilterType,
+    InsightModel,
+    InsightType,
+    PathsFilterType,
+    PropertyGroupFilter,
+} from '~/types'
 import { IconCalculate, IconSubdirectoryArrowRight } from '../../icons'
 import { LemonRow } from '../../LemonRow'
 import { LemonDivider } from '../../LemonDivider'
@@ -19,6 +26,7 @@ import { TZLabel } from '../../TimezoneAware'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import React from 'react'
+import { isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 function CompactPropertyFiltersDisplay({
     groupFilter,
@@ -171,7 +179,7 @@ function SeriesDisplay({
     )
 }
 
-function PathsSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
+function PathsSummary({ filters }: { filters: Partial<PathsFilterType> }): JSX.Element {
     // Sync format with summarizePaths in utils
     return (
         <div className="SeriesDisplay">
@@ -199,7 +207,7 @@ export function QuerySummary({ filters }: { filters: Partial<FilterType> }): JSX
         <>
             <h5>Query summary</h5>
             <section className="InsightDetails__query">
-                {filters.formula && (
+                {isTrendsFilter(filters) && filters.formula && (
                     <>
                         <LemonRow className="InsightDetails__formula" icon={<IconCalculate />} fullWidth>
                             <span>
@@ -269,8 +277,7 @@ export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }):
             <BreakdownFilter
                 filters={filters}
                 useMultiBreakdown={
-                    filters.insight === InsightType.FUNNELS &&
-                    !!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
+                    isFunnelsFilter(filters) && !!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
                 }
             />
         </div>
