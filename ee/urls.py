@@ -15,6 +15,7 @@ from .api import (
     feature_flag_role_access,
     hooks,
     license,
+    organization_resource_access,
     role,
     sentry_stats,
     session_recording_playlist,
@@ -49,6 +50,12 @@ def extend_api_router(
         r"feature_flag_role_access",
         feature_flag_role_access.FeatureFlagRoleAccessViewSet,
         "organization_feature_flag_role_access",
+        ["organization_id"],
+    )
+    organizations_router.register(
+        r"organization_resource_access",
+        organization_resource_access.OrganizationResourceAccessViewSet,
+        "organization_resource_access",
         ["organization_id"],
     )
     projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
