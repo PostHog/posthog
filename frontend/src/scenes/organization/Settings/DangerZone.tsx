@@ -21,7 +21,7 @@ export function DeleteOrganizationModal({
     return (
         <LemonModal
             title="Delete the entire organization?"
-            onClose={() => setIsOpen(false)}
+            onClose={!isDeletionInProgress ? () => setIsOpen(false) : undefined}
             footer={
                 <>
                     <LemonButton disabled={isDeletionInProgress} type="secondary" onClick={() => setIsOpen(false)}>
