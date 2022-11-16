@@ -19,8 +19,6 @@ from sentry_sdk.api import capture_exception, capture_message
 
 from posthog.models import utils
 
-FULL_SNAPSHOT = 2
-
 Event = Dict
 SnapshotData = Dict
 WindowId = Optional[str]
@@ -29,49 +27,50 @@ WindowId = Optional[str]
 # https://github.com/rrweb-io/rrweb/blob/master/packages/rrweb/src/types.ts
 
 # event.type
-RRWEB_MAP_EVENT_TYPE = [
-    0,  # DomContentLoaded
-    1,  # Load
-    2,  # FullSnapshot
-    3,  # IncrementalSnapshot
-    4,  # Meta
-    5,  # Custom
-    6,  # Plugin
-]
+
+
+class RRWEB_MAP_EVENT_TYPE:
+    DomContentLoaded = 0
+    Load = 1
+    FullSnapshot = 2
+    IncrementalSnapshot = 3
+    Meta = 4
+    Custom = 5
+    Plugin = 6
+
 
 # event.data.source
-RRWEB_MAP_EVENT_DATA_SOURCE = [
-    0,  # Mutation
-    1,  # MouseMove
-    2,  # MouseInteraction
-    3,  # Scroll
-    4,  # ViewportResize
-    5,  # Input
-    6,  # TouchMove
-    7,  # MediaInteraction
-    8,  # StyleSheetRule
-    9,  # CanvasMutation
-    10,  # Font
-    11,  # Log
-    12,  # Drag
-    13,  # StyleDeclaration
-    14,  # Selection
-]
+class RRWEB_MAP_EVENT_DATA_SOURCE:
+    Mutation = 0
+    MouseMove = 1
+    MouseInteraction = 2
+    Scroll = 3
+    ViewportResize = 4
+    Input = 5
+    TouchMove = 6
+    MediaInteraction = 7
+    StyleSheetRule = 8
+    CanvasMutation = 9
+    Font = 1
+    Log = 1
+    Drag = 1
+    StyleDeclaration = 1
+    Selection = 1
+
 
 # event.data.type
-RRWEB_MAP_EVENT_DATA_TYPE = [
-    0,  # MouseUp
-    1,  # MouseDown
-    2,  # Click
-    3,  # ContextMenu
-    4,  # DblClick
-    5,  # Focus
-    6,  # Blur
-    7,  # TouchStart
-    8,  # TouchMove_Departed
-    9,  # TouchEnd
-    10,  # TouchCancel
-]
+class RRWEB_MAP_EVENT_DATA_TYPE:
+    MouseUp = 0
+    MouseDown = 1
+    Click = 2
+    ContextMenu = 3
+    DblClick = 4
+    Focus = 5
+    Blur = 6
+    TouchStart = 7
+    TouchMove_Departed = 8
+    TouchEnd = 9
+    TouchCancel = 10
 
 
 # List of properties from the event payload we care about for our uncompressed `events_summary`
@@ -148,7 +147,7 @@ def preprocess_session_recording_events_for_clickhouse(events: List[Event]) -> L
 def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> Generator[Event, None, None]:
     data_list = [event["properties"]["$snapshot_data"] for event in events]
     session_id = events[0]["properties"]["$session_id"]
-    has_full_snapshot = any(snapshot_data["type"] == FULL_SNAPSHOT for snapshot_data in data_list)
+    has_full_snapshot = any(snapshot_data["type"] == RRWEB_MAP_EVENT_TYPE.FullSnapshot for snapshot_data in data_list)
     window_id = events[0]["properties"].get("$window_id")
 
     compressed_data = compress_to_string(json.dumps(data_list))
