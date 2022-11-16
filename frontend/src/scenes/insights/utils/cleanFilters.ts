@@ -57,11 +57,11 @@ const useMostRelevantBreakdownType = (cleanedParams: Partial<FilterType>, filter
 
 function cleanBreakdownNormalizeURL(
     breakdown: string,
-    breakdownNormalizeUrl: boolean | undefined
+    breakdownNormalizeURL: boolean | undefined
 ): boolean | undefined {
     return isURLNormalizeable(breakdown)
-        ? breakdownNormalizeUrl !== undefined
-            ? breakdownNormalizeUrl
+        ? breakdownNormalizeURL !== undefined
+            ? breakdownNormalizeURL
             : true
         : undefined
 }

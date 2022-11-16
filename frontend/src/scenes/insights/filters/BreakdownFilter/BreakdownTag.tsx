@@ -32,7 +32,7 @@ export function BreakdownTag({
     const breakdownTagLogicInstance = breakdownTagLogic({ logicKey, setFilters, filters })
 
     const { binCount, useHistogram } = useValues(breakdownTagLogicInstance)
-    const { setBinCount, setUseHistogram, setNormalizeBreakdownUrl } = useActions(breakdownTagLogicInstance)
+    const { setBinCount, setUseHistogram, setNormalizeBreakdownURL } = useActions(breakdownTagLogicInstance)
 
     return (
         <LemonTag
@@ -46,7 +46,7 @@ export function BreakdownTag({
                         <LemonSwitch
                             checked={!!filters.breakdown_normalize_url}
                             fullWidth={true}
-                            onChange={(checked) => setNormalizeBreakdownUrl(checked)}
+                            onChange={(checked) => setNormalizeBreakdownURL(checked)}
                             label={
                                 <div className={'flex flex-row items-center gap-2'}>
                                     <Tooltip
