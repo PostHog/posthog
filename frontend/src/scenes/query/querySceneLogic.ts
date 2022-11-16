@@ -12,7 +12,11 @@ export const querySceneLogic = kea<querySceneLogicType>([
     path(['scenes', 'query', 'querySceneLogic']),
     actions({ setQueryInput: (queryInput: string) => ({ queryInput }) }),
     reducers({ queryInput: [DEFAULT_QUERY, { setQueryInput: (_, { queryInput }) => queryInput }] }),
-    actionToUrl({ setQueryInput: ({ queryInput }) => [urls.query(), {}, { q: queryInput }, { replace: true }] }),
+    actionToUrl({
+        setQueryInput: ({ queryInput }) => {
+            return [urls.query(), {}, { q: queryInput }, { replace: true }]
+        },
+    }),
     urlToAction(({ actions, values }) => ({
         [urls.query()]: (_, __, { q }) => {
             if (q && q !== values.queryInput) {

@@ -23,7 +23,10 @@ export function QueryScene(): JSX.Element {
                         <React.Fragment key={`query-${key}`}>
                             {index !== 0 ? ' • ' : ''}
                             <Link
-                                onClick={() => setQueryInput(query)}
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    setQueryInput(query)
+                                }}
                                 className={clsx({ 'font-bold': queryInput === query })}
                             >
                                 {key}
