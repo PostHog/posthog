@@ -12,7 +12,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.event_usage import report_user_action
-from posthog.models import FeatureFlag, Organization
+from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort import Cohort
@@ -62,24 +62,25 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         # TODO: make sure this isn't n+1
         try:
             from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
+            from ee.models.organization_resource_access import OrganizationResourceAccess
         except:
             return True
         else:
             request = self.context["request"]
             all_role_memberships = request.user.role_memberships.select_related("role").all()
-            org_level = request.user.organization.feature_flags_access_level
+            org_level = 21  # TODO: temp
             role_level = max(
                 [membership.role.feature_flags_access_level for membership in all_role_memberships], default=0
             )
             final_level = max(role_level, org_level)
-            if final_level == Organization.FeatureFlagsAccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE:
+            if final_level == OrganizationResourceAccess.AccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE:
                 can_edit = FeatureFlagRoleAccess.objects.filter(
                     feature_flag__id=feature_flag.pk,
                     role__id__in=[membership.role.pk for membership in all_role_memberships],
                 ).exists()
                 return can_edit
             else:
-                return final_level == Organization.FeatureFlagsAccessLevel.CAN_ALWAYS_EDIT
+                return final_level == OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT
 
     # Simple flags are ones that only have rollout_percentage
     #  That means server side libraries are able to gate these flags without calling to the server

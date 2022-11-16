@@ -1647,6 +1647,7 @@ export interface FeatureFlagType {
     experiment_set: string[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
+    can_edit: boolean
 }
 
 export interface FeatureFlagRollbackConditions {

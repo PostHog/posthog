@@ -304,29 +304,33 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </>
                                     }
                                     buttons={
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <LemonButton
-                                                data-attr="delete-feature-flag"
-                                                status="danger"
-                                                type="secondary"
-                                                onClick={() => {
-                                                    deleteFeatureFlag(featureFlag)
-                                                }}
-                                                disabled={featureFlagLoading}
-                                            >
-                                                Delete feature flag
-                                            </LemonButton>
-                                            <LemonButton
-                                                data-attr="edit-feature-flag"
-                                                type="secondary"
-                                                onClick={() => {
-                                                    editFeatureFlag(true)
-                                                }}
-                                                disabled={featureFlagLoading}
-                                            >
-                                                Edit
-                                            </LemonButton>
-                                        </div>
+                                        featureFlag.can_edit && (
+                                            <>
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <LemonButton
+                                                        data-attr="delete-feature-flag"
+                                                        status="danger"
+                                                        type="secondary"
+                                                        onClick={() => {
+                                                            deleteFeatureFlag(featureFlag)
+                                                        }}
+                                                        disabled={featureFlagLoading}
+                                                    >
+                                                        Delete feature flag
+                                                    </LemonButton>
+                                                    <LemonButton
+                                                        data-attr="edit-feature-flag"
+                                                        type="secondary"
+                                                        onClick={() => {
+                                                            editFeatureFlag(true)
+                                                        }}
+                                                        disabled={featureFlagLoading}
+                                                    >
+                                                        Edit
+                                                    </LemonButton>
+                                                </div>
+                                            </>
+                                        )
                                     }
                                 />
                                 <Tabs
