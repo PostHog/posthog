@@ -346,7 +346,7 @@ def validate_events(
                 statsd.incr("invalid_event_uuid")
                 raise ValueError('Event field "uuid" is not a valid UUID!')
 
-        event = parse_event(event, distinct_id, ingestion_context)
+        event = parse_event(event)
         if not event:
             continue
 
