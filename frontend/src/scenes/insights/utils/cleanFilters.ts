@@ -29,6 +29,7 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
+import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()
@@ -54,6 +55,17 @@ const useMostRelevantBreakdownType = (cleanedParams: Partial<FilterType>, filter
     cleanedParams['breakdown_group_type_index'] = series?.math_group_type_index
 }
 
+function cleanBreakdownNormalizeURL(
+    breakdown: string,
+    breakdownNormalizeUrl: boolean | undefined
+): boolean | undefined {
+    return isURLNormalizeable(breakdown)
+        ? breakdownNormalizeUrl !== undefined
+            ? breakdownNormalizeUrl
+            : true
+        : undefined
+}
+
 const cleanBreakdownParams = (
     cleanedParams: Partial<FilterType>,
     filters: Partial<FilterType>,
@@ -69,6 +81,7 @@ const cleanBreakdownParams = (
     cleanedParams['breakdown'] = undefined
     cleanedParams['breakdown_type'] = undefined
     cleanedParams['breakdown_group_type_index'] = undefined
+    cleanedParams['breakdown_normalize_url'] = undefined
     if (isTrends && filters.display === ChartDisplayType.WorldMap) {
         // For the map, make sure we are breaking down by country
         // Support automatic switching to country code breakdown both from no breakdown and from country name breakdown
@@ -86,6 +99,10 @@ const cleanBreakdownParams = (
             cleanedParams['breakdowns'] = filters.breakdowns
         } else if (hasBreakdowns && isTrends) {
             cleanedParams['breakdown'] = filters.breakdowns && filters.breakdowns[0].property
+            cleanedParams['breakdown_normalize_url'] = cleanBreakdownNormalizeURL(
+                cleanedParams['breakdown'] as string,
+                filters.breakdown_normalize_url
+            )
         } else if (
             filters.breakdown &&
             isStepsFunnel &&
@@ -94,10 +111,21 @@ const cleanBreakdownParams = (
             cleanedParams['breakdown_type']
         ) {
             cleanedParams['breakdowns'] = [
-                { property: filters.breakdown as string | number, type: cleanedParams['breakdown_type'] },
+                {
+                    property: filters.breakdown as string | number,
+                    type: cleanedParams['breakdown_type'],
+                    normalize_url: cleanBreakdownNormalizeURL(
+                        filters.breakdown as string,
+                        filters.breakdown_normalize_url
+                    ),
+                },
             ]
         } else if (filters.breakdown) {
             cleanedParams['breakdown'] = filters.breakdown
+            cleanedParams['breakdown_normalize_url'] = cleanBreakdownNormalizeURL(
+                filters.breakdown as string,
+                filters.breakdown_normalize_url
+            )
         }
 
         if (filters.breakdown_type === 'group' && filters.breakdown_group_type_index != undefined) {
