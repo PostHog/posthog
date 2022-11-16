@@ -5,11 +5,16 @@ const Events: EventsNode = {
     nodeType: NodeType.EventsNode,
     properties: [{ key: '$browser', value: 'Chrome', operator: PropertyOperator.Exact }],
 }
-const LegacyQuery: LegacyQuery = {
+const LegacyTrendsQuery: LegacyQuery = {
     nodeType: NodeType.LegacyQuery,
-    filters: { insight: InsightType.TRENDS },
+    filters: { insight: InsightType.TRENDS, date_from: '-7d' },
 }
+
 export const examples: Record<string, Node> = {
     Events,
-    LegacyQuery,
+    LegacyTrendsQuery,
 }
+
+export const stringExamples: Record<string, string> = Object.fromEntries(
+    Object.entries(examples).map(([key, node]) => [key, JSON.stringify(node, null, 2)])
+)

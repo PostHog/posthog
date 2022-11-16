@@ -4,8 +4,9 @@ import type { querySceneLogicType } from './querySceneLogicType'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Node } from '~/queries/nodes'
+import { stringExamples } from 'scenes/query/examples'
 
-const DEFAULT_QUERY: string = '{}'
+const DEFAULT_QUERY: string = stringExamples['Events']
 
 export const querySceneLogic = kea<querySceneLogicType>([
     path(['scenes', 'query', 'querySceneLogic']),

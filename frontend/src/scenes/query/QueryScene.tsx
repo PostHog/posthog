@@ -4,9 +4,10 @@ import { useActions, useValues } from 'kea'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { PostHogQuery } from '~/queries/PostHogQuery'
 import { PageHeader } from 'lib/components/PageHeader'
-import { examples } from 'scenes/query/examples'
+import { stringExamples } from 'scenes/query/examples'
 import { Link } from 'lib/components/Link'
 import React from 'react'
+import clsx from 'clsx'
 
 export function QueryScene(): JSX.Element {
     const { queryInput, JSONQuery, error } = useValues(querySceneLogic)
@@ -18,10 +19,15 @@ export function QueryScene(): JSX.Element {
             <div className="space-y-2 flex flex-col">
                 <div>
                     For example:{' '}
-                    {Object.entries(examples).map(([key, query], index) => (
+                    {Object.entries(stringExamples).map(([key, query], index) => (
                         <React.Fragment key={`query-${key}`}>
                             {index !== 0 ? ' - ' : ''}
-                            <Link onClick={() => setQueryInput(JSON.stringify(query, null, 2))}>{key}</Link>
+                            <Link
+                                onClick={() => setQueryInput(query)}
+                                className={clsx({ 'font-bold': queryInput === query })}
+                            >
+                                {key}
+                            </Link>
                         </React.Fragment>
                     ))}
                 </div>
