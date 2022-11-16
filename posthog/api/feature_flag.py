@@ -63,7 +63,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         try:
             from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
         except:
-            return Organization.FeatureFlagsAccessLevel.CAN_ALWAYS_EDIT
+            return True
         else:
             request = self.context["request"]
             all_role_memberships = request.user.role_memberships.select_related("role").all()
