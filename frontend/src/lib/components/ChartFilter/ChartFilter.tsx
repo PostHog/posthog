@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { chartFilterLogic } from './chartFilterLogic'
-import { LineChartOutlined, OrderedListOutlined } from '@ant-design/icons'
 import {
     IconShowChart,
     IconCumulativeChart,
@@ -11,10 +10,9 @@ import {
     IconPublic,
 } from 'lib/components/icons'
 
-import { ChartDisplayType, FilterType, FunnelVizType, InsightType } from '~/types'
+import { ChartDisplayType, FilterType, FunnelVizType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { Tooltip } from '../Tooltip'
-import { LemonTag } from '../LemonTag/LemonTag'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { isRetentionFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
@@ -64,90 +62,68 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
         )
     }
 
-    const options: LemonSelectOptions<ChartDisplayType | FunnelVizType> =
-        filters.insight === InsightType.FUNNELS
-            ? [
-                  { value: FunnelVizType.Steps, label: <Label icon={<OrderedListOutlined />}>Steps</Label> },
-                  {
-                      value: FunnelVizType.Trends,
-                      label: (
-                          <Label icon={<LineChartOutlined />}>
-                              Trends
-                              <LemonTag
-                                  type="warning"
-                                  className="uppercase"
-                                  style={{ marginLeft: 6, lineHeight: '1.4em' }}
-                              >
-                                  BETA
-                              </LemonTag>
-                          </Label>
-                      ),
-                  },
-              ]
-            : [
-                  {
-                      title: 'Time Series',
-                      options: [
-                          {
-                              value: ChartDisplayType.ActionsLineGraph,
-                              label: <Label icon={<IconShowChart />}>Line</Label>,
-                          },
-                          {
-                              value: ChartDisplayType.ActionsLineGraphCumulative,
-                              label: <Label icon={<IconCumulativeChart />}>Cumulative</Label>,
-                              disabled: cumulativeDisabled,
-                          },
-                          {
-                              value: ChartDisplayType.ActionsBar,
-                              label: <Label icon={<IconBarChart />}>Bar</Label>,
-                              disabled: barDisabled,
-                          },
-                      ],
-                  },
-                  {
-                      title: 'Value',
-                      options: [
-                          {
-                              value: ChartDisplayType.BoldNumber,
-                              label: (
-                                  <Label
-                                      icon={<Icon123 />}
-                                      tooltip="Big and bold. Only works with one series at a time."
-                                  >
-                                      Number
-                                  </Label>
-                              ),
-                              disabled: boldNumberDisabled,
-                          },
-                          {
-                              value: ChartDisplayType.ActionsPie,
-                              label: <Label icon={<IconPieChart />}>Pie</Label>,
-                              disabled: pieDisabled,
-                          },
-                          {
-                              value: ChartDisplayType.ActionsBarValue,
-                              label: <Label icon={<IconBarChart className="rotate-90" />}>Bar</Label>,
-                              disabled: barValueDisabled,
-                          },
-                          {
-                              value: ChartDisplayType.ActionsTable,
-                              label: <Label icon={<IconTableChart fontSize="14" />}>Table</Label>,
-                          },
-                          {
-                              value: ChartDisplayType.WorldMap,
-                              label: (
-                                  <Label
-                                      icon={<IconPublic />}
-                                      tooltip="Visualize data by country. Only works with one series at a time."
-                                  >
-                                      World Map
-                                  </Label>
-                              ),
-                              disabled: worldMapDisabled,
-                          },
-                      ],
-                  },
-              ]
+    const options: LemonSelectOptions<ChartDisplayType | FunnelVizType> = [
+        {
+            title: 'Time Series',
+            options: [
+                {
+                    value: ChartDisplayType.ActionsLineGraph,
+                    label: <Label icon={<IconShowChart />}>Line</Label>,
+                },
+                {
+                    value: ChartDisplayType.ActionsLineGraphCumulative,
+                    label: <Label icon={<IconCumulativeChart />}>Cumulative</Label>,
+                    disabled: cumulativeDisabled,
+                },
+                {
+                    value: ChartDisplayType.ActionsBar,
+                    label: <Label icon={<IconBarChart />}>Bar</Label>,
+                    disabled: barDisabled,
+                },
+            ],
+        },
+        {
+            title: 'Value',
+            options: [
+                {
+                    value: ChartDisplayType.BoldNumber,
+                    label: (
+                        <Label icon={<Icon123 />} tooltip="Big and bold. Only works with one series at a time.">
+                            Number
+                        </Label>
+                    ),
+                    disabled: boldNumberDisabled,
+                },
+                {
+                    value: ChartDisplayType.ActionsPie,
+                    label: <Label icon={<IconPieChart />}>Pie</Label>,
+                    disabled: pieDisabled,
+                },
+                {
+                    value: ChartDisplayType.ActionsBarValue,
+                    label: <Label icon={<IconBarChart className="rotate-90" />}>Bar</Label>,
+                    disabled: barValueDisabled,
+                },
+                {
+                    value: ChartDisplayType.ActionsTable,
+                    label: <Label icon={<IconTableChart fontSize="14" />}>Table</Label>,
+                },
+                {
+                    value: ChartDisplayType.WorldMap,
+                    label: (
+                        <Label
+                            icon={<IconPublic />}
+                            tooltip="Visualize data by country. Only works with one series at a time."
+                        >
+                            World Map
+                        </Label>
+                    ),
+                    disabled: worldMapDisabled,
+                },
+            ],
+        },
+    ]
+
     return (
         <LemonSelect
             key="2"
