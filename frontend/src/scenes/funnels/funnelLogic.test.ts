@@ -8,6 +8,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     AvailableFeature,
+    CorrelationConfigType,
     FunnelCorrelation,
     FunnelCorrelationResultsType,
     FunnelCorrelationType,
@@ -16,7 +17,6 @@ import {
     InsightLogicProps,
     InsightShortId,
     InsightType,
-    TeamType,
 } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -140,7 +140,7 @@ const funnelResults = [
 
 describe('funnelLogic', () => {
     let logic: ReturnType<typeof funnelLogic.build>
-    let correlationConfig: TeamType['correlation_config'] = {}
+    let correlationConfig: CorrelationConfigType = {}
 
     beforeEach(() => {
         useAvailableFeatures([AvailableFeature.CORRELATION_ANALYSIS, AvailableFeature.GROUP_ANALYTICS])
