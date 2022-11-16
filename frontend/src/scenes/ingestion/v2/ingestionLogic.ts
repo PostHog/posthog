@@ -289,14 +289,14 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                     }
                     // could be null, so we check that it's set to false
                 } else if (isTechnicalUser === false) {
+                    if (platform === BOOKMARKLET) {
+                        return INGESTION_VIEWS.BOOKMARKLET
+                    }
                     if (hasInvitedMembers) {
                         return INGESTION_VIEWS.TEAM_INVITED
                     }
                     if (!platform && !readyToVerify) {
                         return INGESTION_VIEWS.INVITE_TEAM
-                    }
-                    if (platform === BOOKMARKLET) {
-                        return INGESTION_VIEWS.BOOKMARKLET
                     }
                 }
 
