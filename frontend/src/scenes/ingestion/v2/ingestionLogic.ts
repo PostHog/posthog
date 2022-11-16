@@ -436,6 +436,11 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                     } else {
                         return actions.goToView(INGESTION_VIEWS.INVITE_TEAM)
                     }
+                // If they're on the InviteTeam step, but on the Team Invited panel,
+                // we still want them to be able to go back to the previous step.
+                // So this resets the state for that panel so they can go back.
+                case INGESTION_VIEWS.INVITE_TEAM:
+                    return actions.goToView(INGESTION_VIEWS.INVITE_TEAM)
                 case INGESTION_VIEWS.CHOOSE_THIRD_PARTY:
                     return actions.goToView(INGESTION_VIEWS.CHOOSE_PLATFORM)
                 default:
