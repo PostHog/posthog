@@ -45,7 +45,7 @@ if TEST:
 
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
-        delete_person(person=instance)
+        delete_ch_person(person=instance)
 
     @receiver(post_delete, sender=PersonDistinctId)
     def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
@@ -161,7 +161,7 @@ def get_persons_by_uuids(team: Team, uuids: List[str]) -> QuerySet:
     return Person.objects.filter(team_id=team.pk, uuid__in=uuids)
 
 
-def delete_person(person: Person) -> None:
+def delete_ch_person(person: Person) -> None:
     # This is racy https://github.com/PostHog/posthog/issues/11590
     distinct_ids_to_version = _get_distinct_ids_with_version(person)
     create_person(

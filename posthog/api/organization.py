@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional, cast
 
+from django.db import transaction
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, serializers, viewsets
@@ -175,11 +176,14 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         user = cast(User, self.request.user)
         report_organization_deleted(user, organization)
         team_ids = [team.pk for team in organization.teams.all()]
-        for team_id in team_ids:
-            AsyncDeletion.objects.create(
-                deletion_type=DeletionType.Team, team_id=team_id, key=str(team_id), created_by=user
+        with transaction.atomic():
+            delete_bulky_postgres_data(team_ids=team_ids)
+            AsyncDeletion.objects.bulk_create(
+                [
+                    AsyncDeletion(deletion_type=DeletionType.Team, team_id=team_id, key=str(team_id), created_by=user)
+                    for team_id in team_ids
+                ],
+                ignore_conflicts=True,
             )
-
-        delete_bulky_postgres_data(team_ids=team_ids)
-        with mute_selected_signals():
-            super().perform_destroy(organization)
+            with mute_selected_signals():
+                super().perform_destroy(organization)

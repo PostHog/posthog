@@ -12,6 +12,7 @@ from typing import (
     cast,
 )
 
+from django.db import transaction
 from django.db.models import Prefetch
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
@@ -42,7 +43,7 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
-from posthog.models.person.util import delete_person
+from posthog.models.person.util import delete_ch_person
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.actor_base_query import ActorBaseQuery, get_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
@@ -211,16 +212,21 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             person = self.get_object()
             person_id = person.id
 
-            delete_person(person=person)
-            if "delete_events" in request.GET:
-                AsyncDeletion.objects.create(
-                    deletion_type=DeletionType.Person,
-                    team_id=self.team_id,
-                    key=str(person.uuid),
-                    created_by=cast(User, self.request.user),
-                )
-
-            person.delete()
+            with transaction.atomic():
+                delete_ch_person(person=person)
+                if "delete_events" in request.GET:
+                    AsyncDeletion.objects.bulk_create(
+                        [
+                            AsyncDeletion(
+                                deletion_type=DeletionType.Person,
+                                team_id=self.team_id,
+                                key=str(person.uuid),
+                                created_by=cast(User, self.request.user),
+                            )
+                        ],
+                        ignore_conflicts=True,
+                    )
+                self.perform_destroy(person)
 
             log_activity(
                 organization_id=self.organization.id,
