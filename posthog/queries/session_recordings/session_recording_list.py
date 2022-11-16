@@ -70,8 +70,8 @@ class SessionRecordingList(EventQuery):
         SELECT
             session_id,
             any(window_id) as window_id,
-            MIN(coalesce(first_event_timestamp, timestamp)) as start_time,
-            MAX(coalesce(last_event_timestamp, timestamp)) as end_time,
+            MIN(first_event_timestamp) as start_time,
+            MAX(last_event_timestamp) as end_time,
             SUM(click_count) as click_count,
             SUM(keypress_count) as keypress_count,
             groupArrayArray(urls) as urls,

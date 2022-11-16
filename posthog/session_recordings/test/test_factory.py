@@ -126,7 +126,7 @@ def create_snapshot(
     distinct_id: Optional[str] = None,
     window_id: str = "",
     has_full_snapshot: bool = True,
-    type: int = 2,
+    type: Optional[int] = None,
     data: Optional[Dict] = None,
 ) -> List[str]:
     if not data:
@@ -135,8 +135,9 @@ def create_snapshot(
     snapshot_data = {
         "data": {**data},
         "timestamp": round(timestamp.timestamp() * 1000),  # NOTE: rrweb timestamps are milliseconds
-        "has_full_snapshot": has_full_snapshot,
-        "type": type,
+        "type": type or RRWEB_MAP_EVENT_TYPE.FullSnapshot
+        if has_full_snapshot
+        else RRWEB_MAP_EVENT_TYPE.IncrementalSnapshot,
     }
 
     return create_session_recording_events(

@@ -37,7 +37,9 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
     ):
         if team is None:
             team = self.team
-        _create_event(team=team, event=event_name, timestamp=timestamp, distinct_id=distinct_id, properties=properties)
+        return _create_event(
+            team=team, event=event_name, timestamp=timestamp, distinct_id=distinct_id, properties=properties
+        )
 
     @property
     def base_time(self):
@@ -200,6 +202,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(session_recordings), 0)
 
     @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
     def test_multiple_event_filters(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
@@ -207,6 +210,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         self.create_event(
             "user", self.base_time, properties={"$session_id": "1", "$window_id": "1"}, event_name="new-event"
         )
+
         create_snapshot(
             distinct_id="user",
             session_id="1",
@@ -225,6 +229,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         )
         session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
+
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
         self.assertEqual(len(session_recordings[0]["matching_events"][0]["events"]), 1)
