@@ -6,18 +6,15 @@ from typing import Any, List, Optional, Union
 from dateutil import parser
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.constants import AvailableFeature
-from posthog.models import Filter, PersonDistinctId, SessionRecordingPlaylist, SessionRecordingPlaylistItem, Team
+from posthog.models import Filter, PersonDistinctId, SessionRecordingPlaylist, SessionRecordingPlaylistItem
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person import Person
 from posthog.models.session_recording_event import SessionRecordingViewed
-from posthog.models.team import get_available_features_for_team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.session_recordings.session_recording import SessionRecording
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
@@ -33,6 +30,11 @@ class SessionRecordingMetadataSerializer(serializers.Serializer):
     start_and_end_times_by_window_id = serializers.DictField(required=False)
     session_id = serializers.CharField()
     viewed = serializers.BooleanField()
+    playlists = serializers.ListField()
+
+
+class SessionRecordingWithPlaylistsSerializer(serializers.Serializer):
+    session_id = serializers.CharField()
     playlists = serializers.ListField()
 
 
@@ -99,7 +101,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
     def _update_recording_playlists(
         self, playlist_ids: List[str], session_id: str, recording_start_time: Optional[datetime]
-    ):
+    ) -> List[str]:
         session_recording = SessionRecording(
             request=request,
             team=self.team,
@@ -121,26 +123,21 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         ids_to_add = [id for id in new_playlist_ids if id not in old_playlist_ids]
         ids_to_remove = [id for id in old_playlist_ids if id not in new_playlist_ids]
 
-        if ids_to_add or ids_to_remove:
-            self._check_can_add_to_playlist()
-
         candidate_playlists = SessionRecordingPlaylist.objects.filter(id__in=ids_to_add).exclude(deleted=True)
         SessionRecordingPlaylistItem.objects.bulk_create(
             [SessionRecordingPlaylistItem(playlist=playlist, session_id=session_id) for playlist in candidate_playlists]
         )
 
         if ids_to_remove:
-            SessionRecordingPlaylistItem.filter(playlist_id__in=ids_to_remove, session_id=session_id).update(
+            SessionRecordingPlaylistItem.objects.filter(playlist_id__in=ids_to_remove, session_id=session_id).update(
                 deleted=True
             )
 
-    def _check_can_add_to_playlist(self, team: Team) -> bool:
-        available_features = get_available_features_for_team(team.id)
-
-        if AvailableFeature.RECORDINGS_PLAYLISTS not in (available_features or []):
-            raise PermissionDenied("You must have a premium plan to create static playlists")
-
-        return True
+        return (
+            SessionRecordingPlaylistItem.objects.filter(session_id=session_id)
+            .exclude(deleted=True)
+            .values_list("id", flat=True)
+        )
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request)
@@ -237,16 +234,29 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         )
 
     # As of now, you can only "update" a session recording by adding or removing a recording from a static playlist
-    def update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+    def patch(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         session_id = kwargs["pk"]
-        playlist_ids = request.GET.get("playlists", None)
+        playlist_ids = request.data.get("playlists", None)
         recording_start_time_string = request.GET.get("recording_start_time")
+        recording_start_time = parser.parse(recording_start_time_string) if recording_start_time_string else None
 
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
 
+        new_playlist_ids = []
         if playlist_ids is not None:
-            self._update_recording_playlists(playlist_ids, session_id, recording_start_time_string)
+            new_playlist_ids = self._update_recording_playlists(playlist_ids, session_id, recording_start_time)
+
+        session_recording_serializer = SessionRecordingWithPlaylistsSerializer(
+            data={
+                "session_id": session_id,
+                "playlists": new_playlist_ids,
+            }
+        )
+
+        session_recording_serializer.is_valid(raise_exception=True)
+
+        return response.Response({"result": {"session_recording": session_recording_serializer.data}})
 
     # Paginated endpoint that returns the snapshots for the recording
     @action(methods=["GET"], detail=True)

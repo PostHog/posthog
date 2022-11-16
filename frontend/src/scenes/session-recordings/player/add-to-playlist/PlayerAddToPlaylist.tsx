@@ -19,7 +19,7 @@ import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 interface PlaylistRelationRowProps {
     playlist: SessionRecordingPlaylistType
-    recording: Pick<SessionRecordingType, 'id' | 'playlists'>
+    recording: Pick<SessionRecordingType, 'id' | 'playlists' | 'start_time'>
     isHighlighted: boolean
     isAlreadyOnPlaylist: boolean
     style: CSSProperties

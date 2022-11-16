@@ -11,7 +11,7 @@ import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { IconChevronLeft, IconChevronRight, IconFilter, IconWithCount } from 'lib/components/icons'
+import { IconChevronLeft, IconChevronRight, IconFilter, IconFolderPlus, IconWithCount } from 'lib/components/icons'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import clsx from 'clsx'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
@@ -31,6 +31,7 @@ import { More } from 'lib/components/LemonButton/More'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
 import { deletePlaylistWithUndo } from './playlistUtils'
+import { openPlayerAddToPlaylistDialog } from 'scenes/session-recordings/player/add-to-playlist/PlayerAddToPlaylist'
 
 export const scene: SceneExport = {
     component: SessionRecordingsPlaylistScene,
@@ -273,32 +274,47 @@ export function SessionRecordingsPlaylist({
     return (
         <>
             <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
-                {isStatic ? (
-                    <div className="flex" />
-                ) : (
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={
-                            <IconWithCount count={totalFiltersCount}>
-                                <IconFilter />
-                            </IconWithCount>
-                        }
-                        onClick={() => {
-                            setShowFilters(!showFilters)
-                            if (personUUID) {
-                                const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
-                                if (entityFilterButtons.length > 0) {
-                                    ;(entityFilterButtons[0] as HTMLElement).click()
-                                }
+                <div className="flex items-center gap-4">
+                    {!isStatic && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={
+                                <IconWithCount count={totalFiltersCount}>
+                                    <IconFilter />
+                                </IconWithCount>
                             }
-                        }}
-                    >
-                        {showFilters ? 'Hide filters' : 'Filter recordings'}
-                    </LemonButton>
-                )}
+                            onClick={() => {
+                                setShowFilters(!showFilters)
+                                if (personUUID) {
+                                    const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
+                                    if (entityFilterButtons.length > 0) {
+                                        ;(entityFilterButtons[0] as HTMLElement).click()
+                                    }
+                                }
+                            }}
+                        >
+                            {showFilters ? 'Hide filters' : 'Filter recordings'}
+                        </LemonButton>
+                    )}
+                </div>
 
                 <div className="flex items-center gap-4">
+                    {activeSessionRecording && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => {
+                                openPlayerAddToPlaylistDialog({
+                                    recording: activeSessionRecording as SessionRecordingType,
+                                })
+                            }}
+                            icon={<IconFolderPlus />}
+                            tooltip="Add selected recording to static playlist"
+                        >
+                            <></>
+                        </LemonButton>
+                    )}
                     <DateFilter
                         dateFrom={filters.date_from ?? '-7d'}
                         dateTo={filters.date_to ?? undefined}

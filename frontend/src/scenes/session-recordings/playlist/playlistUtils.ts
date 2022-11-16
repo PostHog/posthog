@@ -1,8 +1,8 @@
-import { PropertyOperator, RecordingFilters, SessionRecordingPlaylistType } from '~/types'
+import { PropertyOperator, RecordingFilters, SessionRecordingPlaylistType, SessionRecordingType } from '~/types'
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
-import { convertPropertyGroupToProperties, deleteWithUndo, genericOperatorMap } from 'lib/utils'
+import { convertPropertyGroupToProperties, deleteWithUndo, genericOperatorMap, toParams } from 'lib/utils'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 
 import { openBillingPopupModal } from 'scenes/billing/v2/BillingPopup'
@@ -117,4 +117,14 @@ export async function deletePlaylistWithUndo(
         endpoint: `projects/@current/session_recording_playlists`,
         callback,
     })
+}
+
+export async function updateRecording(
+    recording: Partial<SessionRecordingType> & Pick<SessionRecordingType, 'id'>,
+    params?: Record<string, any>,
+    callback?: (recording: SessionRecordingType) => void
+): Promise<SessionRecordingType> {
+    const updatedRecording = await api.recordings.updateRecording(recording.id, recording, toParams(params ?? {}))
+    callback?.(updatedRecording)
+    return updatedRecording
 }

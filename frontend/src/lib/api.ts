@@ -29,6 +29,7 @@ import {
     SessionRecordingPropertiesType,
     EventsListQueryParams,
     SessionRecordingPlaylistType,
+    SessionRecordingType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -234,6 +235,9 @@ class ApiRequest {
     }
 
     // Recordings
+    public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('session_recordings').addPathComponent(recordingId)
+    }
     public recordings(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('session_recordings')
     }
@@ -823,6 +827,13 @@ const api = {
         },
         async listProperties(params: string): Promise<PaginatedResponse<SessionRecordingPropertiesType>> {
             return await new ApiRequest().recordings().withAction('properties').withQueryString(params).get()
+        },
+        async updateRecording(
+            recordingId: SessionRecordingType['id'],
+            recording: Partial<SessionRecordingType>,
+            params?: string
+        ): Promise<SessionRecordingType> {
+            return await new ApiRequest().recording(recordingId).withQueryString(params).update({ data: recording })
         },
         async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {
             return await new ApiRequest().recordingPlaylists().withQueryString(params).get()

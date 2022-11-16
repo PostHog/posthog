@@ -7,13 +7,17 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { toParams } from 'lib/utils'
+import { lemonToast } from 'lib/components/lemonToast'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
+import { updateRecording } from 'scenes/session-recordings/playlist/playlistUtils'
 
 export interface PlayerAddToPlaylistLogicProps {
-    recording: Pick<SessionRecordingType, 'id' | 'playlists'>
+    recording: Pick<SessionRecordingType, 'id' | 'playlists' | 'start_time'>
 }
 
 export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
-    path(['scenes', 'session-recordings', 'player', 'add-to-playlist', 'playerAddToPlaylistLogic']),
+    path((key) => ['scenes', 'session-recordings', 'player', 'add-to-playlist', 'playerAddToPlaylistLogic', key]),
     props({} as PlayerAddToPlaylistLogicProps),
     key(({ recording }) => {
         if (!recording.id) {
@@ -86,12 +90,35 @@ export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
             ],
         ],
     })),
-    listeners(() => ({
-        addToPlaylist: async () => {
-            // update recording
+    listeners(({ props }) => ({
+        addToPlaylist: async ({ playlistId }) => {
+            const recording = {
+                id: props.recording.id,
+                playlists: [...(props.recording.playlists || []).filter((id) => id !== playlistId), playlistId],
+            }
+            const params = {
+                recording_start_time: props.recording.start_time,
+            }
+            await updateRecording(recording, params, () => {
+                lemonToast.success('Recording added to playlist', {
+                    button: {
+                        label: 'View playlist',
+                        action: () => router.actions.push(urls.sessionRecordingPlaylist(String(playlistId))),
+                    },
+                })
+            })
         },
-        removeFromPlaylist: async (): Promise<void> => {
-            // update recording
+        removeFromPlaylist: async ({ playlistId }): Promise<void> => {
+            const recording = {
+                id: props.recording.id,
+                playlists: [...(props.recording.playlists || []).filter((id) => id !== playlistId)],
+            }
+            const params = {
+                recording_start_time: props.recording.start_time,
+            }
+            await updateRecording(recording, params, () => {
+                lemonToast.success('Recording removed to playlist')
+            })
         },
     })),
     afterMount(({ actions }) => {

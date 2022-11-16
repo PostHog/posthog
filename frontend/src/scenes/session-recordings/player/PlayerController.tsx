@@ -31,7 +31,7 @@ export function PlayerController({
 }: PlayerControllerProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     const { togglePlayPause, setPause } = useActions(logic)
-    const { currentPlayerState, isSmallScreen, sessionPlayerData } = useValues(logic)
+    const { currentPlayerState, isSmallScreen, sessionPlayerData, recordingStartTime } = useValues(logic)
 
     const { speed, skipInactivitySetting, isFullScreen, autoplayEnabled } = useValues(playerSettingsLogic)
     const { setSpeed, setSkipInactivitySetting, setIsFullScreen, setAutoplayEnabled } = useActions(playerSettingsLogic)
@@ -53,6 +53,7 @@ export function PlayerController({
             recording: {
                 id: sessionRecordingId,
                 playlists: sessionPlayerData.metadata.playlists,
+                start_time: recordingStartTime,
             },
         })
     }
