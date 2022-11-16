@@ -306,6 +306,9 @@ export const insightLogic = kea<insightLogicType>([
 
                     let response
                     const { currentTeamId } = values
+                    const methodOptions = {
+                        signal: cache.abortController.signal,
+                    }
                     if (!currentTeamId) {
                         throw new Error("Can't load insight before current project is determined.")
                     }
@@ -318,7 +321,7 @@ export const insightLogic = kea<insightLogicType>([
                             // This makes sure we update the insight's cache key if we get new default filters.
                             response = await api.get(
                                 `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`,
-                                cache.abortController.signal
+                                methodOptions
                             )
                         } else if (
                             isTrendsFilter(filters) ||
@@ -329,25 +332,25 @@ export const insightLogic = kea<insightLogicType>([
                                 `api/projects/${currentTeamId}/insights/trend/?${toParams(
                                     filterTrendsClientSideParams(params)
                                 )}`,
-                                cache.abortController.signal
+                                methodOptions
                             )
                         } else if (isRetentionFilter(filters)) {
                             response = await api.get(
                                 `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`,
-                                cache.abortController.signal
+                                methodOptions
                             )
                         } else if (isFunnelsFilter(filters)) {
                             const { refresh, ...bodyParams } = params
                             response = await api.create(
                                 `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`,
                                 bodyParams,
-                                cache.abortController.signal
+                                methodOptions
                             )
                         } else if (isPathsFilter(filters)) {
                             response = await api.create(
                                 `api/projects/${currentTeamId}/insights/path`,
                                 params,
-                                cache.abortController.signal
+                                methodOptions
                             )
                         } else {
                             throw new Error(`Cannot load insight of type ${insight}`)
