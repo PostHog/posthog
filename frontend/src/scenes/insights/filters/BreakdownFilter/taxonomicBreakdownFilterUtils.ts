@@ -25,7 +25,11 @@ export function onFilterChange({ useMultiBreakdown, breakdownParts, setFilters, 
                 breakdown_type: changedBreakdownType,
                 breakdown_group_type_index: taxonomicGroup.groupTypeIndex,
                 breakdown_histogram_bin_count: isHistogramable ? 10 : undefined,
-                breakdown_normalize_url: isURLNormalizeable(getPropertyDefinition(changedBreakdown)?.name || ''),
+                // if property definitions are not loaded when this runs then a normalizeable URL will not be normalized.
+                // For now, it is safe to fall back to `changedBreakdown`
+                breakdown_normalize_url: isURLNormalizeable(
+                    getPropertyDefinition(changedBreakdown)?.name || (changedBreakdown as string)
+                ),
             }
 
             if (useMultiBreakdown) {
