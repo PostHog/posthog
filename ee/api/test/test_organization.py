@@ -189,7 +189,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             self.assertTrue(organization.name, "Meow")
 
     def test_feature_available_self_hosted_has_license(self):
-        License.PLANS = {"enterprise": ["whatever"]}
+        License.PLANS = {"enterprise": ["whatever"]}  # type: ignore
         with self.is_cloud(False):
             License.objects.create(key="key", plan="enterprise", valid_until=dt.datetime.now() + dt.timedelta(days=1))
 
@@ -203,14 +203,14 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
 
     def test_feature_available_self_hosted_no_license(self):
-        License.PLANS = {"enterprise": ["whatever"]}
+        License.PLANS = {"enterprise": ["whatever"]}  # type: ignore
 
         self.assertFalse(self.organization.is_feature_available("whatever"))
         self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
 
     @patch("ee.api.license.requests.post")
     def test_feature_available_self_hosted_license_expired(self, patch_post):
-        License.PLANS = {"enterprise": ["whatever"]}
+        License.PLANS = {"enterprise": ["whatever"]}  # type: ignore
 
         with freeze_time("2070-01-01T12:00:00.000Z"):  # LicensedTestMixin enterprise license expires in 2038
             sync_all_organization_available_features()  # This is normally ran every hour
