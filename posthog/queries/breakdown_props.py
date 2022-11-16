@@ -233,7 +233,7 @@ def _to_value_expression(
         value_expression = f"toFloat64OrNull(toString({value_expression}))"
 
     if breakdown_normalize_url:
-        value_expression = f"if( length(trim(TRAILING '/?' from {value_expression})) = 0, '/', trim(TRAILING '/?' from {value_expression}))"
+        value_expression = f"if( length(trim(TRAILING '/?#' from {value_expression})) = 0, '/', trim(TRAILING '/?#' from {value_expression}))"
 
     return f"{value_expression} AS value"
 

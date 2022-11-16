@@ -3,8 +3,8 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT if(length(trim(TRAILING '/?'
-                           from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))) = 0, '/', trim(TRAILING '/?'
+    (SELECT if(length(trim(TRAILING '/?#'
+                           from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))) = 0, '/', trim(TRAILING '/?#'
                                                                                                                            from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))) AS value,
             count(*) as count
      FROM events e
@@ -41,23 +41,23 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['https://example.com', 'https://example.com/home'] as breakdown_value) ARRAY
+                (SELECT ['https://example.com/home', 'https://example.com'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            if(length(trim(TRAILING '/?'
-                                           from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))) = 0, '/', trim(TRAILING '/?'
+                            if(length(trim(TRAILING '/?#'
+                                           from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))) = 0, '/', trim(TRAILING '/?#'
                                                                                                                                            from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))) as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = 'watched movie'
              AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND if(length(trim(TRAILING '/?'
-                                from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))) = 0, '/', trim(TRAILING '/?'
-                                                                                                                                from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))) in (['https://example.com', 'https://example.com/home'])
+             AND if(length(trim(TRAILING '/?#'
+                                from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))) = 0, '/', trim(TRAILING '/?#'
+                                                                                                                                from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))) in (['https://example.com/home', 'https://example.com'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -73,8 +73,8 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT if(length(trim(TRAILING '/?'
-                           from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))) = 0, '/', trim(TRAILING '/?'
+    (SELECT if(length(trim(TRAILING '/?#'
+                           from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))) = 0, '/', trim(TRAILING '/?#'
                                                                                                                         from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))) AS value,
             count(*) as count
      FROM events e
@@ -111,23 +111,23 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['/', '/home'] as breakdown_value) ARRAY
+                (SELECT ['/home', '/'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            if(length(trim(TRAILING '/?'
-                                           from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))) = 0, '/', trim(TRAILING '/?'
+                            if(length(trim(TRAILING '/?#'
+                                           from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))) = 0, '/', trim(TRAILING '/?#'
                                                                                                                                         from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))) as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = 'watched movie'
              AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND if(length(trim(TRAILING '/?'
-                                from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))) = 0, '/', trim(TRAILING '/?'
-                                                                                                                             from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))) in (['/', '/home'])
+             AND if(length(trim(TRAILING '/?#'
+                                from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))) = 0, '/', trim(TRAILING '/?#'
+                                                                                                                             from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))) in (['/home', '/'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,

@@ -11,41 +11,60 @@ class TestBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         journey = {
-            # full URL - no trailing slash
             "person1": [
+                # no trailing slash
                 {
                     "event": "watched movie",
                     "timestamp": datetime(2020, 1, 2, 12, 1),
                     "properties": {"$current_url": "https://example.com", "$pathname": ""},
                 },
+                # trailing question mark
                 {
                     "event": "watched movie",
                     "timestamp": datetime(2020, 1, 2, 12, 1),
                     "properties": {"$current_url": "https://example.com?", "$pathname": "?"},
                 },
             ],
-            # full URL - trailing slash
             "person2": [
+                # trailing slash
                 {
                     "event": "watched movie",
                     "timestamp": datetime(2020, 1, 2, 12, 1),
                     "properties": {"$current_url": "https://example.com/", "$pathname": "/"},
                 },
+                # trailing hash
+                {
+                    "event": "watched movie",
+                    "timestamp": datetime(2020, 1, 2, 12, 1),
+                    "properties": {"$current_url": "https://example.com#", "$pathname": "#"},
+                },
             ],
-            # path only - no trailing slash
             "person3": [
+                # no trailing slash
                 {
                     "event": "watched movie",
                     "timestamp": datetime(2020, 1, 2, 12, 1),
                     "properties": {"$current_url": "https://example.com/home", "$pathname": "/home"},
                 },
             ],
-            # path only - trailing slash
             "person4": [
+                # trailing slash
                 {
                     "event": "watched movie",
                     "timestamp": datetime(2020, 1, 2, 12, 1),
                     "properties": {"$current_url": "https://example.com/home/", "$pathname": "/home/"},
+                },
+                # trailing hash
+                {
+                    "event": "watched movie",
+                    "timestamp": datetime(2020, 1, 2, 12, 1),
+                    "properties": {"$current_url": "https://example.com/home#", "$pathname": "/home#"},
+                },
+                # all the things
+                {
+                    "event": "watched movie",
+                    "timestamp": datetime(2020, 1, 2, 12, 1),
+                    "properties": {"$current_url": "https://example.com/home/?#", "$pathname": "/home/?#"},
                 },
             ],
         }
@@ -71,8 +90,8 @@ class TestBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
         response = self._run({"breakdown": "$pathname", "breakdown_type": "event", "breakdown_normalize_url": True})
 
         assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [
-            ("/", 3.0, [3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-            ("/home", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ("/", 4.0, [4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ("/home", 4.0, [4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
         ]
 
     @snapshot_clickhouse_queries
@@ -80,6 +99,6 @@ class TestBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
         response = self._run({"breakdown": "$current_url", "breakdown_type": "event", "breakdown_normalize_url": True})
 
         assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [
-            ("https://example.com", 3.0, [3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-            ("https://example.com/home", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ("https://example.com", 4.0, [4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ("https://example.com/home", 4.0, [4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
         ]
