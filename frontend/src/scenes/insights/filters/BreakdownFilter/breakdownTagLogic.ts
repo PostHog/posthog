@@ -18,7 +18,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
         setUseHistogram: (useHistogram: boolean) => ({ useHistogram }),
         setBinCount: (binCount: number | undefined) => ({ binCount }),
         setNormalizeBreakdownURL: (normalizeBreakdownURL: boolean) => ({
-            normalizeBreakdownUrl: normalizeBreakdownURL,
+            normalizeBreakdownURL,
         }),
     })),
     reducers(({ props }) => ({
