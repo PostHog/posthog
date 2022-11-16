@@ -83,11 +83,22 @@ export interface InterfaceNode extends Node {
 // else show insiight graph
 // else show a table
 
+export type EventBuiltin =
+    | 'distinct_id'
+    | 'timestamp'
+    | 'event'
+    | 'uuid'
+    | 'elements_chain'
+    | 'person_id'
+    | 'created_at'
+    | 'person_created_at'
+
 /** Query the events table with various filtered properties */
 export interface EventsNode extends DataNode {
     nodeType: NodeType.EventsNode
     event?: string
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
+    builtins?: EventBuiltin
 
     customName?: string
 }
