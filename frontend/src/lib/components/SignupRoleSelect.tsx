@@ -6,6 +6,7 @@ export default function SignupRoleSelect({ className }: { className?: string }):
         <Field name="role_at_organization" label="What is your role?" className={className}>
             <LemonSelect
                 fullWidth
+                data-attr="signup-role-at-organization"
                 options={[
                     {
                         label: 'Engineering',
