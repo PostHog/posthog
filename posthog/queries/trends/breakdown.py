@@ -30,6 +30,7 @@ from posthog.queries.breakdown_props import (
     format_breakdown_cohort_join_query,
     get_breakdown_cohort_name,
     get_breakdown_prop_values,
+    normalize_url_breakdown,
 )
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
@@ -405,8 +406,7 @@ class TrendsBreakdown:
         if self.filter.using_histogram:
             breakdown_value = f"toFloat64OrNull(toString({breakdown_value}))"
 
-        if self.filter.breakdown_normalize_url:
-            breakdown_value = f"if( length(trim(TRAILING '/?#' from {breakdown_value})) = 0, '/', trim(TRAILING '/?#' from {breakdown_value}))"
+        breakdown_value = normalize_url_breakdown(breakdown_value, self.filter.breakdown_normalize_url)
 
         return breakdown_value
 

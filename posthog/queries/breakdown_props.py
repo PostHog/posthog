@@ -232,8 +232,7 @@ def _to_value_expression(
     if cast_as_float:
         value_expression = f"toFloat64OrNull(toString({value_expression}))"
 
-    if breakdown_normalize_url:
-        value_expression = f"if( length(trim(TRAILING '/?#' from {value_expression})) = 0, '/', trim(TRAILING '/?#' from {value_expression}))"
+    value_expression = normalize_url_breakdown(value_expression, breakdown_normalize_url)
 
     return f"{value_expression} AS value"
 
@@ -316,3 +315,12 @@ def get_breakdown_cohort_name(cohort_id: int) -> str:
         return "all users"
     else:
         return Cohort.objects.get(pk=cohort_id).name
+
+
+def normalize_url_breakdown(breakdown_value, breakdown_normalize_url: bool = True):
+    if breakdown_normalize_url:
+        return (
+            f"if( empty(trim(TRAILING '/?#' from {breakdown_value})), '/', trim(TRAILING '/?#' from {breakdown_value}))"
+        )
+
+    return breakdown_value
