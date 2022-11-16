@@ -7,11 +7,11 @@ export const FRAMEWORK = 'FRAMEWORK'
 export const INSTRUCTIONS = 'INSTRUCTIONS'
 export const VERIFICATION = 'VERIFICATION'
 
-export const WEB = 'Web'
-export const MOBILE = 'Mobile'
-export const BACKEND = 'Backend'
-export const THIRD_PARTY = 'Import events from a third party'
-export const BOOKMARKLET = 'Just exploring?'
+export const WEB = 'web'
+export const MOBILE = 'mobile'
+export const BACKEND = 'backend'
+export const THIRD_PARTY = 'third-party'
+export const BOOKMARKLET = 'just-exploring'
 export const platforms: PlatformType[] = [WEB, MOBILE, BACKEND]
 
 export const NODEJS = 'NODEJS'
@@ -90,7 +90,7 @@ export const thirdPartySources: ThirdPartySource[] = [
         labels: ['beta'],
         icon: (
             <img
-                style={{ height: 48, width: 48 }}
+                style={{ height: 36, width: 36 }}
                 src={'https://raw.githubusercontent.com/PostHog/posthog-redshift-import-plugin/main/logo.png'}
             />
         ),
