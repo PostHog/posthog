@@ -70,7 +70,7 @@ describe('cleanFilters', () => {
         expect(cleanedFilters).toHaveProperty('breakdown_type', 'event')
     })
 
-    it('defaults to normalizing URL for breakdown by $current_url', () => {
+    it('defaults to normalizing URL for breakdowns by $current_url', () => {
         const cleanedFilters = cleanFilters(
             {
                 breakdowns: [{ property: '$current_url', type: 'event' }],
@@ -82,10 +82,34 @@ describe('cleanFilters', () => {
         expect(cleanedFilters).toHaveProperty('breakdown_normalize_url', true)
     })
 
-    it('defaults to normalizing URL for breakdown by $pathname', () => {
+    it('defaults to normalizing URL for breakdown by $current_url', () => {
+        const cleanedFilters = cleanFilters(
+            {
+                breakdown: '$current_url',
+                breakdown_type: 'event',
+            } as TrendsFilterType,
+            { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps } as FunnelsFilterType
+        )
+
+        expect(cleanedFilters).toHaveProperty('breakdown_normalize_url', true)
+    })
+
+    it('defaults to normalizing URL for breakdowns by $pathname', () => {
         const cleanedFilters = cleanFilters(
             {
                 breakdowns: [{ property: '$pathname', type: 'event' }],
+                breakdown_type: 'event',
+            } as TrendsFilterType,
+            { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps } as FunnelsFilterType
+        )
+
+        expect(cleanedFilters).toHaveProperty('breakdown_normalize_url', true)
+    })
+
+    it('defaults to normalizing URL for breakdown by $pathname', () => {
+        const cleanedFilters = cleanFilters(
+            {
+                breakdown: '$pathname',
                 breakdown_type: 'event',
             } as TrendsFilterType,
             { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps } as FunnelsFilterType
