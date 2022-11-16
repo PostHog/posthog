@@ -10,7 +10,15 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import { IconOpenInNew, IconCopy, IconDelete, IconPlus, IconPlusMini, IconSubArrowRight } from 'lib/components/icons'
+import {
+    IconOpenInNew,
+    IconCopy,
+    IconDelete,
+    IconPlus,
+    IconPlusMini,
+    IconSubArrowRight,
+    IconErrorOutline,
+} from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
@@ -663,8 +671,14 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
 
 function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element {
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
-    const { aggregationTargetName, featureFlag, groupTypes, taxonomicGroupTypes, nonEmptyVariants } =
-        useValues(featureFlagLogic)
+    const {
+        aggregationTargetName,
+        featureFlag,
+        groupTypes,
+        taxonomicGroupTypes,
+        nonEmptyVariants,
+        propertySelectErrors,
+    } = useValues(featureFlagLogic)
     const {
         setAggregationGroupTypeIndex,
         updateConditionSet,
@@ -854,6 +868,23 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                         onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                         taxonomicGroupTypes={taxonomicGroupTypes}
                                         hasRowOperator={false}
+                                        sendAllKeyUpdates
+                                        errorMessages={
+                                            propertySelectErrors?.[index]?.properties?.some(
+                                                (message) => !!message.value
+                                            )
+                                                ? propertySelectErrors[index].properties.map((message, index) => {
+                                                      return (
+                                                          <div
+                                                              key={index}
+                                                              className="text-danger flex items-center gap-1 text-sm"
+                                                          >
+                                                              <IconErrorOutline className="text-xl" /> {message.value}
+                                                          </div>
+                                                      )
+                                                  })
+                                                : null
+                                        }
                                     />
                                 </div>
                             )}
@@ -880,7 +911,10 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                             max={100}
                                             addonAfter="%"
                                         />{' '}
-                                        of <b>{aggregationTargetName}</b> in this set
+                                        of <b>{aggregationTargetName}</b> in this set. This will apply to approximately{' '}
+                                        {(group.rollout_percentage != null ? group.rollout_percentage : 100) *
+                                            ((group.users_affected ?? 1) / 10)}
+                                        % of total {aggregationTargetName}.
                                     </div>
                                 </div>
                             )}
@@ -911,12 +945,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                                     allowClear={true}
                                                     value={group.variant}
                                                     onChange={(value) =>
-                                                        updateConditionSet(
-                                                            index,
-                                                            undefined,
-                                                            undefined,
-                                                            value || undefined
-                                                        )
+                                                        updateConditionSet(index, undefined, undefined, value)
                                                     }
                                                     options={nonEmptyVariants.map((variant) => ({
                                                         label: variant.key,

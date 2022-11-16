@@ -16,7 +16,7 @@ from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort import Cohort
-from posthog.models.feature_flag import FeatureFlagMatcher, get_active_feature_flags
+from posthog.models.feature_flag import FeatureFlagMatcher, get_active_feature_flags, get_user_blast_radius
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -312,6 +312,23 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
             }
 
         return Response(flags_with_evaluation_reasons)
+
+    @action(methods=["POST"], detail=False)
+    def user_blast_radius(self, request: request.Request, **kwargs):
+
+        if "condition" not in request.data:
+            raise exceptions.ValidationError("Missing condition for which to get blast radius")
+
+        condition = request.data.get("condition") or {}
+
+        users_affected, total_users = get_user_blast_radius(condition, self.team)
+
+        return Response(
+            {
+                "users_affected": users_affected,
+                "total_users": total_users,
+            }
+        )
 
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: request.Request, **kwargs):

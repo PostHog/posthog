@@ -1,0 +1,30 @@
+# name: TestBlastRadius.test_user_blast_radius
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND (has(['0', '1', '2', '3'], replaceRegexpAll(JSONExtractRaw(person.properties, 'group'), '^"|"$', ''))) )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND (has(['0', '1', '2', '3'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', ''))))
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0)
+  '
+---

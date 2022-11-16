@@ -13,6 +13,7 @@ import {
     PropertyOperator,
     RolloutConditionType,
     FeatureFlagRollbackConditions,
+    FeatureFlagGroupType,
 } from '~/types'
 import api from 'lib/api'
 import { router } from 'kea-router'
@@ -49,7 +50,7 @@ const NEW_FLAG: FeatureFlagType = {
     created_at: null,
     key: '',
     name: '',
-    filters: { groups: [{ properties: [], rollout_percentage: null, variant: undefined }], multivariate: null },
+    filters: { groups: [{ properties: [], rollout_percentage: null, variant: null }], multivariate: null },
     deleted: false,
     active: true,
     created_by: null,
@@ -136,12 +137,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             index: number,
             newRolloutPercentage?: number | null,
             newProperties?: AnyPropertyFilter[],
-            newVariant?: string
+            newVariant?: string | null,
+            usersAffected?: number
         ) => ({
             index,
             newRolloutPercentage,
             newProperties,
             newVariant,
+            usersAffected,
         }),
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
@@ -156,7 +159,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setInsightResultAtIndex: (index: number, average: number) => ({ index, average }),
         loadAllInsightsForFlag: true,
     }),
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         featureFlag: {
             defaults: { ...NEW_FLAG } as FeatureFlagType,
             errors: ({ key, filters }) => ({
@@ -177,6 +180,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             })
                         ),
                     },
+                    groups: values.propertySelectErrors,
                 },
             }),
             submit: (featureFlag) => {
@@ -207,7 +211,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (!state) {
                         return state
                     }
-                    const groups = [...state?.filters.groups, { properties: [], rollout_percentage: null }]
+                    const groups = [
+                        ...state?.filters.groups,
+                        { properties: [], rollout_percentage: null, variant: null },
+                    ]
                     return { ...state, filters: { ...state.filters, groups } }
                 },
                 addRollbackCondition: (state) => {
@@ -227,7 +234,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     rollback_conditions.splice(index, 1)
                     return { ...state, rollback_conditions: rollback_conditions }
                 },
-                updateConditionSet: (state, { index, newRolloutPercentage, newProperties, newVariant }) => {
+                updateConditionSet: (
+                    state,
+                    { index, newRolloutPercentage, newProperties, newVariant, usersAffected }
+                ) => {
                     if (!state) {
                         return state
                     }
@@ -243,6 +253,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
                     if (newVariant !== undefined) {
                         groups[index] = { ...groups[index], variant: newVariant }
+                    }
+
+                    if (usersAffected !== undefined) {
+                        groups[index] = { ...groups[index], users_affected: usersAffected }
                     }
 
                     return { ...state, filters: { ...state.filters, groups } }
@@ -344,7 +358,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             ...state.filters,
                             aggregation_group_type_index: value,
                             // :TRICKY: We reset property filters after changing what you're aggregating by.
-                            groups: [{ properties: [], rollout_percentage: null }],
+                            groups: [{ properties: [], rollout_percentage: null, variant: null }],
                         },
                     }
                 },
@@ -481,6 +495,28 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 values.featureFlag.rollback_conditions[index].threshold_metric as FilterType
             )
         },
+        updateConditionSet: async ({ index, newProperties }, breakpoint) => {
+            await breakpoint(1000) // wait for 1 second
+
+            if (
+                !newProperties ||
+                newProperties.some(
+                    (property) => !property.value || (Array.isArray(property.value) && property.value.length === 0)
+                )
+            ) {
+                return
+            }
+
+            const response = await api.create(`api/projects/${values.currentTeamId}/feature_flags/user_blast_radius`, {
+                condition: { properties: newProperties },
+            })
+            console.log(response)
+            actions.updateConditionSet(index, undefined, undefined, undefined, response.users_affected)
+        },
+        submitFeatureFlagFailure: (error, errors) => {
+            console.log(error)
+            console.log(errors)
+        },
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],
@@ -529,6 +565,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
                 ...(featureFlag ? [{ name: featureFlag.key || 'Unnamed' }] : []),
             ],
+        ],
+        propertySelectErrors: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                return featureFlag?.filters?.groups?.map(({ properties }: FeatureFlagGroupType) => ({
+                    properties: properties?.map((property: AnyPropertyFilter) => ({
+                        value:
+                            property.value === null ||
+                            property.value === undefined ||
+                            (Array.isArray(property.value) && property.value.length === 0)
+                                ? "Property filters can't be empty"
+                                : undefined,
+                    })),
+                }))
+            },
         ],
     }),
     urlToAction(({ actions, props }) => ({
