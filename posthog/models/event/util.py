@@ -177,7 +177,7 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
 
         event = {
             **event,
-            "person_id": event.get("person_id", person_id),  # Allow overriding person_id
+            "person_id": event.get("person_id") or person_id,  # Allow overriding person_id
             "person_properties": {**person_properties, **event.get("person_properties", {})},
             "person_created_at": person_created_at,
         }
