@@ -7,7 +7,7 @@ import './Panels.scss'
 import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
 
 export function FrameworkPanel(): JSX.Element {
-    const { setFramework } = useActions(ingestionLogicV2)
+    const { next } = useActions(ingestionLogicV2)
     const { platform } = useValues(ingestionLogicV2)
     const frameworks = platform === BACKEND ? webFrameworks : mobileFrameworks
 
@@ -30,7 +30,7 @@ export function FrameworkPanel(): JSX.Element {
                             size="large"
                             center
                             className="mb-2"
-                            onClick={() => setFramework(item)}
+                            onClick={() => next({ framework: item })}
                         >
                             {frameworks[item]}
                         </LemonButton>
@@ -42,7 +42,7 @@ export function FrameworkPanel(): JSX.Element {
                         size="large"
                         center
                         className="mb-2"
-                        onClick={() => setFramework(API)}
+                        onClick={() => next({ framework: API })}
                     >
                         Other
                     </LemonButton>

@@ -28,7 +28,7 @@ export function ThirdPartyPanel(): JSX.Element {
     return (
         <CardContainer showFooter>
             <div className="px-6">
-                <h1 className="ingestion-title">Set up apps</h1>
+                <h1 className="ingestion-title pb-4">Set up apps</h1>
                 {thirdPartySources.map((source, idx) => {
                     const installedThirdPartyPlugin = installedPlugins?.find((plugin: PluginTypeWithConfig) =>
                         plugin.name.includes(source.name)
@@ -44,7 +44,7 @@ export function ThirdPartyPanel(): JSX.Element {
                         >
                             <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center">
-                                    {source.icon}
+                                    <div className="w-8 h-8">{source.icon}</div>
                                     <div className="ml-2">
                                         <h3 className="mb-0 flex align-center font-semibold text-base">
                                             {source.name} Import

@@ -8,8 +8,9 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { BOOKMARKLET } from '../constants'
 
 export function TeamInvitedPanel(): JSX.Element {
-    const { completeOnboarding, setTechnical, setPlatform } = useActions(ingestionLogicV2)
-    const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
+    const { completeOnboarding, next } = useActions(ingestionLogicV2)
+    const { reportIngestionContinueWithoutVerifying, reportIngestionTryWithBookmarkletClicked } =
+        useActions(eventUsageLogic)
 
     return (
         <div>
@@ -21,8 +22,8 @@ export function TeamInvitedPanel(): JSX.Element {
             <div className="flex flex-col mb-6">
                 <LemonButton
                     onClick={() => {
-                        setTechnical(false)
-                        setPlatform(BOOKMARKLET)
+                        reportIngestionTryWithBookmarkletClicked()
+                        next({ isTechnicalUser: false, platform: BOOKMARKLET })
                     }}
                     fullWidth
                     size="large"

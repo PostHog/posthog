@@ -36,7 +36,7 @@ export function IngestionWizardV2(): JSX.Element {
         <IngestionContainer>
             {currentView === INGESTION_VIEWS.BILLING && <BillingPanel />}
             {currentView === INGESTION_VIEWS.INVITE_TEAM && <InviteTeamPanel />}
-            {currentView === INGESTION_VIEWS.POST_INVITE_TEAM && <TeamInvitedPanel />}
+            {currentView === INGESTION_VIEWS.TEAM_INVITED && <TeamInvitedPanel />}
             {currentView === INGESTION_VIEWS.CHOOSE_PLATFORM && <PlatformPanel />}
             {currentView === INGESTION_VIEWS.CHOOSE_FRAMEWORK && <FrameworkPanel />}
             {currentView === INGESTION_VIEWS.WEB_INSTRUCTIONS && <InstructionsPanel />}
@@ -50,7 +50,8 @@ export function IngestionWizardV2(): JSX.Element {
 function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
-    const { isSmallScreen } = useValues(ingestionLogicV2)
+    const { isSmallScreen, hasInvitedMembers } = useValues(ingestionLogicV2)
+    const { next } = useActions(ingestionLogicV2)
 
     return (
         <div className="flex h-full flex-col">
@@ -61,7 +62,15 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
                     <SitePopover />
                 </div>
             </div>
-            <InviteModal isOpen={isInviteModalShown} onClose={hideInviteModal} />
+            <InviteModal
+                isOpen={isInviteModalShown}
+                onClose={() => {
+                    hideInviteModal()
+                    if (hasInvitedMembers) {
+                        next({ isTechnicalUser: false })
+                    }
+                }}
+            />
             <div className="flex h-full">
                 {!isSmallScreen && <Sidebar />}
                 {/* <div className="IngestionContainer" */}

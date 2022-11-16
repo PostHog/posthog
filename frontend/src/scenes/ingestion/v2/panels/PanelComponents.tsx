@@ -1,61 +1,30 @@
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { BOOKMARKLET } from '../constants'
 import { ingestionLogicV2, INGESTION_STEPS } from '../ingestionLogic'
 import './Panels.scss'
 import { IconArrowLeft } from 'lib/components/icons'
 import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
 
 export function PanelFooter(): JSX.Element {
-    const { platform } = useValues(ingestionLogicV2)
-    const { setPlatform, setVerify } = useActions(ingestionLogicV2)
-    const { reportIngestionTryWithBookmarkletClicked } = useActions(eventUsageLogic)
+    const { next } = useActions(ingestionLogicV2)
 
     return (
         <div className="panel-footer">
             <LemonDivider thick dashed className="my-6" />
-            {platform === BOOKMARKLET ? (
-                <div>
-                    <LemonButton
-                        type="primary"
-                        size="large"
-                        fullWidth
-                        center
-                        onClick={() => {
-                            reportIngestionTryWithBookmarkletClicked()
-                            setVerify(true)
-                        }}
-                    >
-                        Try PostHog with the exploration bookmarklet
-                    </LemonButton>
-                    <LemonButton
-                        className="mt-2"
-                        size="large"
-                        fullWidth
-                        center
-                        type="secondary"
-                        onClick={() => setPlatform(null)}
-                    >
-                        Back to setup
-                    </LemonButton>
-                </div>
-            ) : (
-                <div>
-                    <LemonButton
-                        type="primary"
-                        size="large"
-                        fullWidth
-                        center
-                        className="mb-2"
-                        onClick={() => setVerify(true)}
-                    >
-                        Continue
-                    </LemonButton>
-                    <IngestionInviteMembersButton />
-                </div>
-            )}
+            <div>
+                <LemonButton
+                    type="primary"
+                    size="large"
+                    fullWidth
+                    center
+                    className="mb-2"
+                    onClick={() => next({ readyToVerify: true })}
+                >
+                    Continue
+                </LemonButton>
+                <IngestionInviteMembersButton />
+            </div>
         </div>
     )
 }
