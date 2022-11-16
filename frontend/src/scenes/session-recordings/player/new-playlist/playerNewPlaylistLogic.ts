@@ -1,5 +1,5 @@
-import { actions, kea, listeners, path } from 'kea'
-import { SessionRecordingPlaylistType } from '~/types'
+import { actions, afterMount, getContext, kea, key, listeners, path, props } from 'kea'
+import { SessionRecordingPlaylistType, SessionRecordingType } from '~/types'
 import { forms } from 'kea-forms'
 import type { playerNewPlaylistLogicType } from './playerNewPlaylistLogicType'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
@@ -16,12 +16,18 @@ const defaultFormValues: NewPlaylistForm = {
     show: false,
 }
 
+export interface PlayerNewPlaylistLogicProps {
+    sessionRecordingId?: SessionRecordingType['id']
+}
+
 export const playerNewPlaylistLogic = kea<playerNewPlaylistLogicType>([
     path(['scenes', 'session-recordings', 'player', 'new-playlist', 'playerNewPlaylistLogic']),
+    props({} as PlayerNewPlaylistLogicProps),
+    key(({ sessionRecordingId }) => sessionRecordingId || 'global'),
     actions({
         createAndGoToPlaylist: true,
     }),
-    forms(({ actions }) => ({
+    forms(({ actions, key }) => ({
         newPlaylist: {
             defaults: defaultFormValues,
             errors: ({ name }) => ({
@@ -38,7 +44,7 @@ export const playerNewPlaylistLogic = kea<playerNewPlaylistLogicType>([
                 )
 
                 actions.resetNewPlaylist()
-                playerAddToPlaylistLogic.findMounted()?.actions?.loadPlaylists({})
+                playerAddToPlaylistLogic.findMounted({ recording: { id: key } })?.actions?.loadPlaylists({})
                 breakpoint()
             },
         },
@@ -49,4 +55,11 @@ export const playerNewPlaylistLogic = kea<playerNewPlaylistLogicType>([
             actions.submitNewPlaylist()
         },
     })),
+    afterMount(() => {
+        console.log(
+            'BLAHMOUNT',
+            getContext().mount.mounted,
+            playerAddToPlaylistLogic.findMounted({ recording: { id: key } })
+        )
+    }),
 ])

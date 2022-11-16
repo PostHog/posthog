@@ -15,6 +15,7 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { IconPlus, IconSettings } from 'lib/components/icons'
 import { router } from 'kea-router'
 import { openSessionRecordingSettingsDialog } from './settings/SessionRecordingSettings'
+import { openPlayerNewPlaylistDialog } from 'scenes/session-recordings/player/new-playlist/PlayerNewPlaylist'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -50,12 +51,20 @@ export function SessionsRecordings(): JSX.Element {
                         >
                             <LemonButton
                                 type="primary"
-                                onClick={() => saveNewPlaylist()}
+                                onClick={() => {
+                                    if (tab === SessionRecordingsTabs.Recent) {
+                                        saveNewPlaylist()
+                                    } else {
+                                        openPlayerNewPlaylistDialog({})
+                                    }
+                                }}
                                 loading={newPlaylistLoading}
                                 data-attr="save-recordings-playlist-button"
                                 icon={<IconPlus />}
                             >
-                                {tab === SessionRecordingsTabs.Recent ? 'Save as playlist' : 'Create new playlist'}
+                                {tab === SessionRecordingsTabs.Recent
+                                    ? 'Save as dynamic playlist'
+                                    : 'Create new playlist'}
                             </LemonButton>
                         </Tooltip>
                     </>

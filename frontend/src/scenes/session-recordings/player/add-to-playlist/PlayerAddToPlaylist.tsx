@@ -15,6 +15,7 @@ import { Link } from 'lib/components/Link'
 import { pluralize } from 'lib/utils'
 import { CSSProperties } from 'react'
 import { openPlayerNewPlaylistDialog } from 'scenes/session-recordings/player/new-playlist/PlayerNewPlaylist'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 interface PlaylistRelationRowProps {
     playlist: SessionRecordingPlaylistType
@@ -66,7 +67,7 @@ const PlaylistRelationRow = ({
 function AddRecordingToPlaylist({ recording }: PlayerAddToPlaylistLogicProps): JSX.Element {
     const logic = playerAddToPlaylistLogic({ recording })
 
-    const { searchQuery, currentPlaylists, orderedPlaylists, scrollIndex } = useValues(logic)
+    const { searchQuery, currentPlaylists, orderedPlaylists, scrollIndex, playlistsResponseLoading } = useValues(logic)
     const { setSearchQuery } = useActions(logic)
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
@@ -102,19 +103,23 @@ function AddRecordingToPlaylist({ recording }: PlayerAddToPlaylistLogicProps): J
                 {pluralize(recording.playlists?.length || 0, 'playlist', 'playlists', false)}
             </div>
             <div style={{ minHeight: 420 }}>
-                <AutoSizer>
-                    {({ height, width }) => (
-                        <List
-                            width={width}
-                            height={height}
-                            rowCount={orderedPlaylists.length}
-                            overscanRowCount={100}
-                            rowHeight={40}
-                            rowRenderer={renderItem}
-                            scrollToIndex={scrollIndex}
-                        />
-                    )}
-                </AutoSizer>
+                {playlistsResponseLoading ? (
+                    <SpinnerOverlay />
+                ) : (
+                    <AutoSizer>
+                        {({ height, width }) => (
+                            <List
+                                width={width}
+                                height={height}
+                                rowCount={orderedPlaylists.length}
+                                overscanRowCount={100}
+                                rowHeight={40}
+                                rowRenderer={renderItem}
+                                scrollToIndex={scrollIndex}
+                            />
+                        )}
+                    </AutoSizer>
+                )}
             </div>
         </div>
     )
@@ -133,7 +138,7 @@ export function openPlayerAddToPlaylistDialog({ recording }: PlayerAddToPlaylist
             children: 'Add to new static playlist',
             type: 'secondary',
             onClick: () => {
-                openPlayerNewPlaylistDialog()
+                openPlayerNewPlaylistDialog({ sessionRecordingId: recording.id, defaultStatic: true })
             },
             keepOpen: true,
         },

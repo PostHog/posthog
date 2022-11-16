@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { cloneElement } from 'react'
 import { SessionRecordingsTabs, SessionRecordingPlaylistType } from '~/types'
 import { PLAYLISTS_PER_PAGE, savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
-import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { CalendarOutlined, PushpinFilled, PushpinOutlined } from '@ant-design/icons'
 import { urls } from 'scenes/urls'
@@ -56,7 +56,21 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 )
             },
         },
-
+        {
+            title: 'Type',
+            dataIndex: 'is_static',
+            width: 0,
+            sorter: true,
+            render: function Render(is_static) {
+                return (
+                    <>
+                        <LemonTag type="success" className="uppercase">
+                            {!!is_static ? 'static' : 'dynamic'}
+                        </LemonTag>
+                    </>
+                )
+            },
+        },
         {
             ...(createdByColumn<SessionRecordingPlaylistType>() as LemonTableColumn<
                 SessionRecordingPlaylistType,

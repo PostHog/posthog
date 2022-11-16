@@ -182,7 +182,7 @@ export type SessionRecordingsPlaylistProps = {
     filters?: RecordingFilters
     updateSearchParams?: boolean
     onFiltersChange?: (filters: RecordingFilters) => void
-    isStatic: boolean
+    isStatic?: boolean
 }
 
 export function SessionRecordingsPlaylist({
@@ -191,7 +191,7 @@ export function SessionRecordingsPlaylist({
     filters: defaultFilters,
     updateSearchParams,
     onFiltersChange,
-    isStatic,
+    isStatic = false,
 }: SessionRecordingsPlaylistProps): JSX.Element {
     const logic = sessionRecordingsListLogic({
         key: logicKey,
