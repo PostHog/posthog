@@ -58,30 +58,27 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
         for index in range(snapshot_count):
             snapshots.append(
                 {
-                    "$snapshot_data": {
-                        "has_full_snapshot": has_full_snapshot,
-                        "type": 2 if has_full_snapshot else 3,
-                        "data": {
-                            "source": 0,
-                            "texts": [],
-                            "attributes": [],
-                            "removes": [],
-                            "adds": [
-                                {
-                                    "parentId": 4,
-                                    "nextId": 386,
-                                    "node": {
-                                        "type": 2,
-                                        "tagName": "style",
-                                        "attributes": {"data-emotion": "css"},
-                                        "childNodes": [],
-                                        "id": 729,
-                                    },
-                                }
-                            ],
-                        },
-                        "timestamp": (timestamp + timedelta(seconds=index)).timestamp() * 1000,
-                    }
+                    "type": 2 if has_full_snapshot else 3,
+                    "data": {
+                        "source": 0,
+                        "texts": [],
+                        "attributes": [],
+                        "removes": [],
+                        "adds": [
+                            {
+                                "parentId": 4,
+                                "nextId": 386,
+                                "node": {
+                                    "type": 2,
+                                    "tagName": "style",
+                                    "attributes": {"data-emotion": "css"},
+                                    "childNodes": [],
+                                    "id": 729,
+                                },
+                            }
+                        ],
+                    },
+                    "timestamp": (timestamp + timedelta(seconds=index)).timestamp() * 1000,
                 }
             )
 
@@ -102,7 +99,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
         Person.objects.create(
             team=self.team, distinct_ids=["user2"], properties={"$some_prop": "something", "email": "bob@bob.com"}
         )
-        base_time = now() - relativedelta(days=1)
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
         self.create_snapshot("user", "1", base_time)
         self.create_snapshot("user", "1", base_time + relativedelta(seconds=10))
         self.create_snapshot("user2", "2", base_time + relativedelta(seconds=20))
@@ -328,8 +325,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
                 response_data["result"]["session_recording"]["start_and_end_times_by_window_id"],
                 {
                     "": {
-                        "is_active": False,
-                        "window_id": "",
                         "start_time": now().replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                         "end_time": (
                             now() + relativedelta(minutes=num_chunks - 1, seconds=snapshots_per_chunk - 1)
