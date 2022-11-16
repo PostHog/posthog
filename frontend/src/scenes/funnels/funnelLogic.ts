@@ -32,9 +32,9 @@ import {
     PropertyFilter,
     PropertyOperator,
     StepOrderValue,
-    TeamType,
     TrendResult,
     FunnelsFilterType,
+    CorrelationConfigType,
 } from '~/types'
 import { BIN_COUNT_AUTO, FunnelLayout } from 'lib/constants'
 
@@ -1454,7 +1454,7 @@ export const funnelLogic = kea<funnelLogicType>({
 })
 
 const appendToCorrelationConfig = (
-    configKey: keyof TeamType['correlation_config'],
+    configKey: keyof CorrelationConfigType,
     currentValue: string[],
     configValue: string
 ): void => {

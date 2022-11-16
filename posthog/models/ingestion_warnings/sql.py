@@ -1,9 +1,8 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, KAFKA_ENGINE_DEFAULT_SETTINGS, kafka_engine
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_INGESTION_WARNINGS
-from posthog.models.kafka_engine_dlq.sql import KAFKA_ENGINE_DLQ_BASE_SQL, KAFKA_ENGINE_DLQ_MV_BASE_SQL
 
 INGESTION_WARNINGS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
@@ -15,7 +14,6 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     timestamp DateTime64(6, 'UTC')
     {extra_fields}
 ) ENGINE = {engine}
-{settings}
 """
 
 INGESTION_WARNINGS_DATA_TABLE_ENGINE = lambda: MergeTreeEngine(
@@ -32,7 +30,6 @@ ORDER BY (team_id, toHour(timestamp), type, source, timestamp)
     cluster=settings.CLICKHOUSE_CLUSTER,
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
     engine=INGESTION_WARNINGS_DATA_TABLE_ENGINE(),
-    settings="",
 )
 
 KAFKA_INGESTION_WARNINGS_TABLE_SQL = lambda: INGESTION_WARNINGS_TABLE_BASE_SQL.format(
@@ -41,20 +38,6 @@ KAFKA_INGESTION_WARNINGS_TABLE_SQL = lambda: INGESTION_WARNINGS_TABLE_BASE_SQL.f
     engine=kafka_engine(topic=KAFKA_INGESTION_WARNINGS),
     materialized_columns="",
     extra_fields="",
-    settings=KAFKA_ENGINE_DEFAULT_SETTINGS,
-)
-
-KAFKA_INGESTION_WARNINGS_DLQ_SQL = lambda: KAFKA_ENGINE_DLQ_BASE_SQL.format(
-    table="kafka_dlq_ingestion_warnings",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=MergeTreeEngine("kafka_dlq_ingestion_warnings", replication_scheme=ReplicationScheme.REPLICATED),
-)
-
-KAFKA_INGESTION_WARNINGS_DLQ_MV_SQL = lambda: KAFKA_ENGINE_DLQ_MV_BASE_SQL.format(
-    view_name="kafka_dlq_ingestion_warnings_mv",
-    target_table=f"{settings.CLICKHOUSE_DATABASE}.kafka_dlq_ingestion_warnings",
-    kafka_table_name=f"{settings.CLICKHOUSE_DATABASE}.kafka_ingestion_warnings",
-    cluster=settings.CLICKHOUSE_CLUSTER,
 )
 
 INGESTION_WARNINGS_MV_TABLE_SQL = lambda: """
@@ -70,7 +53,6 @@ _timestamp,
 _offset,
 _partition
 FROM {database}.kafka_ingestion_warnings
-WHERE length(_error) = 0
 """.format(
     target_table="ingestion_warnings",
     cluster=settings.CLICKHOUSE_CLUSTER,
@@ -84,7 +66,6 @@ DISTRIBUTED_INGESTION_WARNINGS_TABLE_SQL = lambda: INGESTION_WARNINGS_TABLE_BASE
     engine=Distributed(data_table="sharded_ingestion_warnings", sharding_key="rand()"),
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
     materialized_columns="",
-    settings="",
 )
 
 
