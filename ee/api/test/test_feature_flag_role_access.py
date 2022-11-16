@@ -67,3 +67,36 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
             {"role": self.marketing_role.id, "feature_flag": flag.id},
         )
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+    def test_feature_flag_permission_changes(self):
+        self.organization.feature_flags_access_level = (
+            Organization.FeatureFlagsAccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE
+        )
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization.save()
+        self.organization_membership.save()
+
+        User.objects.create_and_join(self.organization, "a@potato.com", None)
+        flag = FeatureFlag.objects.create(created_by=self.user, key="flag_a", name="Flag A", team=self.team)
+
+        # Should only have viewing privileges
+        response_flags = self.client.get(f"/api/projects/@current/feature_flags")
+        self.assertEqual(
+            response_flags.json()["results"][0]["permission"], Organization.FeatureFlagsAccessLevel.CAN_ONLY_VIEW
+        )
+
+        # Add role membership and feature flag access level
+        self.client.post(
+            f"/api/organizations/@current/roles/{self.eng_role.id}/role_memberships", {"user_uuid": self.user.uuid}
+        )
+
+        self.client.post(
+            f"/api/organizations/@current/feature_flag_role_access",
+            {"role": self.eng_role.id, "feature_flag": flag.id},
+        )
+
+        # Should now have edit privileges
+        response_flags = self.client.get(f"/api/projects/@current/feature_flags")
+        self.assertEqual(
+            response_flags.json()["results"][0]["permission"], Organization.FeatureFlagsAccessLevel.CAN_ALWAYS_EDIT
+        )
