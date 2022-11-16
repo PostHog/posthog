@@ -18,7 +18,12 @@ export function PostHogQuery({ query }: PostHogQueryProps): JSX.Element {
         return <EventsNodeQuery query={query} />
     }
 
-    return <div />
+    return (
+        <div className="text-danger border border-danger p-2">
+            <strong>PostHoqQuery error:</strong>{' '}
+            {query?.nodeType ? `Invalid node type "${query.nodeType}"` : 'Invalid query'}
+        </div>
+    )
 }
 
 export function LegacyInsightQuery({ query }: { query: LegacyQuery }): JSX.Element {

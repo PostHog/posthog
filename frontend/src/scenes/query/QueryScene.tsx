@@ -21,7 +21,7 @@ export function QueryScene(): JSX.Element {
                     For example:{' '}
                     {Object.entries(stringExamples).map(([key, query], index) => (
                         <React.Fragment key={`query-${key}`}>
-                            {index !== 0 ? ' - ' : ''}
+                            {index !== 0 ? ' • ' : ''}
                             <Link
                                 onClick={() => setQueryInput(query)}
                                 className={clsx({ 'font-bold': queryInput === query })}
@@ -36,7 +36,9 @@ export function QueryScene(): JSX.Element {
                 {JSONQuery ? (
                     <PostHogQuery query={JSONQuery} />
                 ) : (
-                    <div className="text-danger">Error parsing JSON: {error}</div>
+                    <div className="text-danger border border-danger p-2">
+                        <strong>Error parsing JSON:</strong> {error}
+                    </div>
                 )}
             </div>
         </div>
