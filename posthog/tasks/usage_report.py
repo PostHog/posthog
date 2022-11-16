@@ -225,7 +225,7 @@ def send_report_to_billing_service(organization: Organization, report: Dict) -> 
     if not license or not license.is_v2_license:
         return
 
-    token = build_billing_token(license, organization) if license else None
+    token = build_billing_token(license, organization)
 
     headers = {}
     if token:
