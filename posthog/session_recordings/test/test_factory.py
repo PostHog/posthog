@@ -135,9 +135,8 @@ def create_snapshot(
     snapshot_data = {
         "data": {**data},
         "timestamp": round(timestamp.timestamp() * 1000),  # NOTE: rrweb timestamps are milliseconds
-        "type": type or RRWEB_MAP_EVENT_TYPE.FullSnapshot
-        if has_full_snapshot
-        else RRWEB_MAP_EVENT_TYPE.IncrementalSnapshot,
+        "type": type
+        or (RRWEB_MAP_EVENT_TYPE.FullSnapshot if has_full_snapshot else RRWEB_MAP_EVENT_TYPE.IncrementalSnapshot),
     }
 
     return create_session_recording_events(

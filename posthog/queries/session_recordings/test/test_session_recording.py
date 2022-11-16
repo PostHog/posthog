@@ -294,66 +294,61 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
 
             millisecond = relativedelta(microseconds=1000)
 
+            expectation = RecordingMetadata(
+                distinct_id="u",
+                segments=[
+                    RecordingSegment(is_active=True, window_id="2", start_time=now(), end_time=now()),
+                    RecordingSegment(
+                        is_active=False,
+                        window_id="2",
+                        start_time=now() + millisecond,
+                        end_time=now() + relativedelta(seconds=1) - millisecond,
+                    ),
+                    RecordingSegment(
+                        is_active=True,
+                        window_id="1",
+                        start_time=now() + relativedelta(seconds=1),
+                        end_time=now() + relativedelta(seconds=1 + ACTIVITY_THRESHOLD_SECONDS),
+                    ),
+                    RecordingSegment(
+                        is_active=False,
+                        window_id="1",
+                        start_time=now() + relativedelta(seconds=1 + ACTIVITY_THRESHOLD_SECONDS) + millisecond,
+                        end_time=now() + relativedelta(seconds=2 * ACTIVITY_THRESHOLD_SECONDS) - millisecond,
+                    ),
+                    RecordingSegment(
+                        is_active=True,
+                        window_id="2",
+                        start_time=now() + relativedelta(seconds=2 * ACTIVITY_THRESHOLD_SECONDS),
+                        end_time=now() + relativedelta(seconds=math.floor(3.5 * ACTIVITY_THRESHOLD_SECONDS)),
+                    ),
+                    RecordingSegment(
+                        is_active=True,
+                        window_id="1",
+                        start_time=now() + relativedelta(seconds=(3 * ACTIVITY_THRESHOLD_SECONDS) + 2),
+                        end_time=now() + relativedelta(seconds=(4 * ACTIVITY_THRESHOLD_SECONDS) - 2),
+                    ),
+                    RecordingSegment(
+                        is_active=False,
+                        window_id="2",
+                        start_time=now() + relativedelta(seconds=(4 * ACTIVITY_THRESHOLD_SECONDS) - 2) + millisecond,
+                        end_time=now() + relativedelta(seconds=4 * ACTIVITY_THRESHOLD_SECONDS),
+                    ),
+                ],
+                start_and_end_times_by_window_id={
+                    "1": {
+                        "start_time": now(),
+                        "end_time": now() + relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 4 - 2),
+                    },
+                    "2": {
+                        "start_time": now(),
+                        "end_time": now() + relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 4),
+                    },
+                },
+            )
             self.assertEqual(
                 recording,
-                RecordingMetadata(
-                    distinct_id="u",
-                    segments=[
-                        RecordingSegment(is_active=True, window_id="2", start_time=now(), end_time=now()),
-                        RecordingSegment(
-                            is_active=False,
-                            window_id="2",
-                            start_time=now() + millisecond,
-                            end_time=now() + relativedelta(seconds=1) - millisecond,
-                        ),
-                        RecordingSegment(
-                            is_active=True,
-                            window_id="1",
-                            start_time=now() + relativedelta(seconds=1),
-                            end_time=now() + relativedelta(seconds=1 + ACTIVITY_THRESHOLD_SECONDS),
-                        ),
-                        RecordingSegment(
-                            is_active=False,
-                            window_id="1",
-                            start_time=now() + relativedelta(seconds=1 + ACTIVITY_THRESHOLD_SECONDS) + millisecond,
-                            end_time=now() + relativedelta(seconds=2 * ACTIVITY_THRESHOLD_SECONDS) - millisecond,
-                        ),
-                        RecordingSegment(
-                            is_active=True,
-                            window_id="2",
-                            start_time=now() + relativedelta(seconds=2 * ACTIVITY_THRESHOLD_SECONDS),
-                            end_time=now() + relativedelta(seconds=math.floor(3.5 * ACTIVITY_THRESHOLD_SECONDS)),
-                        ),
-                        RecordingSegment(
-                            is_active=True,
-                            window_id="1",
-                            start_time=now() + relativedelta(seconds=(3 * ACTIVITY_THRESHOLD_SECONDS) + 2),
-                            end_time=now() + relativedelta(seconds=(4 * ACTIVITY_THRESHOLD_SECONDS) - 2),
-                        ),
-                        RecordingSegment(
-                            is_active=False,
-                            window_id="2",
-                            start_time=now()
-                            + relativedelta(seconds=(4 * ACTIVITY_THRESHOLD_SECONDS) - 2)
-                            + millisecond,
-                            end_time=now() + relativedelta(seconds=4 * ACTIVITY_THRESHOLD_SECONDS),
-                        ),
-                    ],
-                    start_and_end_times_by_window_id={
-                        "1": {
-                            "start_time": now(),
-                            "end_time": now() + relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 4 - 2),
-                            "window_id": "1",
-                            "is_active": False,
-                        },
-                        "2": {
-                            "start_time": now(),
-                            "end_time": now() + relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 4),
-                            "window_id": "2",
-                            "is_active": False,
-                        },
-                    },
-                ),
+                expectation,
             )
 
     def test_get_metadata_for_non_existant_session_id(self):
