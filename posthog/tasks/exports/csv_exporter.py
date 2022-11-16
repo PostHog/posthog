@@ -4,7 +4,6 @@ from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 import requests
 import structlog
-from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception, push_scope
 from statshog.defaults.django import statsd
 
@@ -12,6 +11,8 @@ from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.logging.timing import timed
 from posthog.models.exported_asset import ExportedAsset, save_content
 from posthog.utils import absolute_uri
+
+from .ordered_csv_renderer import OrderedCsvRenderer
 
 logger = structlog.get_logger(__name__)
 
@@ -188,14 +189,14 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
 
         next_url = data.get("next")
 
-    renderer = csvrenderers.CSVRenderer()
+    renderer = OrderedCsvRenderer()
 
     # NOTE: This is not ideal as some rows _could_ have different keys
     # Ideally we would extend the csvrenderer to supported keeping the order in place
     if len(all_csv_rows):
         if not [x for x in all_csv_rows[0].values() if isinstance(x, dict) or isinstance(x, list)]:
             # If values are serialised then keep the order of the keys, else allow it to be unordered
-            renderer.header = all_csv_rows[0].keys()
+            renderer.header = all_csv_rows[1].keys()
 
     render_context = {}
     if columns:
@@ -210,7 +211,7 @@ def make_api_call(
 ) -> requests.models.Response:
     request_url: str = absolute_uri(next_url or path)
     try:
-        url = add_query_params(request_url, {"limit": str(limit)})
+        url = add_query_params(request_url, {"limit": str(limit), "is_csv_export": "1"})
         response = requests.request(
             method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"}
         )
