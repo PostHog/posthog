@@ -67,12 +67,12 @@ class DataGenerator:
 
     def bulk_import_events(self):
         from posthog.models.event.util import create_event
-        from posthog.models.session_recording_event.util import create_session_recording_event
 
         for event_data in self.events:
             create_event(**event_data, team=self.team, event_uuid=uuid4())
-        for data in self.snapshots:
-            create_session_recording_event(**data, team_id=self.team.pk, uuid=uuid4())
+        # NOTE: Currently we dont support snapshots
+        # for data in self.snapshots:
+        #     create_session_recording_events(**data, team_id=self.team.pk, uuid=uuid4())
 
     def add_if_not_contained(self, array, value):
         if value not in array:

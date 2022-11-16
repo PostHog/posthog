@@ -57,7 +57,7 @@ def create_session_recording_events(
     chunk_size: Optional[int] = 512 * 1024,
 ) -> List[str]:
 
-    if not window_id:
+    if window_id is None:
         window_id = session_id
 
     if not snapshots:
