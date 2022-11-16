@@ -11,7 +11,7 @@ export function AdHocInsight({
     style,
 }: {
     filters: Partial<FilterType>
-    style: React.CSSProperties
+    style?: React.CSSProperties
 }): JSX.Element {
     const pageKey = useMemo(() => `filter-${uniqueMemoizedIndex++}`, [])
     const props: InsightLogicProps = {

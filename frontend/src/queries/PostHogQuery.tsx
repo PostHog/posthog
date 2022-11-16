@@ -5,6 +5,7 @@ import { AnyPropertyFilter, InsightLogicProps, ItemMode } from '~/types'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { EventsTable } from 'scenes/events'
 import { useState } from 'react'
+import { AdHocInsight } from 'lib/components/AdHocInsight/AdHocInsight'
 
 export interface PostHogQueryProps {
     query: Node
@@ -29,8 +30,8 @@ export function PostHogQuery({ query }: PostHogQueryProps): JSX.Element {
 export function LegacyInsightQuery({ query }: { query: LegacyQuery }): JSX.Element {
     const insightProps: InsightLogicProps = { dashboardItemId: 'new', cachedInsight: { filters: query.filters } }
     return (
-        <BindLogic logic={insightLogic} props={insightProps}>
-            <InsightContainer insightMode={ItemMode.View} disableHeader disableTable disableCorrelationTable />
+        <BindLogic logic={insightLogic} props={insightProps} key={JSON.stringify(query.filters)}>
+            <AdHocInsight filters={query.filters} style={{ height: 300, border: '1px var(--primary) solid' }} />
         </BindLogic>
     )
 }
@@ -52,6 +53,11 @@ export function EventsNodeQuery({ query }: { query: EventsNode }): JSX.Element {
         <EventsTable
             pageKey={`events-node-${id}`}
             fixedFilters={{ properties: query.properties as AnyPropertyFilter[] }}
+            showEventFilter={false}
+            showPropertyFilter={false}
+            showAutoload={false}
+            showCustomizeColumns={false}
+            showExport={false}
         />
     )
 }

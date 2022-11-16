@@ -1,5 +1,5 @@
 import { EventsNode, LegacyQuery, Node, NodeType } from '~/queries/nodes'
-import { InsightType, PropertyOperator } from '~/types'
+import { ChartDisplayType, InsightType, PropertyOperator } from '~/types'
 
 const Events: EventsNode = {
     nodeType: NodeType.EventsNode,
@@ -7,7 +7,13 @@ const Events: EventsNode = {
 }
 const LegacyTrendsQuery: LegacyQuery = {
     nodeType: NodeType.LegacyQuery,
-    filters: { insight: InsightType.TRENDS, date_from: '-7d' },
+    filters: {
+        insight: InsightType.TRENDS,
+        date_from: '-7d',
+        events: [{ id: '$pageview', math: 'avg_count_per_actor', name: '$pageview', type: 'events', order: 0 }],
+        display: ChartDisplayType.ActionsLineGraph,
+        interval: 'day',
+    },
 }
 
 export const examples: Record<string, Node> = {
