@@ -244,6 +244,12 @@ export interface TeamBasicType {
     effective_membership_level: OrganizationMembershipLevel | null
 }
 
+export interface CorrelationConfigType {
+    excluded_person_property_names?: string[]
+    excluded_event_property_names?: string[]
+    excluded_event_names?: string[]
+}
+
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -261,14 +267,12 @@ export interface TeamType extends TeamBasicType {
     has_group_types: boolean
     primary_dashboard: number // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
-
-    // Uses to exclude person properties from correlation analysis results, for
-    // example can be used to exclude properties that have trivial causation
-    correlation_config: {
-        excluded_person_property_names?: string[]
-        excluded_event_property_names?: string[]
-        excluded_event_names?: string[]
-    }
+    /** Used to exclude person properties from correlation analysis results.
+     *
+     * For example can be used to exclude properties that have trivial causation.
+     * This field should have a default value of `{}`, but it IS nullable and can be `null` in some cases.
+     */
+    correlation_config: CorrelationConfigType | null
 }
 
 export interface ActionType {
