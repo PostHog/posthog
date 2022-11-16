@@ -774,7 +774,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
         if "client_query_id" not in request.data:
             raise serializers.ValidationError({"client_query_id": "Field is required."})
         sync_execute(
-            f"KILL QUERY ON CLUSTER {CLICKHOUSE_CLUSTER} WHERE query_id LIKE %(client_query_id)s",
+            f"KILL QUERY ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE query_id LIKE %(client_query_id)s",
             {"client_query_id": f"{self.team.pk}_{request.data['client_query_id']}%"},
         )
         return Response(status=status.HTTP_201_CREATED)
