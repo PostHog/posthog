@@ -81,9 +81,7 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
 
         # Should only have viewing privileges
         response_flags = self.client.get(f"/api/projects/@current/feature_flags")
-        self.assertEqual(
-            response_flags.json()["results"][0]["permission"], Organization.FeatureFlagsAccessLevel.CAN_ONLY_VIEW
-        )
+        self.assertEqual(response_flags.json()["results"][0]["can_edit"], False)
 
         # Add role membership and feature flag access level
         self.client.post(
@@ -97,6 +95,4 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
 
         # Should now have edit privileges
         response_flags = self.client.get(f"/api/projects/@current/feature_flags")
-        self.assertEqual(
-            response_flags.json()["results"][0]["permission"], Organization.FeatureFlagsAccessLevel.CAN_ALWAYS_EDIT
-        )
+        self.assertEqual(response_flags.json()["results"][0]["can_edit"], True)

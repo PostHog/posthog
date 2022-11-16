@@ -36,7 +36,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         allow_blank=True,
         help_text="contains the description for the flag (field name `name` is kept for backwards-compatibility)",
     )
-    permission = serializers.SerializerMethodField()
+    can_edit = serializers.SerializerMethodField()
 
     class Meta:
         model = FeatureFlag
@@ -55,10 +55,10 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "experiment_set",
             "rollback_conditions",
             "performed_rollback",
-            "permission",
+            "can_edit",
         ]
 
-    def get_permission(self, feature_flag: FeatureFlag) -> Organization.FeatureFlagsAccessLevel:
+    def get_can_edit(self, feature_flag: FeatureFlag) -> Organization.FeatureFlagsAccessLevel:
         # TODO: make sure this isn't n+1
         try:
             from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
@@ -73,17 +73,13 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             )
             final_level = max(role_level, org_level)
             if final_level == Organization.FeatureFlagsAccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE:
-                ff_access = FeatureFlagRoleAccess.objects.filter(
+                can_edit = FeatureFlagRoleAccess.objects.filter(
                     feature_flag__id=feature_flag.pk,
                     role__id__in=[membership.role.pk for membership in all_role_memberships],
                 ).exists()
-                return (
-                    Organization.FeatureFlagsAccessLevel.CAN_ALWAYS_EDIT
-                    if ff_access
-                    else Organization.FeatureFlagsAccessLevel.CAN_ONLY_VIEW
-                )
+                return can_edit
             else:
-                return final_level
+                return final_level == Organization.FeatureFlagsAccessLevel.CAN_ALWAYS_EDIT
 
     # Simple flags are ones that only have rollout_percentage
     #  That means server side libraries are able to gate these flags without calling to the server
