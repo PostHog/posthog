@@ -14,7 +14,7 @@ import { createHub } from '../../src/utils/db/hub'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
-import { createOrganization,createTeam, getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
+import { createOrganization, createTeam, getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
 import { plugin60 } from './../helpers/plugins'
 
 jest.mock('../../src/utils/status')
@@ -1207,7 +1207,7 @@ describe('DB', () => {
     })
 
     describe('fetchTeamFromToken()', () => {
-        it('fetches a team by id', async () => {
+        it('fetches a team by token', async () => {
             const organizationId = await createOrganization(db.postgres)
             const teamId = await createTeam(db.postgres, organizationId, 'token1')
 

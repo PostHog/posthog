@@ -1,7 +1,6 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
-import { Hub, WorkerMethods } from '../../../types'
+import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { IngestionConsumer } from '../kafka-queue'
@@ -40,7 +39,7 @@ export async function eachBatchIngestion(payload: EachBatchPayload, queue: Inges
 export async function ingestEvent(
     server: Hub,
     workerMethods: WorkerMethods,
-    event: PluginEvent,
+    event: PipelineEvent,
     checkAndPause?: () => void // pause incoming messages if we are slow in getting them out again
 ): Promise<void> {
     const eachEventStartTimer = new Date()
