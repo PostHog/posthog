@@ -50,8 +50,9 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             response.json(),
         )
 
+    @patch("posthog.api.organization.delete_bulky_postgres_data")
     @patch("posthoganalytics.capture")
-    def test_delete_second_managed_organization(self, mock_capture):
+    def test_delete_second_managed_organization(self, mock_capture, mock_delete_bulky_postgres_data):
         organization, _, team = Organization.objects.bootstrap(self.user, name="X")
         organization_props = organization.get_analytics_metadata()
         self.assertTrue(Organization.objects.filter(id=organization.id).exists())
@@ -67,6 +68,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             organization_props,
             groups={"instance": ANY, "organization": str(organization.id)},
         )
+        mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.id])
 
     @patch("posthoganalytics.capture")
     def test_delete_last_organization(self, mock_capture):
