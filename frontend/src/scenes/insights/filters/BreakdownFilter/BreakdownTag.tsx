@@ -37,28 +37,34 @@ export function BreakdownTag({
     return (
         <LemonTag
             className="taxonomic-breakdown-filter tag-pill"
-            closable={!!setFilters && !isHistogramable}
+            closable={!!setFilters && !isHistogramable && !isURLNormalizeable}
             onClose={onClose}
             style={{ textTransform: 'capitalize' }}
             popup={{
                 overlay: isURLNormalizeable ? (
-                    <LemonSwitch
-                        checked={!!filters.breakdown_normalize_url}
-                        fullWidth={true}
-                        onChange={(checked) => setNormalizeBreakdownUrl(checked)}
-                        label={
-                            <div className={'flex flex-row items-center gap-2'}>
-                                <Tooltip
-                                    title={
-                                        'Whether to treat `example.com/web-page` and `example.com/web-page/` as the same value'
-                                    }
-                                >
-                                    <IconInfo />
-                                </Tooltip>{' '}
-                                Ignore trailing slash or question mark
-                            </div>
-                        }
-                    />
+                    <>
+                        <LemonSwitch
+                            checked={!!filters.breakdown_normalize_url}
+                            fullWidth={true}
+                            onChange={(checked) => setNormalizeBreakdownUrl(checked)}
+                            label={
+                                <div className={'flex flex-row items-center gap-2'}>
+                                    <Tooltip
+                                        title={
+                                            'Whether to treat `example.com/web-page` and `example.com/web-page/` as the same value'
+                                        }
+                                    >
+                                        <IconInfo />
+                                    </Tooltip>{' '}
+                                    Ignore trailing slash or question mark
+                                </div>
+                            }
+                        />
+                        <LemonDivider />
+                        <LemonButton status="danger" onClick={onClose} fullWidth>
+                            Remove breakdown
+                        </LemonButton>
+                    </>
                 ) : isHistogramable ? (
                     <div>
                         <LemonButton
