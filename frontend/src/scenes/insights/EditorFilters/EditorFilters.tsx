@@ -11,7 +11,7 @@ import { TrendsSeries, TrendsSeriesLabel } from 'scenes/insights/EditorFilters/T
 import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { GlobalAndOrFilters } from 'scenes/insights/EditorFilters/GlobalAndOrFilters'
 import { TrendsFormula, TrendsFormulaLabel } from 'scenes/insights/EditorFilters/TrendsFormula'
-import { TrendsBreakdown } from 'scenes/insights/EditorFilters/TrendsBreakdown'
+import { Breakdown } from 'scenes/insights/EditorFilters/Breakdown'
 import { LifecycleToggles } from 'scenes/insights/EditorFilters/LifecycleToggles'
 import { LifecycleGlobalFilters } from 'scenes/insights/EditorFilters/LifecycleGlobalFilters'
 import { RetentionSummary } from './RetentionSummary'
@@ -207,7 +207,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                                   give you the event volume for each URL your users have visited.
                               </>
                           ),
-                          component: TrendsBreakdown,
+                          component: Breakdown,
                       }
                     : null,
                 hasAttribution
