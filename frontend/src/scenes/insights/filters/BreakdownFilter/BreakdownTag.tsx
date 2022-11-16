@@ -47,16 +47,30 @@ export function BreakdownTag({
                             checked={!!filters.breakdown_normalize_url}
                             fullWidth={true}
                             onChange={(checked) => setNormalizeBreakdownUrl(checked)}
+                            className="min-h-10 px-2"
+                            id="normalize-breakdown-url-switch"
                             label={
-                                <div className={'flex flex-row items-center gap-2'}>
+                                <div className="flex flex-row items-center">
+                                    Normalize paths
                                     <Tooltip
                                         title={
-                                            'Whether to treat `example.com/web-page` and `example.com/web-page/` as the same value'
+                                            <>
+                                                <p>
+                                                    Strip noise (trailing slashes, question marks, and hashes) from
+                                                    paths by enabling this option.
+                                                </p>
+                                                <p>
+                                                    Without path normalization, "https://example.com",
+                                                    "https://example.com/", "https://example.com/?" and
+                                                    "https://example.com/#" are treated as four distinct breakdown
+                                                    values. With normalization, they all count towards
+                                                    "https://example.com".
+                                                </p>
+                                            </>
                                         }
                                     >
-                                        <IconInfo />
-                                    </Tooltip>{' '}
-                                    Ignore trailing slash or question mark
+                                        <IconInfo className="text-xl text-muted-alt ml-1" />
+                                    </Tooltip>
                                 </div>
                             }
                         />

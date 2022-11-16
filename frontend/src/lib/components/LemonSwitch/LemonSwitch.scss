@@ -6,6 +6,10 @@
     align-items: center;
     gap: 0.5rem;
 
+    label[for] {
+        cursor: default; // A label with for=* also toggles the switch, so it shouldn't have the text select cursor
+    }
+
     label {
         flex: 1;
         cursor: inherit;
