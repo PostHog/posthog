@@ -77,19 +77,15 @@ export function BridgePage({
                                 {preflight?.cloud ? (
                                     <span>
                                         {' '}
-                                        You can{' '}
-                                        <Link to="https://posthog.com/docs/self-host">
-                                            <strong>self-host PostHog</strong>
-                                        </Link>{' '}
-                                        or{' '}
+                                        You can use our{' '}
                                         <Link
                                             to={getRegionUrl(preflight?.region === Region.EU ? Region.US : Region.EU)}
                                         >
                                             <strong>
-                                                use our {preflight?.region === Region.EU ? 'US' : 'EU'} cloud
+                                                PostHog Cloud {preflight?.region === Region.EU ? 'US' : 'EU'}
                                             </strong>
                                         </Link>
-                                        .
+                                        {preflight?.region === Region.EU ? ', too' : ' for a GDPR-ready deployment'}.
                                     </span>
                                 ) : (
                                     <span>
