@@ -11,7 +11,6 @@ from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.models.session_recording_event.sql import INSERT_SESSION_RECORDING_EVENT_SQL
 
-
 logger = structlog.get_logger(__name__)
 
 MAX_KAFKA_MESSAGE_LENGTH = 800_000

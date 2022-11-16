@@ -154,9 +154,9 @@ def test_decompress_uncompressed_events_returns_unmodified_events(raw_snapshot_e
         raw_snapshot_data.append(event["properties"]["$snapshot_data"])
 
     assert (
-        decompress_chunked_snapshot_data(1, "someid", snapshot_data_tagged_with_window_id).snapshot_data_by_window_id[
-            "1"
-        ]
+        decompress_chunked_snapshot_data(1, "someid", snapshot_data_tagged_with_window_id)[
+            "snapshot_data_by_window_id"
+        ]["1"]
         == raw_snapshot_data
     )
 
@@ -186,7 +186,7 @@ def test_decompress_ignores_if_not_enough_chunks(raw_snapshot_events):
     )
 
     assert (
-        decompress_chunked_snapshot_data(2, "someid", snapshot_list).snapshot_data_by_window_id[window_id]
+        decompress_chunked_snapshot_data(2, "someid", snapshot_list)["snapshot_data_by_window_id"][window_id]
         == raw_snapshot_data
     )
 
@@ -201,45 +201,45 @@ def test_paginate_decompression(chunked_and_compressed_snapshot_events):
 
     # Get the first chunk
     paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, 1, 0)
-    assert paginated_events.has_next is True
-    assert cast(SnapshotData, paginated_events.snapshot_data_by_window_id[None][0])["type"] == 4
-    assert len(paginated_events.snapshot_data_by_window_id[None]) == 2  # 2 events in a chunk
+    assert paginated_events["has_next"] is True
+    assert cast(SnapshotData, paginated_events["snapshot_data_by_window_id"][None][0])["type"] == 4
+    assert len(paginated_events["snapshot_data_by_window_id"][None]) == 2  # 2 events in a chunk
 
     # Get the second chunk
     paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, 1, 1)
-    assert paginated_events.has_next is False
-    assert cast(SnapshotData, paginated_events.snapshot_data_by_window_id["1"][0])["type"] == 3
-    assert len(paginated_events.snapshot_data_by_window_id["1"]) == 2  # 2 events in a chunk
+    assert paginated_events["has_next"] is False
+    assert cast(SnapshotData, paginated_events["snapshot_data_by_window_id"]["1"][0])["type"] == 3
+    assert len(paginated_events["snapshot_data_by_window_id"]["1"]) == 2  # 2 events in a chunk
 
     # Limit exceeds the length
     paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, 10, 0)
-    assert paginated_events.has_next is False
-    assert len(paginated_events.snapshot_data_by_window_id["1"]) == 2
-    assert len(paginated_events.snapshot_data_by_window_id[None]) == 2
+    assert paginated_events["has_next"] is False
+    assert len(paginated_events["snapshot_data_by_window_id"]["1"]) == 2
+    assert len(paginated_events["snapshot_data_by_window_id"][None]) == 2
 
     # Offset exceeds the length
     paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, 10, 2)
-    assert paginated_events.has_next is False
-    assert paginated_events.snapshot_data_by_window_id == {}
+    assert paginated_events["has_next"] is False
+    assert paginated_events["snapshot_data_by_window_id"] == {}
 
     # Non sequential snapshots
     snapshot_data = snapshot_data[-3:] + snapshot_data[0:-3]
     paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, 10, 0)
-    assert paginated_events.has_next is False
-    assert len(paginated_events.snapshot_data_by_window_id["1"]) == 2
-    assert len(paginated_events.snapshot_data_by_window_id[None]) == 2
+    assert paginated_events["has_next"] is False
+    assert len(paginated_events["snapshot_data_by_window_id"]["1"]) == 2
+    assert len(paginated_events["snapshot_data_by_window_id"][None]) == 2
 
     # No limit or offset provided
     paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data)
-    assert paginated_events.has_next is False
-    assert len(paginated_events.snapshot_data_by_window_id["1"]) == 2
-    assert len(paginated_events.snapshot_data_by_window_id[None]) == 2
+    assert paginated_events["has_next"] is False
+    assert len(paginated_events["snapshot_data_by_window_id"]["1"]) == 2
+    assert len(paginated_events["snapshot_data_by_window_id"][None]) == 2
 
 
 def test_decompress_empty_list(chunked_and_compressed_snapshot_events):
     paginated_events = decompress_chunked_snapshot_data(1, "someid", [])
-    assert paginated_events.has_next is False
-    assert paginated_events.snapshot_data_by_window_id == {}
+    assert paginated_events["has_next"] is False
+    assert paginated_events["snapshot_data_by_window_id"] == {}
 
 
 def test_decompress_data_returning_only_activity_info(chunked_and_compressed_snapshot_events):
@@ -251,7 +251,7 @@ def test_decompress_data_returning_only_activity_info(chunked_and_compressed_sna
     ]
     paginated_events = decompress_chunked_snapshot_data(1, "someid", snapshot_data, return_only_activity_data=True)
 
-    assert paginated_events.snapshot_data_by_window_id == {
+    assert paginated_events["snapshot_data_by_window_id"] == {
         None: [
             {"timestamp": 1546300800000, "type": 4, "data": {}},
             {"timestamp": 1546300800000, "type": 2, "data": {}},
@@ -581,22 +581,22 @@ def compress_decompress_and_extract(events, chunk_size):
     for snapshot_data in snapshot_data_list:
         snapshot_list.append(SnapshotDataTaggedWithWindowId(window_id=window_id, snapshot_data=snapshot_data))
 
-    return decompress_chunked_snapshot_data(2, "someid", snapshot_list).snapshot_data_by_window_id[window_id]
+    return decompress_chunked_snapshot_data(2, "someid", snapshot_list)["snapshot_data_by_window_id"][window_id]
 
 
-def test_get_events_summary_from_snapshot_data():
-    timestamp = round(datetime.now().timestamp() * 1000)
-    snapshot_events = [
-        {"type": 2, "foo": "bar", "timestamp": timestamp},
-        {"type": 1, "foo": "bar", "timestamp": timestamp},
-        {"type": 1, "foo": "bar", "timestamp": timestamp, "data": {"source": 3}},
-    ]
+# def test_get_events_summary_from_snapshot_data():
+#     timestamp = round(datetime.now().timestamp() * 1000)
+#     snapshot_events = [
+#         {"type": 2, "foo": "bar", "timestamp": timestamp},
+#         {"type": 1, "foo": "bar", "timestamp": timestamp},
+#         {"type": 1, "foo": "bar", "timestamp": timestamp, "data": {"source": 3}},
+#     ]
 
-    assert get_events_summary_from_snapshot_data(snapshot_events) == [
-        {"timestamp": timestamp, "type": 2, "data": {}},
-        {"timestamp": timestamp, "type": 1, "data": {}},
-        {"timestamp": timestamp, "type": 1, "data": {"source": 3}},
-    ]
+#     assert get_events_summary_from_snapshot_data(snapshot_events) == [
+#         {"timestamp": timestamp, "type": 2, "data": {}},
+#         {"timestamp": timestamp, "type": 1, "data": {}},
+#         {"timestamp": timestamp, "type": 1, "data": {"source": 3}},
+#     ]
 
 
 def test_is_active_event():

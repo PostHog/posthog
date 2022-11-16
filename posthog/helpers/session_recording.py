@@ -233,7 +233,7 @@ def decompress_chunked_snapshot_data(
     if "chunk_id" not in all_recording_events[0]["snapshot_data"]:
         paginated_list = paginate_list(all_recording_events, limit, offset)
         for event in paginated_list.paginated_list:
-            snapshot_data_by_window_id[event.window_id].append(
+            snapshot_data_by_window_id[event["window_id"]].append(
                 get_events_summary_from_snapshot_data([event["snapshot_data"]])[0]
                 if return_only_activity_data
                 else event["snapshot_data"]
