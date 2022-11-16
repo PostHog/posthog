@@ -8,6 +8,7 @@ import {
     OrganizationMemberType,
     OrganizationType,
     PersonProperty,
+    PropertyFilterType,
     PropertyOperator,
     TeamType,
     UserBasicType,
@@ -45,7 +46,12 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     completed_snippet_onboarding: true,
     ingested_event: true,
     test_account_filters: [
-        { key: 'email', type: 'person', value: 'posthog.com', operator: PropertyOperator.NotIContains },
+        {
+            key: 'email',
+            type: PropertyFilterType.Person,
+            value: 'posthog.com',
+            operator: PropertyOperator.NotIContains,
+        },
     ],
     test_account_filters_default_checked: false,
     path_cleaning_filters: [],
