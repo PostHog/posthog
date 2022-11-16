@@ -12,7 +12,7 @@ from posthog.models import Person
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
-from posthog.models.person.util import create_person, create_person_distinct_id, delete_ch_person
+from posthog.models.person.util import create_person, create_person_distinct_id, delete_person
 from posthog.models.utils import UUIDT
 from posthog.test.base import ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 
@@ -214,7 +214,7 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
             properties={"$some_prop": "something", "$another_prop": "something"},
         )
         create_person_distinct_id(self.team.pk, "1", str(person.uuid))
-        delete_ch_person(person)
+        delete_person(person)
 
         # the mutation will run as noted by person_properties becoming '{}' instead of ''
         # but the migration will be marked as false as it will fail the postcheck indicating some investigation is needed into the instance's data
