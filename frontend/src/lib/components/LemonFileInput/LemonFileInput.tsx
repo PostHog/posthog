@@ -10,6 +10,12 @@ export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' |
     onChange?: (newValue: File[]) => void
     // are the files currently being uploaded?
     loading?: boolean
+    /** if this is not provided then this component is the drop target
+     * and is styled when a file is dragged over it
+     * if this alternativeDropTargetRef is provided,
+     * then it is also a drop target for files and
+     * styling is applied to the alternativeDropTargetRef
+     * **/
     alternativeDropTargetRef?: RefObject<HTMLElement>
 }
 
@@ -20,11 +26,6 @@ export const LemonFileInput = ({
     loading,
     // e.g. '.json' or 'image/*'
     accept,
-    /** if this is not provided then this component is the drop target
-    // and is styled when a file is dragged over it
-    // if this alternativeDropTargetRef is provided,
-    // then it is also a drop target for files and
-    styling is applied to the alternativeDropTargetRef **/
     alternativeDropTargetRef,
 }: LemonFileInputProps): JSX.Element => {
     const [files, setFiles] = useState(value || value || ([] as File[]))
