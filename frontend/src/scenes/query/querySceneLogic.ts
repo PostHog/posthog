@@ -10,28 +10,34 @@ const DEFAULT_QUERY: string = stringExamples['Events']
 
 export const querySceneLogic = kea<querySceneLogicType>([
     path(['scenes', 'query', 'querySceneLogic']),
-    actions({ setQueryInput: (queryInput: string) => ({ queryInput }) }),
-    reducers({ queryInput: [DEFAULT_QUERY, { setQueryInput: (_, { queryInput }) => queryInput }] }),
+    actions({ setQuery: (query: string) => ({ query }), setQueryInput: (queryInput: string) => ({ queryInput }) }),
+    reducers({
+        query: [DEFAULT_QUERY, { setQuery: (_, { query }) => query }],
+        queryInput: [
+            DEFAULT_QUERY,
+            { setQuery: (_, { query }) => query, setQueryInput: (_, { queryInput }) => queryInput },
+        ],
+    }),
     actionToUrl({
-        setQueryInput: ({ queryInput }) => {
-            return [urls.query(), {}, { q: queryInput }, { replace: true }]
+        setQuery: ({ query }) => {
+            return [urls.query(), {}, { q: query }, { replace: true }]
         },
     }),
     urlToAction(({ actions, values }) => ({
         [urls.query()]: (_, __, { q }) => {
             if (q && q !== values.queryInput) {
-                actions.setQueryInput(q)
+                actions.setQuery(q)
             }
         },
     })),
     selectors({
         parsedQuery: [
-            (s) => [s.queryInput],
-            (queryInput): { JSONQuery: Node | null; error: string | null } => {
+            (s) => [s.query],
+            (query): { JSONQuery: Node | null; error: string | null } => {
                 let JSONQuery: Node | null = null
                 let error = null
                 try {
-                    JSONQuery = JSON.parse(queryInput)
+                    JSONQuery = JSON.parse(query)
                 } catch (e: any) {
                     error = e.message
                 }
@@ -40,5 +46,6 @@ export const querySceneLogic = kea<querySceneLogicType>([
         ],
         JSONQuery: [(s) => [s.parsedQuery], ({ JSONQuery }): Node | null => JSONQuery],
         error: [(s) => [s.parsedQuery], ({ error }): string | null => error],
+        inputChanged: [(s) => [s.query, s.queryInput], (query, queryInput) => query !== queryInput],
     }),
 ])

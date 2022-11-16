@@ -8,10 +8,11 @@ import { stringExamples } from 'scenes/query/examples'
 import { Link } from 'lib/components/Link'
 import React from 'react'
 import clsx from 'clsx'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export function QueryScene(): JSX.Element {
-    const { queryInput, JSONQuery, error } = useValues(querySceneLogic)
-    const { setQueryInput } = useActions(querySceneLogic)
+    const { queryInput, JSONQuery, error, inputChanged } = useValues(querySceneLogic)
+    const { setQueryInput, setQuery } = useActions(querySceneLogic)
 
     return (
         <div className="QueryScene">
@@ -25,7 +26,7 @@ export function QueryScene(): JSX.Element {
                             <Link
                                 onClick={(e) => {
                                     e.preventDefault()
-                                    setQueryInput(query)
+                                    setQuery(query)
                                 }}
                                 className={clsx({ 'font-bold': queryInput === query })}
                             >
@@ -35,6 +36,13 @@ export function QueryScene(): JSX.Element {
                     ))}
                 </div>
                 <LemonTextArea value={queryInput} onChange={(v) => setQueryInput(v)} />
+                {inputChanged ? (
+                    <div>
+                        <LemonButton onClick={() => setQuery(queryInput)} type="primary">
+                            Run
+                        </LemonButton>
+                    </div>
+                ) : null}
                 <strong>Response:</strong>
                 {JSONQuery ? (
                     <PostHogQuery query={JSONQuery} />
