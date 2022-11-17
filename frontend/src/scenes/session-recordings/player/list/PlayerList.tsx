@@ -225,7 +225,10 @@ export function PlayerList<T extends Record<string, any>>({
                                                 expandedDetermined={expandedDetermined}
                                                 loading={sessionEventsDataLoading}
                                                 windowNumber={
-                                                    windowIds.indexOf(record.playerPosition.windowId) + 1 || undefined
+                                                    windowIds.length > 1
+                                                        ? windowIds.indexOf(record.playerPosition.windowId) + 1 ||
+                                                          undefined
+                                                        : undefined
                                                 }
                                             />
                                         )
