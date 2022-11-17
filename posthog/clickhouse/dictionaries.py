@@ -5,7 +5,7 @@ def dictionary_source_clickhouse(table: str) -> str:
     """
     Returns
     """
-    connection_settings = f"TABLE '{table}' DB '{settings.CLICKHOUSE_DATABASE}'"
+    connection_settings = f"TABLE {table} DB '{settings.CLICKHOUSE_DATABASE}'"
     if settings.CLICKHOUSE_USER:
         connection_settings += f" USER '{settings.CLICKHOUSE_USER}'"
     if settings.CLICKHOUSE_PASSWORD:
