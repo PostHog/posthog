@@ -47,7 +47,6 @@ def exception_reporting(exception: Exception, context: ExceptionContext) -> None
     Determines which exceptions to report and sends them to Sentry.
     Used through drf-exceptions-hog
     """
-    raise exception
     if not isinstance(exception, APIException):
         logger.exception(exception, path=context["request"].path)
         capture_exception(exception)
