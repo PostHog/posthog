@@ -40,13 +40,7 @@ export function summarizePlaylistFilters(
                 }
                 if (property.type === 'cohort') {
                     const cohortId = Number(property.value)
-                    return `cohorts: ${
-                        property.value === 'all'
-                            ? 'all users'
-                            : cohortId in cohortsById
-                            ? cohortsById[cohortId]?.name
-                            : `ID ${cohortId}`
-                    }`
+                    return `cohorts: ${cohortId in cohortsById ? cohortsById[cohortId]?.name : `ID ${cohortId}`}`
                 }
             })
             .filter((property) => !!property)

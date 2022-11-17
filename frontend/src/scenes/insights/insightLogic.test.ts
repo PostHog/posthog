@@ -14,6 +14,7 @@ import {
     InsightShortId,
     InsightType,
     ItemMode,
+    PropertyFilterType,
     PropertyGroupFilter,
     PropertyOperator,
 } from '~/types'
@@ -36,7 +37,7 @@ import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constant
 const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
     events: [{ id: 3 }],
-    properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+    properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' } as any as AnyPropertyFilter],
 }
 
 const Insight12 = '12' as InsightShortId
@@ -323,7 +324,14 @@ describe('insightLogic', () => {
                         filters: {
                             insight: InsightType.TRENDS,
                             events: [{ id: 2 }],
-                            properties: [{ value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }],
+                            properties: [
+                                {
+                                    value: 'lol',
+                                    operator: PropertyOperator.Exact,
+                                    key: 'lol',
+                                    type: PropertyFilterType.Person,
+                                },
+                            ],
                         },
                     },
                 })
@@ -339,7 +347,7 @@ describe('insightLogic', () => {
                         insight: partial({ short_id: Insight42, results: ['cached result'] }),
                         filters: partial({
                             events: [{ id: 2 }],
-                            properties: [partial({ type: 'lol' })],
+                            properties: [partial({ type: PropertyFilterType.Person })],
                         }),
                     })
                     .toNotHaveDispatchedActions(['loadResultsSuccess']) // this took the cached results
@@ -356,7 +364,14 @@ describe('insightLogic', () => {
                         filters: {
                             insight: InsightType.TRENDS,
                             events: [{ id: 3 }],
-                            properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+                            properties: [
+                                {
+                                    value: 'a',
+                                    operator: PropertyOperator.Exact,
+                                    key: 'a',
+                                    type: PropertyFilterType.Person,
+                                },
+                            ],
                         },
                     },
                 })
@@ -382,13 +397,14 @@ describe('insightLogic', () => {
             afterEach(resumeKeaLoadersErrors)
 
             it('makes a query to load the results', async () => {
-                const insight = {
+                const insight: Partial<InsightModel> = {
                     short_id: Insight42,
-                    results: undefined,
                     filters: {
                         insight: InsightType.TRENDS,
                         events: [{ id: 3, throw: true }],
-                        properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+                        properties: [
+                            { value: 'a', operator: PropertyOperator.Exact, key: 'a', type: PropertyFilterType.Person },
+                        ],
                     },
                 }
                 logic = insightLogic({
@@ -414,13 +430,14 @@ describe('insightLogic', () => {
 
         describe('props with filters, no cached results, respects doNotLoad', () => {
             it('does not make a query', async () => {
-                const insight = {
+                const insight: Partial<InsightModel> = {
                     short_id: Insight42,
-                    results: undefined,
                     filters: {
                         insight: InsightType.TRENDS,
                         events: [{ id: 3, throw: true }],
-                        properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+                        properties: [
+                            { value: 'a', operator: PropertyOperator.Exact, key: 'a', type: PropertyFilterType.Person },
+                        ],
                     },
                 }
                 logic = insightLogic({
@@ -875,7 +892,12 @@ describe('insightLogic', () => {
     })
 
     describe('filterPropertiesCount selector', () => {
-        const standardPropertyFilter = { value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }
+        const standardPropertyFilter: AnyPropertyFilter = {
+            value: 'lol',
+            operator: PropertyOperator.Exact,
+            key: 'lol',
+            type: PropertyFilterType.Person,
+        }
         const cases: {
             properties: AnyPropertyFilter[] | PropertyGroupFilter
             count: number
@@ -971,7 +993,7 @@ describe('insightLogic', () => {
             expectLogic(logic).toMatchValues({ isUsingSessionAnalysis: true })
         })
         it('setting global session property filters sets it true', async () => {
-            const insight = {
+            const insight: Partial<InsightModel> = {
                 filters: {
                     insight: InsightType.TRENDS,
                     properties: {
@@ -984,7 +1006,7 @@ describe('insightLogic', () => {
                                         key: '$session_duration',
                                         value: 1,
                                         operator: PropertyOperator.GreaterThan,
-                                        type: 'session',
+                                        type: PropertyFilterType.Session,
                                     },
                                 ],
                             },

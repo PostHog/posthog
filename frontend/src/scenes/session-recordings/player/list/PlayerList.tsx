@@ -60,7 +60,7 @@ export function PlayerList<T extends Record<string, any>>({
     const { data, showPositionFinder, isCurrent, isDirectionUp, expandedRows } = useValues(logic)
     const { setRenderedRows, setList, scrollTo, disablePositionFinder, handleRowClick, expandRow, collapseRow } =
         useActions(logic)
-    const { sessionEventsDataLoading, sessionPlayerMetaDataLoading } = useValues(
+    const { sessionEventsDataLoading, sessionPlayerMetaDataLoading, windowIds } = useValues(
         sessionRecordingDataLogic({ sessionRecordingId, playerKey })
     )
     const { currentTeam } = useValues(teamLogic)
@@ -224,6 +224,12 @@ export function PlayerList<T extends Record<string, any>>({
                                                 optionsDetermined={optionsDetermined ?? []}
                                                 expandedDetermined={expandedDetermined}
                                                 loading={sessionEventsDataLoading}
+                                                windowNumber={
+                                                    windowIds.length > 1
+                                                        ? windowIds.indexOf(record.playerPosition.windowId) + 1 ||
+                                                          undefined
+                                                        : undefined
+                                                }
                                             />
                                         )
                                     }}

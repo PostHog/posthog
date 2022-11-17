@@ -1,7 +1,8 @@
-import { PropertyFilterValue, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyFilterValue, PropertyOperator } from '~/types'
 import { allOperatorsMapping, genericOperatorMap } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 
 export function eventToHumanName(event?: string): string {
     return event && event[0] == '$' ? event[1].toUpperCase() + event.slice(2) : event ?? 'Event'
@@ -17,9 +18,9 @@ export function operatorToHumanName(operator?: string): string {
     return 'exactly'
 }
 
-export function genericOperatorToHumanName(operator?: PropertyOperator | null): string {
-    if (operator && genericOperatorMap[operator]) {
-        return genericOperatorMap[operator].slice(2)
+export function genericOperatorToHumanName(property?: AnyPropertyFilter | null): string {
+    if (isPropertyFilterWithOperator(property) && property.operator && genericOperatorMap[property.operator]) {
+        return genericOperatorMap[property.operator].slice(2)
     }
     return 'equals'
 }

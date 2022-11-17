@@ -4,9 +4,11 @@ from typing import Any, Callable, Dict, List, TypeVar, Union, cast
 
 from django.conf import settings
 from django.core.cache import cache
+from django.urls import resolve
 from django.utils.timezone import now
 from rest_framework.request import Request
 from rest_framework.viewsets import GenericViewSet
+from statshog.defaults.django import statsd
 
 from posthog.models import DashboardTile, User
 from posthog.models.filters.utils import get_filter
@@ -44,9 +46,20 @@ def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
         # return cached result when possible
         if not should_refresh(request):
             cached_result_package = get_safe_cache(cache_key)
+
+            # ignore the bare exception warning. we never want this to fail
+            # noinspection PyBroadException
+            try:
+                route = resolve(request.path).route
+            except:
+                route = "unknown"
+
             if cached_result_package and cached_result_package.get("result"):
                 cached_result_package["is_cached"] = True
+                statsd.incr("posthog_cached_function_cache_hit", tags={"route": route})
                 return cached_result_package
+            else:
+                statsd.incr("posthog_cached_function_cache_miss", tags={"route": route})
 
         # call function being wrapped
         fresh_result_package = cast(T, f(self, request))
