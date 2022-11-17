@@ -12,7 +12,6 @@ from unittest.mock import MagicMock, call, patch
 from urllib.parse import quote
 
 import lzstring
-from django.test import override_settings
 from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
@@ -153,17 +152,8 @@ class TestCapture(BaseTest):
             },
         }
 
-        with override_settings(ACK_EVENTS_PRODUCED_FOR_TEAMS=[str(self.team.pk)]):
-            response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
-            self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
-
-        with override_settings(ACK_EVENTS_PRODUCED_FOR_TEAMS=["*"]):
-            response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
-            self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
-
-        with override_settings(ACK_EVENTS_PRODUCED_FOR_TEAMS=[]):
-            response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event_ip(self, kafka_produce):

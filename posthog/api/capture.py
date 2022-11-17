@@ -296,29 +296,22 @@ def get_event(request):
                 ),
             )
 
-    if (
-        ingestion_context and str(ingestion_context.team_id) in settings.ACK_EVENTS_PRODUCED_FOR_TEAMS
-    ) or "*" in settings.ACK_EVENTS_PRODUCED_FOR_TEAMS:
-        # If the request is for a team we've enabled acks for, return HTTP
-        # status codes accordingly. Ultimately we'll roll this out everywhere
-        # but to allow for testing what effect this has we only do it for a
-        # subset of requests.
-        for future in futures:
-            try:
-                future.get(timeout=1)
-            except KafkaError:
-                # TODO: distinguish between retriable errors and non-retriable
-                # errors, and set Retry-After header accordingly.
-                return cors_response(
-                    request,
-                    generate_exception_response(
-                        "capture",
-                        "Unable to store some events. Please try again. If you are the owner of this app you can check the logs for further details.",
-                        code="server_error",
-                        type="server_error",
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    ),
-                )
+    for future in futures:
+        try:
+            future.get(timeout=1)
+        except KafkaError:
+            # TODO: distinguish between retriable errors and non-retriable
+            # errors, and set Retry-After header accordingly.
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "capture",
+                    "Unable to store some events. Please try again. If you are the owner of this app you can check the logs for further details.",
+                    code="server_error",
+                    type="server_error",
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                ),
+            )
 
     statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
     return cors_response(request, JsonResponse({"status": 1}))

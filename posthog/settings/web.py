@@ -257,5 +257,3 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
         ),
     )
 )
-
-ACK_EVENTS_PRODUCED_FOR_TEAMS = get_list(os.getenv("ACK_EVENTS_PRODUCED_FOR_TEAMS", ""))
