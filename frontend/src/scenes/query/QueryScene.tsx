@@ -1,7 +1,6 @@
 import { querySceneLogic } from './querySceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { useActions, useValues } from 'kea'
-import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { PostHogQuery } from '~/queries/PostHogQuery'
 import { PageHeader } from 'lib/components/PageHeader'
 import { stringExamples } from 'scenes/query/examples'
@@ -9,6 +8,7 @@ import { Link } from 'lib/components/Link'
 import React from 'react'
 import clsx from 'clsx'
 import { LemonButton } from 'lib/components/LemonButton'
+import MonacoEditor from '@monaco-editor/react'
 
 export function QueryScene(): JSX.Element {
     const { queryInput, JSONQuery, error, inputChanged } = useValues(querySceneLogic)
@@ -35,7 +35,14 @@ export function QueryScene(): JSX.Element {
                         </React.Fragment>
                     ))}
                 </div>
-                <LemonTextArea value={queryInput} onChange={(v) => setQueryInput(v)} />
+                <MonacoEditor
+                    theme="vs-light"
+                    language={'json'}
+                    value={queryInput}
+                    onChange={(v) => setQueryInput(v ?? '')}
+                    height={300}
+                    options={{ minimap: { enabled: false } }}
+                />
                 {inputChanged ? (
                     <div>
                         <LemonButton onClick={() => setQuery(queryInput)} type="primary">
