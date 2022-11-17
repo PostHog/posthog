@@ -98,8 +98,8 @@ export function PropertyFilters({
                                             }}
                                         />
                                     )}
+                                    errorMessage={errorMessages && errorMessages[index]}
                                 />
-                                {errorMessages && errorMessages[index] && errorMessages[index]}
                             </React.Fragment>
                         )
                     })}

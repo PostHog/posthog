@@ -1604,6 +1604,11 @@ export interface CombinedFeatureFlagAndValueType {
     value: boolean | string
 }
 
+export interface UserBlastRadiusType {
+    users_affected: number
+    total_users: number
+}
+
 export interface PrevalidatedInvite {
     id: string
     target_email: string

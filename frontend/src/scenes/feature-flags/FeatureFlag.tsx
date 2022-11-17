@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Form, Group } from 'kea-forms'
 import { Row, Col, Radio, InputNumber, Popconfirm, Select, Divider, Tabs, Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
-import { alphabet, capitalizeFirstLetter } from 'lib/utils'
+import { alphabet, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LockOutlined } from '@ant-design/icons'
 import { defaultPropertyOnFlag, featureFlagLogic } from './featureFlagLogic'
@@ -36,7 +36,7 @@ import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { urls } from 'scenes/urls'
-import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { Spinner, SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermark'
@@ -678,6 +678,8 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
         taxonomicGroupTypes,
         nonEmptyVariants,
         propertySelectErrors,
+        computeBlastRadiusPercentage,
+        affectedUsers,
     } = useValues(featureFlagLogic)
     const {
         setAggregationGroupTypeIndex,
@@ -815,7 +817,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                 <>
                                     {group.properties.map((property, idx) => (
                                         <>
-                                            <div className="feature-flag-property-display">
+                                            <div className="feature-flag-property-display" key={idx}>
                                                 {idx === 0 ? (
                                                     <LemonButton
                                                         icon={<IconSubArrowRight className="arrow-right" />}
@@ -895,7 +897,20 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                 <div>
                                     Rolled out to{' '}
                                     <b>{group.rollout_percentage != null ? group.rollout_percentage : 100}%</b> of{' '}
-                                    <b>{aggregationTargetName}</b> in this set
+                                    <b>{aggregationTargetName}</b> in this set.{' '}
+                                    {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_ROLLOUT_UX] && (
+                                        <>
+                                            This will apply to approximately{' '}
+                                            {affectedUsers[index] !== undefined ? (
+                                                `${humanFriendlyNumber(
+                                                    computeBlastRadiusPercentage(group.rollout_percentage, index)
+                                                )}%`
+                                            ) : (
+                                                <Spinner className="mr-1" />
+                                            )}{' '}
+                                            of total {aggregationTargetName}.
+                                        </>
+                                    )}
                                 </div>
                             ) : (
                                 <div className="feature-flag-form-row">
@@ -911,10 +926,20 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                             max={100}
                                             addonAfter="%"
                                         />{' '}
-                                        of <b>{aggregationTargetName}</b> in this set. This will apply to approximately{' '}
-                                        {(group.rollout_percentage != null ? group.rollout_percentage : 100) *
-                                            ((group.users_affected ?? 1) / 10)}
-                                        % of total {aggregationTargetName}.
+                                        of <b>{aggregationTargetName}</b> in this set.{' '}
+                                        {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_ROLLOUT_UX] && (
+                                            <>
+                                                This will apply to approximately{' '}
+                                                {affectedUsers[index] !== undefined ? (
+                                                    `${humanFriendlyNumber(
+                                                        computeBlastRadiusPercentage(group.rollout_percentage, index)
+                                                    )}%`
+                                                ) : (
+                                                    <Spinner className="mr-1" />
+                                                )}{' '}
+                                                of total {aggregationTargetName}.
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             )}
