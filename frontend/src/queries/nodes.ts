@@ -5,6 +5,7 @@ import {
     BreakdownKeyType,
     BreakdownType,
     EntityType,
+    EventType,
     FunnelsFilterType,
     InsightShortId,
     IntervalType,
@@ -62,13 +63,22 @@ export interface Node {
 
 // Data nodes
 
-export interface EventsNode extends Node {
+export interface DataNode extends Node {
+    /** Cached query response */
+    response?: Record<string, any>
+}
+
+export interface EventsNode extends DataNode {
     kind: NodeKind.EventsNode
     event?: string
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
+    response?: {
+        results: EventType[]
+        next?: string
+    }
 }
 
-export interface ActionNode extends Node {
+export interface ActionNode extends DataNode {
     kind: NodeKind.ActionNode
     meta?: {
         id?: number

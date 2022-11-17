@@ -2,9 +2,13 @@
     "$ref": "#/definitions/AnyNode",
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
-        "ActionsDataNode": {
+        "ActionNode": {
             "additionalProperties": false,
             "properties": {
+                "kind": {
+                    "const": "ActionNode",
+                    "type": "string"
+                },
                 "meta": {
                     "additionalProperties": false,
                     "properties": {
@@ -20,16 +24,15 @@
                     },
                     "type": "object"
                 },
-                "nodeCategory": {
-                    "const": "DataNode",
-                    "type": "string"
-                },
-                "kind": {
-                    "const": "ActionsNode",
-                    "type": "string"
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
                 },
                 "steps": {
-                    "$ref": "#/definitions/EventsNode"
+                    "items": {
+                        "$ref": "#/definitions/EventsNode"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["kind"],
@@ -45,10 +48,10 @@
                     "$ref": "#/definitions/EventsNode"
                 },
                 {
-                    "$ref": "#/definitions/EventsTableNode"
+                    "$ref": "#/definitions/ActionNode"
                 },
                 {
-                    "$ref": "#/definitions/ActionsDataNode"
+                    "$ref": "#/definitions/EventsTableNode"
                 },
                 {
                     "$ref": "#/definitions/LegacyQuery"
@@ -73,6 +76,9 @@
                 },
                 {
                     "$ref": "#/definitions/StickinessQuery"
+                },
+                {
+                    "$ref": "#/definitions/PersonsModalQuery"
                 }
             ]
         },
@@ -1230,38 +1236,107 @@
             },
             "type": "object"
         },
+        "ElementType": {
+            "additionalProperties": false,
+            "properties": {
+                "attr_class": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "attr_id": {
+                    "type": "string"
+                },
+                "attributes": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                "href": {
+                    "type": "string"
+                },
+                "nth_child": {
+                    "type": "number"
+                },
+                "nth_of_type": {
+                    "type": "number"
+                },
+                "order": {
+                    "type": "number"
+                },
+                "tag_name": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
+                }
+            },
+            "required": ["attributes", "href", "nth_child", "nth_of_type", "order", "tag_name"],
+            "type": "object"
+        },
         "EntityType": {
             "enum": ["actions", "events", "new_entity"],
             "type": "string"
         },
-        "EventBuiltin": {
-            "enum": [
-                "distinct_id",
-                "timestamp",
-                "event",
-                "uuid",
-                "elements_chain",
-                "person_id",
-                "created_at",
-                "person_created_at"
-            ],
-            "type": "string"
-        },
-        "EventsNode": {
+        "EventType": {
             "additionalProperties": false,
-            "description": "Query the events table with various filtered properties",
             "properties": {
-                "builtins": {
-                    "$ref": "#/definitions/EventBuiltin"
-                },
-                "customName": {
+                "colonTimestamp": {
                     "type": "string"
+                },
+                "distinct_id": {
+                    "type": "string"
+                },
+                "elements": {
+                    "items": {
+                        "$ref": "#/definitions/ElementType"
+                    },
+                    "type": "array"
+                },
+                "elements_chain": {
+                    "type": ["string", "null"]
                 },
                 "event": {
                     "type": "string"
                 },
-                "nodeCategory": {
-                    "const": "DataNode",
+                "id": {
+                    "type": "string"
+                },
+                "person": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "distinct_ids": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "is_identified": {
+                            "type": "boolean"
+                        },
+                        "properties": {
+                            "type": "object"
+                        }
+                    },
+                    "required": ["distinct_ids", "properties"],
+                    "type": "object"
+                },
+                "properties": {
+                    "type": "object"
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "distinct_id", "properties", "event", "timestamp", "elements"],
+            "type": "object"
+        },
+        "EventsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "event": {
                     "type": "string"
                 },
                 "kind": {
@@ -1280,6 +1355,23 @@
                             "$ref": "#/definitions/PropertyGroupFilter"
                         }
                     ]
+                },
+                "response": {
+                    "additionalProperties": false,
+                    "description": "Cached query response",
+                    "properties": {
+                        "next": {
+                            "type": "string"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/EventType"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
                 }
             },
             "required": ["kind"],
@@ -1297,12 +1389,9 @@
                 "events": {
                     "$ref": "#/definitions/EventsNode"
                 },
-                "nodeCategory": {
-                    "const": "InterfaceNode",
-                    "type": "string"
-                },
                 "kind": {
-                    "$ref": "#/definitions/NodeKind"
+                    "const": "EventsTableNode",
+                    "type": "string"
                 }
             },
             "required": ["events", "kind"],
@@ -1566,10 +1655,6 @@
                         }
                     ]
                 },
-                "nodeCategory": {
-                    "const": "DataNode",
-                    "type": "string"
-                },
                 "kind": {
                     "const": "FunnelsQuery",
                     "type": "string"
@@ -1581,7 +1666,7 @@
                                 "$ref": "#/definitions/EventsNode"
                             },
                             {
-                                "$ref": "#/definitions/ActionsDataNode"
+                                "$ref": "#/definitions/ActionNode"
                             }
                         ]
                     },
@@ -1607,10 +1692,6 @@
             "properties": {
                 "filters": {
                     "$ref": "#/definitions/AnyPartialFilterType"
-                },
-                "nodeCategory": {
-                    "const": "DataNode",
-                    "type": "string"
                 },
                 "kind": {
                     "const": "LegacyQuery",
@@ -1737,36 +1818,16 @@
                         }
                     ]
                 },
-                "lifecycleFilter": {
-                    "$ref": "#/definitions/LifecycleFilterType"
-                },
-                "nodeCategory": {
-                    "const": "DataNode",
-                    "type": "string"
-                },
                 "kind": {
                     "const": "LifecycleQuery",
                     "type": "string"
+                },
+                "lifecycleFilter": {
+                    "$ref": "#/definitions/LifecycleFilterType"
                 }
             },
             "required": ["kind"],
             "type": "object"
-        },
-        "NodeKind": {
-            "enum": [
-                "EventsNode",
-                "EventsTableNode",
-                "ActionsNode",
-                "LegacyQuery",
-                "SavedInsight",
-                "FunnelsQuery",
-                "TrendsQuery",
-                "PathsQuery",
-                "RetentionQuery",
-                "LifecycleQuery",
-                "StickinessQuery"
-            ],
-            "type": "string"
         },
         "PathType": {
             "enum": ["$pageview", "$screen", "custom_event"],
@@ -1949,10 +2010,6 @@
                         }
                     ]
                 },
-                "nodeCategory": {
-                    "const": "DataNode",
-                    "type": "string"
-                },
                 "kind": {
                     "const": "PathsQuery",
                     "type": "string"
@@ -1962,6 +2019,58 @@
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "PersonsModalQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "entity_id": {
+                    "type": ["string", "number"]
+                },
+                "entity_math": {
+                    "type": "string"
+                },
+                "entity_type": {
+                    "$ref": "#/definitions/EntityType"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "fromDashboard": {
+                    "type": "number"
+                },
+                "globalPropertyFilters": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ]
+                },
+                "kind": {
+                    "const": "PersonsModalQuery",
+                    "type": "string"
+                },
+                "query": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/TrendsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelsQuery"
+                        }
+                    ]
+                }
+            },
+            "required": ["entity_id", "entity_math", "entity_type", "kind", "query"],
             "type": "object"
         },
         "PropertyFilterValue": {
@@ -2180,10 +2289,6 @@
                         }
                     ]
                 },
-                "nodeCategory": {
-                    "const": "DataNode",
-                    "type": "string"
-                },
                 "kind": {
                     "const": "RetentionQuery",
                     "type": "string"
@@ -2202,12 +2307,8 @@
         "SavedInsightNode": {
             "additionalProperties": false,
             "properties": {
-                "nodeCategory": {
-                    "const": "DataNode",
-                    "type": "string"
-                },
                 "kind": {
-                    "const": "SavedInsight",
+                    "const": "SavedInsightNode",
                     "type": "string"
                 },
                 "shortId": {
@@ -2370,10 +2471,6 @@
                 "interval": {
                     "$ref": "#/definitions/IntervalType"
                 },
-                "nodeCategory": {
-                    "const": "DataNode",
-                    "type": "string"
-                },
                 "kind": {
                     "const": "StickinessQuery",
                     "type": "string"
@@ -2385,7 +2482,7 @@
                                 "$ref": "#/definitions/EventsNode"
                             },
                             {
-                                "$ref": "#/definitions/ActionsDataNode"
+                                "$ref": "#/definitions/ActionNode"
                             }
                         ]
                     },
@@ -2559,10 +2656,6 @@
                 "interval": {
                     "$ref": "#/definitions/IntervalType"
                 },
-                "nodeCategory": {
-                    "const": "DataNode",
-                    "type": "string"
-                },
                 "kind": {
                     "const": "TrendsQuery",
                     "type": "string"
@@ -2574,7 +2667,7 @@
                                 "$ref": "#/definitions/EventsNode"
                             },
                             {
-                                "$ref": "#/definitions/ActionsDataNode"
+                                "$ref": "#/definitions/ActionNode"
                             }
                         ]
                     },

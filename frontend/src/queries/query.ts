@@ -1,4 +1,4 @@
-import { Node } from './nodes'
+import { DataNode } from './nodes'
 import { isEventsNode, isLegacyQuery } from './utils'
 import api from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
@@ -13,11 +13,11 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { toParams } from 'lib/utils'
 
-export async function query(
-    query: Node,
+export async function query<N extends DataNode>(
+    query: N,
     teamId: number = getCurrentTeamId(),
     abortSignal?: AbortSignal
-): Promise<Record<string, any>> {
+): Promise<N['response']> {
     if (isLegacyQuery(query)) {
         const { filters } = query
         if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {

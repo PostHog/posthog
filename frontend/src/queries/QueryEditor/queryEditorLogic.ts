@@ -58,7 +58,7 @@ export const queryEditorLogic = kea<queryEditorLogicType>([
             } else {
                 const withoutFormatting = JSON.stringify(JSON.parse(values.queryInput))
                 actions.setQueryInput(prettyJSON(withoutFormatting))
-                props.setQuery(withoutFormatting)
+                props.setQuery?.(withoutFormatting)
             }
         },
     })),

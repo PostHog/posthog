@@ -773,15 +773,17 @@ export interface EventsTableAction {
 }
 
 export interface EventType {
-    elements: ElementType[]
-    elements_hash: string | null // Deprecated for elements_chain
-    elements_chain?: string | null
-    id: number | string
+    // fields from the API
+    id: string
+    distinct_id: string
     properties: Record<string, any>
-    timestamp: string
-    colonTimestamp?: string // Used in session recording events list
-    person?: Pick<PersonType, 'is_identified' | 'distinct_ids' | 'properties'>
     event: string
+    timestamp: string
+    person?: Pick<PersonType, 'is_identified' | 'distinct_ids' | 'properties'>
+    elements: ElementType[]
+    elements_chain?: string | null
+    /** Used in session recording events list */
+    colonTimestamp?: string
 }
 
 export interface RecordingTimeMixinType {
