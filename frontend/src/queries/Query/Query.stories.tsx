@@ -1,56 +1,39 @@
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { Query, QueryProps } from './Query'
-import { EventsNode, LegacyQuery, Node, NodeKind, SavedInsightNode } from '~/queries/nodes'
-import { InsightShortId, InsightType, PropertyOperator } from '~/types'
-import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { useState } from 'react'
+import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
+import { examples } from '../examples'
 
 export default {
     title: 'Queries/Query',
     component: Query,
-    parameters: { chromatic: { disableSnapshot: false } },
+    parameters: {
+        chromatic: { disableSnapshot: false },
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+    },
     argTypes: {
         query: { defaultValue: {} },
     },
 } as ComponentMeta<typeof Query>
 
 const BasicTemplate: ComponentStory<typeof Query> = (props: QueryProps) => {
-    const [queryString, setQueryString] = useState(JSON.stringify(props.query, null, 2))
-    let JSONQuery: Node | null = null
-    let error = ''
-    try {
-        JSONQuery = JSON.parse(queryString)
-    } catch (e: any) {
-        error = e.message
-    }
+    const [queryString, setQueryString] = useState(JSON.stringify(props.query))
 
     return (
         <div className="p-2 space-y-2 flex flex-col border">
-            <strong>Query:</strong>
-            <LemonTextArea value={queryString} onChange={(v) => setQueryString(v)} />
-            <strong>Response:</strong>
-            {JSONQuery ? <Query query={JSONQuery} /> : <div className="text-danger">Error parsing JSON: {error}</div>}
+            <QueryEditor query={queryString} setQuery={setQueryString} />
+            <Query key={queryString} query={queryString} />
         </div>
     )
 }
 
-const legacyInsight: LegacyQuery = {
-    kind: NodeKind.LegacyQuery,
-    filters: { insight: InsightType.TRENDS },
-}
-export const LegacyInsight = BasicTemplate.bind({})
-LegacyInsight.args = { query: legacyInsight }
+export const Events = BasicTemplate.bind({})
+Events.args = { query: examples['Events'] }
 
-const savedInsight: SavedInsightNode = {
-    kind: NodeKind.SavedInsightNode,
-    shortId: 'insight1234' as InsightShortId,
-}
-export const SavedInsight = BasicTemplate.bind({})
-SavedInsight.args = { query: savedInsight }
-
-const eventsTable: EventsNode = {
-    kind: NodeKind.EventsNode,
-    properties: [{ key: '$browser', value: 'Chrome', operator: PropertyOperator.Exact }],
-}
 export const EventsTable = BasicTemplate.bind({})
-EventsTable.args = { query: eventsTable }
+EventsTable.args = { query: examples['EventsTable'] }
+
+export const LegacyTrendsQuery = BasicTemplate.bind({})
+LegacyTrendsQuery.args = { query: examples['LegacyTrendsQuery'] }
