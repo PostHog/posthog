@@ -535,10 +535,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                         completed step
                                     </div>
                                 </div>
-                                <div
-                                    className="step-stat"
-                                    style={stepIndex === 0 ? { visibility: 'hidden' } : undefined}
-                                >
+                                <div className={clsx('step-stat', stepIndex === 0 && 'invisible')}>
                                     <div className="center-flex">
                                         <ValueInspectorButton
                                             onClick={() => openPersonsModalForStep({ step, converted: false })}
