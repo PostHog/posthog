@@ -3,8 +3,13 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { PipelineEvent } from '../../../types'
 import { EventPipelineRunner, StepResult } from './runner'
 
-// TRICKY: team_id is optional on PipelineEvent but not for PluginEvent
-// Only do the type asserton to PluginEvent having verified team_id exists
+/* 
+This step populates event.team_id and deletes event.ip if needed.
+If the event already has a team_id we will not run this step and 
+the capture endpoint will have handled this process. This is 
+temporary as this step will become the default for all events
+when we fully remove this functionality from the capture endpoint.
+*/
 export async function populateTeamDataStep(runner: EventPipelineRunner, event: PipelineEvent): Promise<StepResult> {
     if (!event.token) {
         runner.hub.statsd?.increment('dropped_event_with_no_team', { token_set: 'false' })
@@ -12,6 +17,8 @@ export async function populateTeamDataStep(runner: EventPipelineRunner, event: P
     }
 
     const team = await runner.hub.teamManager.getTeamByToken(event.token)
+
+    // should we actually throw here?
     if (!team) {
         runner.hub.statsd?.increment('dropped_event_with_no_team', { token_set: 'true' })
         return null
@@ -23,5 +30,6 @@ export async function populateTeamDataStep(runner: EventPipelineRunner, event: P
         ip: team.anonymize_ips ? null : event.ip,
     }
 
+    delete event['token']
     return runner.nextStep('emitToBufferStep', event as PluginEvent)
 }

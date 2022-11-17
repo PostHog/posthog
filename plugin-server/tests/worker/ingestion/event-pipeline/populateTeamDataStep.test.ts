@@ -1,7 +1,6 @@
 import { PipelineEvent, Team } from '../../../../src/types'
 import { UUIDT } from '../../../../src/utils/utils'
 import { populateTeamDataStep } from '../../../../src/worker/ingestion/event-pipeline/1-populateTeamDataStep'
-import { TeamManager } from '../../../../src/worker/ingestion/team-manager'
 
 const pipelineEvent: PipelineEvent = {
     event: '$pageview',
@@ -15,6 +14,8 @@ const pipelineEvent: PipelineEvent = {
     uuid: new UUIDT().toString(),
     token: 'token',
 }
+
+const { token, ...defaultResultEvent } = pipelineEvent
 
 const team: Team = {
     id: 2,
@@ -31,53 +32,33 @@ const team: Team = {
 let runner: any
 
 beforeEach(() => {
-    const db = { fetchTeamByToken: jest.fn().mockResolvedValue(team) }
-
     runner = {
         nextStep: (...args: any[]) => args,
         hub: {
-            db,
-            eventsProcessor: {},
-            graphileWorker: {
-                enqueue: jest.fn(),
+            teamManager: {
+                getTeamByToken: jest.fn(() => team),
             },
-            kafkaProducer: {
-                queueMessage: jest.fn(),
-            },
-            teamManager: new TeamManager(db as any, {} as any),
         },
     }
 })
 
 describe('populateTeamDataStep()', () => {
-    it('event already has team_id', async () => {
-        const response = await populateTeamDataStep(runner, pipelineEvent)
-
-        expect(response).toEqual(['emitToBufferStep', pipelineEvent])
-    })
-    it('event has no team_id and no token', async () => {
+    it('event with no token is not processed and the step returns null', async () => {
         const response = await populateTeamDataStep(runner, { ...pipelineEvent, team_id: undefined, token: undefined })
 
         expect(response).toEqual(null)
     })
 
-    it('event already has team_id', async () => {
-        const response = await populateTeamDataStep(runner, pipelineEvent)
-
-        expect(response).toEqual(['emitToBufferStep', pipelineEvent])
-    })
-
-    it('event has no team_id but has a token', async () => {
+    it('event with a valid token gets assigned a team_id keeps its ip', async () => {
         const response = await populateTeamDataStep(runner, { ...pipelineEvent, team_id: undefined })
 
-        expect(response).toEqual(['emitToBufferStep', { ...pipelineEvent, team_id: 2, ip: '127.0.0.1' }])
+        expect(response).toEqual(['emitToBufferStep', { ...defaultResultEvent, team_id: 2, ip: '127.0.0.1' }])
     })
 
-    it('team has anonymize_ips set', async () => {
-        runner.hub.db.fetchTeamByToken = jest.fn().mockResolvedValue({ ...team, anonymize_ips: true })
-
+    it('event with a valid token for a team with anonymize_ips=true gets its ip set to null', async () => {
+        jest.mocked(runner.hub.teamManager.getTeamByToken).mockReturnValue({ ...team, anonymize_ips: true })
         const response = await populateTeamDataStep(runner, { ...pipelineEvent, team_id: undefined })
 
-        expect(response).toEqual(['emitToBufferStep', { ...pipelineEvent, team_id: 2, ip: null }])
+        expect(response).toEqual(['emitToBufferStep', { ...defaultResultEvent, team_id: 2, ip: null }])
     })
 })

@@ -1188,7 +1188,6 @@ describe('DB', () => {
 
     describe('fetchTeam()', () => {
         it('fetches a team by id', async () => {
-            await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
             const organizationId = await createOrganization(db.postgres)
             const teamId = await createTeam(db.postgres, organizationId, 'token1')
 
@@ -1205,11 +1204,15 @@ describe('DB', () => {
                 uuid: expect.any(String),
             })
         })
+
+        it('returns null if the team does not exist', async () => {
+            const fetchedTeam = await hub.db.fetchTeam(99999)
+            expect(fetchedTeam).toEqual(null)
+        })
     })
 
     describe('fetchTeamByToken()', () => {
         it('fetches a team by token', async () => {
-            await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
             const organizationId = await createOrganization(db.postgres)
             const teamId = await createTeam(db.postgres, organizationId, 'token1')
 
@@ -1225,6 +1228,11 @@ describe('DB', () => {
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
             })
+        })
+
+        it('returns null if the team does not exist', async () => {
+            const fetchedTeam = await hub.db.fetchTeamByToken('token1')
+            expect(fetchedTeam).toEqual(null)
         })
     })
 })

@@ -1431,7 +1431,7 @@ export class DB {
 
     // Team
 
-    public async fetchTeam(teamId: Team['id']): Promise<Team> {
+    public async fetchTeam(teamId: Team['id']): Promise<Team | null> {
         const selectResult = await this.postgresQuery<Team>(
             `
             SELECT
@@ -1450,10 +1450,10 @@ export class DB {
             [teamId],
             'fetchTeam'
         )
-        return selectResult.rows[0]
+        return selectResult.rows[0] ?? null
     }
 
-    public async fetchTeamByToken(token: string): Promise<Team> {
+    public async fetchTeamByToken(token: string): Promise<Team | null> {
         const selectResult = await this.postgresQuery<Team>(
             `
             SELECT
@@ -1473,7 +1473,7 @@ export class DB {
             [token],
             'fetchTeamByToken'
         )
-        return selectResult.rows[0]
+        return selectResult.rows[0] ?? null
     }
 
     /** Return the ID of the team that is used exclusively internally by the instance for storing metrics data. */
