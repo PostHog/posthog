@@ -596,13 +596,11 @@ def snapshot_clickhouse_queries(fn):
     @wraps(fn)
     def wrapped(self, *args, **kwargs):
         with self.capture_select_queries() as queries:
-            result = fn(self, *args, **kwargs)
+            fn(self, *args, **kwargs)
 
         for query in queries:
             if "FROM system.columns" not in query:
                 self.assertQueryMatchesSnapshot(query)
-
-        return result
 
     return wrapped
 

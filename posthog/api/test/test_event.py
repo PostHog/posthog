@@ -152,6 +152,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/events/?person_id={person.uuid}").json()
         self.assertEqual(len(response["results"]), 2)
 
+    @snapshot_clickhouse_queries
     @mock.patch("posthog.models.team.Team.actor_on_events_querying_enabled", return_value=True)
     @freeze_time("2020-01-20 20:00:00")
     def test_filter_by_person_for_person_on_events_enabled(self, mock_actor_on_events_querying_enabled):
@@ -214,11 +215,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        call_endpoint = lambda self: self.client.get(
-            f"/api/projects/{self.team.pk}/events/?person_id={initial_person.uuid}"
-        ).json()
-        response = snapshot_clickhouse_queries(call_endpoint)(self)
-
+        response = self.client.get(f"/api/projects/{self.team.pk}/events/?person_id={initial_person.uuid}").json()
         self.assertEqual(len(response["results"]), 3)
 
         response = self.client.get(
