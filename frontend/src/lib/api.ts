@@ -31,6 +31,7 @@ import {
     SessionRecordingPlaylistType,
     RoleType,
     RoleMemberType,
+    OrganizationResourcePermissionType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -136,6 +137,14 @@ class ApiRequest {
 
     public organizationsDetail(id: OrganizationType['id'] = getCurrentOrganizationId()): ApiRequest {
         return this.organizations().addPathComponent(id)
+    }
+
+    public organizationResourceAccess(): ApiRequest {
+        return this.organizations().current().addPathComponent('resource_access')
+    }
+
+    public organizationResourceAccessDetail(id: OrganizationResourcePermissionType['id']): ApiRequest {
+        return this.organizationResourceAccess().addPathComponent(id)
     }
 
     // # Projects
@@ -950,6 +959,23 @@ const api = {
         },
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()
+        },
+    },
+
+    resourcePermissions: {
+        async list(): Promise<PaginatedResponse<OrganizationResourcePermissionType>> {
+            return await new ApiRequest().organizationResourceAccess().get()
+        },
+        async create(data: Partial<OrganizationResourcePermissionType>): Promise<OrganizationResourcePermissionType> {
+            return await new ApiRequest().organizationResourceAccess().create(data)
+        },
+        async update(
+            resourceId: OrganizationResourcePermissionType['id'],
+            data: Partial<OrganizationResourcePermissionType>
+        ): Promise<OrganizationResourcePermissionType> {
+            return await new ApiRequest().organizationResourceAccessDetail(resourceId).update({
+                data,
+            })
         },
     },
 

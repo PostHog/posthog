@@ -2330,3 +2330,12 @@ export interface RoleMemberType {
     updated_at: string
     user_uuid: string
 }
+
+export interface OrganizationResourcePermissionType {
+    id: string
+    resource: Resource
+    access_level: AccessLevel
+    created_at: string
+    updated_at: string
+    created_by: UserBaseType | null
+}
