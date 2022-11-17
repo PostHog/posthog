@@ -11,6 +11,7 @@ from posthog.async_migrations.definition import (
 )
 from posthog.async_migrations.disk_util import analyze_enough_disk_space_free_for_table
 from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table, sleep_until_finished
+from posthog.clickhouse.dictionaries import dictionary_source_clickhouse
 from posthog.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.utils import str_to_bool
@@ -238,14 +239,6 @@ class Migration(AsyncMigrationDefinition):
             AsyncMigrationOperation(fn=self._clear_temporary_tables),
         ]
 
-    def _dictionary_connection_string(self):
-        result = f"DB '{settings.CLICKHOUSE_DATABASE}'"
-        if settings.CLICKHOUSE_USER:
-            result += f" USER '{settings.CLICKHOUSE_USER}'"
-        if settings.CLICKHOUSE_PASSWORD:
-            result += f" PASSWORD '{settings.CLICKHOUSE_PASSWORD}'"
-        return result
-
     def _update_properties_column_compression_codec(self, query_id, codec):
         columns = [
             "person_properties",
@@ -445,7 +438,7 @@ class Migration(AsyncMigrationDefinition):
                     created_at DateTime
                 )
                 PRIMARY KEY team_id, id
-                SOURCE(CLICKHOUSE(TABLE {TEMPORARY_PERSONS_TABLE_NAME} {self._dictionary_connection_string()}))
+                {dictionary_source_clickhouse(table=TEMPORARY_PERSONS_TABLE_NAME)}
                 LAYOUT(complex_key_cache(size_in_cells %(cache_size)s max_threads_for_updates 6 allow_read_expired_keys 1))
                 Lifetime(60000)
             """,
@@ -462,7 +455,7 @@ class Migration(AsyncMigrationDefinition):
                     person_id UUID
                 )
                 PRIMARY KEY team_id, distinct_id
-                SOURCE(CLICKHOUSE(TABLE {TEMPORARY_PDI2_TABLE_NAME} {self._dictionary_connection_string()}))
+                {dictionary_source_clickhouse(table=TEMPORARY_PDI2_TABLE_NAME)}
                 LAYOUT(complex_key_cache(size_in_cells %(cache_size)s max_threads_for_updates 6 allow_read_expired_keys 1))
                 Lifetime(60000)
             """,
@@ -481,7 +474,7 @@ class Migration(AsyncMigrationDefinition):
                     created_at DateTime
                 )
                 PRIMARY KEY team_id, group_type_index, group_key
-                SOURCE(CLICKHOUSE(TABLE {TEMPORARY_GROUPS_TABLE_NAME} {self._dictionary_connection_string()}))
+                {dictionary_source_clickhouse(table=TEMPORARY_GROUPS_TABLE_NAME)}
                 LAYOUT(complex_key_cache(size_in_cells %(cache_size)s max_threads_for_updates 6 allow_read_expired_keys 1))
                 Lifetime(60000)
             """,
