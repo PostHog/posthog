@@ -109,7 +109,7 @@
   where team_id = 2
     AND timestamp > '2020-01-19 20:00:00.000000'
     AND timestamp < '2020-01-20 20:00:05.000000'
-    AND person_id = '00000000-0000-4000-8000-000000000001'
+    AND person_id = '00000000-0000-4000-8000-000000000000'
   ORDER BY timestamp DESC
   LIMIT 101
   '
@@ -128,7 +128,7 @@
   FROM events
   where team_id = 2
     AND timestamp < '2020-01-20 20:00:05.000000'
-    AND person_id = '00000000-0000-4000-8000-000000000001'
+    AND person_id = '00000000-0000-4000-8000-000000000000'
   ORDER BY timestamp DESC
   LIMIT 101
   '
@@ -148,7 +148,7 @@
   where team_id = 2
     AND timestamp > '2020-01-19 20:00:00.000000'
     AND timestamp < '2020-01-20 20:00:05.000000'
-    AND person_id = '00000000-0000-4000-8000-000000000002'
+    AND person_id = '00000000-0000-4000-8000-000000000001'
   ORDER BY timestamp DESC
   LIMIT 101
   '
@@ -167,7 +167,7 @@
   FROM events
   where team_id = 2
     AND timestamp < '2020-01-20 20:00:05.000000'
-    AND person_id = '00000000-0000-4000-8000-000000000002'
+    AND person_id = '00000000-0000-4000-8000-000000000001'
   ORDER BY timestamp DESC
   LIMIT 101
   '
