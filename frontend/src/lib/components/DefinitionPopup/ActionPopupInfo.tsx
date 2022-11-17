@@ -65,7 +65,7 @@ export function ActionPopupInfo({ entity }: { entity: ActionType }): JSX.Element
                                             <li key={propIndex}>
                                                 <span>
                                                     <pre>{eventToHumanName(property.key)}</pre>
-                                                    {genericOperatorToHumanName(property)}
+                                                    {genericOperatorToHumanName(property.operator)}
                                                     <pre>{propertyValueToHumanName(property.value)}</pre>
                                                 </span>
                                             </li>

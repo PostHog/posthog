@@ -3,7 +3,6 @@ import api, { PaginatedResponse } from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
     PropertyFilter,
-    PropertyFilterType,
     PropertyOperator,
     RecordingFilters,
     SessionRecordingId,
@@ -31,7 +30,7 @@ export const PLAYLIST_LIMIT = 20
 
 export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
     session_recording_duration: {
-        type: PropertyFilterType.Recording,
+        type: 'recording',
         key: 'duration',
         value: 60,
         operator: PropertyOperator.GreaterThan,

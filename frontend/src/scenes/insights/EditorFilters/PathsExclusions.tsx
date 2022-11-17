@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { EditorFilterProps, PathType, PropertyFilterType } from '~/types'
+import { EditorFilterProps, PathType } from '~/types'
 
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
@@ -33,8 +33,8 @@ export function PathsExclusions({ insightProps }: EditorFilterProps): JSX.Elemen
                 filter.exclude_events.map((name) => ({
                     key: name,
                     value: name,
-                    operator: undefined,
-                    type: PropertyFilterType.Event,
+                    operator: null,
+                    type: 'event',
                 }))
             }
             onChange={(values) => {

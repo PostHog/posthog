@@ -350,6 +350,18 @@ export interface ToolbarProps extends EditorProps {
 
 export type PropertyFilterValue = string | number | (string | number)[] | null
 
+export interface PropertyFilter {
+    key: string
+    operator: PropertyOperator | null
+    type: string
+    value: PropertyFilterValue
+    group_type_index?: number | null
+}
+
+export type EmptyPropertyFilter = Partial<PropertyFilter>
+
+export type AnyPropertyFilter = PropertyFilter | EmptyPropertyFilter
+
 /** Sync with plugin-server/src/types.ts */
 export enum PropertyOperator {
     Exact = 'exact',
@@ -397,75 +409,44 @@ export enum ExperimentStatus {
     Complete = 'complete',
 }
 
-export enum PropertyFilterType {
-    Event = 'event',
-    Person = 'person',
-    Element = 'element',
-    Feature = 'feature',
-    Session = 'session',
-    Cohort = 'cohort',
-    Recording = 'recording',
-    Group = 'group',
-}
-
 /** Sync with plugin-server/src/types.ts */
 interface BasePropertyFilter {
     key: string
     value: PropertyFilterValue
     label?: string
-    type?: PropertyFilterType
-    group_type_index?: number | null
 }
 
 /** Sync with plugin-server/src/types.ts */
 export interface EventPropertyFilter extends BasePropertyFilter {
-    type: PropertyFilterType.Event
+    type: 'event'
     operator: PropertyOperator
 }
 
 /** Sync with plugin-server/src/types.ts */
 export interface PersonPropertyFilter extends BasePropertyFilter {
-    type: PropertyFilterType.Person
+    type: 'person'
     operator: PropertyOperator
 }
 
 /** Sync with plugin-server/src/types.ts */
 export interface ElementPropertyFilter extends BasePropertyFilter {
-    type: PropertyFilterType.Element
+    type: 'element'
     key: 'tag_name' | 'text' | 'href' | 'selector'
     operator: PropertyOperator
 }
 
 export interface SessionPropertyFilter extends BasePropertyFilter {
-    type: PropertyFilterType.Session
+    type: 'session'
     key: '$session_duration'
     operator: PropertyOperator
 }
 
 /** Sync with plugin-server/src/types.ts */
 export interface CohortPropertyFilter extends BasePropertyFilter {
-    type: PropertyFilterType.Cohort
+    type: 'cohort'
     key: 'id'
     value: number
 }
-
-export type PropertyFilter =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingDurationFilter
-
-export type AnyPropertyFilter =
-    | Partial<EventPropertyFilter>
-    | Partial<PersonPropertyFilter>
-    | Partial<ElementPropertyFilter>
-    | Partial<SessionPropertyFilter>
-    | Partial<CohortPropertyFilter>
-    | Partial<RecordingDurationFilter>
-
-export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
 export type SessionRecordingId = SessionRecordingType['id']
 
@@ -554,7 +535,7 @@ export type ActionStepProperties =
     | CohortPropertyFilter
 
 export interface RecordingDurationFilter extends BasePropertyFilter {
-    type: PropertyFilterType.Recording
+    type: 'recording'
     key: 'duration'
     value: number
     operator: PropertyOperator
@@ -1934,7 +1915,7 @@ export interface PropertyGroupFilter {
 
 export interface PropertyGroupFilterValue {
     type: FilterLogicalOperator
-    values: (AnyPropertyFilter | PropertyGroupFilterValue)[]
+    values: AnyPropertyFilter[]
 }
 
 export interface CohortCriteriaGroupFilter {

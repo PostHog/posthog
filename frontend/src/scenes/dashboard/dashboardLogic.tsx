@@ -57,8 +57,6 @@ export interface RefreshStatus {
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
-export type LoadDashboardItemsProps = { refresh?: boolean }
-
 export const dashboardLogic = kea<dashboardLogicType>({
     path: ['scenes', 'dashboard', 'dashboardLogic'],
     connect: () => ({
@@ -77,8 +75,12 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
     actions: {
         loadExportedDashboard: (dashboard: DashboardType | null) => ({ dashboard }),
-        loadDashboardItems: (props?: LoadDashboardItemsProps) => ({
-            refresh: !!props?.refresh,
+        loadDashboardItems: ({
+            refresh,
+        }: {
+            refresh?: boolean
+        } = {}) => ({
+            refresh,
         }),
         triggerDashboardUpdate: (payload) => ({ payload }),
         /** The current state in which the dashboard is being viewed, see DashboardMode. */

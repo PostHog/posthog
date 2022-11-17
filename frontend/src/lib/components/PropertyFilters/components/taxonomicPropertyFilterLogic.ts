@@ -1,11 +1,10 @@
 import { kea } from 'kea'
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
-import { AnyPropertyFilter, CohortPropertyFilter, PropertyOperator, PropertyType } from '~/types'
+import { AnyPropertyFilter, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
 import { cohortsModel } from '~/models/cohortsModel'
 import { TaxonomicFilterGroup, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import {
-    isPropertyFilterWithOperator,
     propertyFilterTypeToTaxonomicFilterType,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
@@ -80,12 +79,13 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
             const propertyType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
                 if (propertyType === 'cohort') {
-                    const cohortProperty: CohortPropertyFilter = {
-                        key: 'id',
-                        value: parseInt(String(propertyKey)),
-                        type: propertyType,
-                    }
-                    props.propertyFilterLogic.actions.setFilter(props.filterIndex, cohortProperty)
+                    props.propertyFilterLogic.actions.setFilter(
+                        props.filterIndex,
+                        'id',
+                        propertyKey as PropertyFilterValue,
+                        null,
+                        propertyType
+                    )
                 } else {
                     const propertyValueType = values.describeProperty(propertyKey)
                     const property_name_to_default_operator_override = {
@@ -98,18 +98,18 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     }
                     const operator =
                         property_name_to_default_operator_override[propertyKey] ||
-                        (isPropertyFilterWithOperator(values.filter) ? values.filter.operator : null) ||
+                        values.filter?.operator ||
                         property_value_type_to_default_operator_override[propertyValueType ?? ''] ||
                         PropertyOperator.Exact
 
-                    const property: AnyPropertyFilter = {
-                        key: propertyKey.toString(),
-                        value: null,
+                    props.propertyFilterLogic.actions.setFilter(
+                        props.filterIndex,
+                        propertyKey.toString(),
+                        null, // Reset value field
                         operator,
-                        type: propertyType as AnyPropertyFilter['type'] as any, // bad | pipe chain :(
-                        group_type_index: taxonomicGroup.groupTypeIndex,
-                    }
-                    props.propertyFilterLogic.actions.setFilter(props.filterIndex, property)
+                        propertyType,
+                        taxonomicGroup.groupTypeIndex
+                    )
                 }
                 actions.closeDropdown()
             }

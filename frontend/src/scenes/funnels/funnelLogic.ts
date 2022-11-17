@@ -9,8 +9,6 @@ import {
     AvailableFeature,
     BinCountValue,
     BreakdownKeyType,
-    CorrelationConfigType,
-    ElementPropertyFilter,
     EntityTypes,
     FilterType,
     FlattenedFunnelStep,
@@ -20,7 +18,6 @@ import {
     FunnelCorrelation,
     FunnelCorrelationResultsType,
     FunnelCorrelationType,
-    FunnelsFilterType,
     FunnelStep,
     FunnelStepRangeEntityFilter,
     FunnelStepReference,
@@ -29,23 +26,21 @@ import {
     FunnelsTimeConversionBins,
     FunnelTimeConversionMetrics,
     FunnelVizType,
-    HistogramGraphDatum,
     InsightLogicProps,
     InsightType,
+    HistogramGraphDatum,
     PropertyFilter,
-    PropertyFilterType,
     PropertyOperator,
     StepOrderValue,
     TrendResult,
+    FunnelsFilterType,
+    CorrelationConfigType,
 } from '~/types'
 import { BIN_COUNT_AUTO, FunnelLayout } from 'lib/constants'
 
 import {
     aggregateBreakdownResult,
-    generateBaselineConversionUrl,
-    getBreakdownStepValues,
     getClampedStepRangeFilter,
-    getIncompleteConversionWindowStartDate,
     getLastFilledStep,
     getMeanAndStandardDeviation,
     getReferenceStep,
@@ -53,17 +48,21 @@ import {
     isBreakdownFunnelResults,
     isStepsEmpty,
     isValidBreakdownParameter,
+    getBreakdownStepValues,
+    getIncompleteConversionWindowStartDate,
+    generateBaselineConversionUrl,
 } from './funnelUtils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import { isFunnelsFilter, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { teamLogic } from '../teamLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { userLogic } from 'scenes/userLogic'
 import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
-import { groupsModel, Noun } from '~/models/groupsModel'
+import { Noun, groupsModel } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { LemonSelectOptions } from 'lib/components/LemonSelect'
@@ -1524,23 +1523,16 @@ const parseEventAndProperty = (
             properties: Object.entries(elementData)
                 .filter(([, propertyValue]) => !!propertyValue)
                 .map(([propertyKey, propertyValue]) => ({
-                    key: propertyKey as ElementPropertyFilter['key'],
+                    key: propertyKey,
                     operator: PropertyOperator.Exact,
-                    type: PropertyFilterType.Element,
+                    type: 'element',
                     value: [propertyValue as string],
                 })),
         }
     } else {
         return {
             name: components[0],
-            properties: [
-                {
-                    key: components[1],
-                    operator: PropertyOperator.Exact,
-                    value: components[2],
-                    type: PropertyFilterType.Event,
-                },
-            ],
+            properties: [{ key: components[1], operator: PropertyOperator.Exact, value: components[2], type: 'event' }],
         }
     }
 }

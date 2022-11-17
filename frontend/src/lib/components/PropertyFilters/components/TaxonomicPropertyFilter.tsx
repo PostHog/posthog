@@ -12,14 +12,11 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
-import {
-    isPropertyFilterWithOperator,
-    propertyFilterTypeToTaxonomicFilterType,
-} from 'lib/components/PropertyFilters/utils'
+import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import clsx from 'clsx'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
+import { FilterLogicalOperator } from '~/types'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonButtonWithPopup } from '@posthog/lemon-ui'
 
@@ -169,19 +166,20 @@ export function TaxonomicPropertyFilter({
                                 propertyDefinitions={propertyDefinitions}
                                 type={filter?.type}
                                 propkey={filter?.key}
-                                operator={isPropertyFilterWithOperator(filter) ? filter.operator : null}
+                                operator={filter?.operator}
                                 value={filter?.value}
                                 placeholder="Enter value..."
                                 endpoint={filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)}
                                 onChange={(newOperator, newValue) => {
                                     if (filter?.key && filter?.type) {
-                                        setFilter(index, {
-                                            key: filter?.key,
-                                            value: newValue || null,
-                                            operator: newOperator,
-                                            type: filter?.type,
-                                            group_type_index: filter?.group_type_index,
-                                        } as AnyPropertyFilter)
+                                        setFilter(
+                                            index,
+                                            filter?.key,
+                                            newValue || null,
+                                            newOperator,
+                                            filter?.type,
+                                            filter?.group_type_index
+                                        )
                                     }
                                     if (
                                         newOperator &&

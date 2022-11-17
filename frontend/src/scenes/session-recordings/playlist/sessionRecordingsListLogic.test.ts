@@ -2,7 +2,7 @@ import { sessionRecordingsListLogic, PLAYLIST_LIMIT, DEFAULT_RECORDING_FILTERS }
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { PropertyOperator } from '~/types'
 import { useMocks } from '~/mocks/jest'
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 
@@ -201,7 +201,7 @@ describe('sessionRecordingsListLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.setFilters({
                         session_recording_duration: {
-                            type: PropertyFilterType.Recording,
+                            type: 'recording',
                             key: 'duration',
                             value: 600,
                             operator: PropertyOperator.LessThan,
@@ -211,7 +211,7 @@ describe('sessionRecordingsListLogic', () => {
                     .toMatchValues({
                         filters: expect.objectContaining({
                             session_recording_duration: {
-                                type: PropertyFilterType.Recording,
+                                type: 'recording',
                                 key: 'duration',
                                 value: 600,
                                 operator: PropertyOperator.LessThan,
@@ -222,7 +222,7 @@ describe('sessionRecordingsListLogic', () => {
                     .toMatchValues({ sessionRecordings: ['Recordings filtered by duration'] })
 
                 expect(router.values.searchParams.filters).toHaveProperty('session_recording_duration', {
-                    type: PropertyFilterType.Recording,
+                    type: 'recording',
                     key: 'duration',
                     value: 600,
                     operator: PropertyOperator.LessThan,
@@ -294,7 +294,7 @@ describe('sessionRecordingsListLogic', () => {
                     date_to: '2021-10-10',
                     offset: 50,
                     session_recording_duration: {
-                        type: PropertyFilterType.Recording,
+                        type: 'recording',
                         key: 'duration',
                         value: 600,
                         operator: PropertyOperator.LessThan,
@@ -312,7 +312,7 @@ describe('sessionRecordingsListLogic', () => {
                         date_to: '2021-10-10',
                         offset: 50,
                         session_recording_duration: {
-                            type: PropertyFilterType.Recording,
+                            type: 'recording',
                             key: 'duration',
                             value: 600,
                             operator: PropertyOperator.LessThan,

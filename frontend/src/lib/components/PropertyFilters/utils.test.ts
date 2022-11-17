@@ -1,13 +1,14 @@
-import { AnyPropertyFilter, CohortPropertyFilter, PropertyFilterType } from '../../../types'
+import { EmptyPropertyFilter, PropertyFilter, PropertyOperator } from '../../../types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 
 describe('isValidPropertyFilter()', () => {
     it('returns values correctly', () => {
-        const emptyProperty: AnyPropertyFilter = {}
-        const realProperty: CohortPropertyFilter = {
-            key: 'id',
-            value: 33,
-            type: PropertyFilterType.Cohort,
+        const emptyProperty: EmptyPropertyFilter = {}
+        const realProperty: PropertyFilter = {
+            key: 'angular',
+            value: 'bla',
+            type: 'cohort',
+            operator: PropertyOperator.LessThan,
         }
         expect(isValidPropertyFilter(emptyProperty)).toEqual(false)
         expect(isValidPropertyFilter(realProperty)).toEqual(true)

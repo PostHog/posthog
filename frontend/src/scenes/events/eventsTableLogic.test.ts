@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { combineUrl, router } from 'kea-router'
 import { lemonToast } from 'lib/components/lemonToast'
-import { AnyPropertyFilter, EventType, PropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { EmptyPropertyFilter, EventType, PropertyFilter, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
 import { fromParamsGivenUrl } from 'lib/utils'
@@ -36,7 +36,7 @@ const makeEvent = (id: string = '1', timestamp: string = randomString()): EventT
 const makePropertyFilter = (value: string = randomString()): PropertyFilter => ({
     key: value,
     operator: PropertyOperator.Exact,
-    type: PropertyFilterType.Person,
+    type: 't',
     value: 'v',
 })
 
@@ -658,7 +658,7 @@ describe('eventsTableLogic', () => {
 
                 it('can filter partial properties inside the array', async () => {
                     const propertyFilter = makePropertyFilter()
-                    const partialPropertyFilter = { type: PropertyFilterType.Person } as AnyPropertyFilter
+                    const partialPropertyFilter = { type: 't' } as EmptyPropertyFilter
                     await expectLogic(logic, () => {
                         logic.actions.setProperties([propertyFilter, partialPropertyFilter])
                     }).toMatchValues({ properties: [propertyFilter] })

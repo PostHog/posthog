@@ -1,20 +1,4 @@
-import {
-    AnyFilterLike,
-    AnyPropertyFilter,
-    CohortPropertyFilter,
-    ElementPropertyFilter,
-    EventDefinition,
-    EventPropertyFilter,
-    FilterLogicalOperator,
-    PersonPropertyFilter,
-    PropertyFilter,
-    PropertyFilterType,
-    PropertyGroupFilter,
-    PropertyGroupFilterValue,
-    PropertyOperator,
-    RecordingDurationFilter,
-    SessionPropertyFilter,
-} from '~/types'
+import { PropertyGroupFilter, AnyPropertyFilter, EventDefinition, PropertyFilter, PropertyOperator } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { flattenPropertyGroup, isPropertyGroup } from 'lib/utils'
 
@@ -34,7 +18,7 @@ export function parseProperties(
             key,
             value,
             operator: operator as PropertyOperator,
-            type: PropertyFilterType.Event,
+            type: 'event',
         }
     })
 }
@@ -45,59 +29,6 @@ export function isValidPropertyFilter(filter: AnyPropertyFilter): filter is Prop
         !!filter && // is not falsy
         'key' in filter && // has a "key" property
         Object.values(filter).some((v) => !!v) // contains some properties with values
-    )
-}
-
-export function isCohortPropertyFilter(filter?: AnyFilterLike | null): filter is CohortPropertyFilter {
-    return filter?.type === PropertyFilterType.Cohort
-}
-export function isPropertyGroupFilterLike(
-    filter?: AnyFilterLike | null
-): filter is PropertyGroupFilter | PropertyGroupFilterValue {
-    return filter?.type === FilterLogicalOperator.And || filter?.type === FilterLogicalOperator.Or
-}
-export function isEventPropertyFilter(filter?: AnyFilterLike | null): filter is EventPropertyFilter {
-    return filter?.type === PropertyFilterType.Event
-}
-export function isPersonPropertyFilter(filter?: AnyFilterLike | null): filter is PersonPropertyFilter {
-    return filter?.type === PropertyFilterType.Person
-}
-export function isElementPropertyFilter(filter?: AnyFilterLike | null): filter is ElementPropertyFilter {
-    return filter?.type === PropertyFilterType.Element
-}
-export function isSessionPropertyFilter(filter?: AnyFilterLike | null): filter is SessionPropertyFilter {
-    return filter?.type === PropertyFilterType.Session
-}
-export function isRecordingDurationFilter(filter?: AnyFilterLike | null): filter is RecordingDurationFilter {
-    return filter?.type === PropertyFilterType.Recording
-}
-
-export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is AnyPropertyFilter {
-    return (
-        isEventPropertyFilter(filter) ||
-        isPersonPropertyFilter(filter) ||
-        isElementPropertyFilter(filter) ||
-        isSessionPropertyFilter(filter) ||
-        isCohortPropertyFilter(filter) ||
-        isRecordingDurationFilter(filter)
-    )
-}
-
-export function isPropertyFilterWithOperator(
-    filter?: AnyFilterLike | null
-): filter is
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | SessionPropertyFilter
-    | RecordingDurationFilter {
-    return (
-        !isPropertyGroupFilterLike(filter) &&
-        (isEventPropertyFilter(filter) ||
-            isPersonPropertyFilter(filter) ||
-            isElementPropertyFilter(filter) ||
-            isSessionPropertyFilter(filter) ||
-            isRecordingDurationFilter(filter))
     )
 }
 
@@ -113,16 +44,16 @@ export function filterMatchesItem(
     if (!filter || !item || !itemType || filter.type !== itemType) {
         return false
     }
-    return isCohortPropertyFilter(filter) ? filter.value === parseInt(item.id) : filter.key === item.name
+    return filter.type === 'cohort' ? filter.value === item.id : filter.key === item.name
 }
 
-const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterGroupType>> = {
-    [PropertyFilterType.Person]: TaxonomicFilterGroupType.PersonProperties,
-    [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
-    [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
-    [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
-    [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
-    [PropertyFilterType.Session]: TaxonomicFilterGroupType.Sessions,
+const propertyFilterMapping: Record<string, TaxonomicFilterGroupType> = {
+    person: TaxonomicFilterGroupType.PersonProperties,
+    event: TaxonomicFilterGroupType.EventProperties,
+    feature: TaxonomicFilterGroupType.EventFeatureFlags,
+    cohort: TaxonomicFilterGroupType.Cohorts,
+    element: TaxonomicFilterGroupType.Elements,
+    session: TaxonomicFilterGroupType.Sessions,
 }
 
 export function propertyFilterTypeToTaxonomicFilterType(
@@ -138,22 +69,18 @@ export function propertyFilterTypeToTaxonomicFilterType(
     return propertyFilterMapping[filterType]
 }
 
-export function taxonomicFilterTypeToPropertyFilterType(
-    filterType?: TaxonomicFilterGroupType
-): PropertyFilterType | undefined {
+export function taxonomicFilterTypeToPropertyFilterType(filterType?: TaxonomicFilterGroupType): string | undefined {
     if (filterType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
-        return PropertyFilterType.Cohort
+        return 'cohort'
     }
     if (filterType?.startsWith(TaxonomicFilterGroupType.GroupsPrefix)) {
-        return PropertyFilterType.Group
+        return 'group'
     }
 
     if (filterType === TaxonomicFilterGroupType.EventFeatureFlags) {
         // Feature flags are just subgroup of event properties
-        return PropertyFilterType.Event
+        return 'event'
     }
 
-    return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as
-        | PropertyFilterType
-        | undefined
+    return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0]
 }

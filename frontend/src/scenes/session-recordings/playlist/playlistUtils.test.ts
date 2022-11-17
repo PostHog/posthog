@@ -1,4 +1,4 @@
-import { CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import { CohortType, FilterLogicalOperator, PropertyOperator } from '~/types'
 import { summarizePlaylistFilters } from 'scenes/session-recordings/playlist/playlistUtils'
 
 describe('summarizePlaylistFilters()', () => {
@@ -64,13 +64,13 @@ describe('summarizePlaylistFilters()', () => {
                     properties: [
                         {
                             key: '$initial_browser',
-                            type: PropertyFilterType.Person,
+                            type: 'person',
                             operator: PropertyOperator.Exact,
                             value: 'Chrome',
                         },
                         {
                             key: 'custom_property',
-                            type: PropertyFilterType.Person,
+                            type: 'person',
                             operator: PropertyOperator.IContains,
                             value: 'blah',
                         },
@@ -95,7 +95,7 @@ describe('summarizePlaylistFilters()', () => {
                     properties: [
                         {
                             key: 'id',
-                            type: PropertyFilterType.Cohort,
+                            type: 'cohort',
                             value: 1,
                         },
                     ],
@@ -112,7 +112,7 @@ describe('summarizePlaylistFilters()', () => {
                     properties: [
                         {
                             key: 'id',
-                            type: PropertyFilterType.Cohort,
+                            type: 'cohort',
                             value: 1,
                         },
                     ],
@@ -143,19 +143,19 @@ describe('summarizePlaylistFilters()', () => {
                     properties: [
                         {
                             key: '$initial_browser',
-                            type: PropertyFilterType.Person,
+                            type: 'person',
                             operator: PropertyOperator.Exact,
                             value: 'Chrome',
                         },
                         {
                             key: 'custom_property',
-                            type: PropertyFilterType.Person,
+                            type: 'person',
                             operator: PropertyOperator.IContains,
                             value: 'blah',
                         },
                         {
                             key: 'id',
-                            type: PropertyFilterType.Cohort,
+                            type: 'cohort',
                             value: 1,
                         },
                     ],

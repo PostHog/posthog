@@ -1,5 +1,5 @@
 import api from 'lib/api'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { PropertyOperator } from '~/types'
 
 describe('API helper', () => {
     let fakeFetch: jest.Mock<any, any>
@@ -17,12 +17,7 @@ describe('API helper', () => {
             await api.events.list(
                 {
                     properties: [
-                        {
-                            key: 'something',
-                            value: 'is_set',
-                            operator: PropertyOperator.IsSet,
-                            type: PropertyFilterType.Event,
-                        },
+                        { key: 'something', value: 'is_set', operator: PropertyOperator.IsSet, type: 'event' },
                     ],
                 },
                 10,

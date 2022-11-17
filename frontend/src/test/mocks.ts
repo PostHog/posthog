@@ -6,7 +6,6 @@ import {
     FilterLogicalOperator,
     IntegrationType,
     PropertyDefinition,
-    PropertyFilterType,
     PropertyOperator,
     SlackChannelType,
     SubscriptionType,
@@ -146,7 +145,7 @@ export const mockCohort: CohortType = {
             properties: [
                 {
                     key: '$geoip_continent_name',
-                    type: PropertyFilterType.Person,
+                    type: 'person',
                     value: ['Oceania'],
                     operator: PropertyOperator.Exact,
                 },

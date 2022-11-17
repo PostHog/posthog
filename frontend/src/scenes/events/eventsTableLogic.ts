@@ -99,7 +99,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
                     return { properties }
                 }
             } else {
-                return { properties: [properties as AnyPropertyFilter] }
+                return { properties: [properties] }
             }
         },
         fetchEvents: (
