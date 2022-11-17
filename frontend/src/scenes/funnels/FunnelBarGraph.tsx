@@ -243,12 +243,8 @@ function AverageTimeInspector({
 
     return (
         <div ref={wrapperRef}>
-            <span
-                ref={infoTextRef}
-                className="text-muted-alt"
-                style={{ paddingRight: 4, display: 'inline-block', visibility: infoTextVisible ? undefined : 'hidden' }}
-            >
-                Average time:
+            <span ref={infoTextRef} className={clsx('inline-block text-muted-alt', !infoTextVisible && 'invisible')}>
+                Average time:{' '}
             </span>
             <ValueInspectorButton
                 innerRef={buttonRef}
