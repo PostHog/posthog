@@ -23,7 +23,6 @@ import {
     fetchSessionRecordingsEvents,
     reloadAction,
 } from './api'
-// import { beforeAll, afterAll, test, expect } from 'vitest'
 
 let producer: Producer
 let clickHouseClient: ClickHouse
@@ -974,8 +973,7 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
             $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }],
         })
 
-        for (const attempt in Array.from(Array(20).keys())) {
-            console.debug(`Attempt ${attempt} to check webhook was called`)
+        for (const _ in Array.from(Array(20).keys())) {
             if (webHookCalledWith) {
                 break
             }
