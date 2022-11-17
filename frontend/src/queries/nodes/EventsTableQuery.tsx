@@ -5,6 +5,7 @@ import { AnyPropertyFilter } from '~/types'
 
 interface EventsTableQueryProps {
     query: EventsTableNode
+    setQuery?: (node: EventsTableNode) => void
 }
 
 let uniqueNode = 0

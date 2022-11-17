@@ -7,8 +7,10 @@ import { Node } from '~/queries/nodes'
 
 export interface QueryProps {
     query: Node | string
+    setQuery?: (node: Node) => void
 }
-export function Query({ query }: QueryProps): JSX.Element {
+
+export function Query({ query, setQuery }: QueryProps): JSX.Element {
     if (typeof query === 'string') {
         try {
             return <Query query={JSON.parse(query)} />
@@ -21,7 +23,7 @@ export function Query({ query }: QueryProps): JSX.Element {
     } else if (isSavedInsightNode(query)) {
         return <SavedInsightQuery query={query} />
     } else if (isEventsTableNode(query)) {
-        return <EventsTableQuery query={query} />
+        return <EventsTableQuery query={query} setQuery={setQuery} />
     } else if (isDataNode(query)) {
         return <DataNodeQuery query={query} />
     }
