@@ -268,10 +268,11 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
         for feature_flag in feature_flags:
             flags.append(
                 {
-                    "feature_flag": FeatureFlagSerializer(feature_flag).data,
+                    "feature_flag": FeatureFlagSerializer(feature_flag, context=self.get_serializer_context()).data,
                     "value": matches.get(feature_flag.key, False),
                 }
             )
+
         return Response(flags)
 
     @action(methods=["GET"], detail=False)
@@ -293,7 +294,10 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
         return Response(
             {
-                "flags": [MinimalFeatureFlagSerializer(feature_flag).data for feature_flag in parsed_flags],
+                "flags": [
+                    MinimalFeatureFlagSerializer(feature_flag, context=self.get_serializer_context()).data
+                    for feature_flag in parsed_flags
+                ],
                 "group_type_mapping": {
                     str(row.group_type_index): row.group_type
                     for row in GroupTypeMapping.objects.filter(team_id=self.team_id)
