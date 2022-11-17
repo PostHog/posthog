@@ -3,7 +3,7 @@ import { ExportedData } from '~/exporter/types'
 
 declare global {
     interface Window {
-        JS_POSTHOG_API_KEY?: string
+        JS_POSTHOG_API_KEY?: string | null
         JS_POSTHOG_HOST?: string
         JS_POSTHOG_SELF_CAPTURE?: boolean
         JS_CAPTURE_INTERNAL_METRICS?: boolean
