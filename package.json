@@ -257,10 +257,5 @@
     },
     "browser": {
         "path": "path-browserify"
-    },
-    "pnpm": {
-        "patchedDependencies": {
-            "kea-forms@3.0.1": "patches/kea-forms@3.0.1.patch"
-        }
     }
 }
