@@ -23,7 +23,8 @@ AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + [
 # SAML base attributes
 SOCIAL_AUTH_SAML_SP_ENTITY_ID = SITE_URL
 SOCIAL_AUTH_SAML_SECURITY_CONFIG = {
-    "wantAttributeStatement": False  # AttributeStatement is optional in the specification
+    "wantAttributeStatement": False,  # AttributeStatement is optional in the specification
+    "requestedAuthnContext": False,  # do not explicitly request a password login, also allow multifactor and others
 }
 # Attributes below are required for the SAML integration from social_core to work properly
 SOCIAL_AUTH_SAML_SP_PUBLIC_CERT = ""
