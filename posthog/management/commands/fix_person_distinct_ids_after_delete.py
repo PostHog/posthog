@@ -37,7 +37,7 @@ def run(options):
 
     for distinct_id in distinct_ids:
         # this can throw but this script can safely be re-run as
-        # updated distinct_ids won't show up in the search anymore 
+        # updated distinct_ids won't show up in the search anymore
         # since they no longer belong to deleted persons
         # it's safer to throw and exit if anything went wrong
         update_distinct_id(distinct_id, version, team_id, live_run)
