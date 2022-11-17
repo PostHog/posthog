@@ -73,8 +73,6 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
     role_id = serializers.UUIDField(read_only=True)
     user_uuid = serializers.UUIDField(required=True, write_only=True)
 
-    # user_uuids = serializers.ListField(child=serializers.UUIDField(), required=True, write_only=True)
-
     class Meta:
         model = RoleMembership
         fields = ["id", "role_id", "user", "joined_at", "updated_at", "user_uuid"]
@@ -92,19 +90,6 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
             return super().create(validated_data)
         except IntegrityError:
             raise serializers.ValidationError("User is already part of the role.")
-        # user_uuids = validated_data.pop("user_uuids")
-        # try:
-        #     users = User.objects.filter(uuid__in=user_uuids)
-        #     role_id = self.context["role_id"]
-        #     role = Role.objects.get(id=role_id)
-        #     role_memberships = (RoleMembership(user=user, role=role) for user in users)
-        # except Role.DoesNotExist:
-        #     raise serializers.ValidationError("Role does not exist.")
-        # try:
-        #     memberships = RoleMembership.objects.bulk_create(role_memberships)
-        #     return memberships
-        # except IntegrityError:
-        #     raise serializers.ValidationError("User is already part of the role.")
 
 
 class RoleMembershipViewSet(

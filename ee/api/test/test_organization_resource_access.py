@@ -21,7 +21,7 @@ class TestOrganizationResourceAccessAPI(APILicensedTest):
         self.assertEqual(admin_create_res.status_code, status.HTTP_201_CREATED)
         get_res = self.client.get("/api/organizations/@current/resource_access")
         self.assertEqual(get_res.json()["count"], 1)
-        self.assertEqual(get_res.json()[0]["resource"], OrganizationResourceAccess.Resources.FEATURE_FLAGS)
+        self.assertEqual(get_res.json()["results"][0]["resource"], OrganizationResourceAccess.Resources.FEATURE_FLAGS)
 
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()

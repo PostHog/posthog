@@ -68,7 +68,14 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         else:
             request = self.context["request"]
             all_role_memberships = request.user.role_memberships.select_related("role").all()
-            org_level = 21  # TODO: temp
+            try:
+                feature_flag_resource_access = OrganizationResourceAccess.objects.get(
+                    resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS
+                )
+                org_level = feature_flag_resource_access.access_level
+            except OrganizationResourceAccess.DoesNotExist:
+                org_level = -1
+
             role_level = max(
                 [membership.role.feature_flags_access_level for membership in all_role_memberships], default=0
             )

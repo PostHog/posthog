@@ -2,8 +2,9 @@ from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 
 from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
+from ee.models.organization_resource_access import OrganizationResourceAccess
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import FeatureFlag, Organization
+from posthog.models import FeatureFlag
 
 
 class FeatureFlagRoleAccessPermissions(BasePermission):
@@ -12,7 +13,10 @@ class FeatureFlagRoleAccessPermissions(BasePermission):
     def has_permission(self, request, view):
         if request.method in SAFE_METHODS:
             return True
-        if request.user.organization.feature_flags_access_level >= Organization.FeatureFlagsAccessLevel.CAN_ALWAYS_EDIT:
+        if OrganizationResourceAccess.objects.filter(
+            resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
+            access_level=OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT,
+        ).exists():
             return True
         try:
             feature_flag: FeatureFlag = FeatureFlag.objects.get(id=request.data["feature_flag"])
@@ -23,7 +27,7 @@ class FeatureFlagRoleAccessPermissions(BasePermission):
 
         has_role_membership_with_access = (
             request.user.role_memberships.all()
-            .filter(role__feature_flags_access_level=Organization.FeatureFlagsAccessLevel.CAN_ALWAYS_EDIT)
+            .filter(role__feature_flags_access_level=OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT)
             .exists()
         )
         if has_role_membership_with_access:

@@ -53,7 +53,7 @@ def extend_api_router(
         ["organization_id"],
     )
     organizations_router.register(
-        r"organization_resource_access",
+        r"resource_access",
         organization_resource_access.OrganizationResourceAccessViewSet,
         "organization_resource_access",
         ["organization_id"],
