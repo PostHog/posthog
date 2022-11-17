@@ -940,7 +940,7 @@ const api = {
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: isFormData ? data : JSON.stringify(data),
-            signal: options?.signal
+            signal: options?.signal,
         })
 
         if (!response.ok) {
