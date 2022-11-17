@@ -11,6 +11,9 @@ describe('Signup', () => {
         cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
         cy.get('[data-attr=signup-first-name]').type('Jane').should('have.value', 'Jane')
         cy.get('[data-attr=signup-organization-name]').type('Hogflix Movies').should('have.value', 'Hogflix Movies')
+        cy.get('[data-attr=signup-role-at-organization]').click()
+        cy.get('.Popup button:first-child').click()
+        cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=signup-submit]').click()
 
         cy.get('.AlertMessage').should('contain', 'There is already an account with this email address.')
@@ -28,6 +31,7 @@ describe('Signup', () => {
         cy.get('[data-attr=signup-submit]').click()
         cy.get('.text-danger').should('contain', 'Please enter your email to continue')
         cy.get('.text-danger').should('contain', 'Password must be at least 8 characters')
+        cy.get('.text-danger').should('contain', 'Please enter your role')
 
         cy.get('[data-attr=password]').type('45678901')
         cy.get('.text-danger').should('not.contain', 'Password must be at least 8 characters') // Validation error removed on keystroke
@@ -39,6 +43,9 @@ describe('Signup', () => {
         cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
         cy.get('[data-attr=signup-first-name]').type('Alice').should('have.value', 'Alice')
         cy.get('[data-attr=signup-organization-name]').type('Hogflix SpinOff').should('have.value', 'Hogflix SpinOff')
+        cy.get('[data-attr=signup-role-at-organization]').click()
+        cy.get('.Popup button:first-child').click()
+        cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=signup-submit]').click()
 
         cy.location('pathname').should('eq', '/ingestion')

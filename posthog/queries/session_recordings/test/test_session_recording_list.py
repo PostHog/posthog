@@ -211,7 +211,6 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         self.create_event(
             "user", self.base_time, properties={"$session_id": "1", "$window_id": "1"}, event_name="new-event"
         )
-
         create_snapshot(
             distinct_id="user",
             session_id="1",

@@ -3,14 +3,14 @@ import React, { createRef, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import TextareaAutosize from 'react-textarea-autosize'
 import { Tabs } from 'antd'
-import { IconMarkdown, IconTools, IconUploadFile } from 'lib/components/icons'
+import { IconMarkdown, IconTools } from 'lib/components/icons'
 import { TextCardBody } from 'lib/components/Cards/TextCard/TextCard'
-import { Spinner } from 'lib/components/Spinner/Spinner'
 import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
+import posthog from 'posthog-js'
+import { LemonFileInput } from 'lib/components/LemonFileInput/LemonFileInput'
 import { useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import posthog from 'posthog-js'
 import { Link } from 'lib/components/Link'
 import { Tooltip } from 'lib/components/Tooltip'
 
@@ -71,47 +71,21 @@ interface LemonTextMarkdownProps {
 export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTextMarkdownProps): JSX.Element {
     const { objectStorageAvailable } = useValues(preflightLogic)
 
-    // dragCounter and drag are used to track whether the user is dragging a file over the textarea
-    // without drag counter the textarea highlight would flicker when the user drags a file over it
-    let dragCounter = 0
-    const [drag, setDrag] = useState(false)
-
-    const [isUploading, setIsUploading] = useState(false)
-
+    const [uploading, setUploading] = useState(false)
+    const [filesToUpload, setFilesToUpload] = useState<File[]>([])
     const dropRef = createRef<HTMLDivElement>()
 
-    const handleDrag = (e: DragEvent): void => {
-        e.preventDefault()
-        e.stopPropagation()
-    }
+    useEffect(() => {
+        const uploadFiles = async (): Promise<void> => {
+            if (filesToUpload.length === 0) {
+                setUploading(false)
+                return
+            }
 
-    const handleDragIn = (e: DragEvent): void => {
-        e.preventDefault()
-        e.stopPropagation()
-        dragCounter++
-        if (e.dataTransfer?.items && e.dataTransfer.items.length > 0) {
-            setDrag(true)
-        }
-    }
-
-    const handleDragOut = (e: DragEvent): void => {
-        e.preventDefault()
-        e.stopPropagation()
-        dragCounter--
-        if (dragCounter === 0) {
-            setDrag(false)
-        }
-    }
-
-    const handleDrop = async (e: DragEvent): Promise<void> => {
-        e.preventDefault()
-        e.stopPropagation()
-        setDrag(false)
-        if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
             try {
-                setIsUploading(true)
+                setUploading(true)
                 const formData = new FormData()
-                formData.append('image', e.dataTransfer.files[0])
+                formData.append('image', filesToUpload[0])
                 const media = await api.media.upload(formData)
                 onChange(value + `\n\n![${media.name}](${media.image_location})`)
                 posthog.capture('markdown image uploaded', { name: media.name })
@@ -120,48 +94,31 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
                 posthog.capture('markdown image upload failed', { error: errorDetail })
                 lemonToast.error(`Error uploading image: ${errorDetail}`)
             } finally {
-                setIsUploading(false)
-            }
-            e.dataTransfer.clearData()
-            dragCounter = 0
-        }
-    }
-
-    useEffect(() => {
-        const div = dropRef.current
-        if (!div || !objectStorageAvailable) {
-            return
-        } else {
-            div.addEventListener('dragenter', handleDragIn)
-            div.addEventListener('dragleave', handleDragOut)
-            div.addEventListener('dragover', handleDrag)
-            div.addEventListener('drop', handleDrop)
-            return () => {
-                div?.removeEventListener('dragenter', handleDragIn)
-                div?.removeEventListener('dragleave', handleDragOut)
-                div?.removeEventListener('dragover', handleDrag)
-                div?.removeEventListener('drop', handleDrop)
+                setUploading(false)
+                setFilesToUpload([])
             }
         }
-    }, [value, objectStorageAvailable])
+        uploadFiles().catch(console.error)
+    }, [filesToUpload])
 
     return (
         <Tabs>
             <Tabs.TabPane tab="Write" key="write-card" destroyInactiveTabPane={true}>
-                <div
-                    ref={dropRef}
-                    className={clsx('LemonTextMarkdown flex flex-col p-2 space-y-1 rounded', drag && 'FileDropTarget')}
-                >
+                <div ref={dropRef} className={clsx('LemonTextMarkdown flex flex-col p-2 space-y-1 rounded')}>
                     <LemonTextArea {...editAreaProps} autoFocus value={value} onChange={onChange} />
                     <div className="text-muted inline-flex items-center space-x-1">
                         <IconMarkdown className={'text-2xl'} />
                         <span>Markdown formatting support</span>
                     </div>
                     {objectStorageAvailable ? (
-                        <div className="text-muted inline-flex items-center space-x-1">
-                            <IconUploadFile className={'text-2xl mr-1'} />
-                            <span>Attach images by dragging and dropping them</span>
-                        </div>
+                        <LemonFileInput
+                            accept={'image/*'}
+                            multiple={false}
+                            alternativeDropTargetRef={dropRef}
+                            onChange={setFilesToUpload}
+                            loading={uploading}
+                            value={filesToUpload}
+                        />
                     ) : (
                         <div className="text-muted inline-flex items-center space-x-1">
                             <Tooltip title={'Enable object storage to add images by dragging and dropping.'}>
@@ -175,13 +132,6 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
                                 </Link>
                                 .
                             </span>
-                        </div>
-                    )}
-
-                    {isUploading && (
-                        <div className="text-muted inline-flex items-center space-x-1">
-                            <Spinner />
-                            uploading image...
                         </div>
                     )}
                 </div>

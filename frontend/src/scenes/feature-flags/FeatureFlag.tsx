@@ -46,6 +46,7 @@ import { FeatureFlagRecordings } from './FeatureFlagRecordingsCard'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { EventsTable } from 'scenes/events'
+import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -818,7 +819,9 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                                 <span className="simple-tag tag-light-blue text-primary-alt">
                                                     {property.type === 'cohort' ? 'Cohort' : property.key}{' '}
                                                 </span>
-                                                <span>{allOperatorsToHumanName(property.operator)} </span>
+                                                {isPropertyFilterWithOperator(property) ? (
+                                                    <span>{allOperatorsToHumanName(property.operator)} </span>
+                                                ) : null}
                                                 {[
                                                     ...(Array.isArray(property.value)
                                                         ? property.value

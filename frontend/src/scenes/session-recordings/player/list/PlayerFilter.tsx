@@ -68,31 +68,33 @@ export function PlayerFilter({
                 )}
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
-                <LemonSelect
-                    data-attr="player-window-select"
-                    value={windowIdFilter ?? undefined}
-                    onChange={(val) => setWindowIdFilter(val as WindowOption)}
-                    options={[
-                        {
-                            value: RecordingWindowFilter.All,
-                            label: 'All windows',
-                            icon: <IconWindow value="A" className="text-muted" />,
-                        },
-                        ...windowIds.map((windowId, index) => ({
-                            value: windowId,
-                            label: `Window ${index + 1}`,
-                            icon: <IconWindow value={index + 1} className="text-muted" />,
-                        })),
-                    ]}
-                />
-                <Tooltip
-                    title="Each recording window translates to a distinct browser tab or window."
-                    className="text-base text-muted-alt mr-2"
-                >
-                    <IconInfo />
-                </Tooltip>
-            </div>
+            {windowIds.length > 1 ? (
+                <div className="flex items-center gap-2 flex-wrap">
+                    <LemonSelect
+                        data-attr="player-window-select"
+                        value={windowIdFilter ?? undefined}
+                        onChange={(val) => setWindowIdFilter(val as WindowOption)}
+                        options={[
+                            {
+                                value: RecordingWindowFilter.All,
+                                label: 'All windows',
+                                icon: <IconWindow value="A" className="text-muted" />,
+                            },
+                            ...windowIds.map((windowId, index) => ({
+                                value: windowId,
+                                label: `Window ${index + 1}`,
+                                icon: <IconWindow value={index + 1} className="text-muted" />,
+                            })),
+                        ]}
+                    />
+                    <Tooltip
+                        title="Each recording window translates to a distinct browser tab or window."
+                        className="text-base text-muted-alt mr-2"
+                    >
+                        <IconInfo />
+                    </Tooltip>
+                </div>
+            ) : null}
         </div>
     )
 }

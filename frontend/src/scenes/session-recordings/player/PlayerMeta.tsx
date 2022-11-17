@@ -29,6 +29,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
         currentWindowIndex,
         recordingStartTime,
         sessionPlayerMetaDataLoading,
+        windowIds,
     } = useValues(playerMetaLogic({ sessionRecordingId, playerKey }))
 
     const { isFullScreen, isMetadataExpanded } = useValues(playerSettingsLogic)
@@ -176,7 +177,10 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                 ) : (
                     <>
                         <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
-                        {!isSmallPlayer && <div className="text-muted-alt">Window {currentWindowIndex + 1}</div>}
+                        {windowIds.length > 1 && !isSmallPlayer ? (
+                            <div className="text-muted-alt">Window {currentWindowIndex + 1}</div>
+                        ) : null}
+
                         {lastPageviewEvent?.properties?.['$current_url'] && (
                             <span className="flex items-center gap-2 truncate">
                                 <span>·</span>

@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { ingestionLogic } from 'scenes/ingestion/v2/ingestionLogic'
+import { ingestionLogicV2 } from 'scenes/ingestion/v2/ingestionLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
 import { LemonDivider } from 'lib/components/LemonDivider'
@@ -9,9 +9,9 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { BOOKMARKLET } from '../constants'
 
 export function InviteTeamPanel(): JSX.Element {
-    const { setTechnical, setPlatform } = useActions(ingestionLogic)
+    const { next } = useActions(ingestionLogicV2)
     const { showInviteModal } = useActions(inviteLogic)
-    const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
+    const { reportInviteMembersButtonClicked, reportIngestionTryWithBookmarkletClicked } = useActions(eventUsageLogic)
 
     return (
         <div>
@@ -24,7 +24,7 @@ export function InviteTeamPanel(): JSX.Element {
             <LemonDivider thick dashed className="my-6" />
             <div className="flex flex-col mb-6">
                 <LemonButton
-                    onClick={() => setTechnical(true)}
+                    onClick={() => next({ isTechnicalUser: true })}
                     fullWidth
                     size="large"
                     className="mb-4"
@@ -40,7 +40,6 @@ export function InviteTeamPanel(): JSX.Element {
                 </LemonButton>
                 <LemonButton
                     onClick={() => {
-                        setTechnical(false)
                         showInviteModal()
                         reportInviteMembersButtonClicked()
                     }}
@@ -59,8 +58,8 @@ export function InviteTeamPanel(): JSX.Element {
                 </LemonButton>
                 <LemonButton
                     onClick={() => {
-                        setTechnical(false)
-                        setPlatform(BOOKMARKLET)
+                        reportIngestionTryWithBookmarkletClicked()
+                        next({ isTechnicalUser: false, platform: BOOKMARKLET })
                     }}
                     center
                     fullWidth
