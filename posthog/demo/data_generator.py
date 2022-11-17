@@ -75,9 +75,9 @@ class DataGenerator:
             create_session_recording_events(
                 team_id=self.team.pk,
                 timestamp=data["timestamp"],
+                distinct_id=data["distinct_id"],
                 session_id=data["session_id"],
                 window_id=data["window_id"],
-                distinct_id=data["distinct_id"],
                 snapshots=[data["snapshot_data"]],
             )
 

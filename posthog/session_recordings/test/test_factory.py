@@ -10,6 +10,7 @@ from posthog.helpers.session_recording import RRWEB_MAP_EVENT_TYPE, compress_and
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.models.session_recording_event.sql import INSERT_SESSION_RECORDING_EVENT_SQL
+from posthog.utils import cast_timestamp_or_now
 
 logger = structlog.get_logger(__name__)
 
@@ -27,6 +28,7 @@ def _insert_session_recording_event(
 ) -> str:
     uuid = uuid4()
     snapshot_data_json = json.dumps(snapshot_data)
+    timestamp_str = cast_timestamp_or_now(timestamp)
     data = {
         "uuid": str(uuid),
         "team_id": team_id,
@@ -34,8 +36,8 @@ def _insert_session_recording_event(
         "session_id": session_id,
         "window_id": window_id,
         "snapshot_data": snapshot_data_json,
-        "timestamp": timestamp,
-        "created_at": timestamp,
+        "timestamp": timestamp_str,
+        "created_at": timestamp_str,
     }
     if len(snapshot_data_json) <= MAX_KAFKA_MESSAGE_LENGTH:
         p = ClickhouseProducer()
