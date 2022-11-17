@@ -5,14 +5,32 @@ import { PostHogQuery } from '~/queries/PostHogQuery'
 import { PageHeader } from 'lib/components/PageHeader'
 import { stringExamples } from 'scenes/query/examples'
 import { Link } from 'lib/components/Link'
-import React from 'react'
+import React, { useEffect } from 'react'
 import clsx from 'clsx'
 import { LemonButton } from 'lib/components/LemonButton'
-import MonacoEditor from '@monaco-editor/react'
+import MonacoEditor, { useMonaco } from '@monaco-editor/react'
+import schema from '~/queries/nodes.json'
 
 export function QueryScene(): JSX.Element {
     const { queryInput, JSONQuery, error, inputChanged } = useValues(querySceneLogic)
     const { setQueryInput, setQuery } = useActions(querySceneLogic)
+    const monaco = useMonaco()
+
+    useEffect(() => {
+        if (!monaco) {
+            return
+        }
+        monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+            validate: true,
+            schemas: [
+                {
+                    uri: 'https://internal.posthog.com/node-schema.json',
+                    fileMatch: ['*'], // associate with our model
+                    schema: schema,
+                },
+            ],
+        })
+    }, [monaco])
 
     return (
         <div className="QueryScene">

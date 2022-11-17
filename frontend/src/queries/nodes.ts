@@ -44,6 +44,20 @@ export enum NodeType {
     LifecycleQuery = 'LifecycleQuery',
     StickinessQuery = 'StickinessQuery',
 }
+
+// used for query schema generation
+export type AnyNode =
+    | EventsNode
+    | ActionsDataNode
+    | LegacyQuery
+    | SavedInsightNode
+    | TrendsQuery
+    | FunnelsQuery
+    | PathsQuery
+    | RetentionQuery
+    | LifecycleQuery
+    | StickinessQuery
+
 export enum NodeCategory {
     DataNode = 'DataNode',
     InterfaceNode = 'InterfaceNode',
