@@ -11,6 +11,7 @@ const ResourceDisplayMapping: Record<Resource, string> = {
 export interface FormattedResourceLevel {
     id: string | null
     resource: Resource
+    name: string
     access_level: AccessLevel
 }
 
@@ -27,15 +28,15 @@ export const permissionsLogic = kea<permissionsLogicType>([
                 updateOrganizationResourcePermission: async ({ id, resource, access_level }) => {
                     if (id) {
                         const response = await api.resourcePermissions.update(id, { access_level: access_level })
-                        return [...values.organizationResourcePermissions, response]
+                        return values.organizationResourcePermissions.map((permission) =>
+                            permission.id == response.id ? response : permission
+                        )
                     } else {
                         const response = await api.resourcePermissions.create({
                             resource: resource,
                             access_level: access_level,
                         })
-                        return values.organizationResourcePermissions.map((permission) =>
-                            permission.id == response.id ? response : permission
-                        )
+                        return [...values.organizationResourcePermissions, response]
                     }
                 },
             },
@@ -64,7 +65,8 @@ export const permissionsLogic = kea<permissionsLogicType>([
                     (key) =>
                         ({
                             id: organizationResourcePermissionsMap[key]?.id || null,
-                            resource: ResourceDisplayMapping[key],
+                            resource: key,
+                            name: ResourceDisplayMapping[key],
                             access_level: organizationResourcePermissionsMap[key]?.access_level || AccessLevel.WRITE,
                         } as FormattedResourceLevel)
                 )

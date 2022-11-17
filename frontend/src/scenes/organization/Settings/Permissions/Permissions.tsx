@@ -10,9 +10,9 @@ export function Permissions(): JSX.Element {
 
     const columns: LemonTableColumns<FormattedResourceLevel> = [
         {
-            key: 'resource',
+            key: 'name',
             title: 'Resource',
-            dataIndex: 'resource',
+            dataIndex: 'name',
             render: function RenderResource(_, permission) {
                 return <b>{permission.resource}</b>
             },

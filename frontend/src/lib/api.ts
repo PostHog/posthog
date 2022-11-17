@@ -967,7 +967,7 @@ const api = {
             return await new ApiRequest().organizationResourceAccess().get()
         },
         async create(data: Partial<OrganizationResourcePermissionType>): Promise<OrganizationResourcePermissionType> {
-            return await new ApiRequest().organizationResourceAccess().create(data)
+            return await new ApiRequest().organizationResourceAccess().create({ data })
         },
         async update(
             resourceId: OrganizationResourcePermissionType['id'],
