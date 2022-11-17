@@ -8,7 +8,6 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
-    ChartDisplayType,
     DashboardTile,
     DashboardType,
     InsightColor,
@@ -120,7 +119,7 @@ describe('dashboardLogic', () => {
         const insights: Record<number, InsightModel> = {
             172: {
                 ...insightOnDashboard(172, [5, 6], {
-                    filters: { insight: InsightType.RETENTION, display: ChartDisplayType.ActionsLineGraph },
+                    filters: { insight: InsightType.RETENTION },
                 }),
                 short_id: '172' as InsightShortId,
             },

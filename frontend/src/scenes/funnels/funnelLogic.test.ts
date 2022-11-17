@@ -8,14 +8,15 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     AvailableFeature,
+    CorrelationConfigType,
     FunnelCorrelation,
     FunnelCorrelationResultsType,
     FunnelCorrelationType,
+    FunnelsFilterType,
     FunnelVizType,
     InsightLogicProps,
     InsightShortId,
     InsightType,
-    TeamType,
 } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -25,10 +26,9 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { useAvailableFeatures } from '~/mocks/features'
 import api from 'lib/api'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 jest.mock('scenes/trends/persons-modal/PersonsModal')
-
-import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 const Insight12 = '12' as InsightShortId
 const Insight123 = '123' as InsightShortId
@@ -140,7 +140,7 @@ const funnelResults = [
 
 describe('funnelLogic', () => {
     let logic: ReturnType<typeof funnelLogic.build>
-    let correlationConfig: TeamType['correlation_config'] = {}
+    let correlationConfig: CorrelationConfigType = {}
 
     beforeEach(() => {
         useAvailableFeatures([AvailableFeature.CORRELATION_ANALYSIS, AvailableFeature.GROUP_ANALYTICS])
@@ -510,7 +510,7 @@ describe('funnelLogic', () => {
 
         it('setFilters calls insightLogic.setFilters', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setFilters({ events: [{ id: 42 }] })
+                logic.actions.setFilters({ insight: InsightType.FUNNELS, events: [{ id: 42 }] })
             })
                 .toDispatchActions([
                     (action) =>
@@ -531,7 +531,7 @@ describe('funnelLogic', () => {
 
         it('insightLogic.setFilters updates filters', async () => {
             await expectLogic(logic, () => {
-                insightLogic(props).actions.setFilters({ events: [{ id: 42 }] })
+                insightLogic(props).actions.setFilters({ insight: InsightType.FUNNELS, events: [{ id: 42 }] })
             })
                 .toMatchValues(logic, {
                     filters: expect.objectContaining({
@@ -791,7 +791,10 @@ describe('funnelLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.loadResultsSuccess({
-                    filters: { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Steps },
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                        funnel_viz_type: FunnelVizType.Steps,
+                    } as FunnelsFilterType,
                     result: [{ action_id: 'some event', order: 0 }],
                 })
             })
@@ -810,7 +813,10 @@ describe('funnelLogic', () => {
             await initFunnelLogic(props)
             await expectLogic(logic, () => {
                 logic.actions.loadResultsSuccess({
-                    filters: { insight: InsightType.FUNNELS, funnel_viz_type: FunnelVizType.Trends },
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                        funnel_viz_type: FunnelVizType.Trends,
+                    } as FunnelsFilterType,
                 })
             }).toNotHaveDispatchedActions(['loadCorrelations', 'loadPropertyCorrelations'])
         })

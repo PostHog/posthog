@@ -2,9 +2,10 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { pathsLogicType } from './pathsLogicType'
-import { InsightLogicProps, FilterType, PathType, PropertyFilter, InsightType } from '~/types'
+import { InsightLogicProps, FilterType, PathType, PropertyFilter, InsightType, PathsFilterType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { isPathsFilter } from 'scenes/insights/sharedUtils'
 import { urls } from 'scenes/urls'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
@@ -46,7 +47,7 @@ export const pathsLogic = kea<pathsLogicType>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters as filter', 'insight', 'insightLoading'],
+            ['filters as inflightFilters', 'insight', 'insightLoading'],
             trendsLogic(props),
             ['aggregationTargetLabel'],
         ],
@@ -55,8 +56,8 @@ export const pathsLogic = kea<pathsLogicType>({
 
     actions: {
         setProperties: (properties: PropertyFilter[]) => ({ properties }),
-        setFilter: (filter: Partial<FilterType>) => ({ filter }),
-        showPathEvents: (event) => ({ event }),
+        setFilter: (filter: Partial<PathsFilterType>) => ({ filter }),
+        showPathEvents: (event: PathType) => ({ event }),
         updateExclusions: (exclusions: string[]) => ({ exclusions }),
         openPersonsModal: (props: { path_start_key?: string; path_end_key?: string; path_dropoff_key?: string }) =>
             props,
@@ -73,10 +74,16 @@ export const pathsLogic = kea<pathsLogicType>({
             actions.setFilter({ exclude_events: exclusions })
         },
         openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
+            const filters: Partial<PathsFilterType> = {
+                ...values.filter,
+                path_start_key,
+                path_end_key,
+                path_dropoff_key,
+            }
             const personsUrl = buildPeopleUrl({
                 date_from: '',
                 date_to: '',
-                filters: { ...values.filter, path_start_key, path_end_key, path_dropoff_key },
+                filters,
             })
             if (personsUrl) {
                 openPersonsModal({
@@ -134,13 +141,18 @@ export const pathsLogic = kea<pathsLogicType>({
         },
     }),
     selectors: {
+        filter: [
+            (s) => [s.inflightFilters],
+            (inflightFilters): Partial<PathsFilterType> =>
+                inflightFilters && isPathsFilter(inflightFilters) ? inflightFilters : {},
+        ],
         loadedFilters: [
             (s) => [s.insight],
-            ({ filters }): Partial<FilterType> => (filters?.insight === InsightType.PATHS ? filters ?? {} : {}),
+            ({ filters }): Partial<PathsFilterType> => (filters && isPathsFilter(filters) ? filters : {}),
         ],
         results: [
             (s) => [s.insight],
-            ({ filters, result }): PathNode[] => (filters?.insight === InsightType.PATHS ? result || [] : []),
+            ({ filters, result }): PathNode[] => (filters && isPathsFilter(filters) ? result || [] : []),
         ],
         resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         paths: [
@@ -184,13 +196,13 @@ export const pathsLogic = kea<pathsLogicType>({
         ],
         wildcards: [
             (s) => [s.filter],
-            (filter: Partial<FilterType>) => {
+            (filter: Partial<PathsFilterType>) => {
                 return filter.path_groupings?.map((name) => ({ name }))
             },
         ],
         taxonomicGroupTypes: [
             (s) => [s.filter],
-            (filter: Partial<FilterType>) => {
+            (filter: Partial<PathsFilterType>) => {
                 const taxonomicGroupTypes: TaxonomicFilterGroupType[] = []
                 if (filter.include_event_types) {
                     if (filter.include_event_types.includes(PathType.PageView)) {

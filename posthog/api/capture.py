@@ -2,7 +2,7 @@ import hashlib
 import json
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import structlog
 from dateutil import parser
@@ -10,6 +10,8 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
+from kafka.errors import KafkaError
+from kafka.producer.future import FutureRecordMetadata
 from rest_framework import status
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception
@@ -57,13 +59,14 @@ def parse_kafka_event_data(
     }
 
 
-def log_event(data: Dict, event_name: str, partition_key: str) -> None:
+def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
     logger.debug("logging_event", event_name=event_name, kafka_topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC)
 
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
-        KafkaProducer().produce(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=data, key=partition_key)
+        future = KafkaProducer().produce(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=data, key=partition_key)
         statsd.incr("posthog_cloud_plugin_server_ingestion")
+        return future
     except Exception as e:
         statsd.incr("capture_endpoint_log_event_error")
         print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC} with error:", e)
@@ -251,6 +254,8 @@ def get_event(request):
             request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
         )
 
+    futures: List[FutureRecordMetadata] = []
+
     for event, event_uuid, distinct_id in processed_events:
         if send_events_to_dead_letter_queue:
             kafka_event = parse_kafka_event_data(
@@ -274,7 +279,9 @@ def get_event(request):
             continue
 
         try:
-            capture_internal(event, distinct_id, ip, site_url, now, sent_at, ingestion_context.team_id, event_uuid)  # type: ignore
+            futures.append(
+                capture_internal(event, distinct_id, ip, site_url, now, sent_at, ingestion_context.team_id, event_uuid)  # type: ignore
+            )
         except Exception as e:
             capture_exception(e, {"data": data})
             statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture"})
@@ -288,6 +295,30 @@ def get_event(request):
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 ),
             )
+
+    if (
+        ingestion_context and str(ingestion_context.team_id) in settings.ACK_EVENTS_PRODUCED_FOR_TEAMS
+    ) or "*" in settings.ACK_EVENTS_PRODUCED_FOR_TEAMS:
+        # If the request is for a team we've enabled acks for, return HTTP
+        # status codes accordingly. Ultimately we'll roll this out everywhere
+        # but to allow for testing what effect this has we only do it for a
+        # subset of requests.
+        for future in futures:
+            try:
+                future.get(timeout=1)
+            except KafkaError:
+                # TODO: distinguish between retriable errors and non-retriable
+                # errors, and set Retry-After header accordingly.
+                return cors_response(
+                    request,
+                    generate_exception_response(
+                        "capture",
+                        "Unable to store some events. Please try again. If you are the owner of this app you can check the logs for further details.",
+                        code="server_error",
+                        type="server_error",
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    ),
+                )
 
     statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
     return cors_response(request, JsonResponse({"status": 1}))
@@ -330,7 +361,7 @@ def parse_event(event, distinct_id, ingestion_context):
     return event
 
 
-def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid=None) -> None:
+def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid=None):
     if event_uuid is None:
         event_uuid = UUIDT()
 
@@ -344,5 +375,14 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
         sent_at=sent_at,
         event_uuid=event_uuid,
     )
-    partition_key = hashlib.sha256(f"{team_id}:{distinct_id}".encode()).hexdigest()
-    log_event(parsed_event, event["event"], partition_key=partition_key)
+
+    # We aim to always partition by {team_id}:{distinct_id} but allow
+    # overriding this to deal with hot partitions in specific cases.
+    # Setting the partition key to None means using random partitioning.
+    kafka_partition_key = None
+    candidate_partition_key = f"{team_id}:{distinct_id}"
+
+    if candidate_partition_key not in settings.EVENT_PARTITION_KEYS_TO_OVERRIDE:
+        kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
+
+    return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
