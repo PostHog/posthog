@@ -2,7 +2,7 @@ import hashlib
 import json
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Iterator, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import structlog
 from dateutil import parser
