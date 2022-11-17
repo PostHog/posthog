@@ -115,24 +115,20 @@ export const insightLogic = kea<insightLogicType>([
             previousFilters,
         }),
         startQuery: (queryId: string) => ({ queryId }),
-        endQuery: (
-            payload: {
-                queryId: string,
-                view: InsightType,
-                scene: Scene | null,
-                lastRefresh: string | null,
-                exception?: Record<string, any>,
-                response?: { cached: boolean, apiResponseBytes: number, apiUrl: string },
-            }
-        ) => payload,
-        abortQuery: (
-            payload: {
-                queryId: string,
-                view: InsightType,
-                scene: Scene | null,
-                exception?: Record<string, any>
-            }
-        ) => payload,
+        endQuery: (payload: {
+            queryId: string
+            view: InsightType
+            scene: Scene | null
+            lastRefresh: string | null
+            exception?: Record<string, any>
+            response?: { cached: boolean; apiResponseBytes: number; apiUrl: string }
+        }) => payload,
+        abortQuery: (payload: {
+            queryId: string
+            view: InsightType
+            scene: Scene | null
+            exception?: Record<string, any>
+        }) => payload,
         setShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
         setShowErrorMessage: (showErrorMessage: boolean) => ({ showErrorMessage }),
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
@@ -309,7 +305,11 @@ export const insightLogic = kea<insightLogicType>([
                     let apiUrl: string = ''
                     const { currentTeamId } = values
 
-                    async function executeInsightRequest(apiMethod: any, url: string, ...args: any[]): Promise<[any, string]> {
+                    async function executeInsightRequest(
+                        apiMethod: any,
+                        url: string,
+                        ...args: any[]
+                    ): Promise<[any, string]> {
                         const response = await apiMethod(url, ...args)
                         return [response, url]
                     }
@@ -375,7 +375,7 @@ export const insightLogic = kea<insightLogicType>([
                                 queryId,
                                 view: insight,
                                 scene: scene,
-                                exception: e
+                                exception: e,
                             })
                         }
                         breakpoint()
@@ -385,7 +385,7 @@ export const insightLogic = kea<insightLogicType>([
                             view: insight,
                             scene: scene,
                             lastRefresh: null,
-                            exception: e
+                            exception: e,
                         })
                         if (dashboardItemId && dashboardsModel.isMounted()) {
                             dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
@@ -414,7 +414,7 @@ export const insightLogic = kea<insightLogicType>([
                             cached: response?.is_cached,
                             apiResponseBytes: parseInt(response?._response.headers?.get('Content-Length') ?? 0),
                             apiUrl,
-                        }
+                        },
                     })
                     if (dashboardItemId && dashboardsModel.isMounted()) {
                         dashboardsModel.actions.updateDashboardRefreshStatus(
@@ -927,8 +927,8 @@ export const insightLogic = kea<insightLogicType>([
                 captureTimeToSeeData(values.currentTeamId, {
                     query_id: queryId,
                     status: exception ? 'failure' : 'success',
-                    time_to_see_data: Math.floor(duration),
-                    cached: response?.cached,
+                    time_to_see_data_ms: Math.floor(duration),
+                    cached: !!response?.cached,
                     current_url: window.location.href,
                     api_response_bytes: response?.apiResponseBytes,
                     api_url: response?.apiUrl,
