@@ -12,9 +12,7 @@ FROM node:18.12.1-alpine3.16 AS frontend
 WORKDIR /code
 
 COPY package.json pnpm-lock.yaml ./
-COPY patches patches
-RUN corepack enable
-RUN pnpm install --frozen-lockfile
+RUN corepack enable && pnpm install --frozen-lockfile
 
 COPY frontend/ frontend/
 COPY ./bin/ ./bin/
@@ -43,8 +41,7 @@ RUN apk --update --no-cache add \
 # - we explicitly COPY the files so that we don't need to rebuild
 #   the container every time a dependency changes
 COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
-RUN corepack enable
-RUN pnpm install
+RUN corepack enable && pnpm install
 
 # Build the plugin server
 #
