@@ -1,10 +1,10 @@
-import re
 from enum import Enum
 from functools import wraps
 from typing import Any, Callable, Dict, List, TypeVar, Union, cast
 
 from django.conf import settings
 from django.core.cache import cache
+from django.urls import resolve
 from django.utils.timezone import now
 from rest_framework.request import Request
 from rest_framework.viewsets import GenericViewSet
@@ -31,8 +31,6 @@ ResultPackage = Union[Dict[str, Any], List[Dict[str, Any]]]
 T = TypeVar("T", bound=ResultPackage)
 U = TypeVar("U", bound=GenericViewSet)
 
-path_tag_pattern = re.compile(r"/api/projects/\d+")
-
 
 def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
     @wraps(f)
@@ -52,16 +50,16 @@ def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
             # ignore the bare exception warning. we never want this to fail
             # noinspection PyBroadException
             try:
-                path = path_tag_pattern.sub("", request.path)
+                route = resolve(request.path).route
             except:
-                path = "unknown"
+                route = "unknown"
 
             if cached_result_package and cached_result_package.get("result"):
                 cached_result_package["is_cached"] = True
-                statsd.incr("posthog_cached_function_cache_hit", tags={"path": path})
+                statsd.incr("posthog_cached_function_cache_hit", tags={"route": route})
                 return cached_result_package
             else:
-                statsd.incr("posthog_cached_function_cache_miss", tags={"path": path})
+                statsd.incr("posthog_cached_function_cache_miss", tags={"route": route})
 
         # call function being wrapped
         fresh_result_package = cast(T, f(self, request))
