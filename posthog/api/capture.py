@@ -306,7 +306,7 @@ def get_event(request):
                 request,
                 generate_exception_response(
                     "capture",
-                    "Unable to store event. Please try again. If you are the owner of this app you can check the logs for further details.",
+                    "Unable to store some events. Please try again. If you are the owner of this app you can check the logs for further details.",
                     code="server_error",
                     type="server_error",
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
