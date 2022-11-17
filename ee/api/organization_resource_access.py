@@ -13,14 +13,20 @@ class OrganizationResourceAccessSerializer(serializers.ModelSerializer):
         fields = ["id", "resource", "access_level", "created_at", "updated_at", "created_by"]
         read_only_fields = ["id", "created_at", "created_by"]
 
-    # def validate_resource(self, resource):
-    #     if OrganizationResourceAccess.objects.filter(resource=resource).exists():
-    #         raise serializers.ValidationError("This resource access already exists.", code="unique")
+    def validate_resource(self, resource):
+        if OrganizationResourceAccess.objects.filter(resource=resource).exists():
+            raise serializers.ValidationError("This resource access already exists.", code="unique")
+        return resource
+
+    def create(self, validated_data):
+        validated_data["organization"] = self.context["request"].user.organization
+        return super().create(validated_data)
 
 
 class OrganizationResourceAccessViewSet(
     StructuredViewSetMixin,
     mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,
     mixins.UpdateModelMixin,
     mixins.DestroyModelMixin,

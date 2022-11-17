@@ -12,13 +12,13 @@ class OrganizationResourceAccess(models.Model):
         DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE = 25, "Default view unless role grants access"
 
     class Resources(models.TextChoices):
-        FEATURE_FLAGS = "feature flags"
-        EXPERIMENTS = "experiments"
-        COHORTS = "cohorts"
-        DATA_MANAGEMENT = "data management"
-        SESSION_RECORDINGS = "session recordings"
-        INSIGHTS = "insights"
-        DASHBOARDS = "dashboards"
+        FEATURE_FLAGS = "feature flags", "feature flags"
+        EXPERIMENTS = "experiments", "experiments"
+        COHORTS = "cohorts", "cohorts"
+        DATA_MANAGEMENT = "data management", "data management"
+        SESSION_RECORDINGS = "session recordings", "session recordings"
+        INSIGHTS = "insights", "insights"
+        DASHBOARDS = "dashboards", "dashboards"
 
     resource: models.CharField = models.CharField(max_length=32, choices=Resources.choices)
     access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(

@@ -2,8 +2,8 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
+from ee.models.organization_resource_access import OrganizationResourceAccess
 from ee.models.role import Role
-from posthog.models import Organization
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -19,10 +19,11 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         )
 
     def test_can_always_add_role_access_if_creator_of_feature_flag(self):
-        self.organization.feature_flags_access_level = (
-            Organization.FeatureFlagsAccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE
+        OrganizationResourceAccess.objects.create(
+            resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
+            access_level=OrganizationResourceAccess.AccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE,
+            organization=self.organization,
         )
-        self.organization.save()
         self.assertEqual(self.user.role_memberships.count(), 0)
         flag_role_access_create_res = self.client.post(
             f"/api/organizations/@current/feature_flag_role_access",
@@ -34,8 +35,6 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         self.assertEqual(flag_role.feature_flag.id, self.feature_flag.id)
 
     def test_cannot_add_role_access_if_feature_flags_access_level_too_low_and_not_creator(self):
-        self.organization.feature_flags_access_level = Organization.FeatureFlagsAccessLevel.CAN_ONLY_VIEW
-        self.organization.save()
         self.assertEqual(self.user.role_memberships.count(), 0)
         user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
         flag = FeatureFlag.objects.create(created_by=user_a, key="flag_a", name="Flag A", team=self.team)
@@ -48,7 +47,11 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         self.assertEqual(response_data, self.permission_denied_response("You can't edit roles to this feature flag."))
 
     def test_can_add_role_access_if_role_feature_flags_access_level_allows(self):
-        self.organization.feature_flags_access_level = Organization.FeatureFlagsAccessLevel.CAN_ONLY_VIEW
+        OrganizationResourceAccess.objects.create(
+            resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
+            access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
+            organization=self.organization,
+        )
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization.save()
         self.organization_membership.save()
@@ -57,7 +60,7 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         )
         self.assertEqual(
             self.user.role_memberships.first().role.feature_flags_access_level,  # type: ignore
-            Organization.FeatureFlagsAccessLevel.CAN_ALWAYS_EDIT,
+            OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT,
         )
         user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
         flag = FeatureFlag.objects.create(created_by=user_a, key="flag_a", name="Flag A", team=self.team)
