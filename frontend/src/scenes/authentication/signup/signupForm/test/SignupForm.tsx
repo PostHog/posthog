@@ -52,7 +52,7 @@ export function SignupForm(): JSX.Element | null {
                     </Link>
                 </div>
             )}
-            {!isSignupPanel2Submitting && signupPanel2ManualErrors.generic && (
+            {!isSignupPanel2Submitting && signupPanel2ManualErrors?.generic && (
                 <AlertMessage type="error">
                     {signupPanel2ManualErrors.generic?.detail || 'Could not complete your signup. Please try again.'}
                 </AlertMessage>
