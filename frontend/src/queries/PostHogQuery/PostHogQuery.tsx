@@ -1,11 +1,7 @@
-import { EventsNode, isEventsNode, isLegacyQuery, isSavedInsight, LegacyQuery, Node, SavedInsightNode } from '../nodes'
-import { BindLogic } from 'kea'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { AnyPropertyFilter, InsightLogicProps, ItemMode } from '~/types'
-import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { EventsTable } from 'scenes/events'
-import { useState } from 'react'
-import { AdHocInsight } from 'lib/components/AdHocInsight/AdHocInsight'
+import { isEventsNode, isLegacyQuery, isSavedInsight, Node } from '../nodes'
+import { LegacyInsightQuery } from '~/queries/PostHogQuery/nodes/LegacyInsightQuery'
+import { SavedInsightQuery } from '~/queries/PostHogQuery/nodes/SavedInsightQuery'
+import { EventsNodeQuery } from '~/queries/PostHogQuery/nodes/EventsNodeQuery'
 
 export interface PostHogQueryProps {
     query: Node | string
@@ -31,40 +27,5 @@ export function PostHogQuery({ query }: PostHogQueryProps): JSX.Element {
             <strong>PostHoqQuery error:</strong>{' '}
             {query?.nodeType ? `Invalid node type "${query.nodeType}"` : 'Invalid query'}
         </div>
-    )
-}
-
-export function LegacyInsightQuery({ query }: { query: LegacyQuery }): JSX.Element {
-    const insightProps: InsightLogicProps = { dashboardItemId: 'new', cachedInsight: { filters: query.filters } }
-    return (
-        <BindLogic logic={insightLogic} props={insightProps} key={JSON.stringify(query.filters)}>
-            <AdHocInsight filters={query.filters} style={{ height: 300, border: '1px var(--primary) solid' }} />
-        </BindLogic>
-    )
-}
-
-export function SavedInsightQuery({ query }: { query: SavedInsightNode }): JSX.Element {
-    const insightProps: InsightLogicProps = { dashboardItemId: query.shortId }
-    return (
-        <BindLogic logic={insightLogic} props={insightProps}>
-            <InsightContainer insightMode={ItemMode.View} disableHeader disableTable disableCorrelationTable />
-        </BindLogic>
-    )
-}
-
-let uniqueNode = 0
-export function EventsNodeQuery({ query }: { query: EventsNode }): JSX.Element {
-    const [id] = useState(uniqueNode++)
-
-    return (
-        <EventsTable
-            pageKey={`events-node-${id}`}
-            fixedFilters={{ properties: query.properties as AnyPropertyFilter[] }}
-            showEventFilter={false}
-            showPropertyFilter={false}
-            showAutoload={false}
-            showCustomizeColumns={false}
-            showExport={false}
-        />
     )
 }
