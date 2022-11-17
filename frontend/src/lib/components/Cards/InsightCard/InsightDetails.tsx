@@ -7,7 +7,14 @@ import { BreakdownFilter } from 'scenes/insights/filters/BreakdownFilter'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
 import { apiValueToMathType, MathCategory, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
-import { FilterLogicalOperator, FilterType, InsightModel, InsightType, PropertyGroupFilter } from '~/types'
+import {
+    FilterLogicalOperator,
+    FilterType,
+    InsightModel,
+    InsightType,
+    PathsFilterType,
+    PropertyGroupFilter,
+} from '~/types'
 import { IconCalculate, IconSubdirectoryArrowRight } from '../../icons'
 import { LemonRow } from '../../LemonRow'
 import { LemonDivider } from '../../LemonDivider'
@@ -19,6 +26,12 @@ import { TZLabel } from '../../TimezoneAware'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import React from 'react'
+import { isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import {
+    isAnyPropertyfilter,
+    isCohortPropertyFilter,
+    isPropertyFilterWithOperator,
+} from 'lib/components/PropertyFilters/utils'
 
 function CompactPropertyFiltersDisplay({
     groupFilter,
@@ -56,7 +69,7 @@ function CompactPropertyFiltersDisplay({
                                         : subType === FilterLogicalOperator.Or
                                         ? 'or '
                                         : 'and '}
-                                    {leafFilter.type === 'cohort' ? (
+                                    {isCohortPropertyFilter(leafFilter) ? (
                                         <>
                                             {isFirstFilterOverall && !embedded ? 'Person' : 'person'} belongs to cohort
                                             <span className="SeriesDisplay__raw-name">
@@ -77,13 +90,21 @@ function CompactPropertyFiltersDisplay({
                                                 : leafFilter.type || 'event'}
                                             's
                                             <span className="SeriesDisplay__raw-name">
-                                                {leafFilter.key && <PropertyKeyInfo value={leafFilter.key} />}
+                                                {isAnyPropertyfilter(leafFilter) && leafFilter.key && (
+                                                    <PropertyKeyInfo value={leafFilter.key} />
+                                                )}
                                             </span>
-                                            {allOperatorsMapping[leafFilter.operator || 'exact']}{' '}
+                                            {
+                                                allOperatorsMapping[
+                                                    (isPropertyFilterWithOperator(leafFilter) && leafFilter.operator) ||
+                                                        'exact'
+                                                ]
+                                            }{' '}
                                             <b>
-                                                {Array.isArray(leafFilter.value)
-                                                    ? leafFilter.value.join(' or ')
-                                                    : leafFilter.value}
+                                                {isAnyPropertyfilter(leafFilter) &&
+                                                    (Array.isArray(leafFilter.value)
+                                                        ? leafFilter.value.join(' or ')
+                                                        : leafFilter.value)}
                                             </b>
                                         </>
                                     )}
@@ -171,7 +192,7 @@ function SeriesDisplay({
     )
 }
 
-function PathsSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
+function PathsSummary({ filters }: { filters: Partial<PathsFilterType> }): JSX.Element {
     // Sync format with summarizePaths in utils
     return (
         <div className="SeriesDisplay">
@@ -199,7 +220,7 @@ export function QuerySummary({ filters }: { filters: Partial<FilterType> }): JSX
         <>
             <h5>Query summary</h5>
             <section className="InsightDetails__query">
-                {filters.formula && (
+                {isTrendsFilter(filters) && filters.formula && (
                     <>
                         <LemonRow className="InsightDetails__formula" icon={<IconCalculate />} fullWidth>
                             <span>
@@ -269,8 +290,7 @@ export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }):
             <BreakdownFilter
                 filters={filters}
                 useMultiBreakdown={
-                    filters.insight === InsightType.FUNNELS &&
-                    !!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
+                    isFunnelsFilter(filters) && !!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
                 }
             />
         </div>

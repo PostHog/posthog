@@ -69,7 +69,7 @@ describe('emitToBufferStep()', () => {
             topic: KAFKA_BUFFER,
             messages: [
                 {
-                    key: '2',
+                    key: 'my_id',
                     value: JSON.stringify(pluginEvent),
                     headers: {
                         eventId: pluginEvent.uuid,
@@ -163,20 +163,22 @@ describe('shouldSendEventToBuffer()', () => {
         expect(result).toEqual(false)
     })
 
-    it('returns false for $identify events for non-existing users', () => {
+    it('returns false for merging $identify events for non-existing users', () => {
         const event = {
             ...pluginEvent,
             event: '$identify',
+            properties: { $anon_distinct_id: 'some-id' },
         }
 
         const result = shouldSendEventToBuffer(runner.hub, event, undefined, 2)
         expect(result).toEqual(false)
     })
 
-    it('returns false for $identify events for new users', () => {
+    it('returns false for merging $identify events for new users', () => {
         const event = {
             ...pluginEvent,
             event: '$identify',
+            properties: { $anon_distinct_id: 'some-id' },
         }
         const person = {
             ...existingPerson,
@@ -187,10 +189,31 @@ describe('shouldSendEventToBuffer()', () => {
         expect(result).toEqual(false)
     })
 
-    it('returns false for $create_alias events', () => {
+    it('returns true for non merging $identify events', () => {
+        const event = {
+            ...pluginEvent,
+            event: '$identify',
+        }
+
+        const result = shouldSendEventToBuffer(runner.hub, event, undefined, 2)
+        expect(result).toEqual(true)
+    })
+
+    it('returns true for non merging $create_alias events', () => {
         const event = {
             ...pluginEvent,
             event: '$create_alias',
+        }
+
+        const result = shouldSendEventToBuffer(runner.hub, event, undefined, 2)
+        expect(result).toEqual(true)
+    })
+
+    it('returns false for merging $create_alias events', () => {
+        const event = {
+            ...pluginEvent,
+            event: '$create_alias',
+            properties: { alias: 'some-id' },
         }
 
         const result = shouldSendEventToBuffer(runner.hub, event, undefined, 2)

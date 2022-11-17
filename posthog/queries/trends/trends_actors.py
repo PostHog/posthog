@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -15,6 +15,7 @@ from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.trends.trends_event_query import TrendsEventQuery
+from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS, process_math
 
 
 def _handle_date_interval(filter: Filter) -> Filter:
@@ -33,6 +34,8 @@ def _handle_date_interval(filter: Filter) -> Filter:
 
 
 class TrendsActors(ActorBaseQuery):
+    ACTOR_VALUES_INCLUDED = True
+
     entity: Entity
     _filter: Filter
 
@@ -129,15 +132,18 @@ class TrendsActors(ActorBaseQuery):
             else ""
         )
 
+        actor_value_expression, actor_value_params = self._aggregation_actor_value_expression_with_params
+
         return (
             GET_ACTORS_FROM_EVENT_QUERY.format(
                 id_field=self._aggregation_actor_field,
+                actor_value_expression=actor_value_expression,
                 matching_events_select_statement=matching_events_select_statement,
                 events_query=events_query,
                 limit="LIMIT %(limit)s" if limit_actors else "",
                 offset="OFFSET %(offset)s" if limit_actors else "",
             ),
-            {**params, "offset": self._filter.offset, "limit": self._filter.limit or 100},
+            {**params, **actor_value_params, "offset": self._filter.offset, "limit": self._filter.limit or 100},
         )
 
     @cached_property
@@ -147,3 +153,10 @@ class TrendsActors(ActorBaseQuery):
             return f"$group_{group_type_index}"
         else:
             return "person_id"
+
+    @cached_property
+    def _aggregation_actor_value_expression_with_params(self) -> Tuple[str, Dict[str, Any]]:
+        if self.entity.math in PROPERTY_MATH_FUNCTIONS:
+            math_aggregate_operation, _, math_params = process_math(self.entity, self._team, event_table_alias="e")
+            return math_aggregate_operation, math_params
+        return "count()", {}

@@ -20,7 +20,7 @@ import 'chartjs-adapter-dayjs-3'
 import { areObjectValuesEmpty, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
-import { FilterType, GraphDataset, GraphPoint, GraphPointPayload, GraphType, InsightType } from '~/types'
+import { GraphDataset, GraphPoint, GraphPointPayload, GraphType, InsightType, TrendsFilterType } from '~/types'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -47,7 +47,7 @@ export interface LineGraphProps {
     isCompare?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
     labelGroupType: number | 'people' | 'none'
-    filters?: Partial<FilterType>
+    filters?: Partial<TrendsFilterType>
 }
 
 export function ensureTooltipElement(): HTMLElement {

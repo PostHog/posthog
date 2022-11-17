@@ -5,6 +5,7 @@ INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 
 
 # N.B. Keep this in sync with frontend enum (types.ts)
+# AND ensure it is added to the Billing Service
 class AvailableFeature(str, Enum):
     ZAPIER = "zapier"
     ORGANIZATIONS_PROJECTS = "organizations_projects"
@@ -25,12 +26,14 @@ class AvailableFeature(str, Enum):
     WHITE_LABELLING = "white_labelling"
     SUBSCRIPTIONS = "subscriptions"
     APP_METRICS = "app_metrics"
+    RECORDINGS_PLAYLISTS = "recordings_playlists"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 
 SESSION_RECORDINGS_FILTER_TYPE_DURATION = "session_recording_duration"
+SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
 
 TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
 TRENDS_LINEAR = "ActionsLineGraph"
@@ -184,6 +187,7 @@ PATH_MIN_EDGE_WEIGHT = "min_edge_weight"
 PATH_MAX_EDGE_WEIGHT = "max_edge_weight"
 AGGREGATION_GROUP_TYPE_INDEX = "aggregation_group_type_index"
 BREAKDOWN_HISTOGRAM_BIN_COUNT = "breakdown_histogram_bin_count"
+BREAKDOWN_NORMALIZE_URL = "breakdown_normalize_url"
 
 BREAKDOWN_TYPES = Literal["event", "person", "cohort", "group", "session"]
 

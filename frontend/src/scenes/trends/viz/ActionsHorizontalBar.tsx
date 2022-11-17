@@ -11,6 +11,7 @@ import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 type DataSet = any
 
@@ -83,7 +84,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
             showPersonsModal={showPersonsModal}
             filters={insight.filters}
             onClick={
-                !showPersonsModal || insight.filters?.formula
+                !showPersonsModal || (isTrendsFilter(insight.filters) && insight.filters.formula)
                     ? undefined
                     : (point) => {
                           const { index, points, crossDataset } = point

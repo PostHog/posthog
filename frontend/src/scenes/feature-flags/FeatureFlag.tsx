@@ -44,7 +44,9 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagRecordings } from './FeatureFlagRecordingsCard'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { LemonSelect } from '@posthog/lemon-ui'
 import { EventsTable } from 'scenes/events'
+import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -135,7 +137,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </Link>
                             </AlertMessage>
                         )}
-                        <EventBufferNotice additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons. To sidestep this, you can choose to override server properties when requesting the feature flag." />
+                        <EventBufferNotice additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons. To sidestep this, you can choose to override server properties when requesting the feature flag" />
                         <Row gutter={16} style={{ marginBottom: 32 }}>
                             <Col span={12} className="space-y-4">
                                 <Field
@@ -445,7 +447,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                 </Row>
                                 <LemonDivider className="my-3" />
                                 {variants.map((variant, index) => (
-                                    <>
+                                    <div key={index}>
                                         <Row>
                                             <Col span={10}>
                                                 <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
@@ -466,7 +468,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                             <Col span={2}>{variant.rollout_percentage}%</Col>
                                         </Row>
                                         {index !== variants.length - 1 && <LemonDivider className="my-3" />}
-                                    </>
+                                    </div>
                                 ))}
                             </div>
                         </>
@@ -662,7 +664,8 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
 
 function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element {
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
-    const { aggregationTargetName, featureFlag, groupTypes, taxonomicGroupTypes } = useValues(featureFlagLogic)
+    const { aggregationTargetName, featureFlag, groupTypes, taxonomicGroupTypes, nonEmptyVariants } =
+        useValues(featureFlagLogic)
     const {
         setAggregationGroupTypeIndex,
         updateConditionSet,
@@ -671,6 +674,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
         addConditionSet,
     } = useActions(featureFlagLogic)
     const { cohortsById } = useValues(cohortsModel)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
 
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption({ value: -2 })
@@ -815,7 +819,9 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                                 <span className="simple-tag tag-light-blue text-primary-alt">
                                                     {property.type === 'cohort' ? 'Cohort' : property.key}{' '}
                                                 </span>
-                                                <span>{allOperatorsToHumanName(property.operator)} </span>
+                                                {isPropertyFilterWithOperator(property) ? (
+                                                    <span>{allOperatorsToHumanName(property.operator)} </span>
+                                                ) : null}
                                                 {[
                                                     ...(Array.isArray(property.value)
                                                         ? property.value
@@ -880,6 +886,51 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                         of <b>{aggregationTargetName}</b> in this set
                                     </div>
                                 </div>
+                            )}
+                            {featureFlags[FEATURE_FLAGS.VARIANT_OVERRIDES] && nonEmptyVariants.length > 0 && (
+                                <>
+                                    {(!readOnly || (readOnly && group.properties?.length > 0)) && (
+                                        <LemonDivider className="my-3" />
+                                    )}
+                                    {readOnly ? (
+                                        <div>
+                                            All <b>{aggregationTargetName}</b> in this set{' '}
+                                            {group.variant ? (
+                                                <>
+                                                    {' '}
+                                                    will be in variant <b>{group.variant}</b>
+                                                </>
+                                            ) : (
+                                                <>have no variant override</>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="feature-flag-form-row">
+                                            <div className="centered">
+                                                <b>Optional override:</b> Set variant for all{' '}
+                                                <b>{aggregationTargetName}</b> in this set to{' '}
+                                                <LemonSelect
+                                                    placeholder="Select variant"
+                                                    allowClear={true}
+                                                    value={group.variant}
+                                                    onChange={(value) =>
+                                                        updateConditionSet(
+                                                            index,
+                                                            undefined,
+                                                            undefined,
+                                                            value || undefined
+                                                        )
+                                                    }
+                                                    options={nonEmptyVariants.map((variant) => ({
+                                                        label: variant.key,
+                                                        value: variant.key,
+                                                    }))}
+                                                    data-attr="feature-flags-variant-override-select"
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
                             )}
                         </div>
                     </Col>

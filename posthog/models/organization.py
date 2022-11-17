@@ -112,6 +112,7 @@ class Organization(UUIDModel):
     is_member_join_email_enabled: models.BooleanField = models.BooleanField(default=True)
 
     # Managed by Billing
+    customer_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
     # Managed by Billing, cached here for usage controls
     # Like {

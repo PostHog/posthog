@@ -178,9 +178,9 @@ export function Person(): JSX.Element | null {
                         </div>
                     ) : null}
                     <SessionRecordingsPlaylist
-                        key={person.uuid} // force refresh if user changes
+                        logicKey={person.uuid || 'persons'} // force refresh if user changes
                         personUUID={person.uuid}
-                        isPersonPage
+                        updateSearchParams
                     />
                 </TabPane>
 

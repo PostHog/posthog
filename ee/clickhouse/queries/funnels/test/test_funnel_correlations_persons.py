@@ -1,7 +1,7 @@
 import urllib.parse
 from datetime import datetime, timedelta
 from unittest.mock import patch
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from django.utils import timezone
 from freezegun import freeze_time
@@ -10,7 +10,7 @@ from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorre
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Cohort, Filter
 from posthog.models.person import Person
-from posthog.models.session_recording_event.util import create_session_recording_event
+from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter
 from posthog.test.base import (
     APIBaseTest,
@@ -25,18 +25,6 @@ FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0
 COUNT_COLUMN = 1
 PERSON_ID_COLUMN = 2
-
-
-def _create_session_recording_event(team_id, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True):
-    create_session_recording_event(
-        uuid=uuid4(),
-        team_id=team_id,
-        distinct_id=distinct_id,
-        timestamp=timestamp,
-        session_id=session_id,
-        window_id=window_id,
-        snapshot_data={"timestamp": timestamp.timestamp(), "has_full_snapshot": has_full_snapshot},
-    )
 
 
 class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
@@ -284,7 +272,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             event_uuid="21111111-1111-1111-1111-111111111111",
         )
 
-        _create_session_recording_event(self.team.pk, "user_1", "s2", datetime(2021, 1, 2, 0, 0, 0))
+        create_session_recording_events(self.team.pk, datetime(2021, 1, 2, 0, 0, 0), "user_1", "s2")
 
         # Success filter
         filter = Filter(
@@ -375,7 +363,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             event_uuid="21111111-1111-1111-1111-111111111111",
         )
 
-        _create_session_recording_event(self.team.pk, "user_1", "s2", datetime(2021, 1, 2, 0, 0, 0))
+        create_session_recording_events(self.team.pk, datetime(2021, 1, 2, 0, 0, 0), "user_1", "s2")
 
         # Success filter
         filter = Filter(
@@ -441,7 +429,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": "s2", "$window_id": "w2"},
             event_uuid="41111111-1111-1111-1111-111111111111",
         )
-        _create_session_recording_event(self.team.pk, "user_1", "s2", datetime(2021, 1, 2, 0, 0, 0))
+        create_session_recording_events(self.team.pk, datetime(2021, 1, 2, 0, 0, 0), "user_1", "s2")
 
         # Second user with strict funnel drop off, but completed the step events for a normal funnel
         p2 = _create_person(distinct_ids=["user_2"], team=self.team, properties={"foo": "bar"})
@@ -469,7 +457,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": "s3", "$window_id": "w2"},
             event_uuid="71111111-1111-1111-1111-111111111111",
         )
-        _create_session_recording_event(self.team.pk, "user_2", "s3", datetime(2021, 1, 2, 0, 0, 0))
+        create_session_recording_events(self.team.pk, datetime(2021, 1, 2, 0, 0, 0), "user_2", "s3")
 
         # Success filter
         filter = Filter(

@@ -483,7 +483,7 @@
                                  AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(person.properties, 'foo'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                          AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['$pageview', 'insight analyzed']
                          AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
@@ -628,7 +628,7 @@
                                  AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(person.properties, 'foo'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                          AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
@@ -771,7 +771,7 @@
                                  AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(person.properties, 'foo'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                          AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events

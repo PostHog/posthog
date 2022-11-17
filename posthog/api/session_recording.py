@@ -181,7 +181,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             {
                 "result": {
                     "session_recording": session_recording_serializer.data,
-                    "person": PersonSerializer(instance=person).data,
+                    "person": PersonSerializer(instance=person).data if person else None,
                 }
             }
         )

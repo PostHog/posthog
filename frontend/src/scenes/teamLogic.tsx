@@ -1,7 +1,7 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import type { teamLogicType } from './teamLogicType'
-import { TeamType } from '~/types'
+import { CorrelationConfigType, TeamType } from '~/types'
 import { userLogic } from './userLogic'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { organizationLogic } from './organizationLogic'
@@ -76,6 +76,8 @@ export const teamLogic = kea<teamLogicType>([
                                   payload.slack_incoming_webhook
                               )}`
                             : 'Webhook integration disabled'
+                    } else if (updatedAttribute === 'completed_snippet_onboarding') {
+                        message = "Congrats! You're now ready to use PostHog."
                     } else {
                         message = `${parseUpdatedAttributeName(updatedAttribute)} updated successfully!`
                     }
@@ -126,7 +128,7 @@ export const teamLogic = kea<teamLogicType>([
         ],
         funnelCorrelationConfig: [
             (selectors) => [selectors.currentTeam],
-            (currentTeam): Partial<TeamType['correlation_config']> => {
+            (currentTeam): CorrelationConfigType => {
                 return currentTeam?.correlation_config || {}
             },
         ],

@@ -1,5 +1,4 @@
 import json
-import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Union
 from unittest.mock import patch
@@ -195,18 +194,32 @@ def trend_test_factory(trends):
             self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
             self.assertEqual(response[0]["data"][5], 1.0)
 
+        @snapshot_clickhouse_queries
         def test_trend_actors_person_on_events_pagination_with_alias_inconsistencies(self):
+            test_person_ids = [  # 10 test person IDs (in UUIDT format), hard-coded for deterministic runs
+                "016f70a4-1c68-0000-db29-61f63a926520",
+                "016f70a4-1c68-0001-51a1-ad418c05e09f",
+                "016f70a4-1c68-0002-9ea5-10186329258f",
+                "016f70a4-1c68-0003-7680-697adb073c10",
+                "016f70a4-1c68-0004-d0f8-7bd581c97eff",
+                "016f70a4-1c68-0005-f593-e89d76db7a1f",
+                "016f70a4-1c68-0006-bb84-d42937ef5989",
+                "016f70a4-1c68-0007-923f-82720e97a6ba",
+                "016f70a4-1c68-0008-8970-cbb33f01de1e",
+                "016f70a4-1c68-0009-75a2-3755450b0b17",
+            ]
+
             with freeze_time("2020-01-04T13:00:01Z"):
                 all_distinct_ids = []
-                for i in range(10):
+                for i, person_id in enumerate(test_person_ids):
                     distinct_id = f"blabla_{i}"
-                    last_uuid = uuid.uuid4()
+                    # UUIDT offers k-sortability, making this test effectively deterministic, as opposed to UUIDv4
                     _create_event(
                         team=self.team,
                         event="sign up",
                         distinct_id=distinct_id,
                         properties={"$some_property": "value", "$bool_prop": True},
-                        person_id=last_uuid,  # different person_ids, but in the end aliased to be the same person
+                        person_id=person_id,  # Different person_ids, but in the end aliased to be the same person
                     )
                     all_distinct_ids.append(distinct_id)
 
@@ -214,8 +227,9 @@ def trend_test_factory(trends):
                     team_id=self.team.pk,
                     distinct_ids=all_distinct_ids,
                     properties={"$some_prop": "some_val"},
-                    uuid=last_uuid,
+                    uuid=test_person_ids[-1],
                 )
+                flush_persons_and_events()
 
                 data = {"date_from": "-7d", "events": [{"id": "sign up", "math": "dau"}], "limit": 5}
 
@@ -232,14 +246,13 @@ def trend_test_factory(trends):
 
                     # pagination works, no matter how few ids in people_response
                     self.assertIsNotNone(people_response["next"])
-                    self.assertTrue(people_response["missing_persons"] >= 4)
+                    self.assertEqual(people_response["missing_persons"], 5)
 
                     next_url = people_response["next"]
                     second_people_response = self.client.get(f"{next_url}").json()
 
                     self.assertIsNotNone(second_people_response["next"])
-                    self.assertTrue(second_people_response["missing_persons"] >= 4)
-                    self.assertTrue(second_people_response["missing_persons"] + people_response["missing_persons"] == 9)
+                    self.assertEqual(second_people_response["missing_persons"], 4)
 
                     first_load_ids = sorted(str(person["id"]) for person in people_response["results"][0]["people"])
                     second_load_ids = sorted(
@@ -3209,7 +3222,11 @@ def trend_test_factory(trends):
                     self.assertEqual(response["count"], 3)
 
         def test_breakdown_by_property_pie(self):
-            person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"], immediate=True)
+            with freeze_time("2020-01-01T12:00:00Z"):  # Fake created_at for easier assertions
+                person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"], immediate=True)
+                person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"], immediate=True)
+                person3 = _create_person(team_id=self.team.pk, distinct_ids=["person3"], immediate=True)
+
             _create_event(
                 team=self.team,
                 event="watched movie",
@@ -3218,7 +3235,13 @@ def trend_test_factory(trends):
                 properties={"fake_prop": "value_1"},
             )
 
-            person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"], immediate=True)
+            _create_event(
+                team=self.team,
+                event="watched movie",
+                distinct_id="person2",
+                timestamp="2020-01-01T12:00:00Z",
+                properties={"fake_prop": "value_1"},
+            )
             _create_event(
                 team=self.team,
                 event="watched movie",
@@ -3234,7 +3257,6 @@ def trend_test_factory(trends):
                 properties={"fake_prop": "value_2"},
             )
 
-            person3 = _create_person(team_id=self.team.pk, distinct_ids=["person3"], immediate=True)
             _create_event(
                 team=self.team,
                 event="watched movie",
@@ -3266,18 +3288,63 @@ def trend_test_factory(trends):
                 event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
 
                 entity = Entity({"id": "watched movie", "type": "events", "math": "dau"})
-                data.update({"breakdown_value": "value_1"})
-                people = self._get_trend_people(Filter(data=data), entity)
 
-                # TODO: improve ee/postgres handling
-                value_1_ids = sorted(str(person["id"]) for person in people)
-                self.assertTrue(value_1_ids == sorted([str(person1.uuid), str(person2.uuid), str(person3.uuid)]))
+                people_value_1 = self._get_trend_people(Filter(data={**data, "breakdown_value": "value_1"}), entity)
+                assert people_value_1 == [
+                    # Persons with higher value come first
+                    {
+                        "created_at": "2020-01-01T12:00:00Z",
+                        "distinct_ids": ["person2"],
+                        "id": str(person2.uuid),
+                        "is_identified": False,
+                        "matched_recordings": [],
+                        "name": "person2",
+                        "properties": {},
+                        "type": "person",
+                        "uuid": str(person2.uuid),
+                        "value_at_data_point": 2,  # 2 events with fake_prop="value_1" in the time range
+                    },
+                    {
+                        "created_at": "2020-01-01T12:00:00Z",
+                        "distinct_ids": ["person1"],
+                        "id": str(person1.uuid),
+                        "is_identified": False,
+                        "matched_recordings": [],
+                        "name": "person1",
+                        "properties": {},
+                        "type": "person",
+                        "uuid": str(person1.uuid),
+                        "value_at_data_point": 1,  # 1 event with fake_prop="value_1" in the time range
+                    },
+                    {
+                        "created_at": "2020-01-01T12:00:00Z",
+                        "distinct_ids": ["person3"],
+                        "id": str(person3.uuid),
+                        "is_identified": False,
+                        "matched_recordings": [],
+                        "name": "person3",
+                        "properties": {},
+                        "type": "person",
+                        "uuid": str(person3.uuid),
+                        "value_at_data_point": 1,  # 1 event with fake_prop="value_1" in the time range
+                    },
+                ]
 
-                data.update({"breakdown_value": "value_2"})
-                people = self._get_trend_people(Filter(data=data), entity)
-
-                value_2_ids = [str(person["id"]) for person in people]
-                self.assertTrue(value_2_ids == [str(person2.uuid)])
+                people_value_2 = self._get_trend_people(Filter(data={**data, "breakdown_value": "value_2"}), entity)
+                assert people_value_2 == [
+                    {
+                        "created_at": "2020-01-01T12:00:00Z",
+                        "distinct_ids": ["person2"],
+                        "id": str(person2.uuid),
+                        "is_identified": False,
+                        "matched_recordings": [],
+                        "name": "person2",
+                        "properties": {},
+                        "type": "person",
+                        "uuid": str(person2.uuid),
+                        "value_at_data_point": 1,  # 1 event with fake_prop="value_2" in the time range
+                    }
+                ]
 
         @test_with_materialized_columns(person_properties=["name"])
         def test_breakdown_by_person_property_pie(self):
@@ -5249,6 +5316,36 @@ def trend_test_factory(trends):
                 "2020-01-07",
             ]
             assert daily_response[0]["data"] == [2.0, 0.0, 0.0, 1.0, 3.0, 0.0, 0.0]
+
+        def test_trends_breakdown_timezone(self):
+            self.team.timezone = "US/Pacific"
+            self.team.save()
+            self._create_event_count_per_user_events()
+
+            with freeze_time("2020-01-03 19:06:34"):
+                _create_person(team_id=self.team.pk, distinct_ids=["another_user"])
+                _create_event(
+                    team=self.team, event="viewed video", distinct_id="another_user", properties={"color": "orange"}
+                )
+
+            daily_response = trends().run(
+                Filter(
+                    data={
+                        "display": TRENDS_LINEAR,
+                        "events": [{"id": "viewed video", "math": "dau"}],
+                        "breakdown": "color",
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-03-07",
+                        "interval": "month",
+                    }
+                ),
+                self.team,
+            )
+
+            # assert len(daily_response) == 4
+            assert daily_response[0]["days"] == ["2020-01-01", "2020-02-01", "2020-03-01"]
+            assert daily_response[1]["days"] == ["2020-01-01", "2020-02-01", "2020-03-01"]
+            assert daily_response[2]["days"] == ["2020-01-01", "2020-02-01", "2020-03-01"]
 
         def test_trends_volume_per_user_average_with_event_property_breakdown(self):
             self._create_event_count_per_user_events()

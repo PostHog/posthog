@@ -54,10 +54,10 @@
             AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', ''))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
+     AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = 'event_name'
-    AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC'))
+    AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC')), 'UTC')
     AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
   '
 ---
@@ -68,7 +68,7 @@
   FROM events e
   WHERE team_id = 2
     AND event = 'viewed'
-    AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC'))
+    AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
   '
 ---
@@ -93,7 +93,7 @@
      HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = 'viewed'
-    AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC'))
+    AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
     AND (pdi.person_id IN
            (SELECT id
@@ -106,7 +106,7 @@
                    AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))) )
             GROUP BY id
             HAVING max(is_deleted) = 0
-            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))))
+            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))
   '
 ---
 # name: TestEventQuery.test_denormalised_props
@@ -117,7 +117,7 @@
   FROM events e
   WHERE team_id = 2
     AND event = 'user signed up'
-    AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+    AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
     AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
     AND ((has(['hi'], "mat_test_prop"))
          AND (has(['hi'], "mat_test_prop")))
@@ -130,7 +130,7 @@
   FROM events e
   WHERE team_id = 2
     AND event = 'event_name'
-    AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC'))
+    AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC')), 'UTC')
     AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
     AND (((match(elements_chain, '(^|;)label(\\.|$|;|:)'))))
   '
@@ -142,7 +142,7 @@
   FROM events e
   WHERE team_id = 2
     AND event = 'event_name'
-    AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC'))
+    AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC')), 'UTC')
     AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
     AND (0 = 192)
   '
@@ -168,7 +168,7 @@
      HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = '$pageview'
-    AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC'))
+    AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
     AND (pdi.person_id IN
            (SELECT id
@@ -181,7 +181,7 @@
                    AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))) )
             GROUP BY id
             HAVING max(is_deleted) = 0
-            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))))
+            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))
   '
 ---
 # name: TestEventQuery.test_entity_filtered_by_multiple_session_duration_filters
@@ -239,7 +239,7 @@
   FROM events e
   WHERE team_id = 2
     AND event = 'viewed'
-    AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC'))
+    AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
     AND (has(['test_val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'some_key'), '^"|"$', '')))
   '
@@ -251,7 +251,7 @@
   FROM events e
   WHERE team_id = 2
     AND event = 'viewed'
-    AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC'))
+    AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
     AND (has(['test_val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'some_key'), '^"|"$', '')))
   '
@@ -277,7 +277,7 @@
      GROUP BY group_key) groups_1 ON "$group_1" == groups_1.group_key
   WHERE team_id = 2
     AND event = '$pageview'
-    AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+    AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
     AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
     AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
          AND (has(['value'], replaceRegexpAll(JSONExtractRaw(group_properties_1, 'another'), '^"|"$', ''))))
@@ -307,7 +307,7 @@
             AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', '')))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+     AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))))) person ON person.id = pdi.person_id
   INNER JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0
@@ -317,7 +317,7 @@
      GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
   WHERE team_id = 2
     AND event = '$pageview'
-    AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+    AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
     AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
     AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))))
   '
@@ -343,7 +343,7 @@
      HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = 'viewed'
-    AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC'))
+    AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
     AND (pdi.person_id IN
            (SELECT person_id as id

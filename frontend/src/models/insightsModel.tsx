@@ -18,6 +18,10 @@ export const insightsModel = kea<insightsModelType>({
             dashboardId,
         }),
         duplicateInsightSuccess: (item: InsightModel) => ({ item }),
+        insightsAddedToDashboard: ({ dashboardId, insightIds }: { dashboardId: number; insightIds: number[] }) => ({
+            dashboardId,
+            insightIds,
+        }),
     }),
     listeners: ({ actions }) => ({
         renameInsight: async ({ item }) => {

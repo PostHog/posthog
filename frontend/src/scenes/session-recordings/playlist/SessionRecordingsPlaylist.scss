@@ -4,6 +4,7 @@
 .SessionRecordingsPlaylist {
     display: flex;
     flex-direction: column-reverse;
+    align-items: flex-start;
     gap: 1rem;
     overflow: hidden;
 
@@ -14,11 +15,12 @@
 
     .SessionRecordingsPlaylist__left-column {
         flex-shrink: 0;
+        width: 100%;
 
         @include screen($md) {
             width: 30%;
             min-width: 350px;
-            max-width: 500px;
+            max-width: 400px;
         }
 
         .SessionRecordingsPlaylist__list-item {
@@ -39,6 +41,7 @@
     .SessionRecordingsPlaylist__right-column {
         flex: 1;
         overflow: hidden;
+        width: 100%;
 
         .SessionRecordingsPlaylist__loading {
             display: flex;
