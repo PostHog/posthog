@@ -2,11 +2,7 @@ import hashlib
 import json
 import re
 from datetime import datetime
-<<<<<<< HEAD
-from typing import Any, Dict, List, Optional, Tuple
-=======
-from typing import Any, Dict, Iterator, Optional, Tuple
->>>>>>> e5e577a4b (conditional handlers and tests)
+from typing import Any, Dict, List, Iterator, Optional, Tuple
 
 import structlog
 from dateutil import parser
@@ -35,7 +31,7 @@ from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.logging.timing import timed
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
-from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS
 from posthog.utils import cors_response, get_ip_address
 
 logger = structlog.get_logger(__name__)
@@ -224,7 +220,7 @@ def get_event(request):
     ingestion_context = None
     send_events_to_dead_letter_queue = False
 
-    if token not in settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
+    if token not in LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
         ingestion_context, db_error, error_response = get_event_ingestion_context(request, data, token)
 
         if error_response:
@@ -291,7 +287,7 @@ def get_event(request):
         team_id = ingestion_context.team_id if ingestion_context else None
         try:
             futures.append(
-                capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid)  # type: ignore
+                capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid, token)  # type: ignore
             )
         except Exception as e:
             capture_exception(e, {"data": data})
@@ -372,7 +368,7 @@ def parse_event(event):
     return event
 
 
-def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid=None):
+def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid=None, token=None) -> None:
     if event_uuid is None:
         event_uuid = UUIDT()
 
@@ -385,6 +381,7 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
         now=now,
         sent_at=sent_at,
         event_uuid=event_uuid,
+        token=token,
     )
 
     # We aim to always partition by {team_id}:{distinct_id} but allow
