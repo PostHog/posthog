@@ -34,6 +34,11 @@ export async function startQueues(
             server.lastActivityType = 'runEventPipeline'
             return piscina.run({ task: 'runEventPipeline', args: { event } })
         },
+        runLightweightCaptureEndpointEventPipeline: (event: PipelineEvent) => {
+            server.lastActivity = new Date().valueOf()
+            server.lastActivityType = 'runLightweightCaptureEndpointEventPipeline'
+            return piscina.run({ task: 'runLightweightCaptureEndpointEventPipeline', args: { event } })
+        },
         ...workerMethods,
     }
 

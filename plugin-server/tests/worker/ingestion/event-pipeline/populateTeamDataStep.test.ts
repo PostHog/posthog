@@ -31,7 +31,7 @@ const team: Team = {
 let runner: any
 
 beforeEach(() => {
-    const db = { fetchTeamFromToken: jest.fn().mockResolvedValue(team) }
+    const db = { fetchTeamByToken: jest.fn().mockResolvedValue(team) }
 
     runner = {
         nextStep: (...args: any[]) => args,
@@ -74,7 +74,7 @@ describe('populateTeamDataStep()', () => {
     })
 
     it('team has anonymize_ips set', async () => {
-        runner.hub.db.fetchTeamFromToken = jest.fn().mockResolvedValue({ ...team, anonymize_ips: true })
+        runner.hub.db.fetchTeamByToken = jest.fn().mockResolvedValue({ ...team, anonymize_ips: true })
 
         const response = await populateTeamDataStep(runner, { ...pipelineEvent, team_id: undefined })
 

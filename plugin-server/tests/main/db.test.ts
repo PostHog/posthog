@@ -1206,12 +1206,12 @@ describe('DB', () => {
         })
     })
 
-    describe('fetchTeamFromToken()', () => {
+    describe('fetchTeamByToken()', () => {
         it('fetches a team by token', async () => {
             const organizationId = await createOrganization(db.postgres)
             const teamId = await createTeam(db.postgres, organizationId, 'token1')
 
-            const fetchedTeam = await hub.db.fetchTeamFromToken('token1')
+            const fetchedTeam = await hub.db.fetchTeamByToken('token1')
             expect(fetchedTeam).toEqual({
                 anonymize_ips: false,
                 api_token: 'token1',

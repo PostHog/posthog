@@ -48,7 +48,14 @@ export async function ingestEvent(
 
     server.statsd?.increment('kafka_queue_ingest_event_hit')
 
-    await workerMethods.runEventPipeline(event)
+    // Eventually no events will have a team_id as that will be determined and
+    // populated in the plugin server rather than the capture endpoint. However,
+    // we support both paths during the transitional period.
+    if (event.team_id) {
+        await workerMethods.runEventPipeline(event)
+    } else {
+        await workerMethods.runLightweightCaptureEndpointEventPipeline(event)
+    }
 
     server.statsd?.timing('kafka_queue.each_event', eachEventStartTimer)
     server.internalMetrics?.incr('$$plugin_server_events_processed')

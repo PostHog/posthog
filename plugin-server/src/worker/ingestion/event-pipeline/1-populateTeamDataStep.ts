@@ -6,16 +6,12 @@ import { EventPipelineRunner, StepResult } from './runner'
 // TRICKY: team_id is optional on PipelineEvent but not for PluginEvent
 // Only do the type asserton to PluginEvent having verified team_id exists
 export async function populateTeamDataStep(runner: EventPipelineRunner, event: PipelineEvent): Promise<StepResult> {
-    if (event.team_id) {
-        return runner.nextStep('emitToBufferStep', event as PluginEvent)
-    }
-
     if (!event.token) {
         runner.hub.statsd?.increment('dropped_event_with_no_team', { token_set: 'false' })
         return null
     }
 
-    const team = await runner.hub.teamManager.fetchTeam(null, event.token)
+    const team = await runner.hub.teamManager.getTeamByToken(event.token)
     if (!team) {
         runner.hub.statsd?.increment('dropped_event_with_no_team', { token_set: 'true' })
         return null

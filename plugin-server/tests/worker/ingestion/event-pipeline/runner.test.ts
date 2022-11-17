@@ -1,3 +1,4 @@
+import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { Person, PipelineEvent, PreIngestionEvent } from '../../../../src/types'
@@ -41,7 +42,20 @@ class TestEventPipelineRunner extends EventPipelineRunner {
     }
 }
 
-const pluginEvent: PipelineEvent = {
+const pipelineEvent: PipelineEvent = {
+    distinct_id: 'my_id',
+    ip: '127.0.0.1',
+    site_url: 'http://localhost',
+    team_id: null,
+    token: 'token1',
+    now: '2020-02-23T02:15:00.000Z',
+    timestamp: '2020-02-23T02:15:00.000Z',
+    event: 'default event',
+    properties: {},
+    uuid: 'uuid1',
+}
+
+const pluginEvent: PluginEvent = {
     distinct_id: 'my_id',
     ip: '127.0.0.1',
     site_url: 'http://localhost',
@@ -109,9 +123,9 @@ describe('EventPipelineRunner', () => {
         jest.mocked(runAsyncHandlersStep).mockResolvedValue(null)
     })
 
-    describe('runEventPipeline()', () => {
-        it('runs all steps if team_id is not set', async () => {
-            await runner.runEventPipeline({ ...pluginEvent, team_id: null })
+    describe('runLightweightCaptureEndpointEventPipeline()', () => {
+        it('runs steps starting from emitToBufferStep', async () => {
+            await runner.runLightweightCaptureEndpointEventPipeline(pipelineEvent)
 
             expect(runner.steps).toEqual([
                 'populateTeamDataStep',
@@ -125,25 +139,11 @@ describe('EventPipelineRunner', () => {
             expect(runner.stepsWithArgs).toMatchSnapshot()
         })
 
-        it('runs steps starting from emitToBufferStep if team_id is set', async () => {
-            await runner.runEventPipeline(pluginEvent)
-
-            expect(runner.steps).toEqual([
-                'emitToBufferStep',
-                'pluginsProcessEventStep',
-                'processPersonsStep',
-                'prepareEventStep',
-                'createEventStep',
-                'runAsyncHandlersStep',
-            ])
-            expect(runner.stepsWithArgs).toMatchSnapshot()
-        })
-
         it('emits metrics for every step', async () => {
-            await runner.runEventPipeline(pluginEvent)
+            await runner.runLightweightCaptureEndpointEventPipeline(pipelineEvent)
 
-            expect(hub.statsd.timing).toHaveBeenCalledTimes(6)
-            expect(hub.statsd.increment).toBeCalledTimes(9)
+            expect(hub.statsd.timing).toHaveBeenCalledTimes(7)
+            expect(hub.statsd.increment).toBeCalledTimes(10)
 
             expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step', {
                 step: 'createEventStep',
@@ -161,15 +161,15 @@ describe('EventPipelineRunner', () => {
             })
 
             it('stops processing after step', async () => {
-                await runner.runEventPipeline(pluginEvent)
+                await runner.runLightweightCaptureEndpointEventPipeline(pipelineEvent)
 
-                expect(runner.steps).toEqual(['emitToBufferStep', 'pluginsProcessEventStep'])
+                expect(runner.steps).toEqual(['populateTeamDataStep', 'emitToBufferStep', 'pluginsProcessEventStep'])
             })
 
             it('reports metrics and last step correctly', async () => {
-                await runner.runEventPipeline(pluginEvent)
+                await runner.runLightweightCaptureEndpointEventPipeline(pipelineEvent)
 
-                expect(hub.statsd.timing).toHaveBeenCalledTimes(2)
+                expect(hub.statsd.timing).toHaveBeenCalledTimes(3)
                 expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step.last', {
                     step: 'pluginsProcessEventStep',
                     team_id: '2',
@@ -184,8 +184,11 @@ describe('EventPipelineRunner', () => {
             it('runs and increments metrics', async () => {
                 jest.mocked(prepareEventStep).mockRejectedValue(error)
 
-                await runner.runEventPipeline(pluginEvent)
+                await runner.runLightweightCaptureEndpointEventPipeline(pipelineEvent)
 
+                expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step', {
+                    step: 'populateTeamDataStep',
+                })
                 expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step', {
                     step: 'pluginsProcessEventStep',
                 })
@@ -202,7 +205,7 @@ describe('EventPipelineRunner', () => {
                 jest.mocked(generateEventDeadLetterQueueMessage).mockReturnValue('DLQ event' as any)
                 jest.mocked(prepareEventStep).mockRejectedValue(error)
 
-                await runner.runEventPipeline(pluginEvent)
+                await runner.runLightweightCaptureEndpointEventPipeline(pipelineEvent)
 
                 expect(hub.db.kafkaProducer.queueMessage).toHaveBeenCalledWith('DLQ event' as any)
                 expect(hub.statsd.increment).toHaveBeenCalledWith('events_added_to_dead_letter_queue')
@@ -211,11 +214,27 @@ describe('EventPipelineRunner', () => {
             it('does not emit to dead letter queue for runAsyncHandlersStep', async () => {
                 jest.mocked(runAsyncHandlersStep).mockRejectedValue(error)
 
-                await runner.runEventPipeline(pluginEvent)
+                await runner.runLightweightCaptureEndpointEventPipeline(pipelineEvent)
 
                 expect(hub.db.kafkaProducer.queueMessage).not.toHaveBeenCalled()
                 expect(hub.statsd.increment).not.toHaveBeenCalledWith('events_added_to_dead_letter_queue')
             })
+        })
+    })
+
+    describe('runEventPipeline()', () => {
+        it('runs remaining steps', async () => {
+            await runner.runEventPipeline(pluginEvent)
+
+            expect(runner.steps).toEqual([
+                'emitToBufferStep',
+                'pluginsProcessEventStep',
+                'processPersonsStep',
+                'prepareEventStep',
+                'createEventStep',
+                'runAsyncHandlersStep',
+            ])
+            expect(runner.stepsWithArgs).toMatchSnapshot()
         })
     })
 

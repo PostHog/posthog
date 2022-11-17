@@ -1453,7 +1453,7 @@ export class DB {
         return selectResult.rows[0]
     }
 
-    public async fetchTeamFromToken(token: string): Promise<Team> {
+    public async fetchTeamByToken(token: string): Promise<Team> {
         const selectResult = await this.postgresQuery<Team>(
             `
             SELECT
@@ -1471,7 +1471,7 @@ export class DB {
             LIMIT 1
                 `,
             [token],
-            'fetchTeamFromToken'
+            'fetchTeamByToken'
         )
         return selectResult.rows[0]
     }

@@ -395,6 +395,7 @@ export interface PluginTask {
 export type WorkerMethods = {
     runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
     runEventPipeline: (event: PipelineEvent) => Promise<void>
+    runLightweightCaptureEndpointEventPipeline: (event: PipelineEvent) => Promise<void>
 }
 
 export type VMMethods = {
@@ -936,22 +937,7 @@ export enum OrganizationMembershipLevel {
     Owner = 15,
 }
 
-export interface PipelineEvent {
-    // same as PluginEvent
-    distinct_id: string
-    ip: string | null
-    site_url: string
-    now: string
-    event: string
-    sent_at?: string
-    properties?: Properties
-    timestamp?: string
-    offset?: number
-    $set?: Properties
-    $set_once?: Properties
-    uuid: string
-
-    // different from PluginEvent
+export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     team_id?: number | null
     token?: string
 }

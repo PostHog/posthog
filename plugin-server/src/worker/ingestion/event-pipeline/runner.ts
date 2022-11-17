@@ -72,14 +72,21 @@ export class EventPipelineRunner {
         this.originalEvent = originalEvent
     }
 
-    async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
+    // KLUDGE: This is a temporary entry point for the pipeline while we transition away from
+    // hitting Postgres in the capture endpoint. Eventually the entire pipeline should
+    // follow this route and we can rename it to just be `runEventPipeline`.
+    async runLightweightCaptureEndpointEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
+        this.hub.statsd?.increment('kafka_queue.lightweight_capture_endpoint_event_pipeline.start', {
+            pipeline: 'lightweight_capture',
+        })
+        const result = await this.runPipeline('populateTeamDataStep', event)
+        this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
+        return result
+    }
+
+    async runEventPipeline(event: PluginEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
-        let result: EventPipelineResult
-        if (typeof event.team_id === 'number') {
-            result = await this.runPipeline('emitToBufferStep', event as PluginEvent)
-        } else {
-            result = await this.runPipeline('populateTeamDataStep', event)
-        }
+        const result = await this.runPipeline('emitToBufferStep', event)
         this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
         return result
     }
