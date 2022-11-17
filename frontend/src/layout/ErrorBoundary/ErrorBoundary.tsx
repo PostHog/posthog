@@ -8,11 +8,13 @@ export function ErrorBoundary({ children }: { children: React.ReactElement }): J
     return (
         <SentryErrorBoundary
             fallback={({ error, eventId }) => {
-                let lines = (error.stack || '')
+                // Get the names of functions (including React compnents) in the stack trace
+                let stackNames = (error.stack || '')
                     .split('\n')
                     .filter((l) => l.startsWith('    at'))
                     .map((l) => l.split(' ')[5])
-                lines = lines.slice(0, lines.indexOf('renderWithHooks'))
+                // Stop if we find the start of React's render loop
+                stackNames = stackNames.slice(0, stackNames.indexOf('renderWithHooks'))
 
                 return (
                     <div className="ErrorBoundary">
@@ -24,10 +26,10 @@ export function ErrorBoundary({ children }: { children: React.ReactElement }): J
                                     <br />
                                     {error.message}
                                 </code>
-                                {lines.length > 0 ? (
+                                {stackNames.length > 0 ? (
                                     <code>
                                         {'\n> '}
-                                        {lines.join('\n> ')}
+                                        {stackNames.join('\n> ')}
                                     </code>
                                 ) : null}
                             </pre>
