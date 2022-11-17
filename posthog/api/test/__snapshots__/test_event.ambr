@@ -107,8 +107,8 @@
          created_at
   FROM events
   where team_id = 2
-    AND timestamp > '2022-11-16 10:27:44.423249'
-    AND timestamp < '2022-11-17 10:27:49.423273'
+    AND timestamp > '2020-01-19 20:00:00.000000'
+    AND timestamp < '2020-01-20 20:00:05.000000'
     AND person_id = '00000000-0000-4000-8000-000000000001'
   ORDER BY timestamp DESC
   LIMIT 101
@@ -127,7 +127,7 @@
          created_at
   FROM events
   where team_id = 2
-    AND timestamp < '2022-11-17 10:27:49.437129'
+    AND timestamp < '2020-01-20 20:00:05.000000'
     AND person_id = '00000000-0000-4000-8000-000000000001'
   ORDER BY timestamp DESC
   LIMIT 101

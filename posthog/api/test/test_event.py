@@ -153,6 +153,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 2)
 
     @mock.patch("posthog.models.team.Team.actor_on_events_querying_enabled", return_value=True)
+    @freeze_time("2020-01-20 20:00:00")
     def test_filter_by_person_for_person_on_events_enabled(self, mock_actor_on_events_querying_enabled):
         """
         Check the difference in functionality between
