@@ -33,10 +33,14 @@ def determine_event_conditions(
             result += "AND timestamp < %(before)s"
             params.update({"before": timestamp})
         elif k == "person_id":
-            result += """AND distinct_id IN (%(distinct_ids)s)"""
-            person = get_pk_or_uuid(Person.objects.all(), v).first()
-            distinct_ids = person.distinct_ids if person is not None else []
-            params.update({"distinct_ids": list(map(str, distinct_ids))})
+            if team.actor_on_events_querying_enabled:
+                result += "AND person_id = %(person_id)s"
+                params.update({"person_id": v})
+            else:
+                result += """AND distinct_id IN (%(distinct_ids)s)"""
+                person = get_pk_or_uuid(Person.objects.all(), v).first()
+                distinct_ids = person.distinct_ids if person is not None else []
+                params.update({"distinct_ids": list(map(str, distinct_ids))})
         elif k == "distinct_id":
             result += "AND distinct_id = %(distinct_id)s"
             params.update({"distinct_id": v})

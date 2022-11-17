@@ -1,4 +1,4 @@
-import { ingestionLogic } from './ingestionLogic'
+import { ingestionLogicV2 } from './ingestionLogic'
 import { useActions, useValues } from 'kea'
 import './IngestionWizard.scss'
 import { InviteMembersButton } from '~/layout/navigation/TopBar/SitePopover'
@@ -11,8 +11,8 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 const HELP_UTM_TAGS = '?utm_medium=in-product-onboarding&utm_campaign=help-button-sidebar'
 
 export function Sidebar(): JSX.Element {
-    const { currentStep, sidebarSteps } = useValues(ingestionLogic)
-    const { sidebarStepClick } = useActions(ingestionLogic)
+    const { currentStep, sidebarSteps } = useValues(ingestionLogicV2)
+    const { sidebarStepClick } = useActions(ingestionLogicV2)
     const { reportIngestionHelpClicked, reportIngestionSidebarButtonClicked } = useActions(eventUsageLogic)
 
     const currentIndex = sidebarSteps.findIndex((x) => x === currentStep)

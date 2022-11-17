@@ -8,6 +8,7 @@ import { BreakdownTag } from './BreakdownTag'
 import './TaxonomicBreakdownFilter.scss'
 import { onFilterChange } from './taxonomicBreakdownFilterUtils'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/index'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
@@ -61,7 +62,13 @@ export function BreakdownFilter({
                           } else {
                               const newParts = breakdownParts.filter((_, i) => i !== index)
                               setFilters({
-                                  breakdowns: newParts.map((np): Breakdown => ({ property: np, type: breakdown_type })),
+                                  breakdowns: newParts.map(
+                                      (np): Breakdown => ({
+                                          property: np,
+                                          type: breakdown_type,
+                                          normalize_url: isURLNormalizeable(np.toString()),
+                                      })
+                                  ),
                                   breakdown_type: breakdown_type,
                               })
                           }
@@ -87,12 +94,15 @@ export function BreakdownFilter({
         ? []
         : breakdownArray.map((t, index) => {
               const key = `${t}-${index}`
-              const isPropertyHistogramable = !useMultiBreakdown && !!getPropertyDefinition(t)?.is_numerical
+              const propertyDefinition = getPropertyDefinition(t)
+              const isPropertyHistogramable = !useMultiBreakdown && !!propertyDefinition?.is_numerical
+
               return (
                   <BreakdownTag
                       key={key}
                       logicKey={key}
                       isHistogramable={isPropertyHistogramable}
+                      isURLNormalizeable={isURLNormalizeable(propertyDefinition?.name || '')}
                       breakdown={t}
                       onClose={onCloseFor ? onCloseFor(t, index) : undefined}
                       filters={filters}

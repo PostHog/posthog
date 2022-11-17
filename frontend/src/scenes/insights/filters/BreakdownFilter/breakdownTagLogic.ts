@@ -5,7 +5,7 @@ import type { breakdownTagLogicType } from './breakdownTagLogicType'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export interface BreakdownTagLogicProps {
-    setFilters?: (filters: Partial<FilterType>) => void
+    setFilters?: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
     logicKey?: string
     filters?: Partial<FilterType>
 }
@@ -17,6 +17,9 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
     actions(() => ({
         setUseHistogram: (useHistogram: boolean) => ({ useHistogram }),
         setBinCount: (binCount: number | undefined) => ({ binCount }),
+        setNormalizeBreakdownURL: (normalizeBreakdownURL: boolean) => ({
+            normalizeBreakdownURL,
+        }),
     })),
     reducers(({ props }) => ({
         useHistogram: [
@@ -35,18 +38,24 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
         ],
     })),
     listeners(({ props, values }) => ({
+        setNormalizeBreakdownURL: ({ normalizeBreakdownURL }) => {
+            const newFilter: TrendsFilterType = {
+                breakdown_normalize_url: normalizeBreakdownURL,
+            }
+            props.setFilters?.(newFilter, true)
+        },
         setUseHistogram: ({ useHistogram }) => {
             const newFilter: TrendsFilterType = {
                 breakdown_histogram_bin_count: useHistogram ? values.binCount : undefined,
             }
-            props.setFilters?.(newFilter)
+            props.setFilters?.(newFilter, true)
         },
         setBinCount: async ({ binCount }, breakpoint) => {
             await breakpoint(1000)
             const newFilter: TrendsFilterType = {
                 breakdown_histogram_bin_count: values.useHistogram ? binCount : undefined,
             }
-            props.setFilters?.(newFilter)
+            props.setFilters?.(newFilter, true)
         },
     })),
 ])
