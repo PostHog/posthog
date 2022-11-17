@@ -111,10 +111,11 @@ export const LemonFileInput = ({
         if (!extraDragTarget) {
             return
         }
+        extraDragTarget.classList.add('FileDropTarget')
         if (drag) {
-            extraDragTarget.classList.add('FileDropTarget')
+            extraDragTarget.classList.add('FileDropTarget--active')
         } else {
-            extraDragTarget.classList.remove('FileDropTarget')
+            extraDragTarget.classList.remove('FileDropTarget--active')
         }
     }, [drag, alternativeDropTargetRef])
 

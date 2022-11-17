@@ -22,7 +22,7 @@ const Template: ComponentStory<typeof LemonFileInput> = (props) => {
     return (
         <div className={'flex flex-col gap-4'}>
             <div>
-                <h5>single file input</h5>
+                <h5>Single file input</h5>
                 <LemonFileInput
                     loading={props.loading}
                     {...props}
@@ -32,7 +32,7 @@ const Template: ComponentStory<typeof LemonFileInput> = (props) => {
                 />
             </div>
             <div>
-                <h5>multi file input</h5>
+                <h5>Multi file input</h5>
                 <LemonFileInput
                     loading={props.loading}
                     {...props}
@@ -44,7 +44,7 @@ const Template: ComponentStory<typeof LemonFileInput> = (props) => {
             <div>
                 <h5>Extra drag and drop target</h5>
                 <div ref={additionalDragTarget} className={'h-12 w-full border flex items-center justify-center'}>
-                    also a drag target
+                    This area is also a drag target
                 </div>
                 <LemonFileInput
                     loading={props.loading}

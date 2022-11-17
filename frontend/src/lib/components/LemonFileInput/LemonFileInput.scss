@@ -1,3 +1,7 @@
 .FileDropTarget {
-    border: 3px dashed var(--primary);
+    border: 3px dashed transparent;
+}
+
+.FileDropTarget--active {
+    border-color: var(--primary);
 }
