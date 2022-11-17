@@ -4,6 +4,7 @@ import { SavedInsightQuery } from '~/queries/nodes/SavedInsightQuery'
 import { EventsTableQuery } from '~/queries/nodes/EventsTableQuery'
 import { DataNodeQuery } from '~/queries/nodes/DataNodeQuery'
 import { Node } from '~/queries/nodes'
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 export interface QueryProps {
     query: Node | string
@@ -13,19 +14,24 @@ export interface QueryProps {
 export function Query({ query, setQuery }: QueryProps): JSX.Element {
     if (typeof query === 'string') {
         try {
-            return <Query query={JSON.parse(query)} />
+            return <Query query={JSON.parse(query)} setQuery={setQuery} />
         } catch (e: any) {
             return <div className="border border-danger p-4 text-danger">Error parsing JSON: {e.message}</div>
         }
     }
+    let component
     if (isLegacyQuery(query)) {
-        return <LegacyInsightQuery query={query} />
+        component = <LegacyInsightQuery query={query} />
     } else if (isSavedInsightNode(query)) {
-        return <SavedInsightQuery query={query} />
+        component = <SavedInsightQuery query={query} />
     } else if (isEventsTableNode(query)) {
-        return <EventsTableQuery query={query} setQuery={setQuery} />
+        component = <EventsTableQuery query={query} setQuery={setQuery} />
     } else if (isDataNode(query)) {
-        return <DataNodeQuery query={query} />
+        component = <DataNodeQuery query={query} />
+    }
+
+    if (component) {
+        return <ErrorBoundary>{component}</ErrorBoundary>
     }
 
     return (
