@@ -87,7 +87,6 @@ class TeamSerializer(serializers.ModelSerializer):
             "uuid",
             "organization",
             "api_token",
-            "is_demo",
             "created_at",
             "updated_at",
             "ingested_event",
