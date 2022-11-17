@@ -71,9 +71,9 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                 recording.snapshot_data_by_window_id,
                 {
                     "": [
-                        {"timestamp": 1600000000000, "type": 2, "data": {"source": 0}, "has_full_snapshot": False},
-                        {"timestamp": 1600000010000, "type": 2, "data": {"source": 0}, "has_full_snapshot": False},
-                        {"timestamp": 1600000030000, "type": 2, "data": {"source": 0}, "has_full_snapshot": False},
+                        {"timestamp": 1600000000000, "type": 3, "data": {"source": 0}},
+                        {"timestamp": 1600000010000, "type": 3, "data": {"source": 0}},
+                        {"timestamp": 1600000030000, "type": 3, "data": {"source": 0}},
                     ]
                 },
             )
@@ -106,7 +106,7 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
 
             self.assertEqual(
                 recording.snapshot_data_by_window_id,
-                {"": [{"data": {"source": 0}, "timestamp": 1600000000000, "has_full_snapshot": False, "type": 2}]},
+                {"": [{"data": {"source": 0}, "timestamp": 1600000000000, "type": 3}]},
             )
 
     def test_get_snapshots_with_no_such_session(self):
