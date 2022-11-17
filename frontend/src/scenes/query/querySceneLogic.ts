@@ -7,10 +7,19 @@ import { Node } from '~/queries/nodes'
 import { stringExamples } from 'scenes/query/examples'
 
 const DEFAULT_QUERY: string = stringExamples['Events']
-
+function prettyJSON(source: string): string {
+    try {
+        return JSON.stringify(JSON.parse(source), null, 2) + '\n'
+    } catch (e) {
+        return source
+    }
+}
 export const querySceneLogic = kea<querySceneLogicType>([
     path(['scenes', 'query', 'querySceneLogic']),
-    actions({ setQuery: (query: string) => ({ query }), setQueryInput: (queryInput: string) => ({ queryInput }) }),
+    actions({
+        setQuery: (query: string) => ({ query: prettyJSON(query) }),
+        setQueryInput: (queryInput: string) => ({ queryInput }),
+    }),
     reducers({
         query: [DEFAULT_QUERY, { setQuery: (_, { query }) => query }],
         queryInput: [
