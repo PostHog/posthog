@@ -19,6 +19,8 @@ export APP_METRICS_GATHERED_FOR_ALL=true
 
 LOG_FILE=$(mktemp)
 
+echo '::group::Starting plugin server'
+
 ./node_modules/.bin/c8 --reporter html node dist/index.js > $LOG_FILE 2>&1 &
 SERVER_PID=$!
 
@@ -27,6 +29,8 @@ until curl http://localhost:6738/_ready; do
     echo 'Waiting for plugin-server to be ready...'
     sleep 1
 done
+
+echo '::endgroup::'
 
 set +e
 yarn functional_tests --maxConcurrency=10
