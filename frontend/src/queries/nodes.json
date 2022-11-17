@@ -24,7 +24,7 @@
                     "const": "DataNode",
                     "type": "string"
                 },
-                "nodeType": {
+                "kind": {
                     "const": "ActionsNode",
                     "type": "string"
                 },
@@ -32,7 +32,7 @@
                     "$ref": "#/definitions/EventsNode"
                 }
             },
-            "required": ["nodeType"],
+            "required": ["kind"],
             "type": "object"
         },
         "AggregationAxisFormat": {
@@ -1264,7 +1264,7 @@
                     "const": "DataNode",
                     "type": "string"
                 },
-                "nodeType": {
+                "kind": {
                     "const": "EventsNode",
                     "type": "string"
                 },
@@ -1282,7 +1282,7 @@
                     ]
                 }
             },
-            "required": ["nodeType"],
+            "required": ["kind"],
             "type": "object"
         },
         "EventsTableNode": {
@@ -1301,11 +1301,11 @@
                     "const": "InterfaceNode",
                     "type": "string"
                 },
-                "nodeType": {
-                    "$ref": "#/definitions/NodeType"
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
                 }
             },
-            "required": ["events", "nodeType"],
+            "required": ["events", "kind"],
             "type": "object"
         },
         "FilterLogicalOperator": {
@@ -1570,7 +1570,7 @@
                     "const": "DataNode",
                     "type": "string"
                 },
-                "nodeType": {
+                "kind": {
                     "const": "FunnelsQuery",
                     "type": "string"
                 },
@@ -1588,7 +1588,7 @@
                     "type": "array"
                 }
             },
-            "required": ["nodeType"],
+            "required": ["kind"],
             "type": "object"
         },
         "InsightShortId": {
@@ -1612,12 +1612,12 @@
                     "const": "DataNode",
                     "type": "string"
                 },
-                "nodeType": {
+                "kind": {
                     "const": "LegacyQuery",
                     "type": "string"
                 }
             },
-            "required": ["filters", "nodeType"],
+            "required": ["filters", "kind"],
             "type": "object"
         },
         "LifecycleFilterType": {
@@ -1744,15 +1744,15 @@
                     "const": "DataNode",
                     "type": "string"
                 },
-                "nodeType": {
+                "kind": {
                     "const": "LifecycleQuery",
                     "type": "string"
                 }
             },
-            "required": ["nodeType"],
+            "required": ["kind"],
             "type": "object"
         },
-        "NodeType": {
+        "NodeKind": {
             "enum": [
                 "EventsNode",
                 "EventsTableNode",
@@ -1953,7 +1953,7 @@
                     "const": "DataNode",
                     "type": "string"
                 },
-                "nodeType": {
+                "kind": {
                     "const": "PathsQuery",
                     "type": "string"
                 },
@@ -1961,7 +1961,7 @@
                     "$ref": "#/definitions/PathsFilterType"
                 }
             },
-            "required": ["nodeType"],
+            "required": ["kind"],
             "type": "object"
         },
         "PropertyFilterValue": {
@@ -2184,7 +2184,7 @@
                     "const": "DataNode",
                     "type": "string"
                 },
-                "nodeType": {
+                "kind": {
                     "const": "RetentionQuery",
                     "type": "string"
                 },
@@ -2192,7 +2192,7 @@
                     "$ref": "#/definitions/RetentionFilterType"
                 }
             },
-            "required": ["nodeType"],
+            "required": ["kind"],
             "type": "object"
         },
         "RetentionType": {
@@ -2206,7 +2206,7 @@
                     "const": "DataNode",
                     "type": "string"
                 },
-                "nodeType": {
+                "kind": {
                     "const": "SavedInsight",
                     "type": "string"
                 },
@@ -2214,7 +2214,7 @@
                     "$ref": "#/definitions/InsightShortId"
                 }
             },
-            "required": ["nodeType", "shortId"],
+            "required": ["kind", "shortId"],
             "type": "object"
         },
         "ShownAsValue": {
@@ -2374,7 +2374,7 @@
                     "const": "DataNode",
                     "type": "string"
                 },
-                "nodeType": {
+                "kind": {
                     "const": "StickinessQuery",
                     "type": "string"
                 },
@@ -2395,7 +2395,7 @@
                     "$ref": "#/definitions/StickinessFilterType"
                 }
             },
-            "required": ["nodeType"],
+            "required": ["kind"],
             "type": "object"
         },
         "TrendsFilterType": {
@@ -2563,7 +2563,7 @@
                     "const": "DataNode",
                     "type": "string"
                 },
-                "nodeType": {
+                "kind": {
                     "const": "TrendsQuery",
                     "type": "string"
                 },
@@ -2584,7 +2584,7 @@
                     "$ref": "#/definitions/TrendsFilterType"
                 }
             },
-            "required": ["nodeType"],
+            "required": ["kind"],
             "type": "object"
         }
     }

@@ -4,13 +4,13 @@ import { SavedInsightQuery } from '~/queries/nodes/SavedInsightQuery'
 import { EventsTableQuery } from '~/queries/nodes/EventsTableQuery'
 import { DataNodeQuery } from '~/queries/nodes/DataNodeQuery'
 
-export interface PostHogQueryProps {
+export interface QueryProps {
     query: Node | string
 }
-export function PostHogQuery({ query }: PostHogQueryProps): JSX.Element {
+export function Query({ query }: QueryProps): JSX.Element {
     if (typeof query === 'string') {
         try {
-            return <PostHogQuery query={JSON.parse(query)} />
+            return <Query query={JSON.parse(query)} />
         } catch (e: any) {
             return <div className="border border-danger p-4 text-danger">Error parsing JSON: {e.message}</div>
         }
@@ -27,8 +27,7 @@ export function PostHogQuery({ query }: PostHogQueryProps): JSX.Element {
 
     return (
         <div className="text-danger border border-danger p-2">
-            <strong>PostHoqQuery error:</strong>{' '}
-            {query?.nodeType ? `Invalid node type "${query.nodeType}"` : 'Invalid query'}
+            <strong>PostHoqQuery error:</strong> {query?.kind ? `Invalid node type "${query.kind}"` : 'Invalid query'}
         </div>
     )
 }

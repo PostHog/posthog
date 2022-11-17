@@ -5,9 +5,9 @@ import { Link } from 'lib/components/Link'
 import React from 'react'
 import clsx from 'clsx'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
-import { PostHogQuery } from '~/queries/PostHogQuery/PostHogQuery'
+import { Query } from '~/queries/Query/Query'
 import { useActions, useValues } from 'kea'
-import { stringExamples } from '~/queries/examples'
+import { stringifiedExamples } from '~/queries/examples'
 
 export function QueryScene(): JSX.Element {
     const { query } = useValues(querySceneLogic)
@@ -19,7 +19,7 @@ export function QueryScene(): JSX.Element {
             <div className="space-y-2 flex flex-col">
                 <div>
                     For example:{' '}
-                    {Object.entries(stringExamples).map(([key, q], index) => (
+                    {Object.entries(stringifiedExamples).map(([key, q], index) => (
                         <React.Fragment key={`query-${key}`}>
                             {index !== 0 ? ' • ' : ''}
                             <Link
@@ -37,7 +37,7 @@ export function QueryScene(): JSX.Element {
                 <QueryEditor query={query} setQuery={setQuery} />
 
                 <strong>Response:</strong>
-                <PostHogQuery query={query} />
+                <Query query={query} />
             </div>
         </div>
     )

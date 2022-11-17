@@ -1,18 +1,18 @@
-import { EventsNode, EventsTableNode, LegacyQuery, Node, NodeType } from '~/queries/nodes'
+import { EventsNode, EventsTableNode, LegacyQuery, Node, NodeKind } from '~/queries/nodes'
 import { ChartDisplayType, InsightType, PropertyOperator } from '~/types'
 
 const Events: EventsNode = {
-    nodeType: NodeType.EventsNode,
+    kind: NodeKind.EventsNode,
     properties: [{ key: '$browser', value: 'Chrome', operator: PropertyOperator.Exact }],
 }
 
 const EventsTable: EventsTableNode = {
-    nodeType: NodeType.EventsTableNode,
+    kind: NodeKind.EventsTableNode,
     events: Events,
 }
 
 const LegacyTrendsQuery: LegacyQuery = {
-    nodeType: NodeType.LegacyQuery,
+    kind: NodeKind.LegacyQuery,
     filters: {
         insight: InsightType.TRENDS,
         date_from: '-7d',
@@ -28,6 +28,6 @@ export const examples: Record<string, Node> = {
     LegacyTrendsQuery,
 }
 
-export const stringExamples: Record<string, string> = Object.fromEntries(
+export const stringifiedExamples: Record<string, string> = Object.fromEntries(
     Object.entries(examples).map(([key, node]) => [key, JSON.stringify(node)])
 )

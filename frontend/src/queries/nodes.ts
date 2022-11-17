@@ -32,7 +32,7 @@ export interface BreakdownFilter {
     aggregation_group_type_index?: number | undefined // Groups aggregation
 }
 
-export enum NodeType {
+export enum NodeKind {
     EventsNode = 'EventsNode',
     EventsTableNode = 'EventsTableNode',
     ActionsNode = 'ActionsNode',
@@ -67,7 +67,7 @@ export enum NodeCategory {
 
 /** Node base class, everything else inherits from here */
 export interface Node {
-    nodeType: NodeType
+    kind: NodeKind
 }
 
 /** Evaluated on the backend */
@@ -84,49 +84,19 @@ export interface InterfaceNode extends Node {
     nodeCategory?: NodeCategory.InterfaceNode
 }
 
-// app.posthog.com/search#q={ type: persons, line: 2, day: 5, query: {type:trendsGraph, mode: 'edit', filters, settings, query: { type: backend }} }
-// app.posthog.com/search#q={ type: trendsGraph, mode: 'edit', steps: [{ type: events, properties: [] }], settings, query: { type: backend } }
-// app.posthog.com/search#q={ type: events, properties: [] }
-//
-//
-// query = { type: 'legacyInsight', filters: { whatever } as Partial<FilterType> }
-//
-//
-//
-// app.posthog.com/event?insight=FUNNELS
-//
-//     <PostHogThing q={query} />
-//
-// EventsTable.tsx
-// if (propertes.columns contains timestamp) do stuff
-// else show insiight graph
-// else show a table
-
-export type EventBuiltin =
-    | 'distinct_id'
-    | 'timestamp'
-    | 'event'
-    | 'uuid'
-    | 'elements_chain'
-    | 'person_id'
-    | 'created_at'
-    | 'person_created_at'
-
 /** Query the events table with various filtered properties */
 export interface EventsNode extends DataNode {
-    nodeType: NodeType.EventsNode
+    kind: NodeKind.EventsNode
     event?: string
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
-    builtins?: EventBuiltin
-
     customName?: string
 }
 export function isEventsNode(node?: Node): node is EventsNode {
-    return node?.nodeType === NodeType.EventsNode
+    return node?.kind === NodeKind.EventsNode
 }
 
 export interface ActionsNode extends DataNode {
-    nodeType: NodeType.ActionsNode
+    kind: NodeKind.ActionsNode
     meta?: {
         id?: number
         name?: string
@@ -135,25 +105,25 @@ export interface ActionsNode extends DataNode {
     steps?: EventsNode
 }
 export function isActionsNode(node?: Node): node is ActionsNode {
-    return node?.nodeType === NodeType.ActionsNode
+    return node?.kind === NodeKind.ActionsNode
 }
 
 export interface LegacyQuery extends DataNode {
-    nodeType: NodeType.LegacyQuery
+    kind: NodeKind.LegacyQuery
     filters: AnyPartialFilterType
 }
 
 export function isLegacyQuery(node?: Node): node is LegacyQuery {
-    return node?.nodeType === NodeType.LegacyQuery
+    return node?.kind === NodeKind.LegacyQuery
 }
 
 export interface SavedInsightNode extends DataNode {
-    nodeType: NodeType.SavedInsight
+    kind: NodeKind.SavedInsight
     shortId: InsightShortId
 }
 
 export function isSavedInsight(node?: Node): node is SavedInsightNode {
-    return node?.nodeType === NodeType.SavedInsight
+    return node?.kind === NodeKind.SavedInsight
 }
 
 // should not be used directly
@@ -165,7 +135,7 @@ interface InsightsQueryBase extends DataNode {
 }
 
 export interface TrendsQuery extends InsightsQueryBase {
-    nodeType: NodeType.TrendsQuery
+    kind: NodeKind.TrendsQuery
     steps?: (EventsNode | ActionsNode)[]
     interval?: IntervalType
     breakdown?: BreakdownFilter
@@ -173,26 +143,26 @@ export interface TrendsQuery extends InsightsQueryBase {
 }
 
 export interface FunnelsQuery extends InsightsQueryBase {
-    nodeType: NodeType.FunnelsQuery
+    kind: NodeKind.FunnelsQuery
     steps?: (EventsNode | ActionsNode)[]
     breakdown?: BreakdownFilter
     funnelsFilter?: FunnelsFilterType // using everything except what it inherits from FilterType
 }
 
 export interface PathsQuery extends InsightsQueryBase {
-    nodeType: NodeType.PathsQuery
+    kind: NodeKind.PathsQuery
     pathsFilter?: PathsFilterType // using everything except what it inherits from FilterType
 }
 export interface RetentionQuery extends InsightsQueryBase {
-    nodeType: NodeType.RetentionQuery
+    kind: NodeKind.RetentionQuery
     retentionFilter?: RetentionFilterType // using everything except what it inherits from FilterType
 }
 export interface LifecycleQuery extends InsightsQueryBase {
-    nodeType: NodeType.LifecycleQuery
+    kind: NodeKind.LifecycleQuery
     lifecycleFilter?: LifecycleFilterType // using everything except what it inherits from FilterType
 }
 export interface StickinessQuery extends InsightsQueryBase {
-    nodeType: NodeType.StickinessQuery
+    kind: NodeKind.StickinessQuery
     steps?: (EventsNode | ActionsNode)[]
     interval?: IntervalType
     stickinessFilter?: StickinessFilterType // using everything except what it inherits from FilterType
@@ -207,10 +177,10 @@ export interface PersonsModalQuery extends InsightsQueryBase {
 }
 
 export interface EventsTableNode extends InterfaceNode {
-    nodeType: NodeType.EventsTableNode
+    kind: NodeKind.EventsTableNode
     events: EventsNode
     columns?: string[]
 }
 export function isEventsTableNode(node?: Node): node is EventsTableNode {
-    return node?.nodeType === NodeType.EventsTableNode
+    return node?.kind === NodeKind.EventsTableNode
 }
