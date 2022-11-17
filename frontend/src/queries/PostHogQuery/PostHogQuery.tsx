@@ -1,4 +1,4 @@
-import { EventsNode, isEventsNode, isLegacyQuery, isSavedInsight, LegacyQuery, Node, SavedInsightNode } from './nodes'
+import { EventsNode, isEventsNode, isLegacyQuery, isSavedInsight, LegacyQuery, Node, SavedInsightNode } from '../nodes'
 import { BindLogic } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { AnyPropertyFilter, InsightLogicProps, ItemMode } from '~/types'
@@ -8,9 +8,16 @@ import { useState } from 'react'
 import { AdHocInsight } from 'lib/components/AdHocInsight/AdHocInsight'
 
 export interface PostHogQueryProps {
-    query: Node
+    query: Node | string
 }
 export function PostHogQuery({ query }: PostHogQueryProps): JSX.Element {
+    if (typeof query === 'string') {
+        try {
+            return <PostHogQuery query={JSON.parse(query)} />
+        } catch (e: any) {
+            return <div className="border border-danger p-4 text-danger">Error parsing JSON: {e.message}</div>
+        }
+    }
     if (isLegacyQuery(query)) {
         return <LegacyInsightQuery query={query} />
     } else if (isSavedInsight(query)) {
