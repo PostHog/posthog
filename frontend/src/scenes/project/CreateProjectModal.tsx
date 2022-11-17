@@ -30,7 +30,7 @@ export function CreateProjectModal({
     }, [name, onClose])
 
     const handleSubmit = (): void => {
-        createTeam(name)
+        createTeam({ name })
         reportProjectCreationSubmitted(currentOrganization?.teams ? currentOrganization.teams.length : 0, name.length)
         closeModal()
     }
