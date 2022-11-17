@@ -3,6 +3,7 @@ import { Node } from '~/queries/nodes'
 
 import type { queryEditorLogicType } from './queryEditorLogicType'
 import { QueryEditorProps } from '~/queries/QueryEditor/QueryEditor'
+import { lemonToast } from 'lib/components/lemonToast'
 
 function prettyJSON(source: string): string {
     try {
@@ -52,7 +53,12 @@ export const queryEditorLogic = kea<queryEditorLogicType>([
     }),
     listeners(({ props, values }) => ({
         saveQuery: () => {
-            props.setQuery(values.queryInput)
+            if (values.error) {
+                lemonToast.error(`Error parsing JSON: ${values.error}`)
+            } else {
+                const withoutFormatting = JSON.stringify(JSON.parse(values.queryInput))
+                props.setQuery(withoutFormatting)
+            }
         },
     })),
 ])
