@@ -925,11 +925,11 @@ export const insightLogic = kea<insightLogicType>([
                 captureInternalMetric({ method: 'timing', metric: 'insight_load_time', value: duration, tags })
 
                 captureTimeToSeeData(values.currentTeamId, {
+                    type: 'insight',
                     query_id: queryId,
                     status: exception ? 'failure' : 'success',
                     time_to_see_data_ms: Math.floor(duration),
                     cached: !!response?.cached,
-                    current_url: window.location.href,
                     api_response_bytes: response?.apiResponseBytes,
                     api_url: response?.apiUrl,
                     insight: values.activeView,

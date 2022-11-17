@@ -84,7 +84,7 @@ export function DashboardReloadAction(): JSX.Element {
                     </Menu>
                 }
                 trigger={['click']}
-                onClick={() => refreshAllDashboardItemsManual()}
+                onClick={() => refreshAllDashboardItemsManual({ action: 'refresh_manual' })}
                 icon={<DownOutlined />}
                 disabled={itemsLoading}
                 buttonsRender={([leftButton, rightButton]) => [

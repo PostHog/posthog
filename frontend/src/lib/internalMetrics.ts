@@ -9,14 +9,16 @@ interface InternalMetricsPayload {
 }
 
 interface TimeToSeeDataPayload {
-    query_id: string
-    status: 'failure' | 'success'
+    type: 'insight' | 'dashboard'
     time_to_see_data_ms: number
-    cached: boolean
-    current_url: string
+    dashboard_query_id?: string
+    query_id?: string
+    status?: 'failure' | 'success'
+    cached?: boolean
     api_response_bytes?: number
     api_url?: string
-    insight: string
+    insight?: string
+    action?: string
 }
 
 export async function captureInternalMetric(payload: InternalMetricsPayload): Promise<void> {
@@ -25,12 +27,13 @@ export async function captureInternalMetric(payload: InternalMetricsPayload): Pr
     }
 }
 
-export async function captureTimeToSeeData(teamId: number, payload: TimeToSeeDataPayload): Promise<void> {
+export async function captureTimeToSeeData(teamId: number | null, payload: TimeToSeeDataPayload): Promise<void> {
     if (window.JS_CAPTURE_TIME_TO_SEE_DATA) {
         const sessionDetails = posthog.sessionManager?.checkAndGetSessionAndWindowId?.(true)
 
         await api.create(`api/projects/${teamId}/insights/timing`, {
             session_id: sessionDetails?.sessionId ?? '',
+            current_url: window.location.href,
             ...payload,
         })
     }
