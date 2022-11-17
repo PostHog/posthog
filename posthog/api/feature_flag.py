@@ -74,12 +74,18 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
                 )
                 org_level = feature_flag_resource_access.access_level
             except OrganizationResourceAccess.DoesNotExist:
-                org_level = -1
+                # Default to Edit
+                org_level = OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT
 
             role_level = max(
                 [membership.role.feature_flags_access_level for membership in all_role_memberships], default=0
             )
-            final_level = max(role_level, org_level)
+
+            if role_level == 0:
+                final_level = org_level
+            else:
+                final_level = role_level
+
             if final_level == OrganizationResourceAccess.AccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE:
                 can_edit = FeatureFlagRoleAccess.objects.filter(
                     feature_flag__id=feature_flag.pk,

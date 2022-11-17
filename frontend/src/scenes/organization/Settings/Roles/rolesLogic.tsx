@@ -2,7 +2,7 @@ import { actions, kea, reducers, path, connect, selectors, afterMount, listeners
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { teamMembersLogic } from 'scenes/project/Settings/teamMembersLogic'
-import { RoleMemberType, RoleType, UserBasicType } from '~/types'
+import { AccessLevel, Resource, RoleMemberType, RoleType, UserBasicType } from '~/types'
 import { rolesLogicType } from './rolesLogicType'
 
 export const rolesLogic = kea<rolesLogicType>([
@@ -14,6 +14,10 @@ export const rolesLogic = kea<rolesLogicType>([
         setRoleMembersInFocus: (roleMembers: RoleMemberType[]) => ({ roleMembers }),
         setRoleMembersToAdd: (uuids: string[]) => ({ uuids }),
         openCreateRoleModal: true,
+        setPermission: (resource: Resource, access: AccessLevel) => ({ resource, access }),
+        setPermissionInPlace: (resource: Resource, access: AccessLevel) => ({ resource, access }),
+        clearPermission: true,
+        updateRole: (role: RoleType) => ({ role }),
     }),
     reducers({
         createRoleModalShown: [
@@ -40,30 +44,43 @@ export const rolesLogic = kea<rolesLogicType>([
                 setRoleMembersToAdd: (_, { uuids }) => uuids,
             },
         ],
-    }),
-    loaders(({ values, actions }) => ({
+        permissionsToSet: [
+            {} as Record<Resource, AccessLevel> | Record<string, any>,
+            {
+                setPermission: (state, { resource, access }) => ({ ...state, [`${resource}`]: access }),
+                clearPermission: () => ({}),
+            },
+        ],
         roles: [
             [] as RoleType[],
             {
-                loadRoles: async () => {
-                    const response = await api.roles.list()
-                    return response?.results || []
-                },
-                createRole: async (roleName: string) => {
-                    const { roles, roleMembersToAdd } = values
-                    const newRole = await api.roles.create(roleName)
-                    await actions.addRoleMembers({ role: newRole, membersToAdd: roleMembersToAdd })
-                    actions.setRoleMembersInFocus([])
-                    actions.setRoleMembersToAdd([])
-                    actions.setCreateRoleModalShown(false)
-                    return [newRole, ...roles]
-                },
-                deleteRole: async (role: RoleType) => {
-                    await api.roles.delete(role.id)
-                    return values.roles.filter((currRoles) => currRoles.id !== role.id)
+                updateRole: (state, { role: newRole }) => {
+                    return state.map((role) => (role.id == newRole.id ? newRole : role))
                 },
             },
         ],
+    }),
+    loaders(({ values, actions }) => ({
+        roles: {
+            loadRoles: async () => {
+                const response = await api.roles.list()
+                return response?.results || []
+            },
+            createRole: async (roleName: string) => {
+                const { roles, roleMembersToAdd, permissionsToSet } = values
+                const newRole = await api.roles.create(roleName, permissionsToSet[Resource.FEATURE_FLAGS])
+                await actions.addRoleMembers({ role: newRole, membersToAdd: roleMembersToAdd })
+                actions.setRoleMembersInFocus([])
+                actions.setRoleMembersToAdd([])
+                actions.clearPermission()
+                actions.setCreateRoleModalShown(false)
+                return [newRole, ...roles]
+            },
+            deleteRole: async (role: RoleType) => {
+                await api.roles.delete(role.id)
+                return values.roles.filter((currRoles) => currRoles.id !== role.id)
+            },
+        },
         roleMembersInFocus: [
             [] as RoleMemberType[],
             {
@@ -85,7 +102,7 @@ export const rolesLogic = kea<rolesLogicType>([
             },
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setRoleInFocus: ({ role }) => {
             role && actions.loadRoleMembers({ roleId: role.id })
             actions.setCreateRoleModalShown(true)
@@ -94,6 +111,21 @@ export const rolesLogic = kea<rolesLogicType>([
             actions.setRoleInFocus(null)
             actions.setRoleMembersInFocus([])
             actions.setCreateRoleModalShown(true)
+        },
+        setCreateRoleModalShown: () => {
+            if (values.roleInFocus) {
+                actions.setPermission(Resource.FEATURE_FLAGS, values.roleInFocus.feature_flags_access_level)
+            } else {
+                actions.setPermission(Resource.FEATURE_FLAGS, AccessLevel.WRITE)
+            }
+        },
+        setPermissionInPlace: async ({ access }) => {
+            if (values.roleInFocus) {
+                access && (await api.roles.update(values.roleInFocus.id, { feature_flags_access_level: access }))
+                const newRole = Object.assign({}, values.roleInFocus)
+                newRole.feature_flags_access_level = access
+                actions.updateRole(newRole)
+            }
         },
     })),
     selectors({

@@ -48,12 +48,20 @@ export function Roles(): JSX.Element {
 
     return (
         <>
-            <h2 id="roles" className="subtitle" style={{ justifyContent: 'space-between' }}>
-                Roles
+            <div className="flex items-center">
+                <div style={{ flexGrow: 1 }}>
+                    <h2 id="roles" className="subtitle">
+                        Roles
+                    </h2>
+                    <p className="text-muted-alt">
+                        Create roles to provide fine grained permissions to users across posthog resources
+                    </p>
+                </div>
+
                 <LemonButton type="primary" onClick={openCreateRoleModal} data-attr="create-role-button">
                     Create Role
                 </LemonButton>
-            </h2>
+            </div>
             <LemonTable
                 dataSource={roles}
                 columns={columns}

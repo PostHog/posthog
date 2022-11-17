@@ -99,7 +99,18 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Organization:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
-        organization, _, _ = Organization.objects.bootstrap(self.context["request"].user, **validated_data)
+        user = self.context["request"].user
+        organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
+
+        try:
+            from ee.models.organization_resource_access import OrganizationResourceAccess
+        except:
+            pass
+        else:
+            OrganizationResourceAccess.objects.create(
+                resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS, organization=organization, user=user
+            )
+
         return organization
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
