@@ -45,6 +45,7 @@ from posthog.constants import (
 )
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
+from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -792,10 +793,10 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
                 "user_id": self.request.user.pk,
                 "timestamp": format_clickhouse_timestamp(cast_timestamp_or_now(None)),
             }
-            import pprint; pprint.pprint(payload)
-            # KafkaProducer().produce(topic='clickhouse_metrics_time_to_see_data', data=payload)
+            KafkaProducer().produce(topic=KAFKA_METRICS_TIME_TO_SEE_DATA, data=payload)
 
         return Response(status=status.HTTP_201_CREATED)
+
 
 class LegacyInsightViewSet(InsightViewSet):
     legacy_team_compatibility = True

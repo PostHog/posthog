@@ -1,3 +1,4 @@
+import posthog from 'posthog-js'
 import api from 'lib/api'
 
 interface InternalMetricsPayload {
@@ -26,7 +27,11 @@ export async function captureInternalMetric(payload: InternalMetricsPayload): Pr
 
 export async function captureTimeToSeeData(teamId: number, payload: TimeToSeeDataPayload): Promise<void> {
     if (window.JS_CAPTURE_TIME_TO_SEE_DATA) {
-        await api.create(`api/projects/${teamId}/insights/timing`, payload)
-        console.log(teamId, payload)
+        const sessionDetails = posthog.sessionManager?.checkAndGetSessionAndWindowId?.(true)
+
+        await api.create(`api/projects/${teamId}/insights/timing`, {
+            session_id: sessionDetails?.sessionId ?? '',
+            ...payload,
+        })
     }
 }

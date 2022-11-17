@@ -10,4 +10,4 @@ def dictionary_source_clickhouse(table: str) -> str:
         connection_settings += f" USER '{settings.CLICKHOUSE_USER}'"
     if settings.CLICKHOUSE_PASSWORD:
         connection_settings += f" PASSWORD '{settings.CLICKHOUSE_PASSWORD}'"
-    return f"SOURCE(CLICKHOUSE({connection_settings})"
+    return f"SOURCE(CLICKHOUSE({connection_settings}))"
