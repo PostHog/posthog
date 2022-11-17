@@ -50,7 +50,6 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
                     type="primary"
                     status={error ? 'danger' : 'primary'}
                     disabled={!!error || !inputChanged}
-                    tooltip={!inputChanged ? 'No changes to save' : undefined}
                 >
                     Update
                 </LemonButton>

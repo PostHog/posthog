@@ -29,5 +29,5 @@ export const examples: Record<string, Node> = {
 }
 
 export const stringExamples: Record<string, string> = Object.fromEntries(
-    Object.entries(examples).map(([key, node]) => [key, JSON.stringify(node, null, 2)])
+    Object.entries(examples).map(([key, node]) => [key, JSON.stringify(node)])
 )

@@ -51,12 +51,13 @@ export const queryEditorLogic = kea<queryEditorLogicType>([
         error: [(s) => [s.parsedQuery], ({ error }): string | null => error],
         inputChanged: [(s) => [(_, props) => props.query, s.queryInput], (query, queryInput) => query !== queryInput],
     }),
-    listeners(({ props, values }) => ({
+    listeners(({ actions, props, values }) => ({
         saveQuery: () => {
             if (values.error) {
                 lemonToast.error(`Error parsing JSON: ${values.error}`)
             } else {
                 const withoutFormatting = JSON.stringify(JSON.parse(values.queryInput))
+                actions.setQueryInput(prettyJSON(withoutFormatting))
                 props.setQuery(withoutFormatting)
             }
         },
