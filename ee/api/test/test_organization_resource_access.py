@@ -94,3 +94,26 @@ class TestOrganizationResourceAccessAPI(APILicensedTest):
 
         get_updated_res = self.client.get(f"/api/organizations/@current/resource_access/{resource_id}")
         self.assertEqual(get_updated_res.json()["access_level"], OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW)
+
+    def test_default_edit_access_level_for_non_existing_resources(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.assertEqual(
+            OrganizationResourceAccess.objects.filter(
+                resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS
+            ).exists(),
+            False,
+        )
+
+        self.assertEqual(self.user.role_memberships.count(), 0)
+        create_flag = self.client.post(
+            "/api/projects/@current/feature_flags",
+            {
+                "name": "keropi",
+                "key": "keropi",
+            },
+        )
+        self.assertEqual(create_flag.status_code, status.HTTP_201_CREATED)
+        flag_id = create_flag.json()["id"]
+        get_res = self.client.get(f"/api/projects/@current/feature_flags/{flag_id}")
+        self.assertEqual(get_res.json()["name"], "keropi")
