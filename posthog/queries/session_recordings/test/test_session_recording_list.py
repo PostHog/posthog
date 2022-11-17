@@ -114,6 +114,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(session_recordings[0]["duration"], 30)
 
     @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
     def test_event_filter(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)

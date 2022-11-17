@@ -372,9 +372,8 @@ class SessionRecordingList(EventQuery):
             "urls",
             "duration",
             "distinct_id",
-            "start_url",
-            "end_url",
         ]
+
         return [
             {
                 **dict(zip(default_columns, row[: len(default_columns)])),
