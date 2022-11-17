@@ -1,17 +1,22 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ingestionLogicV2 } from 'scenes/ingestion/v2/ingestionLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { IconArrowRight, IconChevronRight } from 'lib/components/icons'
+import { IconChevronRight } from 'lib/components/icons'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { BOOKMARKLET } from '../constants'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function InviteTeamPanel(): JSX.Element {
     const { next } = useActions(ingestionLogicV2)
     const { showInviteModal } = useActions(inviteLogic)
-    const { reportInviteMembersButtonClicked, reportIngestionTryWithBookmarkletClicked } = useActions(eventUsageLogic)
+    const { reportInviteMembersButtonClicked, reportProjectCreationSubmitted } = useActions(eventUsageLogic)
+    const { createTeam } = useActions(teamLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+
+    const demoTeamName: string = 'Demo'
 
     return (
         <div>
@@ -46,7 +51,7 @@ export function InviteTeamPanel(): JSX.Element {
                     fullWidth
                     size="large"
                     className="mb-4"
-                    type="secondary"
+                    type="primary"
                     sideIcon={<IconChevronRight />}
                 >
                     <div className="mt-4 mb-0">
@@ -58,16 +63,23 @@ export function InviteTeamPanel(): JSX.Element {
                 </LemonButton>
                 <LemonButton
                     onClick={() => {
-                        reportIngestionTryWithBookmarkletClicked()
-                        next({ isTechnicalUser: false, platform: BOOKMARKLET })
+                        createTeam({ name: demoTeamName, is_demo: true })
+                        reportProjectCreationSubmitted(
+                            currentOrganization?.teams ? currentOrganization.teams.length : 0,
+                            demoTeamName.length
+                        )
                     }}
-                    center
                     fullWidth
                     size="large"
-                    type="tertiary"
-                    sideIcon={<IconArrowRight />}
+                    type="primary"
+                    sideIcon={<IconChevronRight />}
                 >
-                    I'm just exploring
+                    <div className="mt-4 mb-0">
+                        <p className="mb-2">I just want to try PostHog with some demo data.</p>
+                        <p className="font-normal text-xs">
+                            Explore insights, create dashboards, try out cohorts, and more.
+                        </p>
+                    </div>
                 </LemonButton>
             </div>
         </div>
