@@ -35,6 +35,11 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         self.assertEqual(flag_role.feature_flag.id, self.feature_flag.id)
 
     def test_cannot_add_role_access_if_feature_flags_access_level_too_low_and_not_creator(self):
+        OrganizationResourceAccess.objects.create(
+            resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
+            access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
+            organization=self.organization,
+        )
         self.assertEqual(self.user.role_memberships.count(), 0)
         user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
         flag = FeatureFlag.objects.create(created_by=user_a, key="flag_a", name="Flag A", team=self.team)
@@ -75,12 +80,13 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         OrganizationResourceAccess.objects.create(
             resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
             access_level=OrganizationResourceAccess.AccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE,
+            organization=self.organization,
         )
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        User.objects.create_and_join(self.organization, "a@potato.com", None)
-        flag = FeatureFlag.objects.create(created_by=self.user, key="flag_a", name="Flag A", team=self.team)
+        user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
+        flag = FeatureFlag.objects.create(created_by=user_a, key="flag_a", name="Flag A", team=self.team)
 
         # Should only have viewing privileges
         response_flags = self.client.get(f"/api/projects/@current/feature_flags")
