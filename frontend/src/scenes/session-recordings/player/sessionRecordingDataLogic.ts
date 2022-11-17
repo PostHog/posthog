@@ -432,6 +432,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 }
             },
         ],
+        windowIds: [
+            (s) => [s.sessionPlayerData],
+            (sessionPlayerData) => {
+                return Object.keys(sessionPlayerData?.metadata?.startAndEndTimesByWindowId) ?? []
+            },
+        ],
     }),
     afterMount(({ props, actions }) => {
         if (props.sessionRecordingId) {

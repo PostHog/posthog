@@ -12,6 +12,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import RegionSelect from '../../../RegionSelect'
+import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 
 export const scene: SceneExport = {
     component: SignupForm,
@@ -101,6 +102,7 @@ export function SignupForm(): JSX.Element | null {
                         disabled={isSignupSubmitting}
                     />
                 </Field>
+                <SignupRoleSelect />
                 <Field name="referral_source" label="Where did you hear about us?" showOptional>
                     <LemonInput
                         className="ph-ignore-input"

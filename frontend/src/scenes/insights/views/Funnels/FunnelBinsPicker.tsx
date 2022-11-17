@@ -88,7 +88,7 @@ export function FunnelBinsPicker({ disabled }: { disabled?: boolean }): JSX.Elem
                     }
                     return (
                         <Select.Option
-                            className={clsx({ 'select-option-hidden': !option.display })}
+                            className={clsx({ hidden: !option.display })}
                             key={option.value}
                             value={option.value}
                             label={
