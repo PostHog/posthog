@@ -12,3 +12,10 @@ export async function captureInternalMetric(payload: InternalMetricsPayload): Pr
         await api.create('api/instance_status/capture', payload)
     }
 }
+
+export async function captureTimeToSeeData(teamId: number, payload: Record<string, any>): Promise<void> {
+    if (window.JS_CAPTURE_TIME_TO_SEE_DATA) {
+        await api.create(`api/projects/${teamId}/insights/timing`, payload)
+        console.log(teamId, payload)
+    }
+}

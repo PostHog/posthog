@@ -54,9 +54,9 @@ export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
     total_count: number
 }
 
-interface ApiMethodOptions {
+export interface ApiMethodOptions {
     signal?: AbortSignal
-    extendResponse?: boolean
+    includeResponseReference?: boolean
 }
 
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
@@ -76,9 +76,13 @@ export function getCookie(name: string): string | null {
     return cookieValue
 }
 
-async function getJSONOrThrow(response: Response): Promise<any> {
+async function getJSONOrThrow(response: Response, options?: ApiMethodOptions): Promise<any> {
     try {
-        return await response.json()
+        const json = await response.json()
+        if (options?.includeResponseReference) {
+            json._response = response
+        }
+        return json
     } catch (e) {
         return { statusText: response.statusText }
     }
@@ -902,7 +906,7 @@ const api = {
 
     async get(url: string, options?: ApiMethodOptions): Promise<any> {
         const res = await api.getRaw(url, options)
-        return await getJSONOrThrow(res)
+        return await getJSONOrThrow(res, options)
     },
 
     async getRaw(url: string, options?: ApiMethodOptions): Promise<Response> {
@@ -918,13 +922,13 @@ const api = {
 
         if (!response.ok) {
             reportError('GET', url, response, startTime)
-            const data = await getJSONOrThrow(response)
+            const data = await getJSONOrThrow(response, options)
             throw { status: response.status, ...data }
         }
         return response
     },
 
-    async update(url: string, data: any): Promise<any> {
+    async update(url: string, data: any, options?: ApiMethodOptions): Promise<any> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
@@ -936,17 +940,18 @@ const api = {
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: isFormData ? data : JSON.stringify(data),
+            signal: options?.signal
         })
 
         if (!response.ok) {
             reportError('PATCH', url, response, startTime)
-            const jsonData = await getJSONOrThrow(response)
+            const jsonData = await getJSONOrThrow(response, options)
             if (Array.isArray(jsonData)) {
                 throw jsonData
             }
             throw { status: response.status, ...jsonData }
         }
-        return await getJSONOrThrow(response)
+        return await getJSONOrThrow(response, options)
     },
 
     async create(url: string, data?: any, options?: ApiMethodOptions): Promise<any> {
@@ -966,13 +971,13 @@ const api = {
 
         if (!response.ok) {
             reportError('POST', url, response, startTime)
-            const jsonData = await getJSONOrThrow(response)
+            const jsonData = await getJSONOrThrow(response, options)
             if (Array.isArray(jsonData)) {
                 throw jsonData
             }
             throw { status: response.status, ...jsonData }
         }
-        return await getJSONOrThrow(response)
+        return await getJSONOrThrow(response, options)
     },
 
     async delete(url: string): Promise<any> {

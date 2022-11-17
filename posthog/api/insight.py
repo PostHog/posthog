@@ -63,7 +63,7 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
-from posthog.settings import SITE_URL
+from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 from posthog.tasks.update_cache import synchronously_update_insight_cache
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
@@ -779,6 +779,23 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
         )
         return Response(status=status.HTTP_201_CREATED)
 
+    @action(methods=["POST"], detail=False)
+    def timing(self, request: request.Request, **kwargs):
+        from posthog.kafka_client.client import KafkaProducer
+        from posthog.models.event.util import format_clickhouse_timestamp
+        from posthog.utils import cast_timestamp_or_now
+
+        if CAPTURE_TIME_TO_SEE_DATA:
+            payload = {
+                **request.data,
+                "team_id": self.team_id,
+                "user_id": self.request.user.pk,
+                "timestamp": format_clickhouse_timestamp(cast_timestamp_or_now(None)),
+            }
+            import pprint; pprint.pprint(payload)
+            # KafkaProducer().produce(topic='clickhouse_metrics_time_to_see_data', data=payload)
+
+        return Response(status=status.HTTP_201_CREATED)
 
 class LegacyInsightViewSet(InsightViewSet):
     legacy_team_compatibility = True
