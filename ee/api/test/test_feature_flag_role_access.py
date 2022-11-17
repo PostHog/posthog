@@ -72,11 +72,11 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
 
     def test_feature_flag_permission_changes(self):
-        self.organization.feature_flags_access_level = (
-            Organization.FeatureFlagsAccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE
+        OrganizationResourceAccess.objects.create(
+            resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
+            access_level=OrganizationResourceAccess.AccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE,
         )
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization.save()
         self.organization_membership.save()
 
         User.objects.create_and_join(self.organization, "a@potato.com", None)
