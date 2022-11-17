@@ -35,6 +35,7 @@ export interface PlayerListRowProps<T extends Record<string, any>> {
     sideContentDetermined: ReactElement | null | undefined
     onClick: (record: T) => void
     optionsDetermined: ListRowOptions<T>
+    windowNumber?: number | null
     /** Used to pause any interactions while player list is still loading **/
     loading?: boolean
 }
@@ -54,6 +55,7 @@ function PlayerListRowRaw<T extends Record<string, any>>({
     optionsDetermined,
     onClick,
     loading,
+    windowNumber,
 }: PlayerListRowProps<T>): JSX.Element {
     const [sections, allOptions] = useMemo(() => boxToSections(optionsDetermined), [optionsDetermined])
     const isExpanded = expandable && expandedDetermined
@@ -89,12 +91,12 @@ function PlayerListRowRaw<T extends Record<string, any>>({
                         !isExpanded && 'h-10'
                     )}
                 >
-                    <div className="flex flex-row items-center">
+                    <div className="flex flex-row items-center gap-1">
                         {!!expandable ? (
                             <LemonButton
                                 noPadding
                                 disabled={!!loading}
-                                className="shrink-0 mr-1"
+                                className="shrink-0"
                                 icon={expandedDetermined ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                 size="small"
                                 active={!!expandedDetermined}
@@ -112,9 +114,7 @@ function PlayerListRowRaw<T extends Record<string, any>>({
                         ) : (
                             <LemonButton size="small" />
                         )}
-                        <div>
-                            <IconWindow value="1" className="text-muted shrink-0" />
-                        </div>
+                        {windowNumber ? <IconWindow value={windowNumber} className="text-muted shrink-0" /> : null}
                     </div>
                     <div className={clsx('grow h-full', !isExpanded && 'overflow-hidden')}>{contentDetermined}</div>
                     <div className="flex shrink-0 flex-row gap-3 items-center leading-6">
