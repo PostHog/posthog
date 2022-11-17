@@ -30,8 +30,8 @@ export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
         setSearchQuery: (query: string) => ({ query }),
         setRecording: (recording: SessionRecordingType) => ({ recording }),
         setScrollIndex: (index: number) => ({ index }),
-        addToPlaylist: (playlistId: number) => ({ playlistId }),
-        removeFromPlaylist: (playlistId: number) => ({ playlistId }),
+        addToPlaylist: (playlist: Pick<SessionRecordingPlaylistType, 'id' | 'short_id'>) => ({ playlist }),
+        removeFromPlaylist: (playlist: Pick<SessionRecordingPlaylistType, 'id' | 'short_id'>) => ({ playlist }),
     })),
     loaders(() => ({
         playlistsResponse: {
@@ -50,8 +50,8 @@ export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
         playlistWithActiveAPICall: [
             null as number | null,
             {
-                addToPlaylist: (_, { playlistId }) => playlistId,
-                removeFromPlaylist: (_, { playlistId }) => playlistId,
+                addToPlaylist: (_, { playlist }) => playlist.id,
+                removeFromPlaylist: (_, { playlist }) => playlist.id,
                 updateInsightSuccess: () => null,
                 updateInsightFailure: () => null,
             },
@@ -91,10 +91,10 @@ export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
         ],
     })),
     listeners(({ props }) => ({
-        addToPlaylist: async ({ playlistId }) => {
+        addToPlaylist: async ({ playlist }) => {
             const recording = {
                 id: props.recording.id,
-                playlists: [...(props.recording.playlists || []).filter((id) => id !== playlistId), playlistId],
+                playlists: [...(props.recording.playlists || []).filter((id) => id !== playlist.id), playlist.id],
             }
             const params = {
                 recording_start_time: props.recording.start_time,
@@ -103,15 +103,15 @@ export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
                 lemonToast.success('Recording added to playlist', {
                     button: {
                         label: 'View playlist',
-                        action: () => router.actions.push(urls.sessionRecordingPlaylist(String(playlistId))),
+                        action: () => router.actions.push(urls.sessionRecordingPlaylist(playlist.short_id)),
                     },
                 })
             })
         },
-        removeFromPlaylist: async ({ playlistId }): Promise<void> => {
+        removeFromPlaylist: async ({ playlist }): Promise<void> => {
             const recording = {
                 id: props.recording.id,
-                playlists: [...(props.recording.playlists || []).filter((id) => id !== playlistId)],
+                playlists: [...(props.recording.playlists || []).filter((id) => id !== playlist.id)],
             }
             const params = {
                 recording_start_time: props.recording.start_time,

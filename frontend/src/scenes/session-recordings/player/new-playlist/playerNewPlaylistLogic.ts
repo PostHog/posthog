@@ -23,10 +23,10 @@ export interface PlayerNewPlaylistLogicProps {
 export const playerNewPlaylistLogic = kea<playerNewPlaylistLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'new-playlist', 'playerNewPlaylistLogic', key]),
     props({} as PlayerNewPlaylistLogicProps),
-    connect({
-        actions: [savedSessionRecordingPlaylistModelLogic, ['createSavedPlaylist']],
-    }),
     key(({ sessionRecordingId }) => sessionRecordingId || 'global'),
+    connect(() => ({
+        actions: [savedSessionRecordingPlaylistModelLogic, ['createSavedPlaylist']],
+    })),
     actions({
         createAndGoToPlaylist: true,
     }),

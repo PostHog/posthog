@@ -55,7 +55,7 @@ const PlaylistRelationRow = ({
                 size="small"
                 onClick={(e) => {
                     e.preventDefault()
-                    isAlreadyOnPlaylist ? removeFromPlaylist(playlist.id) : addToPlaylist(playlist.id)
+                    isAlreadyOnPlaylist ? removeFromPlaylist(playlist) : addToPlaylist(playlist)
                 }}
             >
                 {isAlreadyOnPlaylist ? 'Added' : 'Add to playlist'}
