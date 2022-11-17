@@ -166,6 +166,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         The events from part 3 will not be associated with the events from the
         other steps, despite there potentially being a route via distinct_ids.
+
+        NOTE: There is almost certainly a more minimal test case for this, but I
+        always have to think about what the real world scenario is for this to
+        highlight why it's a case we need to consider.
         """
         initial_person = _create_person(
             properties={"email": "tim@posthog.com"},
@@ -209,16 +213,20 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/?person_id={initial_person.uuid}").json()
+        call_endpoint = lambda self: self.client.get(
+            f"/api/projects/{self.team.pk}/events/?person_id={initial_person.uuid}"
+        ).json()
+        response = snapshot_clickhouse_queries(call_endpoint)(self)
+
         self.assertEqual(len(response["results"]), 3)
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/events/?person_id={anonymous_then_initial_person.uuid}"
+            f"/api/projects/{self.team.pk}/events/?person_id={anonymous_then_initial_person.uuid}"
         ).json()
         self.assertEqual(len(response["results"]), 1)
 
     def test_filter_by_nonexisting_person(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/events/?person_id=5555555555")
+        response = self.client.get(f"/api/projects/{self.team.pk}/events/?person_id=5555555555")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["results"]), 0)
 
