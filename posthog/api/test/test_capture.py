@@ -157,6 +157,10 @@ class TestCapture(BaseTest):
             response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
             self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
 
+        with override_settings(ACK_EVENTS_PRODUCED_FOR_TEAMS=["*"]):
+            response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
+            self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+
         with override_settings(ACK_EVENTS_PRODUCED_FOR_TEAMS=[]):
             response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
             self.assertEqual(response.status_code, status.HTTP_200_OK)

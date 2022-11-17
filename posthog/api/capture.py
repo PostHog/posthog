@@ -296,7 +296,9 @@ def get_event(request):
                 ),
             )
 
-    if ingestion_context and str(ingestion_context.team_id) in settings.ACK_EVENTS_PRODUCED_FOR_TEAMS:
+    if (
+        ingestion_context and str(ingestion_context.team_id) in settings.ACK_EVENTS_PRODUCED_FOR_TEAMS
+    ) or "*" in settings.ACK_EVENTS_PRODUCED_FOR_TEAMS:
         # If the request is for a team we've enabled acks for, return HTTP
         # status codes accordingly. Ultimately we'll roll this out everywhere
         # but to allow for testing what effect this has we only do it for a
