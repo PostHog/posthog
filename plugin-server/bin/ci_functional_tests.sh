@@ -33,7 +33,7 @@ done
 echo '::endgroup::'
 
 set +e
-yarn functional_tests --maxConcurrency=10
+yarn functional_tests --maxConcurrency=10 --verbose
 exit_code=$?
 set -e
 
