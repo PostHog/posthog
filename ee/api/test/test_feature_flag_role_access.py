@@ -75,6 +75,7 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         OrganizationResourceAccess.objects.create(
             resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
             access_level=OrganizationResourceAccess.AccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE,
+            organization=self.organization,
         )
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
