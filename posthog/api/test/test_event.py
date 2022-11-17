@@ -227,7 +227,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 1)
 
     def test_filter_by_nonexisting_person(self):
-        response = self.client.get(f"/api/projects/{self.team.pk}/events/?person_id=5555555555")
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?person_id=5555555555")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["results"]), 0)
 
