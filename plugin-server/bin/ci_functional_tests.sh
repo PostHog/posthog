@@ -25,8 +25,8 @@ echo '::group::Starting plugin server'
 SERVER_PID=$!
 
 until curl http://localhost:6738/_ready; do
-    echo ''
     echo 'Waiting for plugin-server to be ready...'
+    echo ''
     sleep 1
 done
 
