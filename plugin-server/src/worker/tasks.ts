@@ -29,7 +29,11 @@ export const workerTasks: Record<string, TaskRunner> = {
     pluginScheduleReady: (hub) => {
         return hub.pluginSchedule !== null
     },
-    runEventPipeline: async (hub, args: { event: PipelineEvent }) => {
+    runLightweightCaptureEndpointEventPipeline: async (hub, args: { event: PipelineEvent }) => {
+        const runner = new EventPipelineRunner(hub, args.event)
+        return await runner.runLightweightCaptureEndpointEventPipeline(args.event)
+    },
+    runEventPipeline: async (hub, args: { event: PluginEvent }) => {
         const runner = new EventPipelineRunner(hub, args.event)
         return await runner.runEventPipeline(args.event)
     },

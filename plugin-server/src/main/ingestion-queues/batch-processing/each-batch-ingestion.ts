@@ -1,3 +1,4 @@
+import { PluginEvent } from '@posthog/plugin-scaffold'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
 import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
@@ -52,7 +53,8 @@ export async function ingestEvent(
     // populated in the plugin server rather than the capture endpoint. However,
     // we support both paths during the transitional period.
     if (event.team_id) {
-        await workerMethods.runEventPipeline(event)
+        // we've confirmed team_id exists so can assert event as PluginEvent
+        await workerMethods.runEventPipeline(event as PluginEvent)
     } else {
         await workerMethods.runLightweightCaptureEndpointEventPipeline(event)
     }
