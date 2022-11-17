@@ -30,7 +30,6 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import { More } from 'lib/components/LemonButton/More'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
-import { deletePlaylistWithUndo } from './playlistUtils'
 import { openPlayerAddToPlaylistDialog } from 'scenes/session-recordings/player/add-to-playlist/PlayerAddToPlaylist'
 
 export const scene: SceneExport = {
@@ -43,7 +42,8 @@ export const scene: SceneExport = {
 
 export function SessionRecordingsPlaylistScene(): JSX.Element {
     const { playlist, playlistLoading, hasChanges, derivedName } = useValues(sessionRecordingsPlaylistLogic)
-    const { updatePlaylist, setFilters, saveChanges, duplicatePlaylist } = useActions(sessionRecordingsPlaylistLogic)
+    const { updateSavedPlaylist, setFilters, saveChanges, duplicateSavedPlaylist, deleteSavedPlaylistWithUndo } =
+        useActions(sessionRecordingsPlaylistLogic)
 
     if (!playlist && playlistLoading) {
         return (
@@ -82,7 +82,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                         name="name"
                         value={playlist.name || ''}
                         placeholder={derivedName}
-                        onSave={(value) => updatePlaylist({ name: value })}
+                        onSave={(value) => updateSavedPlaylist(playlist.short_id, { name: value })}
                         saveOnBlur={true}
                         maxLength={400}
                         mode={undefined}
@@ -96,7 +96,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                 <>
                                     <LemonButton
                                         status="stealth"
-                                        onClick={() => duplicatePlaylist()}
+                                        onClick={() => duplicateSavedPlaylist(playlist)}
                                         fullWidth
                                         data-attr="duplicate-playlist"
                                     >
@@ -105,7 +105,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                     <LemonButton
                                         status="stealth"
                                         onClick={() =>
-                                            updatePlaylist({
+                                            updateSavedPlaylist(playlist.short_id, {
                                                 pinned: !playlist.pinned,
                                             })
                                         }
@@ -118,7 +118,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                     <LemonButton
                                         status="danger"
                                         onClick={() =>
-                                            deletePlaylistWithUndo(playlist, () => {
+                                            deleteSavedPlaylistWithUndo(playlist, () => {
                                                 router.actions.replace(
                                                     urls.sessionRecordings(SessionRecordingsTabs.Playlists)
                                                 )
@@ -151,7 +151,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                             name="description"
                             value={playlist.description || ''}
                             placeholder="Description (optional)"
-                            onSave={(value) => updatePlaylist({ description: value })}
+                            onSave={(value) => updateSavedPlaylist(playlist.short_id, { description: value })}
                             saveOnBlur={true}
                             maxLength={400}
                             data-attr="playlist-description"

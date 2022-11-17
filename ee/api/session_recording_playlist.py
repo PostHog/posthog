@@ -12,7 +12,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import SESSION_RECORDINGS_PLAYLIST_FREE_COUNT, AvailableFeature
-from posthog.models import SessionRecordingPlaylist, Team, User
+from posthog.models import SessionRecordingPlaylist, SessionRecordingPlaylistItem, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.team.team import get_available_features_for_team
 from posthog.models.utils import UUIDT
@@ -52,6 +52,13 @@ def log_playlist_activity(
         )
 
 
+class SessionRecordingPlaylistItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SessionRecordingPlaylistItem
+        fields = ["id", "session_id", "created_at", "deleted"]
+        read_only_fields = ["id", "session_id", "created_at"]
+
+
 class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
     class Meta:
         model = SessionRecordingPlaylist
@@ -84,6 +91,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
 
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
+    playlist_items = SessionRecordingPlaylistItemSerializer(many=True, read_only=True, default=list)
 
     def create(self, validated_data: Dict, *args, **kwargs) -> SessionRecordingPlaylist:
         request = self.context["request"]
@@ -174,6 +182,8 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
             queryset = queryset.order_by(order)
         else:
             queryset = queryset.order_by("last_modified_at")
+
+        queryset = queryset.prefetch_related("playlist_items")
 
         return queryset
 

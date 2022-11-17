@@ -1,9 +1,9 @@
-import { actions, kea, key, listeners, path, props } from 'kea'
+import { actions, connect, kea, key, listeners, path, props } from 'kea'
 import { SessionRecordingPlaylistType, SessionRecordingType } from '~/types'
 import { forms } from 'kea-forms'
 import type { playerNewPlaylistLogicType } from './playerNewPlaylistLogicType'
-import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { playerAddToPlaylistLogic } from 'scenes/session-recordings/player/add-to-playlist/playerAddToPlaylistLogic'
+import { savedSessionRecordingPlaylistModelLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
 
 export interface NewPlaylistForm extends Pick<SessionRecordingPlaylistType, 'name' | 'description' | 'is_static'> {
     show: boolean
@@ -23,6 +23,9 @@ export interface PlayerNewPlaylistLogicProps {
 export const playerNewPlaylistLogic = kea<playerNewPlaylistLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'new-playlist', 'playerNewPlaylistLogic', key]),
     props({} as PlayerNewPlaylistLogicProps),
+    connect({
+        actions: [savedSessionRecordingPlaylistModelLogic, ['createSavedPlaylist']],
+    }),
     key(({ sessionRecordingId }) => sessionRecordingId || 'global'),
     actions({
         createAndGoToPlaylist: true,
@@ -34,7 +37,7 @@ export const playerNewPlaylistLogic = kea<playerNewPlaylistLogicType>([
                 name: !name ? 'Please give your playlist a name.' : null,
             }),
             submit: async ({ name, description, is_static, show }, breakpoint) => {
-                await createPlaylist(
+                await actions.createSavedPlaylist(
                     {
                         name,
                         description,

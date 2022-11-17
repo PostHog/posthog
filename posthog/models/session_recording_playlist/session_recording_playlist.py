@@ -22,9 +22,6 @@ class SessionRecordingPlaylist(models.Model):
     )
 
     is_static: models.BooleanField = models.BooleanField(default=False)
-    playlist_items = models.ManyToManyField(
-        "posthog.SessionRecordingPlaylistItem", related_name="playlist_items", blank=True
-    )
 
     # Changing these fields materially alters the Playlist, so these count for the "last_modified_*" fields
     MATERIAL_PLAYLIST_FIELDS = {"name", "description", "filters"}
