@@ -1,9 +1,11 @@
 import { EventsNode, EventsTableNode, LegacyQuery, Node, NodeKind } from '~/queries/nodes'
-import { ChartDisplayType, InsightType, PropertyOperator } from '~/types'
+import { ChartDisplayType, InsightType, PropertyFilterType, PropertyOperator } from '~/types'
 
 const Events: EventsNode = {
     kind: NodeKind.EventsNode,
-    properties: [{ key: '$browser', value: 'Chrome', operator: PropertyOperator.Exact }],
+    properties: [
+        { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
+    ],
 }
 
 const EventsTable: EventsTableNode = {

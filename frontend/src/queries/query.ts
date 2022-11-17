@@ -1,4 +1,5 @@
-import { isEventsNode, isLegacyQuery, Node } from './nodes'
+import { Node } from './nodes'
+import { isEventsNode, isLegacyQuery } from './utils'
 import api from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
 import {

@@ -1,11 +1,11 @@
-import { DataNode } from '~/queries/nodes'
 import MonacoEditor from '@monaco-editor/react'
 import { useEffect, useState } from 'react'
 import { query as runQuery } from '~/queries/query'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { Node } from '~/queries/nodes'
 
 interface DataNodeQueryProps {
-    query: DataNode
+    query: Node
 }
 export function DataNodeQuery({ query }: DataNodeQueryProps): JSX.Element {
     const [response, setResponse] = useState<string>('Loading...')

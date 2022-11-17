@@ -42,7 +42,7 @@ export const LegacyInsight = BasicTemplate.bind({})
 LegacyInsight.args = { query: legacyInsight }
 
 const savedInsight: SavedInsightNode = {
-    kind: NodeKind.SavedInsight,
+    kind: NodeKind.SavedInsightNode,
     shortId: 'insight1234' as InsightShortId,
 }
 export const SavedInsight = BasicTemplate.bind({})
