@@ -34,6 +34,7 @@ export interface BreakdownFilter {
 
 export enum NodeType {
     EventsNode = 'EventsNode',
+    EventsTableNode = 'EventsTableNode',
     ActionsNode = 'ActionsNode',
     LegacyQuery = 'LegacyQuery',
     SavedInsight = 'SavedInsight',
@@ -48,7 +49,8 @@ export enum NodeType {
 // used for query schema generation
 export type AnyNode =
     | EventsNode
-    | ActionsDataNode
+    | EventsTableNode
+    | ActionsNode
     | LegacyQuery
     | SavedInsightNode
     | TrendsQuery
@@ -66,12 +68,15 @@ export enum NodeCategory {
 /** Node base class, everything else inherits from here */
 export interface Node {
     nodeType: NodeType
-    nodeCategory?: NodeCategory
 }
 
 /** Evaluated on the backend */
 export interface DataNode extends Node {
     nodeCategory?: NodeCategory.DataNode
+}
+
+export function isDataNode(node?: Node): node is DataNode {
+    return isEventsNode(node) || isActionsNode(node)
 }
 
 /** Evaluated on the frontend */
@@ -120,7 +125,7 @@ export function isEventsNode(node?: Node): node is EventsNode {
     return node?.nodeType === NodeType.EventsNode
 }
 
-export interface ActionsDataNode extends DataNode {
+export interface ActionsNode extends DataNode {
     nodeType: NodeType.ActionsNode
     meta?: {
         id?: number
@@ -128,6 +133,9 @@ export interface ActionsDataNode extends DataNode {
         description?: string
     }
     steps?: EventsNode
+}
+export function isActionsNode(node?: Node): node is ActionsNode {
+    return node?.nodeType === NodeType.ActionsNode
 }
 
 export interface LegacyQuery extends DataNode {
@@ -158,7 +166,7 @@ interface InsightsQueryBase extends DataNode {
 
 export interface TrendsQuery extends InsightsQueryBase {
     nodeType: NodeType.TrendsQuery
-    steps?: (EventsNode | ActionsDataNode)[]
+    steps?: (EventsNode | ActionsNode)[]
     interval?: IntervalType
     breakdown?: BreakdownFilter
     trendsFilter?: TrendsFilterType // using everything except what it inherits from FilterType
@@ -166,7 +174,7 @@ export interface TrendsQuery extends InsightsQueryBase {
 
 export interface FunnelsQuery extends InsightsQueryBase {
     nodeType: NodeType.FunnelsQuery
-    steps?: (EventsNode | ActionsDataNode)[]
+    steps?: (EventsNode | ActionsNode)[]
     breakdown?: BreakdownFilter
     funnelsFilter?: FunnelsFilterType // using everything except what it inherits from FilterType
 }
@@ -185,7 +193,7 @@ export interface LifecycleQuery extends InsightsQueryBase {
 }
 export interface StickinessQuery extends InsightsQueryBase {
     nodeType: NodeType.StickinessQuery
-    steps?: (EventsNode | ActionsDataNode)[]
+    steps?: (EventsNode | ActionsNode)[]
     interval?: IntervalType
     stickinessFilter?: StickinessFilterType // using everything except what it inherits from FilterType
 }
@@ -198,7 +206,11 @@ export interface PersonsModalQuery extends InsightsQueryBase {
     entity_math: string
 }
 
-export interface EventsTable extends InterfaceNode {
+export interface EventsTableNode extends InterfaceNode {
+    nodeType: NodeType.EventsTableNode
     events: EventsNode
     columns?: string[]
+}
+export function isEventsTableNode(node?: Node): node is EventsTableNode {
+    return node?.nodeType === NodeType.EventsTableNode
 }

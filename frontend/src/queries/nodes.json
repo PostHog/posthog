@@ -45,6 +45,9 @@
                     "$ref": "#/definitions/EventsNode"
                 },
                 {
+                    "$ref": "#/definitions/EventsTableNode"
+                },
+                {
                     "$ref": "#/definitions/ActionsDataNode"
                 },
                 {
@@ -1282,6 +1285,29 @@
             "required": ["nodeType"],
             "type": "object"
         },
+        "EventsTableNode": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "events": {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                "nodeCategory": {
+                    "const": "InterfaceNode",
+                    "type": "string"
+                },
+                "nodeType": {
+                    "$ref": "#/definitions/NodeType"
+                }
+            },
+            "required": ["events", "nodeType"],
+            "type": "object"
+        },
         "FilterLogicalOperator": {
             "enum": ["AND", "OR"],
             "type": "string"
@@ -1725,6 +1751,22 @@
             },
             "required": ["nodeType"],
             "type": "object"
+        },
+        "NodeType": {
+            "enum": [
+                "EventsNode",
+                "EventsTableNode",
+                "ActionsNode",
+                "LegacyQuery",
+                "SavedInsight",
+                "FunnelsQuery",
+                "TrendsQuery",
+                "PathsQuery",
+                "RetentionQuery",
+                "LifecycleQuery",
+                "StickinessQuery"
+            ],
+            "type": "string"
         },
         "PathType": {
             "enum": ["$pageview", "$screen", "custom_event"],
