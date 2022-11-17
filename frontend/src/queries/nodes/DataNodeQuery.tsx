@@ -31,7 +31,6 @@ export function DataNodeQuery({ query }: DataNodeQueryProps): JSX.Element {
                     language={'json'}
                     value={response}
                     height={Math.max(height, 300)}
-                    options={{ minimap: { enabled: false } }}
                 />
             )}
         </AutoSizer>

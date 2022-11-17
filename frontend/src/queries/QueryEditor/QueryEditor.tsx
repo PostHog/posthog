@@ -7,7 +7,7 @@ import { queryEditorLogic } from '~/queries/QueryEditor/queryEditorLogic'
 
 export interface QueryEditorProps {
     query: string
-    setQuery: (query: string) => void
+    setQuery?: (query: string) => void
 }
 
 let i = 0
@@ -42,14 +42,13 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
                 value={queryInput}
                 onChange={(v) => setQueryInput(v ?? '')}
                 height={300}
-                options={{ minimap: { enabled: false } }}
             />
             <div className="flex flex-row items-center space-x-2">
                 <LemonButton
                     onClick={() => saveQuery()}
                     type="primary"
                     status={error ? 'danger' : 'primary'}
-                    disabled={!!error || !inputChanged}
+                    disabled={!props.setQuery || !!error || !inputChanged}
                 >
                     Update
                 </LemonButton>
