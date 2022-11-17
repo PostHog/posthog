@@ -14,12 +14,12 @@ from typing import (
 import structlog
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.core import exceptions
 from django.db import models, transaction
 from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
 from django.dispatch import receiver
 from django.utils import timezone
-from rest_framework import exceptions
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
