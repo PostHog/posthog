@@ -4,7 +4,8 @@ from typing import Any, Dict, List, Optional, cast
 from django.db.models import QuerySet
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -16,10 +17,20 @@ from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort import Cohort
-from posthog.models.feature_flag import FeatureFlagMatcher, get_active_feature_flags
+from posthog.models.feature_flag import FeatureFlagMatcher, can_user_edit_feature_flag, get_active_feature_flags
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+
+
+class CanEditFeatureFlag(BasePermission):
+    message = "You don't have edit permissions for this feature flag."
+
+    def has_object_permission(self, request: Request, view, feature_flag) -> bool:
+        if request.method in SAFE_METHODS:
+            return True
+        else:
+            return can_user_edit_feature_flag(request, feature_flag)
 
 
 class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
@@ -60,34 +71,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
         # TODO: make sure this isn't n+1
-        try:
-            from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
-            from ee.models.organization_resource_access import OrganizationResourceAccess
-        except:
-            return True
-        else:
-            request = self.context["request"]
-            all_role_memberships = request.user.role_memberships.select_related("role").all()
-            try:
-                feature_flag_resource_access = OrganizationResourceAccess.objects.get(
-                    resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS
-                )
-                org_level = feature_flag_resource_access.access_level
-            except OrganizationResourceAccess.DoesNotExist:
-                org_level = -1
-
-            role_level = max(
-                [membership.role.feature_flags_access_level for membership in all_role_memberships], default=0
-            )
-            final_level = max(role_level, org_level)
-            if final_level == OrganizationResourceAccess.AccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE:
-                can_edit = FeatureFlagRoleAccess.objects.filter(
-                    feature_flag__id=feature_flag.pk,
-                    role__id__in=[membership.role.pk for membership in all_role_memberships],
-                ).exists()
-                return can_edit
-            else:
-                return final_level == OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT
+        return can_user_edit_feature_flag(self.context["request"], feature_flag)
 
     # Simple flags are ones that only have rollout_percentage
     #  That means server side libraries are able to gate these flags without calling to the server
@@ -240,7 +224,12 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+        CanEditFeatureFlag,
+    ]
     authentication_classes = [
         PersonalAPIKeyAuthentication,
         TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
