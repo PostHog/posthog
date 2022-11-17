@@ -31,7 +31,7 @@ from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.logging.timing import timed
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
-from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS
+from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.utils import cors_response, get_ip_address
 
 logger = structlog.get_logger(__name__)
@@ -220,7 +220,7 @@ def get_event(request):
     ingestion_context = None
     send_events_to_dead_letter_queue = False
 
-    if token not in LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
+    if token not in settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
         ingestion_context, db_error, error_response = get_event_ingestion_context(request, data, token)
 
         if error_response:
@@ -250,7 +250,7 @@ def get_event(request):
 
     site_url = request.build_absolute_uri("/")[:-1]
 
-    ip = None if not ingestion_context or ingestion_context.anonymize_ips else get_ip_address(request)
+    ip = None if ingestion_context and ingestion_context.anonymize_ips else get_ip_address(request)
 
     try:
         processed_events = list(validate_events(events, ingestion_context))
