@@ -211,9 +211,7 @@ class User(AbstractUser, UUIDClassicModel):
                 # If project access control IS applicable, make sure the user is assigned a project they have access to
                 # We don't need to check for ExplicitTeamMembership as none can exist for a completely new member
                 self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
-
             self.save()
-
             return membership
 
     @property
