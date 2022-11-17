@@ -96,7 +96,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                 <>
                                     <LemonButton
                                         status="stealth"
-                                        onClick={() => duplicateSavedPlaylist(playlist)}
+                                        onClick={() => duplicateSavedPlaylist(playlist, true)}
                                         fullWidth
                                         data-attr="duplicate-playlist"
                                     >

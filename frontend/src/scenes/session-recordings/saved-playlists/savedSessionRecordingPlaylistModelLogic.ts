@@ -74,10 +74,15 @@ export const savedSessionRecordingPlaylistModelLogic = kea<savedSessionRecording
                 await breakpoint(100)
 
                 const { id, short_id, ...partialPlaylist } = playlist
+                console.log(
+                    'PARTIAL NAME',
+                    partialPlaylist.name,
+                    partialPlaylist.name ? partialPlaylist.name + ' (copy)' : ''
+                )
                 partialPlaylist.name = partialPlaylist.name ? partialPlaylist.name + ' (copy)' : ''
                 partialPlaylist.derived_name = partialPlaylist.derived_name
 
-                const newPlaylist = await createPlaylist(playlist, redirect)
+                const newPlaylist = await createPlaylist(partialPlaylist, redirect)
                 breakpoint()
                 if (!newPlaylist) {
                     return null

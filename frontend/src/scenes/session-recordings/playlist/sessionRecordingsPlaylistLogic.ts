@@ -45,7 +45,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         playlist: [
             null as SessionRecordingPlaylistType | null,
             {
-                setPlaylist: (_, { playlist }) => playlist,
+                setPlaylist: (oldPlaylist, { playlist }) => playlist || oldPlaylist,
             },
         ],
         filters: [
