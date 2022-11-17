@@ -1,8 +1,9 @@
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
+from ee.models.organization_resource_access import OrganizationResourceAccess
 from ee.models.role import Role
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import OrganizationMembership
 
 
 class TestRoleAPI(APILicensedTest):
@@ -85,19 +86,21 @@ class TestRoleAPI(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
-        self.assertEqual(role.feature_flags_access_level, Organization.FeatureFlagsAccessLevel.CAN_ALWAYS_EDIT)
+        self.assertEqual(role.feature_flags_access_level, OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT)
         self.client.patch(
             f"/api/organizations/@current/roles/{role.id}",
-            {"feature_flags_access_level": Organization.FeatureFlagsAccessLevel.CAN_ONLY_VIEW},
+            {"feature_flags_access_level": OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW},
         )
         self.assertEqual(
-            Role.objects.first().feature_flags_access_level, Organization.FeatureFlagsAccessLevel.CAN_ONLY_VIEW  # type: ignore
+            Role.objects.first().feature_flags_access_level, OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW  # type: ignore
         )
         self.client.patch(
             f"/api/organizations/@current/roles/{role.id}",
-            {"feature_flags_access_level": Organization.FeatureFlagsAccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE},
+            {
+                "feature_flags_access_level": OrganizationResourceAccess.AccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE
+            },
         )
         self.assertEqual(
             Role.objects.first().feature_flags_access_level,  # type: ignore
-            Organization.FeatureFlagsAccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE,
+            OrganizationResourceAccess.AccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE,
         )
