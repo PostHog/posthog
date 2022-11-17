@@ -196,7 +196,7 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
     if len(all_csv_rows):
         if not [x for x in all_csv_rows[0].values() if isinstance(x, dict) or isinstance(x, list)]:
             # If values are serialised then keep the order of the keys, else allow it to be unordered
-            renderer.header = all_csv_rows[1].keys()
+            renderer.header = all_csv_rows[0].keys()
 
     render_context = {}
     if columns:
