@@ -17,7 +17,9 @@ export BUFFER_CONVERSION_SECONDS=2 # Make sure we don't have to wait for the def
 export KAFKA_MAX_MESSAGE_BATCH_SIZE=0
 export APP_METRICS_GATHERED_FOR_ALL=true
 
-./node_modules/.bin/c8 --reporter html node dist/index.js &
+LOG_FILE=$(mktemp)
+
+./node_modules/.bin/c8 --reporter html node dist/index.js > $LOG_FILE 2>&1 &
 SERVER_PID=$!
 
 until curl http://localhost:6738/_ready; do
@@ -33,5 +35,11 @@ set -e
 
 kill $SERVER_PID
 wait $SERVER_PID
+
+if [ $exit_code -ne 0 ]; then
+    echo '::group::Plugin Server logs'
+    cat $LOG_FILE
+    echo '::endgroup::'
+fi
 
 exit $exit_code
