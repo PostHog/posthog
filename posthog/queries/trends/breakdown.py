@@ -30,6 +30,7 @@ from posthog.queries.breakdown_props import (
     format_breakdown_cohort_join_query,
     get_breakdown_cohort_name,
     get_breakdown_prop_values,
+    normalize_url_breakdown,
 )
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
@@ -55,6 +56,7 @@ from posthog.queries.trends.sql import (
 from posthog.queries.trends.util import (
     COUNT_PER_ACTOR_MATH_FUNCTIONS,
     PROPERTY_MATH_FUNCTIONS,
+    ensure_value_is_json_serializable,
     enumerate_time_range,
     get_active_user_params,
     parse_response,
@@ -403,7 +405,10 @@ class TrendsBreakdown:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
 
         if self.filter.using_histogram:
-            return f"toFloat64OrNull(toString({breakdown_value}))"
+            breakdown_value = f"toFloat64OrNull(toString({breakdown_value}))"
+
+        breakdown_value = normalize_url_breakdown(breakdown_value, self.filter.breakdown_normalize_url)
+
         return breakdown_value
 
     def _get_histogram_breakdown_values(self, raw_breakdown_value: str, buckets: List[int]):
@@ -453,6 +458,7 @@ class TrendsBreakdown:
         def _parse(result: List) -> List:
             parsed_results = []
             for stats in result:
+                aggregated_value = ensure_value_is_json_serializable(stats[0])
                 result_descriptors = self._breakdown_result_descriptors(stats[1], filter, entity)
                 filter_params = filter.to_params()
                 extra_params = {
@@ -463,7 +469,7 @@ class TrendsBreakdown:
                 }
                 parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
                 parsed_result = {
-                    "aggregated_value": stats[0],
+                    "aggregated_value": aggregated_value,
                     "filter": filter_params,
                     "persons": {
                         "filter": extra_params,

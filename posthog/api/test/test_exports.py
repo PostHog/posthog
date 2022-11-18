@@ -358,3 +358,32 @@ class TestExports(APIBaseTest):
 
         self.maxDiff = None
         self.assertEqual(activity, expected)
+
+
+class TestExportMixin(APIBaseTest):
+    def _get_export_output(self, path: str) -> List[str]:
+        """
+        Use this function to test the CSV output of exports in other tests
+        """
+        with self.settings(SITE_URL="http://testserver", OBJECT_STORAGE_ENABLED=False):
+            with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
+
+                def requests_side_effect(*args, **kwargs):
+                    return self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])
+
+                patched_request.side_effect = requests_side_effect
+
+                response = self.client.post(
+                    f"/api/projects/{self.team.pk}/exports/",
+                    {
+                        "export_context": {
+                            "max_limit": 10000,
+                            "path": path,
+                        },
+                        "export_format": "text/csv",
+                    },
+                )
+                download_response = self.client.get(
+                    f"/api/projects/{self.team.id}/exports/{response.json()['id']}/content?download=true"
+                )
+                return [str(x) for x in download_response.content.splitlines()]

@@ -2,20 +2,12 @@ import copy
 import threading
 from datetime import datetime, timedelta
 from itertools import accumulate
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    Union,
-    cast,
-)
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 import pytz
 from dateutil import parser
 from django.db.models.query import Prefetch
+from sentry_sdk import push_scope
 
 from posthog.client import sync_execute
 from posthog.constants import (
@@ -127,12 +119,16 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
     def _run_query(self, filter: Filter, team: Team, entity: Entity) -> List[Dict[str, Any]]:
         adjusted_filter, cached_result = self.adjusted_filter(filter, team)
         sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
-        result = sync_execute(sql, params, client_query_id=filter.client_query_id, client_query_team_id=team.pk)
-        result = parse_function(result)
-        serialized_data = self._format_serialized(entity, result)
-        merged_results, cached_result = self.merge_results(
-            serialized_data, cached_result, entity.order or entity.index, filter, team
-        )
+        with push_scope() as scope:
+            scope.set_context("filter", filter.to_dict())
+            scope.set_tag("team", team)
+            scope.set_context("query", {"sql": sql, "params": params})
+            result = sync_execute(sql, params, client_query_id=filter.client_query_id, client_query_team_id=team.pk)
+            result = parse_function(result)
+            serialized_data = self._format_serialized(entity, result)
+            merged_results, cached_result = self.merge_results(
+                serialized_data, cached_result, entity.order or entity.index, filter, team
+            )
 
         if cached_result:
             for value in cached_result.values():
@@ -141,11 +137,14 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         return merged_results
 
     def _run_query_for_threading(self, result: List, index: int, sql, params, client_query_id: str, team_id: int):
-        result[index] = sync_execute(sql, params, client_query_id=client_query_id, client_query_team_id=team_id)
+        with push_scope() as scope:
+            scope.set_context("query", {"sql": sql, "params": params})
+            result[index] = sync_execute(sql, params, client_query_id=client_query_id, client_query_team_id=team_id)
 
     def _run_parallel(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
-        result: List[Union[None, List[Dict[str, Any]]]] = [None] * len(filter.entities)
-        parse_functions: List[Union[None, Callable]] = [None] * len(filter.entities)
+        result: List[Optional[List[Dict[str, Any]]]] = [None] * len(filter.entities)
+        parse_functions: List[Optional[Callable]] = [None] * len(filter.entities)
+        sql_statements_with_params: List[Tuple[Optional[str], Dict]] = [(None, {})] * len(filter.entities)
         cached_result = None
         jobs = []
 
@@ -153,6 +152,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             adjusted_filter, cached_result = self.adjusted_filter(filter, team)
             sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
             parse_functions[entity.index] = parse_function
+            sql_statements_with_params[entity.index] = (sql, params)
             thread = threading.Thread(
                 target=self._run_query_for_threading,
                 args=(result, entity.index, sql, params, filter.client_query_id, team.pk),
@@ -168,13 +168,19 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             j.join()
 
         # Parse results for each thread
-        for entity in filter.entities:
-            serialized_data = cast(List[Callable], parse_functions)[entity.index](result[entity.index])
-            serialized_data = self._format_serialized(entity, serialized_data)
-            merged_results, cached_result = self.merge_results(
-                serialized_data, cached_result, entity.order or entity.index, filter, team
-            )
-            result[entity.index] = merged_results
+        with push_scope() as scope:
+            scope.set_context("filter", filter.to_dict())
+            scope.set_tag("team", team)
+            for i, entity in enumerate(filter.entities):
+                scope.set_context(
+                    "query", {"sql": sql_statements_with_params[i][0], "params": sql_statements_with_params[i][1]}
+                )
+                serialized_data = cast(List[Callable], parse_functions)[entity.index](result[entity.index])
+                serialized_data = self._format_serialized(entity, serialized_data)
+                merged_results, cached_result = self.merge_results(
+                    serialized_data, cached_result, entity.order or entity.index, filter, team
+                )
+                result[entity.index] = merged_results
 
         # flatten results
         flat_results: List[Dict[str, Any]] = []

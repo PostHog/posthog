@@ -21,7 +21,7 @@ export function DeleteProjectModal({
     return (
         <LemonModal
             title="Delete the project and its data?"
-            onClose={() => setIsOpen(false)}
+            onClose={!isDeletionInProgress ? () => setIsOpen(false) : undefined}
             footer={
                 <>
                     <LemonButton disabled={isDeletionInProgress} type="secondary" onClick={() => setIsOpen(false)}>
