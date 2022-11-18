@@ -242,7 +242,7 @@ export function SavedInsights(): JSX.Element {
                                 )}
                             </Link>
                             <div
-                                className={'ml-32 w-fit cursor-pointer'}
+                                className={'ml-1 w-fit cursor-pointer'}
                                 onClick={() => updateFavoritedInsight(insight, !insight.favorited)}
                             >
                                 {insight.favorited ? (
