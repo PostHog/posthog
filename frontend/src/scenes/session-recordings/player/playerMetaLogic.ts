@@ -17,7 +17,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>({
     connect: ({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps) => ({
         values: [
             sessionRecordingDataLogic({ sessionRecordingId }),
-            ['sessionPlayerData', 'sessionEventsData', 'sessionPlayerMetaDataLoading'],
+            ['sessionPlayerData', 'sessionEventsData', 'sessionPlayerMetaDataLoading', 'windowIds'],
             sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
             ['currentPlayerPosition', 'scale', 'currentPlayerTime'],
         ],
@@ -64,12 +64,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>({
             (sessionPlayerData) => {
                 const startTimeFromMeta = sessionPlayerData?.metadata?.segments[0]?.startTimeEpochMs
                 return startTimeFromMeta ?? null
-            },
-        ],
-        windowIds: [
-            (selectors) => [selectors.sessionPlayerData],
-            (sessionPlayerData) => {
-                return Object.keys(sessionPlayerData?.metadata?.startAndEndTimesByWindowId) ?? []
             },
         ],
         currentWindowIndex: [

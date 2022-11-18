@@ -3,6 +3,7 @@ from typing import Any, List
 
 from posthog.cache_utils import cache_for
 from posthog.models.async_migration import is_async_migration_complete
+from posthog.models.cohort import CohortPeople
 from posthog.models.person import Person, PersonDistinctId
 
 
@@ -10,6 +11,7 @@ def delete_bulky_postgres_data(team_ids: List[int]):
     "Efficiently delete large tables for teams from postgres. Using normal CASCADE delete here can time out"
 
     _raw_delete(PersonDistinctId.objects.filter(team_id__in=team_ids))
+    _raw_delete(CohortPeople.objects.filter(person__team_id__in=team_ids))
     _raw_delete(Person.objects.filter(team_id__in=team_ids))
 
 

@@ -113,7 +113,7 @@ export function DashboardItems(): JSX.Element {
                                 updateColor={(color) => updateTileColor(tile.id, color)}
                                 ribbonColor={tile.color}
                                 removeFromDashboard={() => removeTile(tile)}
-                                refresh={() => refreshAllDashboardItems([tile])}
+                                refresh={() => refreshAllDashboardItems({ tiles: [tile], action: 'refresh_manual' })}
                                 rename={() => renameInsight(insight)}
                                 duplicate={() => duplicateInsight(insight)}
                                 moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {

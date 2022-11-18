@@ -244,6 +244,12 @@ export interface TeamBasicType {
     effective_membership_level: OrganizationMembershipLevel | null
 }
 
+export interface CorrelationConfigType {
+    excluded_person_property_names?: string[]
+    excluded_event_property_names?: string[]
+    excluded_event_names?: string[]
+}
+
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -261,14 +267,12 @@ export interface TeamType extends TeamBasicType {
     has_group_types: boolean
     primary_dashboard: number // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
-
-    // Uses to exclude person properties from correlation analysis results, for
-    // example can be used to exclude properties that have trivial causation
-    correlation_config: {
-        excluded_person_property_names?: string[]
-        excluded_event_property_names?: string[]
-        excluded_event_names?: string[]
-    }
+    /** Used to exclude person properties from correlation analysis results.
+     *
+     * For example can be used to exclude properties that have trivial causation.
+     * This field should have a default value of `{}`, but it IS nullable and can be `null` in some cases.
+     */
+    correlation_config: CorrelationConfigType | null
 }
 
 export interface ActionType {
@@ -346,18 +350,6 @@ export interface ToolbarProps extends EditorProps {
 
 export type PropertyFilterValue = string | number | (string | number)[] | null
 
-export interface PropertyFilter {
-    key: string
-    operator: PropertyOperator | null
-    type: string
-    value: PropertyFilterValue
-    group_type_index?: number | null
-}
-
-export type EmptyPropertyFilter = Partial<PropertyFilter>
-
-export type AnyPropertyFilter = PropertyFilter | EmptyPropertyFilter
-
 /** Sync with plugin-server/src/types.ts */
 export enum PropertyOperator {
     Exact = 'exact',
@@ -405,44 +397,75 @@ export enum ExperimentStatus {
     Complete = 'complete',
 }
 
+export enum PropertyFilterType {
+    Event = 'event',
+    Person = 'person',
+    Element = 'element',
+    Feature = 'feature',
+    Session = 'session',
+    Cohort = 'cohort',
+    Recording = 'recording',
+    Group = 'group',
+}
+
 /** Sync with plugin-server/src/types.ts */
 interface BasePropertyFilter {
     key: string
     value: PropertyFilterValue
     label?: string
+    type?: PropertyFilterType
+    group_type_index?: number | null
 }
 
 /** Sync with plugin-server/src/types.ts */
 export interface EventPropertyFilter extends BasePropertyFilter {
-    type: 'event'
+    type: PropertyFilterType.Event
     operator: PropertyOperator
 }
 
 /** Sync with plugin-server/src/types.ts */
 export interface PersonPropertyFilter extends BasePropertyFilter {
-    type: 'person'
+    type: PropertyFilterType.Person
     operator: PropertyOperator
 }
 
 /** Sync with plugin-server/src/types.ts */
 export interface ElementPropertyFilter extends BasePropertyFilter {
-    type: 'element'
+    type: PropertyFilterType.Element
     key: 'tag_name' | 'text' | 'href' | 'selector'
     operator: PropertyOperator
 }
 
 export interface SessionPropertyFilter extends BasePropertyFilter {
-    type: 'session'
+    type: PropertyFilterType.Session
     key: '$session_duration'
     operator: PropertyOperator
 }
 
 /** Sync with plugin-server/src/types.ts */
 export interface CohortPropertyFilter extends BasePropertyFilter {
-    type: 'cohort'
+    type: PropertyFilterType.Cohort
     key: 'id'
     value: number
 }
+
+export type PropertyFilter =
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | ElementPropertyFilter
+    | SessionPropertyFilter
+    | CohortPropertyFilter
+    | RecordingDurationFilter
+
+export type AnyPropertyFilter =
+    | Partial<EventPropertyFilter>
+    | Partial<PersonPropertyFilter>
+    | Partial<ElementPropertyFilter>
+    | Partial<SessionPropertyFilter>
+    | Partial<CohortPropertyFilter>
+    | Partial<RecordingDurationFilter>
+
+export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
 export type SessionRecordingId = SessionRecordingType['id']
 
@@ -531,7 +554,7 @@ export type ActionStepProperties =
     | CohortPropertyFilter
 
 export interface RecordingDurationFilter extends BasePropertyFilter {
-    type: 'recording'
+    type: PropertyFilterType.Recording
     key: 'duration'
     value: number
     operator: PropertyOperator
@@ -939,6 +962,7 @@ export interface DashboardTile extends Tileable, Cacheable {
     insight?: InsightModel
     text?: TextModel
     deleted?: boolean
+    is_cached?: boolean
 }
 
 export interface TextModel {
@@ -1207,6 +1231,7 @@ export type BreakdownKeyType = string | number | (string | number)[] | null
 export interface Breakdown {
     property: string | number
     type: BreakdownType
+    normalize_url?: boolean
 }
 
 export interface FilterType {
@@ -1233,6 +1258,7 @@ export interface FilterType {
     // TODO: extract into TrendsFunnelsCommonFilterType
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
+    breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
@@ -1918,7 +1944,7 @@ export interface PropertyGroupFilter {
 
 export interface PropertyGroupFilterValue {
     type: FilterLogicalOperator
-    values: AnyPropertyFilter[]
+    values: (AnyPropertyFilter | PropertyGroupFilterValue)[]
 }
 
 export interface CohortCriteriaGroupFilter {

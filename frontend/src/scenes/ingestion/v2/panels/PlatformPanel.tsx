@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { ingestionLogic } from '../ingestionLogic'
+import { ingestionLogicV2 } from '../ingestionLogic'
 import { THIRD_PARTY, platforms } from '../constants'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
@@ -7,7 +7,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
 
 export function PlatformPanel(): JSX.Element {
-    const { setPlatform } = useActions(ingestionLogic)
+    const { next } = useActions(ingestionLogicV2)
 
     return (
         <div>
@@ -26,20 +26,20 @@ export function PlatformPanel(): JSX.Element {
                         size="large"
                         type="primary"
                         className="mb-2"
-                        onClick={() => setPlatform(platform)}
+                        onClick={() => next({ platform })}
                     >
                         {platform}
                     </LemonButton>
                 ))}
                 <LemonButton
-                    onClick={() => setPlatform(THIRD_PARTY)}
+                    onClick={() => next({ platform: THIRD_PARTY })}
                     fullWidth
                     center
                     size="large"
                     className="mb-2"
                     type="primary"
                 >
-                    {THIRD_PARTY}
+                    Import events from a third party
                 </LemonButton>
                 <IngestionInviteMembersButton />
             </div>
