@@ -23,6 +23,12 @@
 
     .BridgePage__art-wrapper {
         margin-right: 60px;
+        display: none;
+
+        @include screen($md) {
+            display: block;
+            visibility: visible;
+        }
     }
 
     .BridgePage__content {
