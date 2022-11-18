@@ -47,6 +47,8 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { EventsTable } from 'scenes/events'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { ResourcePermissionModal } from 'scenes/ResourcePermissionModal'
+import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -67,6 +69,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag } = useActions(featureFlagLogic)
+
+    const { permissionModalVisible, addableRoles, unfilteredAddableRoles, rolesToAdd } =
+        useValues(featureFlagPermissionsLogic)
+    const { setModalOpen, setRolesToAdd } = useActions(featureFlagPermissionsLogic)
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
@@ -100,6 +106,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             title={isNewFeatureFlag ? 'New feature flag' : featureFlag.key || 'Untitled'}
                             buttons={
                                 <div className="flex items-center gap-2">
+                                    <LemonButton onClick={() => setModalOpen(true)}>
+                                        <LockOutlined />
+                                    </LemonButton>
                                     <LemonButton
                                         data-attr="cancel-feature-flag"
                                         type="secondary"
@@ -377,6 +386,15 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     </>
                 )}
             </div>
+            <ResourcePermissionModal
+                onChange={(roleIds) => setRolesToAdd(roleIds)}
+                rolesToAdd={rolesToAdd}
+                addableRoles={addableRoles}
+                addableRolesLoading={unfilteredAddableRoles}
+                onClose={() => setModalOpen(false)}
+                title="Feature Flag Permissions"
+                visible={permissionModalVisible}
+            />
         </>
     )
 }

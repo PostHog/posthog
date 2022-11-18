@@ -67,6 +67,10 @@ class RoleViewSet(
     serializer_class = RoleSerializer
     queryset = Role.objects.all()
 
+    def get_queryset(self):
+        filters = self.request.GET.dict()
+        return super().get_queryset().filter(**filters)
+
 
 class RoleMembershipSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer(read_only=True)

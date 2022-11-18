@@ -32,6 +32,8 @@ import {
     RoleType,
     RoleMemberType,
     OrganizationResourcePermissionType,
+    RolesListParams,
+    FeatureFlagAssociatedRoleType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -382,6 +384,12 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
     }
 
+    // Resource Access Permissions
+
+    public featureFlagAccessPermissions(): ApiRequest {
+        return this.organizations().current().addPathComponent('feature_flag_role_access')
+    }
+
     // Request finalization
 
     public async get(options?: { signal?: AbortSignal }): Promise<any> {
@@ -708,12 +716,31 @@ const api = {
         },
     },
 
+    resourceAccessPermissions: {
+        featureFlags: {
+            async create(
+                roleId: RoleType['id'],
+                featureFlagId: FeatureFlagType['id']
+            ): Promise<FeatureFlagAssociatedRoleType> {
+                return await new ApiRequest().featureFlagAccessPermissions().create({
+                    data: {
+                        role: roleId,
+                        feature_flag: featureFlagId,
+                    },
+                })
+            },
+            async list(): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
+                return await new ApiRequest().featureFlagAccessPermissions().get()
+            },
+        },
+    },
+
     roles: {
         async get(roleId: RoleType['id']): Promise<RoleType> {
             return await new ApiRequest().rolesDetail(roleId).get()
         },
-        async list(): Promise<PaginatedResponse<RoleType>> {
-            return await new ApiRequest().roles().get()
+        async list(params: RolesListParams = {}): Promise<PaginatedResponse<RoleType>> {
+            return await new ApiRequest().roles().withQueryString(toParams(params)).get()
         },
         async delete(roleId: RoleType['id']): Promise<void> {
             return await new ApiRequest().rolesDetail(roleId).delete()

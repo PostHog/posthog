@@ -2341,6 +2341,17 @@ export interface RoleType {
     created_by: UserBasicType | null
 }
 
+export interface RolesListParams {
+    feature_flags_access_level?: AccessLevel
+}
+
+export interface FeatureFlagAssociatedRoleType {
+    feature_flag: FeatureFlagType
+    role: RoleType
+    updated_at: string
+    added_at: string
+}
+
 export interface RoleMemberType {
     id: string
     user: UserBaseType
