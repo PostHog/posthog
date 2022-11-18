@@ -1,6 +1,7 @@
 import hashlib
 import json
 import re
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -296,9 +297,10 @@ def get_event(request):
                 ),
             )
 
+    start_time = time.monotonic()
     for future in futures:
         try:
-            future.get(timeout=1)
+            future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time))
         except KafkaError as exc:
             # TODO: distinguish between retriable errors and non-retriable
             # errors, and set Retry-After header accordingly.
