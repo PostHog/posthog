@@ -152,7 +152,7 @@ def sync_execute(
 
         timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure)
 
-        settings = {**settings_override, **(settings or {})}
+        settings = {**settings_override, **(settings or {}), "log_comment": json.dumps(tags, separators=(",", ":"))}
 
         try:
             result = client.execute(
