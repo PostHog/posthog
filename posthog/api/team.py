@@ -41,8 +41,18 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
         if request.method in CREATE_METHODS and (
             (user.organization is None)
             or (
-                user.organization.teams.exclude(is_demo=True).count() >= 1
+                # if we're not requesting to make a demo project
+                not request.data["is_demo"]
+                # if the org already has more than 1 non-demo project (need to be able to make the initial project)
+                and user.organization.teams.exclude(is_demo=True).count() >= 1
+                # and the org isn't allowed to make multiple projects
                 and not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
+            )
+            or (
+                # if we ARE requesting to make a demo project
+                request.data["is_demo"]
+                # but the org already has a demo project
+                and user.organization.teams.exclude(is_demo=False).count() > 0
             )
         ):
             return False
@@ -129,7 +139,7 @@ class TeamSerializer(serializers.ModelSerializer):
         organization = self.context["view"].organization  # Use the org we used to validate permissions
         if validated_data["is_demo"] is True:
             matrix = HedgeboxMatrix(n_clusters=settings.DEMO_MATRIX_N_CLUSTERS)
-            manager = MatrixManager(matrix, use_pre_save=True, print_steps=True)
+            manager = MatrixManager(matrix, use_pre_save=True)
         with transaction.atomic():
             team = Team.objects.create_with_data(**validated_data, organization=organization)
             request.user.current_team = team
