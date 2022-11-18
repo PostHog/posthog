@@ -31,7 +31,13 @@ import {
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId, summarizeInsightFilters } from './utils'
+import {
+    extractObjectDiffKeys,
+    findInsightFromMountedLogic,
+    getInsightId,
+    getResponseBytes,
+    summarizeInsightFilters,
+} from './utils'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -412,7 +418,7 @@ export const insightLogic = kea<insightLogicType>([
                         lastRefresh: response.last_refresh,
                         response: {
                             cached: response?.is_cached,
-                            apiResponseBytes: parseInt(response?._response.headers?.get('Content-Length') ?? 0),
+                            apiResponseBytes: getResponseBytes(response),
                             apiUrl,
                         },
                     })
@@ -925,11 +931,13 @@ export const insightLogic = kea<insightLogicType>([
                 captureInternalMetric({ method: 'timing', metric: 'insight_load_time', value: duration, tags })
 
                 captureTimeToSeeData(values.currentTeamId, {
+                    type: 'insight_load',
+                    context: 'insight',
                     query_id: queryId,
                     status: exception ? 'failure' : 'success',
                     time_to_see_data_ms: Math.floor(duration),
-                    cached: !!response?.cached,
-                    current_url: window.location.href,
+                    insights_fetched: 1,
+                    insights_fetched_cached: response?.cached ? 1 : 0,
                     api_response_bytes: response?.apiResponseBytes,
                     api_url: response?.apiUrl,
                     insight: values.activeView,

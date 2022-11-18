@@ -47,13 +47,19 @@ CREATE TABLE metrics_time_to_see_data ON CLUSTER 'posthog' (
     `user_id` UInt64,
     `session_id` String,
     `timestamp` DateTime64,
+    `type` LowCardinality(String),
+    `context` LowCardinality(String),
     `time_to_see_data_ms` UInt64,
     `status` LowCardinality(String),
     `api_response_bytes` UInt64,
-    `insight` LowCardinality(String),
-    `cached` UInt8,
     `current_url` String,
-    `api_url` String
+    `api_url` String,
+    `insight` LowCardinality(String),
+    `action` LowCardinality(String),
+    `insights_fetched` UInt16,
+    `insights_fetched_cached` UInt16,
+    `min_last_refresh` DateTime64,
+    `max_last_refresh` DateTime64
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE = {METRICS_TIME_TO_SEE_ENGINE()}
@@ -73,13 +79,19 @@ CREATE TABLE kafka_metrics_time_to_see_data ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
     `user_id` UInt64,
     `session_id` String,
     `timestamp` DateTime64,
+    `type` LowCardinality(String),
+    `context` LowCardinality(String),
     `time_to_see_data_ms` UInt64,
     `status` LowCardinality(String),
     `api_response_bytes` UInt64,
-    `insight` LowCardinality(String),
-    `cached` UInt8,
     `current_url` String,
-    `api_url` String
+    `api_url` String,
+    `insight` LowCardinality(String),
+    `action` LowCardinality(String),
+    `insights_fetched` UInt16,
+    `insights_fetched_cached` UInt16,
+    `min_last_refresh` DateTime64,
+    `max_last_refresh` DateTime64
 )
 ENGINE={kafka_engine(topic=KAFKA_METRICS_TIME_TO_SEE_DATA)}
 SETTINGS kafka_skip_broken_messages = 9999
@@ -100,13 +112,19 @@ team_id,
 user_id,
 session_id,
 timestamp,
+type,
+context,
 time_to_see_data_ms,
 status,
 api_response_bytes,
-insight,
-cached,
 current_url,
 api_url,
+insight,
+action,
+insights_fetched,
+insights_fetched_cached,
+min_last_refresh,
+max_last_refresh,
 _timestamp,
 _offset,
 _partition
