@@ -74,7 +74,7 @@ function focusVariantKeyField(index: number): void {
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag } = useActions(featureFlagLogic)
+    const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, submitFeatureFlag } = useActions(featureFlagLogic)
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
@@ -265,15 +265,24 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             >
                                 Cancel
                             </LemonButton>
-                            <LemonButton
-                                type="primary"
-                                data-attr="save-feature-flag"
-                                htmlType="submit"
-                                loading={featureFlagLoading}
-                                disabled={featureFlagLoading}
+
+                            <Popconfirm
+                                title="This will roll out to 100% of users. Are you sure?"
+                                onConfirm={() => submitFeatureFlag()}
+                                okText="Save"
+                                cancelText="Cancel"
+                                placement="topRight"
                             >
-                                Save
-                            </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    data-attr="save-feature-flag"
+                                    htmlType="submit"
+                                    loading={featureFlagLoading}
+                                    disabled={featureFlagLoading}
+                                >
+                                    Save
+                                </LemonButton>
+                            </Popconfirm>
                         </div>
                     </Form>
                 ) : (
@@ -901,19 +910,6 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                     Rolled out to{' '}
                                     <b>{group.rollout_percentage != null ? group.rollout_percentage : 100}%</b> of{' '}
                                     <b>{aggregationTargetName}</b> in this set.{' '}
-                                    {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_ROLLOUT_UX] && (
-                                        <>
-                                            This will apply to approximately{' '}
-                                            {affectedUsers[index] !== undefined ? (
-                                                `${humanFriendlyNumber(
-                                                    computeBlastRadiusPercentage(group.rollout_percentage, index)
-                                                )}%`
-                                            ) : (
-                                                <Spinner className="mr-1" />
-                                            )}{' '}
-                                            of total {aggregationTargetName}.
-                                        </>
-                                    )}
                                 </div>
                             ) : (
                                 <div className="feature-flag-form-row">
@@ -940,6 +936,9 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                                 ) : (
                                                     <Spinner className="mr-1" />
                                                 )}{' '}
+                                                {affectedUsers[index] && affectedUsers[index] >= 0
+                                                    ? `(${humanFriendlyNumber(affectedUsers[index])})`
+                                                    : ''}{' '}
                                                 of total {aggregationTargetName}.
                                             </>
                                         )}

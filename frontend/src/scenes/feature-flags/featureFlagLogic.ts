@@ -382,14 +382,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     ...state,
                     [index]: count,
                 }),
-                loadFeatureFlag: () => ({}),
+                resetFeatureFlag: () => ({ 0: -1 }),
+                loadFeatureFlag: () => ({ 0: -1 }),
             },
         ],
         totalUsers: [
             null as number | null,
             {
                 setTotalUsers: (_, { count }) => count,
-                loadFeatureFlag: () => null,
             },
         ],
     }),
@@ -475,13 +475,76 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.setMultivariateOptions(null)
             }
         },
-        loadFeatureFlagSuccess: async ({ featureFlag }: { featureFlag: FeatureFlagType }) => {
+        loadFeatureFlagSuccess: async () => {
             actions.loadRecentInsights()
             actions.loadAllInsightsForFlag()
+        },
+        loadInsightAtIndex: async ({ index, filters }) => {
+            if (filters) {
+                const response = await api.get(
+                    `api/projects/${values.currentTeamId}/insights/trend/?${toParams(
+                        filterTrendsClientSideParams(filters)
+                    )}`
+                )
+                const counts = response.result?.[0]?.data
+                const firstWeek = counts.slice(0, 7)
+                const avg = Math.round(sum(firstWeek) / 7)
+                actions.setInsightResultAtIndex(index, avg)
+            }
+        },
+        loadAllInsightsForFlag: () => {
+            values.featureFlag.rollback_conditions?.forEach((condition, index) => {
+                if (condition.threshold_metric) {
+                    actions.loadInsightAtIndex(index, condition.threshold_metric)
+                }
+            })
+        },
+        addRollbackCondition: () => {
+            const index = values.featureFlag.rollback_conditions.length - 1
+            actions.loadInsightAtIndex(
+                index,
+                values.featureFlag.rollback_conditions[index].threshold_metric as FilterType
+            )
+        },
+        updateConditionSet: async ({ index, newProperties }, breakpoint) => {
+            if (newProperties) {
+                // properties have changed, so we'll have to re-fetch affected users
+                actions.setAffectedUsers(index, undefined)
+            }
+
+            if (
+                !newProperties ||
+                newProperties.some(
+                    (property) =>
+                        property.value === null ||
+                        property.value === undefined ||
+                        (Array.isArray(property.value) && property.value.length === 0)
+                )
+            ) {
+                return
+            }
+
+            await breakpoint(1000) // in ms
+
+            const response = await api.create(`api/projects/${values.currentTeamId}/feature_flags/user_blast_radius`, {
+                condition: { properties: newProperties },
+            })
+            actions.setAffectedUsers(index, response.users_affected)
+            actions.setTotalUsers(response.total_users)
+        },
+        addConditionSet: () => {
+            actions.setAffectedUsers(values.featureFlag.filters.groups.length - 1, -1)
+        },
+        editFeatureFlag: async ({ editing }) => {
+            if (!editing) {
+                return
+            }
 
             const usersAffected: Promise<UserBlastRadiusType>[] = []
 
-            featureFlag?.filters?.groups?.forEach((condition) => {
+            values.featureFlag?.filters?.groups?.forEach((condition, index) => {
+                actions.setAffectedUsers(index, undefined)
+
                 const properties = condition.properties
                 if (
                     !properties ||
@@ -515,59 +578,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     actions.setTotalUsers(result.total_users)
                 }
             })
-        },
-        loadInsightAtIndex: async ({ index, filters }) => {
-            if (filters) {
-                const response = await api.get(
-                    `api/projects/${values.currentTeamId}/insights/trend/?${toParams(
-                        filterTrendsClientSideParams(filters)
-                    )}`
-                )
-                const counts = response.result?.[0]?.data
-                const firstWeek = counts.slice(0, 7)
-                const avg = Math.round(sum(firstWeek) / 7)
-                actions.setInsightResultAtIndex(index, avg)
-            }
-        },
-        loadAllInsightsForFlag: () => {
-            values.featureFlag.rollback_conditions?.forEach((condition, index) => {
-                if (condition.threshold_metric) {
-                    actions.loadInsightAtIndex(index, condition.threshold_metric)
-                }
-            })
-        },
-        addRollbackCondition: () => {
-            const index = values.featureFlag.rollback_conditions.length - 1
-            actions.loadInsightAtIndex(
-                index,
-                values.featureFlag.rollback_conditions[index].threshold_metric as FilterType
-            )
-        },
-        updateConditionSet: async ({ index, newProperties }, breakpoint) => {
-            await breakpoint(1000) // in ms
-
-            actions.setAffectedUsers(index, undefined)
-
-            if (
-                !newProperties ||
-                newProperties.some(
-                    (property) =>
-                        property.value === null ||
-                        property.value === undefined ||
-                        (Array.isArray(property.value) && property.value.length === 0)
-                )
-            ) {
-                return
-            }
-
-            const response = await api.create(`api/projects/${values.currentTeamId}/feature_flags/user_blast_radius`, {
-                condition: { properties: newProperties },
-            })
-            actions.setAffectedUsers(index, response.users_affected)
-            actions.setTotalUsers(response.total_users)
-        },
-        addConditionSet: () => {
-            actions.setAffectedUsers(values.featureFlag.filters.groups.length - 1, -1)
         },
     })),
     selectors({
@@ -641,12 +651,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     effectiveRolloutPercentage = 100
                 }
 
-                if (
-                    affectedUsers[index] === undefined ||
-                    affectedUsers[index] === -1 ||
-                    totalUsers === -1 ||
-                    !totalUsers
-                ) {
+                if (affectedUsers[index] === -1 || totalUsers === -1 || !totalUsers) {
                     return effectiveRolloutPercentage
                 }
 
@@ -661,7 +666,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     }),
     urlToAction(({ actions, props }) => ({
         [urls.featureFlag(props.id ?? 'new')]: (_, __, ___, { method }) => {
-            console.log('got url to action with method: ', method, props.id)
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
