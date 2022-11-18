@@ -12,6 +12,20 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, TeamBasicType } from '~/types'
 import { navigationLogic } from './navigationLogic'
 
+export const getDemoSnackMaybe = (
+    team: TeamBasicType,
+    color: 'primary-extralight' | 'primary-highlight'
+): JSX.Element | null => {
+    return team.is_demo ? (
+        <>
+            {' '}
+            <LemonSnack title="Demo" className="ml-3 text-xs" color={color}>
+                Demo
+            </LemonSnack>
+        </>
+    ) : null
+}
+
 export function ProjectSwitcherOverlay(): JSX.Element {
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -71,6 +85,7 @@ function CurrentProjectButton(): JSX.Element | null {
             fullWidth
         >
             {currentTeam.name}
+            {getDemoSnackMaybe(currentTeam, 'primary-extralight')}
         </LemonButtonWithSideAction>
     ) : null
 }
@@ -99,14 +114,7 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
             disabled={!team.effective_membership_level}
         >
             {team.name}
-            {team.is_demo ? (
-                <>
-                    {' '}
-                    <LemonSnack title="Demo" className="ml-3 text-xs">
-                        Demo
-                    </LemonSnack>
-                </>
-            ) : null}
+            {getDemoSnackMaybe(team, 'primary-highlight')}
         </LemonButtonWithSideAction>
     )
 }
