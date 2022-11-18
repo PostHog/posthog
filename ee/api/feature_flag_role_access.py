@@ -45,9 +45,14 @@ class FeatureFlagRoleAccessSerializer(serializers.ModelSerializer):
         fields = ["id", "feature_flag", "role", "added_at", "updated_at"]
         read_only_fields = ["id", "added_at", "updated_at"]
 
+    def create(self, validated_data):
+        validated_data["organization"] = self.context["request"].user.organization
+        return super().create(validated_data)
+
 
 class FeatureFlagRoleAccessViewSet(
     StructuredViewSetMixin,
+    mixins.ListModelMixin,
     mixins.CreateModelMixin,
     mixins.DestroyModelMixin,
     mixins.RetrieveModelMixin,
@@ -55,3 +60,4 @@ class FeatureFlagRoleAccessViewSet(
 ):
     permission_classes = [IsAuthenticated, FeatureFlagRoleAccessPermissions]
     serializer_class = FeatureFlagRoleAccessSerializer
+    queryset = FeatureFlagRoleAccess.objects.select_related("role").select_related("feature_flag").all()

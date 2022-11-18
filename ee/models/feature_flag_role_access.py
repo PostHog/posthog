@@ -2,6 +2,12 @@ from django.db import models
 
 
 class FeatureFlagRoleAccess(models.Model):
+    organization: models.ForeignKey = models.ForeignKey(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        related_name="roles",
+        related_query_name="role",
+    )
     feature_flag: models.ForeignKey = models.ForeignKey(
         "posthog.FeatureFlag",
         on_delete=models.CASCADE,
