@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { IconPlus, IconSettings } from 'lib/components/icons'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonSnack } from 'lib/components/LemonSnack/LemonSnack'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -98,6 +99,14 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
             disabled={!team.effective_membership_level}
         >
             {team.name}
+            {team.is_demo ? (
+                <>
+                    {' '}
+                    <LemonSnack title="Demo" className="ml-3 text-xs">
+                        Demo
+                    </LemonSnack>
+                </>
+            ) : null}
         </LemonButtonWithSideAction>
     )
 }

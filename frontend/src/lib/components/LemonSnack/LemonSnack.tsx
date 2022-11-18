@@ -8,13 +8,14 @@ export interface LemonSnackProps {
     onClose?: () => void
     title?: string
     wrap?: boolean
+    className?: string
     'data-attr'?: string
 }
 
-export function LemonSnack({ children, wrap, onClose, title }: LemonSnackProps): JSX.Element {
+export function LemonSnack({ children, wrap, onClose, title, className }: LemonSnackProps): JSX.Element {
     return (
         <span
-            className={clsx('LemonSnack', {
+            className={clsx('LemonSnack', className, {
                 'LemonSnack--wrap': wrap,
             })}
         >
