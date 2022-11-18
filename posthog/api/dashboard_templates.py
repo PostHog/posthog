@@ -93,7 +93,7 @@ class DashboardTemplateSerializer(serializers.Serializer):
         if not template_name or not isinstance(template_name, str) or str.isspace(template_name):
             raise serializers.ValidationError("Must provide a template name")
 
-        if not data.get("source_dashboard"):
+        if not data.get("source_dashboard") and scope != DashboardTemplate.Scope.GLOBAL.value:
             raise serializers.ValidationError("Must provide the id of the source dashboard")
 
         if not data.get("tiles") or not isinstance(data["tiles"], list):

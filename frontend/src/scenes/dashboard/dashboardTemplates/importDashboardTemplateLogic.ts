@@ -9,7 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { importDashboardTemplateLogicType } from './importDashboardTemplateLogicType'
 
 export interface ImportDashboardTemplateForm {
-    templateJson: any
+    templateJson: File[] | null
 }
 
 const defaultFormValues: ImportDashboardTemplateForm = {
@@ -38,12 +38,9 @@ export const importDashboardTemplateLogic = kea<importDashboardTemplateLogicType
     forms(({ actions }) => ({
         importDashboardTemplate: {
             defaults: defaultFormValues,
-            errors: (formValues) => ({
-                templateJson: !formValues.templateJson ? 'the template file is required' : null,
-            }),
             submit: async ({ templateJson }) => {
-                if (templateJson) {
-                    actions.importDashboardTemplate({ templateJson })
+                if (templateJson?.length) {
+                    actions.importDashboardTemplate({ templateJson: templateJson[0] })
                 }
             },
         },

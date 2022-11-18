@@ -6,7 +6,7 @@ import { LemonModal } from 'lib/components/LemonModal'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { importDashboardTemplateLogic } from 'scenes/dashboard/dashboardTemplates/importDashboardTemplateLogic'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { LemonFileInput } from 'lib/components/LemonFileInput/LemonFileInput'
 
 export function ImportDashboardTemplateModal(): JSX.Element {
     const { hideImportDashboardTemplateModal } = useActions(importDashboardTemplateLogic)
@@ -50,7 +50,7 @@ export function ImportDashboardTemplateModal(): JSX.Element {
                 className="space-y-2"
             >
                 <Field name="templateJson" label={'Template file'}>
-                    <LemonInput type={'file'} data-attr={'save-dashboard-template-name'} />
+                    <LemonFileInput accept={'*.json'} multiple={false} data-attr={'save-dashboard-template-name'} />
                 </Field>
             </Form>
         </LemonModal>

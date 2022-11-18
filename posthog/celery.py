@@ -129,6 +129,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
 
+    sender.add_periodic_task(crontab(hour=3, minute=0), update_dashboards_templates_from_templates_registry.s())
+
     if settings.ASYNC_EVENT_PROPERTY_USAGE:
         sender.add_periodic_task(
             get_crontab(settings.EVENT_PROPERTY_USAGE_INTERVAL_CRON),
@@ -657,3 +659,12 @@ def check_flags_to_rollback():
         check_flags_to_rollback()
     except ImportError:
         pass
+
+
+@app.task(ignore_result=True)
+def update_dashboards_templates_from_templates_registry():
+    from posthog.tasks.update_dashboards_templates_from_templates_registry import (
+        update_dashboards_templates_from_templates_registry,
+    )
+
+    update_dashboards_templates_from_templates_registry()

@@ -7,7 +7,7 @@ from rest_framework import status
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.helpers.dashboard_templates import create_default_global_templates
+from posthog.helpers.dashboard_templates import create_global_templates
 from posthog.models import OrganizationMembership, User
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 
@@ -46,8 +46,8 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
         )
 
     def test_create_defaults_does_not_duplicate(self) -> None:
-        create_default_global_templates()
-        create_default_global_templates()
+        create_global_templates([{"name": "a"}, {"name": "b"}])
+        create_global_templates([{"name": "a"}, {"name": "b"}])
 
         assert len(self.client.get("/api/projects/@current/dashboard_templates/?basic=true").json()["results"]) == 2
 

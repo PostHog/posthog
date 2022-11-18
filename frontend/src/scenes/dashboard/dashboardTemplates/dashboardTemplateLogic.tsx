@@ -91,9 +91,8 @@ export const dashboardTemplateLogic = kea<dashboardTemplateLogicType>([
                         scope: templateScope,
                     })
                 },
-                importDashboardTemplate: async ({ templateJson }: { templateJson: any }) => {
-                    console.log('🎸', templateJson)
-                    return null
+                importDashboardTemplate: async ({ templateJson }: { templateJson: File }) => {
+                    return await api.dashboardTemplates.create(JSON.parse(await templateJson.text()))
                 },
                 deleteDashboardTemplate: async (id: string) => {
                     await api.dashboardTemplates.softDelete(id)
