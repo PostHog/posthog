@@ -663,6 +663,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return effectiveRolloutPercentage * (affectedUsers[index] / effectiveTotalUsers)
             },
         ],
+        approximateTotalBlastRadius: [
+            (s) => [s.computeBlastRadiusPercentage, s.featureFlag],
+            (computeBlastRadiusPercentage, featureFlag) => {
+                if (!featureFlag || !featureFlag.filters.groups) {
+                    return 0
+                }
+
+                let total = 0
+                featureFlag.filters.groups.forEach((group, index) => {
+                    total += computeBlastRadiusPercentage(group.rollout_percentage, index)
+                })
+
+                return Math.min(total, 100)
+            },
+        ],
     }),
     urlToAction(({ actions, props }) => ({
         [urls.featureFlag(props.id ?? 'new')]: (_, __, ___, { method }) => {

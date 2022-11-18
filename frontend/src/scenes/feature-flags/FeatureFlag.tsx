@@ -72,7 +72,8 @@ function focusVariantKeyField(index: number): void {
 }
 
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
-    const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag } = useValues(featureFlagLogic)
+    const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag, approximateTotalBlastRadius } =
+        useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, submitFeatureFlag } = useActions(featureFlagLogic)
 
@@ -123,15 +124,38 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     >
                                         Cancel
                                     </LemonButton>
-                                    <LemonButton
-                                        type="primary"
-                                        data-attr="save-feature-flag"
-                                        htmlType="submit"
-                                        loading={featureFlagLoading}
-                                        disabled={featureFlagLoading}
-                                    >
-                                        Save
-                                    </LemonButton>
+                                    {approximateTotalBlastRadius > 50 ? (
+                                        <Popconfirm
+                                            title={`This will roll out to ${humanFriendlyNumber(
+                                                approximateTotalBlastRadius,
+                                                1
+                                            )}% of users. Are you sure?`}
+                                            onConfirm={() => submitFeatureFlag()}
+                                            okText="Save"
+                                            cancelText="Cancel"
+                                            placement="topRight"
+                                        >
+                                            <LemonButton
+                                                type="primary"
+                                                data-attr="save-feature-flag"
+                                                htmlType="submit"
+                                                loading={featureFlagLoading}
+                                                disabled={featureFlagLoading}
+                                            >
+                                                Save
+                                            </LemonButton>
+                                        </Popconfirm>
+                                    ) : (
+                                        <LemonButton
+                                            type="primary"
+                                            data-attr="save-feature-flag"
+                                            htmlType="submit"
+                                            loading={featureFlagLoading}
+                                            disabled={featureFlagLoading}
+                                        >
+                                            Save
+                                        </LemonButton>
+                                    )}
                                 </div>
                             }
                         />
@@ -266,13 +290,28 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 Cancel
                             </LemonButton>
 
-                            <Popconfirm
-                                title="This will roll out to 100% of users. Are you sure?"
-                                onConfirm={() => submitFeatureFlag()}
-                                okText="Save"
-                                cancelText="Cancel"
-                                placement="topRight"
-                            >
+                            {approximateTotalBlastRadius > 50 ? (
+                                <Popconfirm
+                                    title={`This will roll out to ${humanFriendlyNumber(
+                                        approximateTotalBlastRadius,
+                                        1
+                                    )}% of users. Are you sure?`}
+                                    onConfirm={() => submitFeatureFlag()}
+                                    okText="Save"
+                                    cancelText="Cancel"
+                                    placement="topRight"
+                                >
+                                    <LemonButton
+                                        type="primary"
+                                        data-attr="save-feature-flag"
+                                        htmlType="submit"
+                                        loading={featureFlagLoading}
+                                        disabled={featureFlagLoading}
+                                    >
+                                        Save
+                                    </LemonButton>
+                                </Popconfirm>
+                            ) : (
                                 <LemonButton
                                     type="primary"
                                     data-attr="save-feature-flag"
@@ -282,7 +321,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 >
                                     Save
                                 </LemonButton>
-                            </Popconfirm>
+                            )}
                         </div>
                     </Form>
                 ) : (
@@ -690,6 +729,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
         propertySelectErrors,
         computeBlastRadiusPercentage,
         affectedUsers,
+        totalUsers,
     } = useValues(featureFlagLogic)
     const {
         setAggregationGroupTypeIndex,
@@ -928,7 +968,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                         of <b>{aggregationTargetName}</b> in this set.{' '}
                                         {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_ROLLOUT_UX] && (
                                             <>
-                                                This will apply to approximately{' '}
+                                                Will match approximately{' '}
                                                 {affectedUsers[index] !== undefined ? (
                                                     `${humanFriendlyNumber(
                                                         computeBlastRadiusPercentage(group.rollout_percentage, index)
@@ -936,8 +976,10 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                                 ) : (
                                                     <Spinner className="mr-1" />
                                                 )}{' '}
-                                                {affectedUsers[index] && affectedUsers[index] >= 0
-                                                    ? `(${humanFriendlyNumber(affectedUsers[index])})`
+                                                {affectedUsers[index] && affectedUsers[index] >= 0 && totalUsers
+                                                    ? `(${humanFriendlyNumber(
+                                                          affectedUsers[index]
+                                                      )} / ${humanFriendlyNumber(totalUsers)})`
                                                     : ''}{' '}
                                                 of total {aggregationTargetName}.
                                             </>
