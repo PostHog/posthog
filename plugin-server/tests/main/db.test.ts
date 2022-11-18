@@ -1187,10 +1187,6 @@ describe('DB', () => {
     })
 
     describe('fetchTeam()', () => {
-        beforeEach(async () => {
-            await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
-        })
-
         it('fetches a team by id', async () => {
             const organizationId = await createOrganization(db.postgres)
             const teamId = await createTeam(db.postgres, organizationId, 'token1')
@@ -1216,10 +1212,6 @@ describe('DB', () => {
     })
 
     describe('fetchTeamByToken()', () => {
-        beforeEach(async () => {
-            await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
-        })
-
         it('fetches a team by token', async () => {
             const organizationId = await createOrganization(db.postgres)
             const teamId = await createTeam(db.postgres, organizationId, 'token2')
