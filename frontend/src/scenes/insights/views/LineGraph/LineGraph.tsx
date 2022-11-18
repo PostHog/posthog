@@ -48,6 +48,7 @@ export interface LineGraphProps {
     tooltip?: TooltipConfig
     isCompare?: boolean
     inCardView?: boolean
+    isArea?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
     labelGroupType: number | 'people' | 'none'
     filters?: Partial<TrendsFilterType>
@@ -199,6 +200,7 @@ export function LineGraph_({
     showPersonsModal = true,
     isCompare = false,
     inCardView,
+    isArea = false,
     incompletenessOffsetFromEnd = -1,
     tooltip: tooltipConfig,
     labelGroupType,
@@ -249,8 +251,12 @@ export function LineGraph_({
             hoverBorderColor: isBackgroundBasedGraphType ? lightenDarkenColor(mainColor, -20) : hoverColor,
             hoverBackgroundColor: isBackgroundBasedGraphType ? lightenDarkenColor(mainColor, -20) : undefined,
             backgroundColor: isBackgroundBasedGraphType ? mainColor : undefined,
-            fill: false,
-            borderWidth: isBar ? 0 : 2,
+            fill: isArea
+                ? {
+                      target: 'origin',
+                      above: mainColor + 'a9', // d8 = 85% opacity in hex
+                  }
+                : false,
             segment: {
                 borderDash: (ctx: ScriptableLineSegmentContext) => {
                     // If chart is line graph, show dotted lines for incomplete data
@@ -264,6 +270,7 @@ export function LineGraph_({
                     return isIncomplete && isActive ? [10, 10] : undefined
                 },
             },
+            borderWidth: isBar || isArea ? 0 : 2,
             pointRadius: 0,
             hitRadius: 0,
             order: 1,
@@ -463,6 +470,7 @@ export function LineGraph_({
                 y: {
                     beginAtZero: true,
                     display: true,
+                    stacked: isArea,
                     ticks: {
                         precision,
                         ...tickOptions,
