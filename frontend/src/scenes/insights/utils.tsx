@@ -18,6 +18,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { getCurrentTeamId } from 'lib/utils/logics'
 import { groupsModelType } from '~/models/groupsModelType'
 import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
@@ -380,4 +381,13 @@ export function formatBreakdownLabel(
     } else {
         return ''
     }
+}
+
+export function sortDates(dates: Array<string | null>): Array<string | null> {
+    return dates.sort((a, b) => (dayjs(a).isAfter(dayjs(b)) ? 1 : -1))
+}
+
+// Gets content-length header from an api call with { includeResponseReference: true }
+export function getResponseBytes(apiResponse: any): number {
+    return parseInt((apiResponse as any)?._response?.headers?.get?.('Content-Length') ?? 0)
 }

@@ -793,6 +793,10 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
                 "user_id": self.request.user.pk,
                 "timestamp": format_clickhouse_timestamp(cast_timestamp_or_now(None)),
             }
+            if "min_last_refresh" in payload:
+                payload["min_last_refresh"] = format_clickhouse_timestamp(payload["min_last_refresh"])
+            if "max_last_refresh" in payload:
+                payload["max_last_refresh"] = format_clickhouse_timestamp(payload["max_last_refresh"])
             KafkaProducer().produce(topic=KAFKA_METRICS_TIME_TO_SEE_DATA, data=payload)
 
         return Response(status=status.HTTP_201_CREATED)

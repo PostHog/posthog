@@ -32,6 +32,7 @@ import { lemonToast } from 'lib/components/lemonToast'
 import { Link } from 'lib/components/Link'
 import { isPathsFilter, isRetentionFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { captureTimeToSeeData } from 'lib/internalMetrics'
+import { getResponseBytes, sortDates } from '../insights/utils'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -129,7 +130,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 loadDashboardItems: async ({ refresh, action }) => {
                     if (!props.id) {
                         console.warn('Called `loadDashboardItems` but ID is not set.')
-                        return
+                        return null
                     }
 
                     const refreshStartTime = performance.now()
@@ -138,14 +139,24 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     try {
                         // :TODO: Send dashboardQueryId forward as well if refreshing
                         const apiUrl = values.apiUrl(refresh)
-                        const dashboard = await api.get(apiUrl)
+                        const dashboard: DashboardType = await api.get(apiUrl, { includeResponseReference: true })
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
+                        const lastRefresh = sortDates(dashboard.tiles.map((tile) => tile.last_refresh))
+
                         captureTimeToSeeData(values.currentTeamId, {
-                            type: 'dashboard',
+                            type: 'dashboard_load',
+                            context: 'dashboard',
                             action,
                             dashboard_query_id: dashboardQueryId,
                             time_to_see_data_ms: Math.floor(performance.now() - refreshStartTime),
-                            // :TODO: Cache hit rate, how many tiles/insights, min/max cache age
+                            api_response_bytes: getResponseBytes(dashboard),
+                            insights_fetched: dashboard.tiles.length,
+                            insights_fetched_cached: dashboard.tiles.reduce(
+                                (acc, curr) => acc + (curr.is_cached ? 1 : 0),
+                                0
+                            ),
+                            min_last_refresh: lastRefresh[0],
+                            max_last_refresh: lastRefresh[lastRefresh.length - 1],
                         })
                         return dashboard
                     } catch (error: any) {
@@ -534,9 +545,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 if (!insightTiles || !insightTiles.length) {
                     return null
                 }
-                const oldest = [...insightTiles.map((i) => i.last_refresh)].sort((a, b) =>
-                    dayjs(a).isAfter(dayjs(b)) ? 1 : -1
-                )
+
+                const oldest = sortDates(insightTiles.map((i) => i.last_refresh))
                 const candidateShortest = oldest.length > 0 ? dayjs(oldest[0]) : null
                 return candidateShortest?.isValid() ? candidateShortest : null
             },
@@ -883,12 +893,15 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     actions.setRefreshStatus(insight.short_id)
 
                     captureTimeToSeeData(values.currentTeamId, {
-                        type: 'insight',
+                        type: 'insight_load',
+                        context: 'dashboard',
                         dashboard_query_id: dashboardQueryId,
                         query_id: queryId,
                         status: 'success',
                         time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),
-                        cached: false,
+                        api_response_bytes: getResponseBytes(refreshedInsight),
+                        insights_fetched: 1,
+                        insights_fetched_cached: 0,
                         api_url: apiUrl,
                     })
                 } catch (e: any) {
@@ -903,10 +916,13 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 refreshesFinished += 1
                 if (refreshesFinished === insights.length) {
                     captureTimeToSeeData(values.currentTeamId, {
-                        type: 'dashboard',
+                        type: 'dashboard_load',
+                        context: 'dashboard',
                         action,
                         dashboard_query_id: dashboardQueryId,
                         time_to_see_data_ms: Math.floor(performance.now() - refreshStartTime),
+                        insights_fetched: insights.length,
+                        insights_fetched_cached: 0,
                     })
                 }
             })
