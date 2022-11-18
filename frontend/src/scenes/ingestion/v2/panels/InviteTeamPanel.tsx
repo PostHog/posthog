@@ -13,7 +13,8 @@ import { GENERATING_DEMO_DATA } from '../constants'
 export function InviteTeamPanel(): JSX.Element {
     const { next } = useActions(ingestionLogicV2)
     const { showInviteModal } = useActions(inviteLogic)
-    const { reportInviteMembersButtonClicked, reportProjectCreationSubmitted } = useActions(eventUsageLogic)
+    const { reportInviteMembersButtonClicked, reportProjectCreationSubmitted, reportIngestionTryWithDemoDataClicked } =
+        useActions(eventUsageLogic)
     const { createTeam } = useActions(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
@@ -64,6 +65,7 @@ export function InviteTeamPanel(): JSX.Element {
                 </LemonButton>
                 <LemonButton
                     onClick={() => {
+                        reportIngestionTryWithDemoDataClicked()
                         createTeam({ name: demoTeamName, is_demo: true })
                         next({ isTechnicalUser: false, platform: GENERATING_DEMO_DATA })
                         reportProjectCreationSubmitted(

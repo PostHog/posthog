@@ -1,16 +1,25 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ingestionLogicV2 } from 'scenes/ingestion/v2/ingestionLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { IconChevronRight } from 'lib/components/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { BOOKMARKLET } from '../constants'
+import { GENERATING_DEMO_DATA } from '../constants'
+import { teamLogic } from 'scenes/teamLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 export function TeamInvitedPanel(): JSX.Element {
     const { completeOnboarding, next } = useActions(ingestionLogicV2)
-    const { reportIngestionContinueWithoutVerifying, reportIngestionTryWithBookmarkletClicked } =
-        useActions(eventUsageLogic)
+    const { createTeam } = useActions(teamLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const {
+        reportIngestionContinueWithoutVerifying,
+        reportIngestionTryWithDemoDataClicked,
+        reportProjectCreationSubmitted,
+    } = useActions(eventUsageLogic)
+
+    const demoTeamName: string = 'Demo'
 
     return (
         <div>
@@ -22,8 +31,14 @@ export function TeamInvitedPanel(): JSX.Element {
             <div className="flex flex-col mb-6">
                 <LemonButton
                     onClick={() => {
-                        reportIngestionTryWithBookmarkletClicked()
-                        next({ isTechnicalUser: false, platform: BOOKMARKLET })
+                        reportIngestionTryWithDemoDataClicked()
+                        next({ isTechnicalUser: false, platform: GENERATING_DEMO_DATA })
+                        createTeam({ name: demoTeamName, is_demo: true })
+                        next({ isTechnicalUser: false, platform: GENERATING_DEMO_DATA })
+                        reportProjectCreationSubmitted(
+                            currentOrganization?.teams ? currentOrganization.teams.length : 0,
+                            demoTeamName.length
+                        )
                     }}
                     fullWidth
                     size="large"
@@ -32,9 +47,9 @@ export function TeamInvitedPanel(): JSX.Element {
                     sideIcon={<IconChevronRight />}
                 >
                     <div className="mt-4 mb-0">
-                        <p className="mb-2">Quickly try PostHog with our Bookmarklet.</p>
+                        <p className="mb-2">Quickly try PostHog with some demo data.</p>
                         <p className="font-normal text-xs">
-                            Create a few events and experience all PostHog has to offer without any of the setup.
+                            Explore insights, create dashboards, try out cohorts, and more.
                         </p>
                     </div>
                 </LemonButton>
