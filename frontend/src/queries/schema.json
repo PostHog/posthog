@@ -1,5 +1,5 @@
 {
-    "$ref": "#/definitions/AnyNode",
+    "$ref": "#/definitions/QuerySchema",
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
         "ActionNode": {
@@ -41,46 +41,6 @@
         "AggregationAxisFormat": {
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled"],
             "type": "string"
-        },
-        "AnyNode": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/EventsNode"
-                },
-                {
-                    "$ref": "#/definitions/ActionNode"
-                },
-                {
-                    "$ref": "#/definitions/EventsTableNode"
-                },
-                {
-                    "$ref": "#/definitions/LegacyQuery"
-                },
-                {
-                    "$ref": "#/definitions/SavedInsightNode"
-                },
-                {
-                    "$ref": "#/definitions/TrendsQuery"
-                },
-                {
-                    "$ref": "#/definitions/FunnelsQuery"
-                },
-                {
-                    "$ref": "#/definitions/PathsQuery"
-                },
-                {
-                    "$ref": "#/definitions/RetentionQuery"
-                },
-                {
-                    "$ref": "#/definitions/LifecycleQuery"
-                },
-                {
-                    "$ref": "#/definitions/StickinessQuery"
-                },
-                {
-                    "$ref": "#/definitions/PersonsModalQuery"
-                }
-            ]
         },
         "AnyPartialFilterType": {
             "anyOf": [
@@ -1284,6 +1244,7 @@
             "additionalProperties": false,
             "properties": {
                 "colonTimestamp": {
+                    "description": "Used in session recording events list",
                     "type": "string"
                 },
                 "distinct_id": {
@@ -2155,6 +2116,46 @@
                 "max"
             ],
             "type": "string"
+        },
+        "QuerySchema": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionNode"
+                },
+                {
+                    "$ref": "#/definitions/EventsTableNode"
+                },
+                {
+                    "$ref": "#/definitions/LegacyQuery"
+                },
+                {
+                    "$ref": "#/definitions/SavedInsightNode"
+                },
+                {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/PathsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleQuery"
+                },
+                {
+                    "$ref": "#/definitions/StickinessQuery"
+                },
+                {
+                    "$ref": "#/definitions/PersonsModalQuery"
+                }
+            ]
         },
         "RetentionFilterType": {
             "additionalProperties": false,

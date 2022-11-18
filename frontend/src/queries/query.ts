@@ -1,4 +1,4 @@
-import { DataNode } from './nodes'
+import { DataNode } from './schema'
 import { isEventsNode, isLegacyQuery } from './utils'
 import api from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'

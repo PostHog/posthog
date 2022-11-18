@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import MonacoEditor, { useMonaco } from '@monaco-editor/react'
 import { useEffect, useState } from 'react'
-import schema from '~/queries/nodes.json'
+import schema from '~/queries/schema.json'
 import { LemonButton } from 'lib/components/LemonButton'
 import { queryEditorLogic } from '~/queries/QueryEditor/queryEditorLogic'
 

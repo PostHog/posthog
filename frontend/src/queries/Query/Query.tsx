@@ -3,7 +3,7 @@ import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery'
 import { SavedInsightQuery } from '~/queries/nodes/SavedInsightQuery'
 import { EventsTableQuery } from '~/queries/nodes/EventsTableQuery'
 import { DataNodeQuery } from '~/queries/nodes/DataNodeQuery'
-import { Node } from '~/queries/nodes'
+import { Node } from '~/queries/schema'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 export interface QueryProps {

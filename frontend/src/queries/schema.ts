@@ -37,7 +37,7 @@ export enum NodeKind {
     PersonsModalQuery = 'PersonsModalQuery',
 }
 
-export type AnyNode =
+export type QuerySchema =
     // Data nodes (see utils.ts)
     | EventsNode
     | ActionNode

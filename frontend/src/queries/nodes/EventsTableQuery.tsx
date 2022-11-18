@@ -1,4 +1,4 @@
-import { EventsTableNode } from '~/queries/nodes'
+import { EventsTableNode } from '~/queries/schema'
 import { useState } from 'react'
 import { EventsTable } from 'scenes/events'
 import { AnyPropertyFilter } from '~/types'

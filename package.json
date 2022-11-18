@@ -26,7 +26,7 @@
         "clean": "rm -rf frontend/dist && mkdir frontend/dist",
         "build": "yarn copy-scripts && yarn build:esbuild",
         "build:esbuild": "node frontend/build.mjs",
-        "schema:build": "ts-json-schema-generator -f tsconfig.json --path 'frontend/src/*.ts' --type 'AnyNode' --no-type-check > frontend/src/queries/nodes.json && prettier --write frontend/src/queries/nodes.json",
+        "schema:build": "ts-json-schema-generator -f tsconfig.json --path 'frontend/src/*.ts' --type 'QuerySchema' --no-type-check > frontend/src/queries/schema.json && prettier --write frontend/src/queries/schema.json",
         "packages:build": "yarn packages:build:apps-common && yarn packages:build:lemon-ui",
         "packages:build:apps-common": "cd frontend/@posthog/apps-common && yarn && yarn build",
         "packages:build:lemon-ui": "cd frontend/@posthog/lemon-ui && yarn && yarn build",

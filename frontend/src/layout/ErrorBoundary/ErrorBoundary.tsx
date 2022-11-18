@@ -26,12 +26,7 @@ export function ErrorBoundary({ children }: { children: React.ReactElement }): J
                                     <br />
                                     {error.message}
                                 </code>
-                                {stackNames.length > 0 ? (
-                                    <code>
-                                        {'\n> '}
-                                        {stackNames.join('\n> ')}
-                                    </code>
-                                ) : null}
+                                {stackNames.length > 0 ? <code>{['', ...stackNames].join('\n> ')}</code> : null}
                             </pre>
                             We've registered this event for analysis, but feel free to contact us directly too.
                             <HelpButton

@@ -2,7 +2,7 @@ import MonacoEditor from '@monaco-editor/react'
 import { useEffect, useState } from 'react'
 import { query as runQuery } from '~/queries/query'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { Node } from '~/queries/nodes'
+import { Node } from '~/queries/schema'
 
 interface DataNodeQueryProps {
     query: Node

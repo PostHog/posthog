@@ -1,4 +1,5 @@
-import { EventsNode, EventsTableNode, LegacyQuery, Node, NodeKind } from '~/queries/nodes'
+// This file contains example queries, used in storybook and in the /query interface.
+import { EventsNode, EventsTableNode, LegacyQuery, Node, NodeKind } from '~/queries/schema'
 import { ChartDisplayType, InsightType, PropertyFilterType, PropertyOperator } from '~/types'
 
 const Events: EventsNode = {

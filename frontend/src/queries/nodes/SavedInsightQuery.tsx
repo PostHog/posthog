@@ -1,4 +1,4 @@
-import { SavedInsightNode } from '~/queries/nodes'
+import { SavedInsightNode } from '~/queries/schema'
 import { InsightLogicProps, ItemMode } from '~/types'
 import { BindLogic } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'

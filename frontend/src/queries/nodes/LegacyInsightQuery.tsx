@@ -1,4 +1,4 @@
-import { LegacyQuery } from '~/queries/nodes'
+import { LegacyQuery } from '~/queries/schema'
 import { InsightLogicProps } from '~/types'
 import { BindLogic } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'

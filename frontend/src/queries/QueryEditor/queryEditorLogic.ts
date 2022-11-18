@@ -1,5 +1,5 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { Node } from '~/queries/nodes'
+import { Node } from '~/queries/schema'
 
 import type { queryEditorLogicType } from './queryEditorLogicType'
 import { QueryEditorProps } from '~/queries/QueryEditor/QueryEditor'

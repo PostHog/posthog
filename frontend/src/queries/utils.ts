@@ -1,4 +1,12 @@
-import { ActionNode, EventsNode, EventsTableNode, LegacyQuery, Node, NodeKind, SavedInsightNode } from '~/queries/nodes'
+import {
+    ActionNode,
+    EventsNode,
+    EventsTableNode,
+    LegacyQuery,
+    Node,
+    NodeKind,
+    SavedInsightNode,
+} from '~/queries/schema'
 
 export function isDataNode(node?: Node): node is EventsNode | ActionNode {
     return isEventsNode(node) || isActionNode(node)
