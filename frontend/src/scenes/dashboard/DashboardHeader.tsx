@@ -57,7 +57,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { showSaveDashboardTemplateModal } = useActions(saveDashboardTemplateLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const allowSaveAsTemplate = featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
+    const allowSaveAsTemplate = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
 
     const { push } = useActions(router)
 
