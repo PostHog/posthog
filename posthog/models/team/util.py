@@ -2,8 +2,9 @@ from datetime import timedelta
 from typing import Any, List
 
 from posthog.cache_utils import cache_for
-from posthog.models import CohortPeople, Person, PersonDistinctId
 from posthog.models.async_migration import is_async_migration_complete
+from posthog.models.cohort import CohortPeople
+from posthog.models.person import Person, PersonDistinctId
 
 
 def delete_bulky_postgres_data(team_ids: List[int]):
