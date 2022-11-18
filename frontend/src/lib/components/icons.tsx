@@ -581,6 +581,18 @@ export function IconBarChart(props: SvgIconProps): JSX.Element {
     )
 }
 
+/** Material Design Area Chart icon. */
+export function IconAreaChart(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon fill="none" {...props}>
+            <path
+                d="M3 20V7l4 3 5-7 5 4h4v13Zm5-3 4-5.5 7 5.45V9h-2.7l-3.9-3.125-4.95 6.95L5 11v3.6Z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
 /** Material Design Pie Chart icon. */
 export function IconPieChart(props: SvgIconProps): JSX.Element {
     return (
