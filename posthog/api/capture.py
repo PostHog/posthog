@@ -297,8 +297,8 @@ def get_event(request):
                 ),
             )
 
+    start_time = time.monotonic()
     for future in futures:
-        start_time = time.monotonic()
         try:
             future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT - (time.monotonic() - start_time))
         except KafkaError as exc:
