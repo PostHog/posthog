@@ -24,6 +24,7 @@ from django.conf import settings as app_settings
 
 from posthog import redis
 from posthog.celery import enqueue_clickhouse_execute_with_progress
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.errors import wrap_query_error
 from posthog.internal_metrics import incr, timing
 from posthog.settings import (
@@ -48,8 +49,6 @@ QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
 CACHE_TTL = 60  # seconds
 SLOW_QUERY_THRESHOLD_MS = 15000
 QUERY_TIMEOUT_THREAD = get_timer_thread("posthog.client", SLOW_QUERY_THRESHOLD_MS)
-
-_request_information: Optional[Dict] = None
 
 
 # Optimize_move_to_prewhere setting is set because of this regression test
@@ -507,13 +506,15 @@ def _annotate_tagged_query(query, args):
     Adds in a /* */ so we can look in clickhouses `system.query_log`
     to easily marry up to the generating code.
     """
-    tags = {"kind": (_request_information or {}).get("kind"), "id": (_request_information or {}).get("id")}
+    from copy import copy
+
+    tags = copy(get_query_tags())
     if isinstance(args, dict) and "team_id" in args:
         tags["team_id"] = args["team_id"]
     # Annotate the query with information on the request/task
-    if _request_information is not None:
-        user_id = f" user_id:{_request_information['user_id']}" if _request_information.get("user_id") else ""
-        query = f"/*{user_id} {_request_information['kind']}:{_request_information['id'].replace('/', '_')} */ {query}"
+    if len(tags) > 0:
+        user_id = f" user_id:{tags['user_id']}" if "user_id" in tags else ""
+        query = f"/*{user_id} {tags['kind']}:{tags.get('id', '').replace('/', '_')} */ {query}"
 
     return query, tags
 

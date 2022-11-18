@@ -142,10 +142,12 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         Note I'm not really testing much complexity, I trust that those will
         come out as failures in other tests.
         """
+        from posthog.clickhouse.query_tagging import tag_queries
+
         # First add in the request information that should be added to the sql.
         # We check this to make sure it is not removed by the comment stripping
         with self.capture_select_queries() as sqls:
-            client._request_information = {"kind": "request", "id": "1"}
+            tag_queries(kind="request", id="1")
             sync_execute(
                 query="""
                     -- this request returns 1
