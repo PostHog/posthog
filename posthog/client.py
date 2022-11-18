@@ -150,7 +150,7 @@ def sync_execute(
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args)
 
-        timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
+        timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure)
 
         settings = {**settings_override, **(settings or {})}
 
@@ -164,9 +164,7 @@ def sync_execute(
             )
         except Exception as err:
             err = wrap_query_error(err)
-            tags["failed"] = True
-            tags["reason"] = type(err).__name__
-            incr("clickhouse_sync_execution_failure", tags=tags)
+            incr("clickhouse_sync_execution_failure", tags={"failed": True, "reason": type(err).__name__})
 
             raise err
         finally:
@@ -258,7 +256,7 @@ def execute_with_progress(
 
     prepared_sql, prepared_args, tags = _prepare_query(client=ch_client, query=query, args=args)
 
-    timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
+    timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure)
 
     query_status = QueryStatus(team_id, task_id=task_id)
 
@@ -302,7 +300,7 @@ def execute_with_progress(
         err = wrap_query_error(err)
         tags["failed"] = True
         tags["reason"] = type(err).__name__
-        incr("clickhouse_sync_execution_failure", tags=tags)
+        incr("clickhouse_sync_execution_failure")
         query_status = QueryStatus(
             team_id=team_id,
             num_rows=query_status.num_rows,
@@ -324,7 +322,7 @@ def execute_with_progress(
         execution_time = perf_counter() - start_time
 
         QUERY_TIMEOUT_THREAD.cancel(timeout_task)
-        timing("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
+        timing("clickhouse_sync_execution_time", execution_time * 1000.0)
 
         if app_settings.SHELL_PLUS_PRINT_SQL:
             print("Execution time: %.6fs" % (execution_time,))
@@ -519,10 +517,8 @@ def _annotate_tagged_query(query, args):
     return query, tags
 
 
-def _notify_of_slow_query_failure(tags: Dict[str, Any]):
-    tags["failed"] = True
-    tags["reason"] = "timeout"
-    incr("clickhouse_sync_execution_failure", tags=tags)
+def _notify_of_slow_query_failure():
+    incr("clickhouse_sync_execution_failure", tags={"failed": True, "reason": "timeout"})
 
 
 def format_sql(rendered_sql, colorize=True):
