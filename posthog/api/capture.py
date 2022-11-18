@@ -299,9 +299,12 @@ def get_event(request):
     for future in futures:
         try:
             future.get(timeout=1)
-        except KafkaError:
+        except KafkaError as exc:
             # TODO: distinguish between retriable errors and non-retriable
             # errors, and set Retry-After header accordingly.
+            # TODO: return 400 error for non-retriable errors that require the
+            # client to change their request.
+            logger.error("kafka_produce_failure", exc_info=exc)
             return cors_response(
                 request,
                 generate_exception_response(
