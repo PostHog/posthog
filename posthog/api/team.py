@@ -134,7 +134,7 @@ class TeamSerializer(serializers.ModelSerializer):
             team = Team.objects.create_with_data(**validated_data, organization=organization)
             request.user.current_team = team
             request.user.save()
-            if manager:
+            if "manager" in locals():
                 manager.run_on_team(team, request.user)
         return team
 
