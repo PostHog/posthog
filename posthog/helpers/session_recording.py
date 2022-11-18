@@ -4,7 +4,16 @@ import gzip
 import json
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import DefaultDict, Dict, Generator, List, Optional, TypedDict, Union
+from typing import (
+    Any,
+    DefaultDict,
+    Dict,
+    Generator,
+    List,
+    Optional,
+    TypedDict,
+    Union,
+)
 
 from sentry_sdk.api import capture_exception, capture_message
 
@@ -12,7 +21,7 @@ from posthog.models import utils
 
 FULL_SNAPSHOT = 2
 
-Event = Dict
+Event = Dict[str, Any]
 SnapshotData = Dict
 WindowId = Optional[str]
 

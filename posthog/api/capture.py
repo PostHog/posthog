@@ -329,7 +329,7 @@ def get_event(request):
 
 # TODO: Rename this function - it doesn't just validate events, it also processes them
 def validate_events(
-    events: Dict[str, Any], ingestion_context: Optional[EventIngestionContext]
+    events: List[Dict[str, Any]], ingestion_context: Optional[EventIngestionContext]
 ) -> Iterator[Tuple[Dict[str, Any], UUIDT, str]]:
     for event in events:
         event_uuid = UUIDT()
