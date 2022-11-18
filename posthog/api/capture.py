@@ -298,7 +298,7 @@ def get_event(request):
 
     for future in futures:
         try:
-            future.get(timeout=1)
+            future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT)
         except KafkaError as exc:
             # TODO: distinguish between retriable errors and non-retriable
             # errors, and set Retry-After header accordingly.
