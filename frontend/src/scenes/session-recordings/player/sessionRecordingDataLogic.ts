@@ -154,6 +154,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         }),
         loadEntireRecording: true,
         loadRecordingMeta: true,
+        setRecordingMeta: (metadata: Partial<SessionPlayerMetaData>) => ({ metadata }),
         loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
         loadEvents: (nextUrl?: string) => ({ nextUrl }),
     }),
@@ -280,11 +281,20 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 const unparsedMetadata: UnparsedMetadata | undefined = response.result?.session_recording
                 const metadata = parseMetadataResponse(unparsedMetadata)
                 breakpoint()
-                console.log('METADATA', metadata)
                 return {
                     ...values.sessionPlayerMetaData,
                     person: response.result?.person,
                     metadata,
+                }
+            },
+            setRecordingMeta: ({ metadata }) => {
+                console.log('RECORDING MAETA', {
+                    ...values.sessionPlayerMetaData,
+                    ...metadata,
+                })
+                return {
+                    ...values.sessionPlayerMetaData,
+                    ...metadata,
                 }
             },
         },

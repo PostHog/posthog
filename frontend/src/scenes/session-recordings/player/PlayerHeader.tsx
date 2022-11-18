@@ -5,13 +5,14 @@ import {
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { openPlayerAddToPlaylistDialog } from 'scenes/session-recordings/player/add-to-playlist/PlayerAddToPlaylist'
-import { IconLink, IconSave } from 'lib/components/icons'
+import { IconLink, IconSave, IconWithCount } from 'lib/components/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 
 export function PlayerHeader({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     const { recordingStartTime, sessionPlayerData } = useValues(logic)
     const { setPause } = useActions(logic)
+    const playlists = sessionPlayerData.metadata.playlists ?? []
 
     const onShare = (): void => {
         setPause()
@@ -21,16 +22,12 @@ export function PlayerHeader({ sessionRecordingId, playerKey }: SessionRecording
         })
     }
 
-    console.log('ADDRECORDINGTO', sessionPlayerData)
-
     const onAddToPlaylist = (): void => {
         setPause()
         openPlayerAddToPlaylistDialog({
-            recording: {
-                id: sessionRecordingId,
-                playlists: sessionPlayerData.metadata.playlists,
-                start_time: recordingStartTime,
-            },
+            sessionRecordingId,
+            playerKey,
+            recordingStartTime,
         })
     }
 
@@ -42,7 +39,11 @@ export function PlayerHeader({ sessionRecordingId, playerKey }: SessionRecording
             <LemonButton
                 status="primary-alt"
                 onClick={onAddToPlaylist}
-                icon={<IconSave />}
+                icon={
+                    <IconWithCount count={playlists.length}>
+                        <IconSave />
+                    </IconWithCount>
+                }
                 tooltip="Save recording to static playlist"
             >
                 Save

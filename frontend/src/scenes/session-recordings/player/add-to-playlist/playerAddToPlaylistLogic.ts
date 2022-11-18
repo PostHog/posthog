@@ -1,4 +1,4 @@
-import { kea, props, path, key, actions, reducers, selectors, afterMount, connect } from 'kea'
+import { kea, props, path, key, actions, reducers, selectors, afterMount, connect, listeners } from 'kea'
 import { SessionRecordingPlaylistType, SessionRecordingType } from '~/types'
 import type { playerAddToPlaylistLogicType } from './playerAddToPlaylistLogicType'
 import FuseClass from 'fuse.js'
@@ -7,22 +7,18 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { toParams } from 'lib/utils'
-import { savedSessionRecordingPlaylistModelLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
-
-export interface PlayerAddToPlaylistLogicProps {
-    recording: Pick<SessionRecordingType, 'id' | 'playlists' | 'start_time'>
-}
+import {
+    PlaylistTypeWithIds,
+    savedSessionRecordingPlaylistModelLogic,
+} from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
+import { SessionRecordingPlayerLogicProps } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
 export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'add-to-playlist', 'playerAddToPlaylistLogic', key]),
-    props({} as PlayerAddToPlaylistLogicProps),
-    key(({ recording }) => {
-        if (!recording.id) {
-            throw Error('must provide an insight with a short id')
-        }
-        return recording.id
-    }),
-    connect(() => ({
+    props({} as SessionRecordingPlayerLogicProps),
+    key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect(({ sessionRecordingId, recordingStartTime }: SessionRecordingPlayerLogicProps) => ({
         actions: [
             savedSessionRecordingPlaylistModelLogic,
             [
@@ -33,15 +29,20 @@ export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
                 'removeRecordingFromPlaylistSuccess',
                 'removeRecordingFromPlaylistFailure',
             ],
+            sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }),
+            ['setRecordingMeta'],
         ],
+        values: [sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }), ['sessionPlayerMetaData']],
     })),
     actions(() => ({
         addNewPlaylist: true,
         setSearchQuery: (query: string) => ({ query }),
         setRecording: (recording: SessionRecordingType) => ({ recording }),
         setScrollIndex: (index: number) => ({ index }),
+        addToPlaylist: (playlist: PlaylistTypeWithIds) => ({ playlist }),
+        removeFromPlaylist: (playlist: PlaylistTypeWithIds) => ({ playlist }),
     })),
-    loaders(({ values }) => ({
+    loaders(() => ({
         playlistsResponse: {
             __default: { results: [], count: 0, filters: null } as SavedSessionRecordingPlaylistsResult,
             loadPlaylists: async (_, breakpoint) => {
@@ -50,28 +51,6 @@ export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
                 breakpoint()
                 return response
             },
-            addRecordingToPlaylistSuccess: ({ _recordingModel, payload }) => ({
-                ...values.playlistsResponse,
-                results: values.playlistsResponse.results.map((playlist) =>
-                    payload?.playlist?.id === playlist.id
-                        ? {
-                              ...playlist,
-                              playlist_items: [...(playlist.playlist_items ?? []), { id: _recordingModel.id }],
-                          }
-                        : playlist
-                ),
-            }),
-            removeRecordingFromPlaylistSuccess: ({ _recordingModel, payload }) => ({
-                ...values.playlistsResponse,
-                results: values.playlistsResponse.results.map((playlist) =>
-                    payload?.playlist?.id === playlist.id
-                        ? {
-                              ...playlist,
-                              playlist_items: playlist.playlist_items?.filter((item) => item.id !== _recordingModel.id),
-                          }
-                        : playlist
-                ),
-            }),
         },
     })),
     reducers(() => ({
@@ -89,7 +68,51 @@ export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
             },
         ],
     })),
-    selectors(({ props }) => ({
+    listeners(({ actions, values, props }) => ({
+        addToPlaylist: async ({ playlist }) => {
+            actions.addRecordingToPlaylist(
+                {
+                    id: props.sessionRecordingId,
+                    playlists: values.recordingPlaylists,
+                },
+                playlist
+            )
+        },
+        addRecordingToPlaylistSuccess: ({ _recordingModel }) => {
+            if (_recordingModel.playlists) {
+                actions.setRecordingMeta({
+                    metadata: {
+                        ...values.sessionPlayerMetaData.metadata,
+                        playlists: [..._recordingModel.playlists],
+                    },
+                })
+            }
+        },
+        removeFromPlaylist: async ({ playlist }) => {
+            actions.removeRecordingFromPlaylist(
+                {
+                    id: props.sessionRecordingId,
+                    playlists: values.recordingPlaylists,
+                },
+                playlist
+            )
+        },
+        removeRecordingFromPlaylistSuccess: ({ _recordingModel }) => {
+            if (_recordingModel.playlists) {
+                actions.setRecordingMeta({
+                    metadata: {
+                        ...values.sessionPlayerMetaData.metadata,
+                        playlists: [..._recordingModel.playlists],
+                    },
+                })
+            }
+        },
+    })),
+    selectors(() => ({
+        recordingPlaylists: [
+            (s) => [s.sessionPlayerMetaData],
+            (sessionPlayerMetaData) => sessionPlayerMetaData.metadata?.playlists ?? [],
+        ],
         playlistsFuse: [
             (s) => [s.playlistsResponse],
             (playlistsResponse): Fuse => {
@@ -109,11 +132,9 @@ export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
                     : playlistsResponse.results || [],
         ],
         currentPlaylists: [
-            (s) => [s.filteredPlaylists],
-            (filteredPlaylists): SessionRecordingPlaylistType[] => [
-                ...filteredPlaylists.filter((p: SessionRecordingPlaylistType) =>
-                    p.playlist_items?.map((item) => item.id).includes(props.recording.id)
-                ),
+            (s) => [s.filteredPlaylists, s.recordingPlaylists],
+            (filteredPlaylists, recordingPlaylists): SessionRecordingPlaylistType[] => [
+                ...filteredPlaylists.filter((p: SessionRecordingPlaylistType) => recordingPlaylists.includes(p.id)),
             ],
         ],
         orderedPlaylists: [

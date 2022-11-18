@@ -172,7 +172,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         return (
             SessionRecordingPlaylistItem.objects.filter(session_id=session_id)
             .exclude(deleted=True)
-            .values_list("id", flat=True)
+            .values_list("playlist_id", flat=True)
         )
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:

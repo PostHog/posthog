@@ -1,11 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
-import { SessionRecordingPlaylistType, SessionRecordingType } from '~/types'
+import { SessionRecordingPlaylistType } from '~/types'
 import { LemonDialog } from 'lib/components/LemonDialog'
-import {
-    playerAddToPlaylistLogic,
-    PlayerAddToPlaylistLogicProps,
-} from 'scenes/session-recordings/player/add-to-playlist/playerAddToPlaylistLogic'
+import { playerAddToPlaylistLogic } from 'scenes/session-recordings/player/add-to-playlist/playerAddToPlaylistLogic'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { urls } from 'scenes/urls'
@@ -16,10 +13,12 @@ import { pluralize } from 'lib/utils'
 import { CSSProperties } from 'react'
 import { openPlayerNewPlaylistDialog } from 'scenes/session-recordings/player/new-playlist/PlayerNewPlaylist'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { SessionRecordingPlayerLogicProps } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 interface PlaylistRelationRowProps {
     playlist: SessionRecordingPlaylistType
-    recording: Pick<SessionRecordingType, 'id' | 'playlists' | 'start_time'>
+    sessionRecordingId: SessionRecordingPlayerLogicProps['sessionRecordingId']
+    playerKey: SessionRecordingPlayerLogicProps['playerKey']
     isHighlighted: boolean
     isAlreadyOnPlaylist: boolean
     style: CSSProperties
@@ -29,13 +28,15 @@ const PlaylistRelationRow = ({
     isHighlighted,
     isAlreadyOnPlaylist,
     playlist,
-    recording,
     style,
+    sessionRecordingId,
+    playerKey,
 }: PlaylistRelationRowProps): JSX.Element => {
     const logic = playerAddToPlaylistLogic({
-        recording,
+        sessionRecordingId,
+        playerKey,
     })
-    const { addRecordingToPlaylist, removeRecordingFromPlaylist } = useActions(logic)
+    const { addToPlaylist, removeFromPlaylist } = useActions(logic)
     const { playlistWithActiveAPICall } = useValues(logic)
 
     return (
@@ -55,9 +56,7 @@ const PlaylistRelationRow = ({
                 size="small"
                 onClick={(e) => {
                     e.preventDefault()
-                    isAlreadyOnPlaylist
-                        ? removeRecordingFromPlaylist(recording, playlist)
-                        : addRecordingToPlaylist(recording, playlist)
+                    isAlreadyOnPlaylist ? removeFromPlaylist(playlist) : addToPlaylist(playlist)
                 }}
             >
                 {isAlreadyOnPlaylist ? 'Added' : 'Add to playlist'}
@@ -66,8 +65,12 @@ const PlaylistRelationRow = ({
     )
 }
 
-function AddRecordingToPlaylist({ recording }: PlayerAddToPlaylistLogicProps): JSX.Element {
-    const logic = playerAddToPlaylistLogic({ recording })
+function AddRecordingToPlaylist({
+    sessionRecordingId,
+    playerKey,
+    recordingStartTime,
+}: SessionRecordingPlayerLogicProps): JSX.Element {
+    const logic = playerAddToPlaylistLogic({ sessionRecordingId, playerKey, recordingStartTime })
 
     const {
         searchQuery,
@@ -75,18 +78,17 @@ function AddRecordingToPlaylist({ recording }: PlayerAddToPlaylistLogicProps): J
         orderedPlaylists,
         scrollIndex,
         playlistsResponseLoading,
-        filteredPlaylists,
+        sessionPlayerMetaData,
     } = useValues(logic)
     const { setSearchQuery } = useActions(logic)
-
-    console.log('currentPlaylists', recording, filteredPlaylists, currentPlaylists, orderedPlaylists)
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
         return (
             <PlaylistRelationRow
                 key={rowIndex}
                 playlist={orderedPlaylists[rowIndex]}
-                recording={recording}
+                sessionRecordingId={sessionRecordingId}
+                playerKey={playerKey}
                 isHighlighted={rowIndex === scrollIndex}
                 isAlreadyOnPlaylist={currentPlaylists.some(
                     (currentPlaylist) => currentPlaylist.id === orderedPlaylists[rowIndex].id
@@ -108,9 +110,9 @@ function AddRecordingToPlaylist({ recording }: PlayerAddToPlaylistLogicProps): J
             />
             <div className="text-muted-alt">
                 This recording is referenced on{' '}
-                <strong className="text-default">{recording.playlists?.length || 0}</strong>
+                <strong className="text-default">{sessionPlayerMetaData?.metadata?.playlists?.length || 0}</strong>
                 {' static '}
-                {pluralize(recording.playlists?.length || 0, 'playlist', 'playlists', false)}
+                {pluralize(sessionPlayerMetaData?.metadata?.playlists?.length || 0, 'playlist', 'playlists', false)}
             </div>
             <div style={{ minHeight: 420 }}>
                 {playlistsResponseLoading ? (
@@ -135,10 +137,10 @@ function AddRecordingToPlaylist({ recording }: PlayerAddToPlaylistLogicProps): J
     )
 }
 
-export function openPlayerAddToPlaylistDialog({ recording }: PlayerAddToPlaylistLogicProps): void {
+export function openPlayerAddToPlaylistDialog(props: SessionRecordingPlayerLogicProps): void {
     LemonDialog.open({
         title: 'Add recording to static playlist',
-        content: <AddRecordingToPlaylist recording={recording} />,
+        content: <AddRecordingToPlaylist {...props} />,
         width: '30rem',
         primaryButton: {
             children: 'Close',
@@ -148,7 +150,7 @@ export function openPlayerAddToPlaylistDialog({ recording }: PlayerAddToPlaylist
             children: 'Add to new static playlist',
             type: 'secondary',
             onClick: () => {
-                openPlayerNewPlaylistDialog({ sessionRecordingId: recording.id, defaultStatic: true })
+                openPlayerNewPlaylistDialog({ sessionRecordingId: props.sessionRecordingId, defaultStatic: true })
             },
             keepOpen: true,
         },
