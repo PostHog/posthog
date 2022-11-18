@@ -514,7 +514,7 @@ def _annotate_tagged_query(query, args):
     # Annotate the query with information on the request/task
     if len(tags) > 0:
         user_id = f" user_id:{tags['user_id']}" if "user_id" in tags else ""
-        query = f"/*{user_id} {tags['kind']}:{tags.get('id', '').replace('/', '_')} */ {query}"
+        query = f"/*{user_id} {tags.get('kind')}:{tags.get('id', '').replace('/', '_')} */ {query}"
 
     return query, tags
 
