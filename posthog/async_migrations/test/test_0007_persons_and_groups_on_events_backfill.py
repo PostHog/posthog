@@ -80,9 +80,9 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
                 "TRUNCATE TABLE sharded_events",
                 "TRUNCATE TABLE person",
                 "TRUNCATE TABLE person_distinct_id",
-                "DROP TABLE IF EXISTS tmp_person_0006",
-                "DROP TABLE IF EXISTS tmp_person_distinct_id2_0006",
-                "DROP TABLE IF EXISTS tmp_groups_0006",
+                "DROP TABLE IF EXISTS tmp_person_0007",
+                "DROP TABLE IF EXISTS tmp_person_distinct_id2_0007",
+                "DROP TABLE IF EXISTS tmp_groups_0007",
                 "DROP DICTIONARY IF EXISTS person_dict",
                 "DROP DICTIONARY IF EXISTS person_distinct_id2_dict",
                 "DROP DICTIONARY IF EXISTS groups_dict",
@@ -207,13 +207,14 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         )
 
     def test_deleted_data_persons(self):
-        create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
+        distinct_id = "not-reused-id"  # distinct ID re-use isn't supported after person deletion
+        create_event(event_uuid=uuid1, team=self.team, distinct_id=distinct_id, event="$pageview")
         person = Person.objects.create(
             team_id=self.team.pk,
-            distinct_ids=["1"],
+            distinct_ids=[distinct_id],
             properties={"$some_prop": "something", "$another_prop": "something"},
         )
-        create_person_distinct_id(self.team.pk, "1", str(person.uuid))
+        create_person_distinct_id(self.team.pk, distinct_id, str(person.uuid))
         delete_person(person)
 
         # the mutation will run as noted by person_properties becoming '{}' instead of ''
@@ -223,7 +224,12 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         events = query_events()
         self.assertEqual(len(events), 1)
         self.assertDictContainsSubset(
-            {"distinct_id": "1", "person_id": ZERO_UUID, "person_properties": "{}", "person_created_at": ZERO_DATE},
+            {
+                "distinct_id": distinct_id,
+                "person_id": ZERO_UUID,
+                "person_properties": "{}",
+                "person_created_at": ZERO_DATE,
+            },
             events[0],
         )
 
