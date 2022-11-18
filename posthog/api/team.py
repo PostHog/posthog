@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Type, cast
 
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -10,6 +11,8 @@ from rest_framework.decorators import action
 
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
+from posthog.demo.matrix.manager import MatrixManager
+from posthog.demo.products.hedgebox.matrix import HedgeboxMatrix
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Insight, Organization, Team, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -124,10 +127,15 @@ class TeamSerializer(serializers.ModelSerializer):
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
         organization = self.context["view"].organization  # Use the org we used to validate permissions
+        if validated_data["is_demo"] is True:
+            matrix = HedgeboxMatrix(n_clusters=settings.DEMO_MATRIX_N_CLUSTERS)
+            manager = MatrixManager(matrix, use_pre_save=True, print_steps=True)
         with transaction.atomic():
             team = Team.objects.create_with_data(**validated_data, organization=organization)
             request.user.current_team = team
             request.user.save()
+            if manager:
+                manager.run_on_team(team, request.user)
         return team
 
     def _handle_timezone_update(self, team: Team, new_timezone: str) -> None:
