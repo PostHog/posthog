@@ -93,6 +93,15 @@ class DashboardTemplateSerializer(serializers.Serializer):
         if not template_name or not isinstance(template_name, str) or str.isspace(template_name):
             raise serializers.ValidationError("Must provide a template name")
 
+        try:
+            DashboardTemplate.objects.filter(
+                template_name=template_name, scope=scope, team=team, organization=user.organization
+            ).get()
+        except DashboardTemplate.DoesNotExist:
+            pass
+        else:
+            raise serializers.ValidationError("Template name must be unique within a scope, team, and organization")
+
         if not data.get("source_dashboard") and scope != DashboardTemplate.Scope.GLOBAL.value:
             raise serializers.ValidationError("Must provide the id of the source dashboard")
 

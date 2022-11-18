@@ -7,11 +7,13 @@ import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { importDashboardTemplateLogic } from 'scenes/dashboard/dashboardTemplates/importDashboardTemplateLogic'
 import { LemonFileInput } from 'lib/components/LemonFileInput/LemonFileInput'
+import { createRef } from 'react'
 
 export function ImportDashboardTemplateModal(): JSX.Element {
     const { hideImportDashboardTemplateModal } = useActions(importDashboardTemplateLogic)
     const { importDashboardTemplateModalVisible, isImportDashboardTemplateSubmitting } =
         useValues(importDashboardTemplateLogic)
+    const dropRef = createRef<HTMLDivElement>()
 
     return (
         <LemonModal
@@ -42,17 +44,24 @@ export function ImportDashboardTemplateModal(): JSX.Element {
                 </>
             }
         >
-            <Form
-                logic={importDashboardTemplateLogic}
-                formKey="importDashboardTemplate"
-                id="import-dashboard-template-form"
-                enableFormOnSubmit
-                className="space-y-2"
-            >
-                <Field name="templateJson" label={'Template file'}>
-                    <LemonFileInput accept={'*.json'} multiple={false} data-attr={'save-dashboard-template-name'} />
-                </Field>
-            </Form>
+            <div ref={dropRef}>
+                <Form
+                    logic={importDashboardTemplateLogic}
+                    formKey="importDashboardTemplate"
+                    id="import-dashboard-template-form"
+                    enableFormOnSubmit
+                    className="space-y-2"
+                >
+                    <Field name="templateJson" label={'Template file'}>
+                        <LemonFileInput
+                            alternativeDropTargetRef={dropRef}
+                            accept={'*.json'}
+                            multiple={false}
+                            data-attr={'save-dashboard-template-name'}
+                        />
+                    </Field>
+                </Form>
+            </div>
         </LemonModal>
     )
 }

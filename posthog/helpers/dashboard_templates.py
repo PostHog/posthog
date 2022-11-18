@@ -63,7 +63,7 @@ def _create_text_tile(dashboard: Dashboard, tile: Dict) -> None:
 def create_global_templates(templates: List[Dict]) -> None:
     for template in templates:
         DashboardTemplate.objects.get_or_create(
-            template_name=template.get("name"),
+            template_name=template.get("template_name"),
             team=None,
             organization=None,
             scope=DashboardTemplate.Scope.GLOBAL,

@@ -18,13 +18,13 @@ def update_dashboards_templates_from_templates_registry() -> None:
     with urlopen(url) as github_repo:
         with tempfile.TemporaryFile() as f:
             f.write(github_repo.read())
-            with tempfile.TemporaryDirectory as tempDir:
+            with tempfile.TemporaryDirectory() as tempDir:
                 with zipfile.ZipFile(f) as zfile:
                     zfile.extractall("/tmp")
 
                     global_templates = []
                     for file in os.listdir(f"/{tempDir}/templates-repository-main/dashboards"):
-                        with open(f"/{tempDir}/templates-repository-main/dashboards/{file}") as f:
-                            global_templates.append(json.load(f))
+                        with open(f"/{tempDir}/templates-repository-main/dashboards/{file}") as template_file:
+                            global_templates.append(json.load(template_file))
 
                     create_global_templates(global_templates)

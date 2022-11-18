@@ -13,7 +13,6 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 
 default_templates = [
     {"id": mock.ANY, "template_name": "Product analytics", "scope": "global"},
-    {"id": mock.ANY, "template_name": "Website traffic", "scope": "global"},
 ]
 
 
@@ -51,10 +50,15 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
 
         assert len(self.client.get("/api/projects/@current/dashboard_templates/?basic=true").json()["results"]) == 2
 
+    def test_create_does_not_duplicate(self) -> None:
+        self._create_template()
+        self._create_template(expected_status=status.HTTP_400_BAD_REQUEST)
+
+        assert len(self.client.get("/api/projects/@current/dashboard_templates/?basic=true").json()["results"]) == 2
+
     def test_can_create_template(self) -> None:
         response = self._create_template()
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         self.assertEqual(response.json()["template_name"], "Test template")
         self.assertEqual(response.json()["tags"], ["test"])
         self.assertEqual(response.json()["scope"], "project")
@@ -224,7 +228,7 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
         self._create_template("b")
 
         list_response = self.client.get(f"/api/projects/{self.team.id}/dashboard_templates/?basic=true")
-        assert len(list_response.json()["results"]) == 4
+        assert len(list_response.json()["results"]) == 3
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboard_templates/{a_response.json().get('id')}?basic=true",
@@ -233,10 +237,10 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
         list_response = self.client.get(f"/api/projects/{self.team.id}/dashboard_templates/?basic=true")
-        assert len(list_response.json()["results"]) == 3
+
+        assert len(list_response.json()["results"]) == 2
         assert [r["template_name"] for r in list_response.json()["results"]] == [
             "Product analytics",
-            "Website traffic",
             "b",
         ]
 

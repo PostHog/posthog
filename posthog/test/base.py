@@ -21,7 +21,7 @@ from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TA
 from posthog.client import ch_pool, sync_execute
 from posthog.cloud_utils import TEST_clear_cloud_cache
 from posthog.helpers.dashboard_templates import create_global_templates
-from posthog.models import Organization, Team, User
+from posthog.models import DashboardTemplate, Organization, Team, User
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
 from posthog.models.event.util import bulk_create_events
@@ -51,7 +51,7 @@ persons_ordering_int: int = 1
 
 
 def _setup_test_data(klass):
-    create_global_templates()
+    create_global_templates([DashboardTemplate.original_template()])
     klass.organization = Organization.objects.create(name=klass.CONFIG_ORGANIZATION_NAME)
     klass.team = Team.objects.create(
         organization=klass.organization,

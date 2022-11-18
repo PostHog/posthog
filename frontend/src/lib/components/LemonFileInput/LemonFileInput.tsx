@@ -123,7 +123,11 @@ export const LemonFileInput = ({
         <>
             <div
                 ref={dropRef}
-                className={clsx('flex flex-col gap-1', !alternativeDropTargetRef?.current && drag && 'FileDropTarget')}
+                className={clsx(
+                    'flex flex-col gap-1',
+                    !alternativeDropTargetRef?.current && 'FileDropTarget',
+                    drag && 'FileDropTarget--active'
+                )}
             >
                 <label className="text-muted    inline-flex flex flow-row items-center gap-1 cursor-pointer">
                     <input
