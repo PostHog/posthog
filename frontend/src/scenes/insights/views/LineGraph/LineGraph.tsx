@@ -12,6 +12,7 @@ import {
     ChartType,
     Color,
     InteractionItem,
+    ScriptableLineSegmentContext,
     TickOptions,
     TooltipModel,
     TooltipOptions,
@@ -250,6 +251,19 @@ export function LineGraph_({
             backgroundColor: isBackgroundBasedGraphType ? mainColor : undefined,
             fill: false,
             borderWidth: isBar ? 0 : 2,
+            segment: {
+                borderDash: (ctx: ScriptableLineSegmentContext) => {
+                    // If chart is line graph, show dotted lines for incomplete data
+                    if (!(type === GraphType.Line && isInProgress)) {
+                        return undefined
+                    }
+
+                    const isIncomplete = ctx.p1DataIndex >= dataset.data.length + incompletenessOffsetFromEnd
+                    const isActive = !dataset.compare || dataset.compare_label != 'previous'
+                    // if last date is still active show dotted line
+                    return isIncomplete && isActive ? [10, 10] : undefined
+                },
+            },
             pointRadius: 0,
             hitRadius: 0,
             order: 1,
@@ -272,40 +286,7 @@ export function LineGraph_({
             }
         }
 
-        // If chart is line graph, make duplicate lines and overlay to show dotted lines
-        if (type === GraphType.Line && isInProgress) {
-            datasets = [
-                ...datasets.map((dataset) => {
-                    const sliceTo = incompletenessOffsetFromEnd
-                    const datasetCopy = Object.assign({}, dataset, {
-                        data: [
-                            ...[...(dataset.data || [])].slice(0, sliceTo),
-                            ...(dataset.data?.slice(sliceTo).map(() => null) ?? []),
-                        ],
-                    })
-                    return processDataset(datasetCopy)
-                }),
-                ...datasets.map((dataset) => {
-                    const datasetCopy = Object.assign({}, dataset)
-                    datasetCopy.dotted = true
-
-                    // if last date is still active show dotted line
-                    if (!dataset.compare || dataset.compare_label != 'previous') {
-                        datasetCopy['borderDash'] = [10, 10]
-                    }
-
-                    // Nullify dates that don't have dotted line
-                    const sliceFrom = incompletenessOffsetFromEnd - 1
-                    datasetCopy.data = [
-                        ...(datasetCopy.data?.slice(0, sliceFrom).map(() => null) ?? []),
-                        ...(datasetCopy.data?.slice(sliceFrom) ?? []),
-                    ] as number[]
-                    return processDataset(datasetCopy)
-                }),
-            ]
-        } else {
-            datasets = datasets.map((dataset) => processDataset(dataset))
-        }
+        datasets = datasets.map((dataset) => processDataset(dataset))
 
         const seriesMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n))
         const precision = seriesMax < 5 ? 1 : seriesMax < 2 ? 2 : 0

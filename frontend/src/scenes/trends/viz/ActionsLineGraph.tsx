@@ -52,6 +52,7 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
             }
             isCompare={compare}
             isInProgress={filters.insight !== InsightType.STICKINESS && incompletenessOffsetFromEnd < 0}
+            isArea={isFilterWithDisplay(filters) && filters.display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
                 !showPersonsModal || isMultiSeriesFormula(formula)
