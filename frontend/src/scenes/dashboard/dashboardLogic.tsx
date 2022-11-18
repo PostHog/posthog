@@ -59,7 +59,7 @@ export interface RefreshStatus {
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
-export type LoadDashboardItemsProps = { refresh?: boolean, action: string }
+export type LoadDashboardItemsProps = { refresh?: boolean; action: string }
 
 export const dashboardLogic = kea<dashboardLogicType>({
     path: ['scenes', 'dashboard', 'dashboardLogic'],
