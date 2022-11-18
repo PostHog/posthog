@@ -5,7 +5,7 @@
     transition: max-height 0.8s ease-in-out;
     max-height: 1000px;
 
-    &.hidden {
+    &.zero-height {
         max-height: 0;
         margin: 0 !important;
     }

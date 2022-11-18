@@ -967,6 +967,7 @@ export interface DashboardTile extends Tileable, Cacheable {
     insight?: InsightModel
     text?: TextModel
     deleted?: boolean
+    is_cached?: boolean
 }
 
 export interface TextModel {

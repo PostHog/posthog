@@ -55,6 +55,11 @@ export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
     total_count: number
 }
 
+export interface ApiMethodOptions {
+    signal?: AbortSignal
+    includeResponseReference?: boolean
+}
+
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
 
 export function getCookie(name: string): string | null {
@@ -72,9 +77,13 @@ export function getCookie(name: string): string | null {
     return cookieValue
 }
 
-async function getJSONOrThrow(response: Response): Promise<any> {
+async function getJSONOrThrow(response: Response, options?: ApiMethodOptions): Promise<any> {
     try {
-        return await response.json()
+        const json = await response.json()
+        if (options?.includeResponseReference) {
+            json._response = response
+        }
+        return json
     } catch (e) {
         return { statusText: response.statusText }
     }
@@ -359,12 +368,12 @@ class ApiRequest {
 
     // Request finalization
 
-    public async get(options?: { signal?: AbortSignal }): Promise<any> {
-        return await api.get(this.assembleFullUrl(), options?.signal)
+    public async get(options?: ApiMethodOptions): Promise<any> {
+        return await api.get(this.assembleFullUrl(), options)
     }
 
-    public async getRaw(options?: { signal?: AbortSignal }): Promise<Response> {
-        return await api.getRaw(this.assembleFullUrl(), options?.signal)
+    public async getRaw(options?: ApiMethodOptions): Promise<Response> {
+        return await api.getRaw(this.assembleFullUrl(), options)
     }
 
     public async update(options?: { data: any }): Promise<any> {
@@ -906,31 +915,31 @@ const api = {
         },
     },
 
-    async get(url: string, signal?: AbortSignal): Promise<any> {
-        const res = await api.getRaw(url, signal)
-        return await getJSONOrThrow(res)
+    async get(url: string, options?: ApiMethodOptions): Promise<any> {
+        const res = await api.getRaw(url, options)
+        return await getJSONOrThrow(res, options)
     },
 
-    async getRaw(url: string, signal?: AbortSignal): Promise<Response> {
+    async getRaw(url: string, options?: ApiMethodOptions): Promise<Response> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         let response
         const startTime = new Date().getTime()
         try {
-            response = await fetch(url, { signal })
+            response = await fetch(url, { signal: options?.signal })
         } catch (e) {
             throw { status: 0, message: e }
         }
 
         if (!response.ok) {
             reportError('GET', url, response, startTime)
-            const data = await getJSONOrThrow(response)
+            const data = await getJSONOrThrow(response, options)
             throw { status: response.status, ...data }
         }
         return response
     },
 
-    async update(url: string, data: any): Promise<any> {
+    async update(url: string, data: any, options?: ApiMethodOptions): Promise<any> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
@@ -942,20 +951,21 @@ const api = {
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: isFormData ? data : JSON.stringify(data),
+            signal: options?.signal,
         })
 
         if (!response.ok) {
             reportError('PATCH', url, response, startTime)
-            const jsonData = await getJSONOrThrow(response)
+            const jsonData = await getJSONOrThrow(response, options)
             if (Array.isArray(jsonData)) {
                 throw jsonData
             }
             throw { status: response.status, ...jsonData }
         }
-        return await getJSONOrThrow(response)
+        return await getJSONOrThrow(response, options)
     },
 
-    async create(url: string, data?: any, signal?: AbortSignal): Promise<any> {
+    async create(url: string, data?: any, options?: ApiMethodOptions): Promise<any> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
@@ -967,18 +977,18 @@ const api = {
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
-            signal,
+            signal: options?.signal,
         })
 
         if (!response.ok) {
             reportError('POST', url, response, startTime)
-            const jsonData = await getJSONOrThrow(response)
+            const jsonData = await getJSONOrThrow(response, options)
             if (Array.isArray(jsonData)) {
                 throw jsonData
             }
             throw { status: response.status, ...jsonData }
         }
-        return await getJSONOrThrow(response)
+        return await getJSONOrThrow(response, options)
     },
 
     async delete(url: string): Promise<any> {
