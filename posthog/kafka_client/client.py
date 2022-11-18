@@ -33,8 +33,9 @@ class KafkaProducerForTests:
         pass
 
     def send(self, topic: str, value: Any, key: Any = None, headers: Optional[List[Tuple[str, bytes]]] = None):
-        return FutureRecordMetadata(
-            produce_future=FutureProduceResult(topic_partition=TopicPartition(topic, 1)),
+        produce_future = FutureProduceResult(topic_partition=TopicPartition(topic, 1))
+        future = FutureRecordMetadata(
+            produce_future=produce_future,
             relative_offset=0,
             timestamp_ms=0,
             checksum=0,
@@ -42,6 +43,13 @@ class KafkaProducerForTests:
             serialized_value_size=0,
             serialized_header_size=0,
         )
+
+        # NOTE: this is probably not the right response, but should do for now
+        # until we actually start using the response. At the time of writing we
+        # only use the future to reraising on error.
+        produce_future.success(None)
+        future.success(None)
+        return future
 
     def flush(self):
         return
