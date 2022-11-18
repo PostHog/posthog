@@ -59,6 +59,7 @@ const NEW_FLAG: FeatureFlagType = {
     experiment_set: null,
     rollback_conditions: [],
     performed_rollback: false,
+    can_edit: true,
 }
 const NEW_VARIANT = {
     key: '',
