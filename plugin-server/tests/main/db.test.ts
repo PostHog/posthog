@@ -1193,7 +1193,7 @@ describe('DB', () => {
 
         it('fetches a team by id', async () => {
             const organizationId = await createOrganization(db.postgres)
-            const teamId = await createTeam(db.postgres, organizationId, 'token1')
+            const teamId = await createTeam(db.postgres, organizationId, 'token2')
 
             const fetchedTeam = await hub.db.fetchTeam(teamId)
             expect(fetchedTeam).toEqual({
