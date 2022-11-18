@@ -14,7 +14,7 @@ import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboards/dashboardsLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { userLogic } from 'scenes/userLogic'
-import { privilegeLevelToName } from 'lib/constants'
+import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
 import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/components/icons'
@@ -32,6 +32,7 @@ import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModa
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { saveDashboardTemplateLogic } from 'scenes/dashboard/dashboardTemplates/saveDashboardTemplateLogic'
 import { SaveDashboardTemplateModal } from 'scenes/dashboard/dashboardTemplates/SaveAsDashboardTemplateModal'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function DashboardHeader(): JSX.Element | null {
     const {
@@ -54,6 +55,9 @@ export function DashboardHeader(): JSX.Element | null {
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
     const { showSaveDashboardTemplateModal } = useActions(saveDashboardTemplateLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const allowSaveAsTemplate = featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
 
     const { push } = useActions(router)
 
@@ -224,16 +228,20 @@ export function DashboardHeader(): JSX.Element | null {
                                                     },
                                                 ]}
                                             />
-                                            <LemonDivider />
-                                            <LemonButton
-                                                onClick={() => {
-                                                    showSaveDashboardTemplateModal(dashboard)
-                                                }}
-                                                status="stealth"
-                                                fullWidth
-                                            >
-                                                Save as template
-                                            </LemonButton>
+                                            {allowSaveAsTemplate && (
+                                                <>
+                                                    <LemonDivider />
+                                                    <LemonButton
+                                                        onClick={() => {
+                                                            showSaveDashboardTemplateModal(dashboard)
+                                                        }}
+                                                        status="stealth"
+                                                        fullWidth
+                                                    >
+                                                        Save as template
+                                                    </LemonButton>
+                                                </>
+                                            )}
                                             <LemonDivider />
                                             <LemonButton
                                                 onClick={() => {
