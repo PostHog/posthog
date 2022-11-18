@@ -512,7 +512,7 @@ def _annotate_tagged_query(query, args):
     if isinstance(args, dict) and "team_id" in args:
         tags["team_id"] = args["team_id"]
     # Annotate the query with information on the request/task
-    if len(tags) > 0:
+    if "kind" in tags:
         user_id = f" user_id:{tags['user_id']}" if "user_id" in tags else ""
         query = f"/*{user_id} {tags.get('kind')}:{tags.get('id', '').replace('/', '_')} */ {query}"
 
