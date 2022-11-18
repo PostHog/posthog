@@ -19,7 +19,7 @@ import { insertRow } from '../tests/helpers/sql'
 
 export const capture = async (
     producer: Producer,
-    teamId: number,
+    teamId: number | null,
     distinctId: string,
     uuid: string,
     event: string,
@@ -30,7 +30,7 @@ export const capture = async (
         topic: 'events_plugin_ingestion',
         messages: [
             {
-                key: teamId.toString(),
+                key: teamId ? teamId.toString() : '',
                 value: JSON.stringify({
                     token,
                     distinct_id: distinctId,

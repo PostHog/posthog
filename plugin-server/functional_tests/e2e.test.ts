@@ -458,7 +458,7 @@ test.concurrent(`event ingestion: events without a team_id get processed correct
 
     await capture(
         producer,
-        teamId,
+        null, // team_id should be added by the plugin server from the token
         personIdentifier,
         new UUIDT().toString(),
         'test event',
