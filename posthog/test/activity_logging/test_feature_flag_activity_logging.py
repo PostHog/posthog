@@ -1,15 +1,13 @@
-import unittest
 from typing import Optional
 
-import pytest
 from dateutil import parser
 
 from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Change, changes_between
+from posthog.test.base import APIBaseTest
 
 
-@pytest.mark.django_db(True)
-class TestChangesBetweenFeatureFlags(unittest.TestCase):
+class TestChangesBetweenFeatureFlags(APIBaseTest):
     def test_comparing_two_nothings_results_in_no_changes(self) -> None:
         actual = changes_between(model_type="FeatureFlag", previous=None, current=None)
         assert actual == []
