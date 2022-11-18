@@ -78,7 +78,9 @@ export class TeamManager {
         const timeout = timeoutGuard(`Still running "fetchTeam". Timeout warning after 30 sec!`)
         try {
             const team: Team | null = (await this.db.fetchTeam(teamId)) || null
-            this.teamCache.set(teamId, team)
+            if (team) {
+                this.teamCache.set(teamId, team)
+            }
             return team
         } finally {
             clearTimeout(timeout)

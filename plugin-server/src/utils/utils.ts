@@ -533,16 +533,6 @@ export class IllegalOperationError extends Error {
     }
 }
 
-export function getByAge<K, V>(cache: Map<K, [V, number]>, key: K, maxAgeMs = 30_000): V | undefined {
-    if (cache.has(key)) {
-        const [value, age] = cache.get(key)!
-        if (Date.now() - age <= maxAgeMs) {
-            return value
-        }
-    }
-    return undefined
-}
-
 // Equivalent of Python's string.ascii_letters
 export function getAsciiLetters(): string {
     const LOWERCASE_START_POINT = 97 // ASCII 'a'

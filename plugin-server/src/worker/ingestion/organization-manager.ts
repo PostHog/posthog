@@ -1,28 +1,40 @@
+import LRU from 'lru-cache'
+
 import { RawOrganization, Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
-import { getByAge } from '../../utils/utils'
 import { TeamManager } from './team-manager'
 
 const ONE_DAY = 24 * 60 * 60 * 1000
 
-type OrganizationCache<T> = Map<RawOrganization['id'], [T, number]>
-
 export class OrganizationManager {
     db: DB
     teamManager: TeamManager
-    organizationCache: OrganizationCache<RawOrganization | null>
-    availableFeaturesCache: Map<TeamId, [Array<string>, number]>
+    organizationCache: LRU<RawOrganization['id'], RawOrganization>
+    availableFeaturesCache: LRU<TeamId, string[]>
 
     constructor(db: DB, teamManager: TeamManager) {
         this.db = db
         this.teamManager = teamManager
-        this.organizationCache = new Map()
-        this.availableFeaturesCache = new Map()
+        this.organizationCache = new LRU({
+            max: 10_000,
+            // 30 seconds
+            maxAge: 30_000,
+            // being explicit about the fact that we want to update
+            // the team cache every 2min, irrespective of the last access
+            updateAgeOnGet: false,
+        })
+        this.availableFeaturesCache = new LRU({
+            max: 10_000,
+            maxAge: ONE_DAY,
+            // being explicit about the fact that we want to update
+            // the team cache every day, irrespective of the last access
+            updateAgeOnGet: false,
+        })
     }
 
     public async fetchOrganization(organizationId: RawOrganization['id']): Promise<RawOrganization | null> {
-        const cachedOrganization = getByAge(this.organizationCache, organizationId)
+        const cachedOrganization = this.organizationCache.get(organizationId)
         if (cachedOrganization) {
             return cachedOrganization
         }
@@ -30,7 +42,9 @@ export class OrganizationManager {
         const timeout = timeoutGuard(`Still running "fetchOrganization". Timeout warning after 30 sec!`)
         try {
             const organization: RawOrganization | null = (await this.db.fetchOrganization(organizationId)) || null
-            this.organizationCache.set(organizationId, [organization, Date.now()])
+            if (organization) {
+                this.organizationCache.set(organizationId, organization)
+            }
             return organization
         } finally {
             clearTimeout(timeout)
@@ -38,7 +52,7 @@ export class OrganizationManager {
     }
 
     public async hasAvailableFeature(teamId: TeamId, feature: string, team?: Team): Promise<boolean> {
-        const cachedAvailableFeatures = getByAge(this.availableFeaturesCache, teamId, ONE_DAY)
+        const cachedAvailableFeatures = this.availableFeaturesCache.get(teamId)
 
         if (cachedAvailableFeatures !== undefined) {
             return cachedAvailableFeatures.includes(feature)
@@ -52,13 +66,13 @@ export class OrganizationManager {
 
         const organization = await this.fetchOrganization(_team.organization_id)
         const availableFeatures = organization?.available_features || []
-        this.availableFeaturesCache.set(teamId, [availableFeatures, Date.now()])
+        this.availableFeaturesCache.set(teamId, availableFeatures)
 
         return availableFeatures.includes(feature)
     }
 
     public resetAvailableFeatureCache(organizationId: string) {
-        this.availableFeaturesCache = new Map()
-        this.organizationCache.delete(organizationId)
+        this.availableFeaturesCache.reset()
+        this.organizationCache.del(organizationId)
     }
 }

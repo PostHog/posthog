@@ -1,25 +1,33 @@
+import LRU from 'lru-cache'
+
 import { GroupTypeIndex, GroupTypeToColumnIndex, Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
-import { getByAge } from '../../utils/utils'
 import { TeamManager } from './team-manager'
 
 export class GroupTypeManager {
     db: DB
     teamManager: TeamManager
-    groupTypesCache: Map<number, [GroupTypeToColumnIndex, number]>
+    groupTypesCache: LRU<number, GroupTypeToColumnIndex>
     instanceSiteUrl: string
 
     constructor(db: DB, teamManager: TeamManager, instanceSiteUrl?: string | null) {
         this.db = db
         this.teamManager = teamManager
-        this.groupTypesCache = new Map()
+        this.groupTypesCache = new LRU({
+            max: 10_000,
+            // 30 seconds
+            maxAge: 30_000,
+            // being explicit about the fact that we want to update
+            // the team cache every 2min, irrespective of the last access
+            updateAgeOnGet: false,
+        })
         this.instanceSiteUrl = instanceSiteUrl || 'unknown'
     }
 
     public async fetchGroupTypes(teamId: TeamId): Promise<GroupTypeToColumnIndex> {
-        const cachedGroupTypes = getByAge(this.groupTypesCache, teamId)
+        const cachedGroupTypes = this.groupTypesCache.get(teamId)
         if (cachedGroupTypes) {
             return cachedGroupTypes
         }
@@ -27,7 +35,7 @@ export class GroupTypeManager {
         const timeout = timeoutGuard(`Still running "fetchGroupTypes". Timeout warning after 30 sec!`)
         try {
             const teamGroupTypes: GroupTypeToColumnIndex = await this.db.fetchGroupTypes(teamId)
-            this.groupTypesCache.set(teamId, [teamGroupTypes, Date.now()])
+            this.groupTypesCache.set(teamId, teamGroupTypes)
             return teamGroupTypes
         } finally {
             clearTimeout(timeout)
@@ -46,7 +54,7 @@ export class GroupTypeManager {
                 Object.keys(groupTypes).length
             )
             if (groupTypeIndex !== null) {
-                this.groupTypesCache.delete(teamId)
+                this.groupTypesCache.del(teamId)
             }
 
             if (isInsert && groupTypeIndex !== null) {
