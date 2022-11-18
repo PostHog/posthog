@@ -1754,6 +1754,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
     @patch("posthog.decorators.get_safe_cache")
     def test_including_query_id_does_not_affect_cache_key(self, patched_get_safe_cache) -> None:
+        """
+        regression test, by introducing a query_id we were changing the cache key
+        so, if you made the same query twice, the second one would not be cached, only because the query id had changed
+        """
         self._get_insight_with_client_query_id("b3ef3987-b8e7-4339-b9b8-fa2b65606692")
         self._get_insight_with_client_query_id("00000000-b8e7-4339-b9b8-fa2b65606692")
 
