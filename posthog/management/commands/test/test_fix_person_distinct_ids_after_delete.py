@@ -45,11 +45,11 @@ class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
         options = {"live_run": True, "team_id": self.team.pk, "new_version": 2500}
         run(options)
 
-        did1 = PersonDistinctId.objects.filter(distinct_id="did1").first()
-        did2 = PersonDistinctId.objects.filter(distinct_id="did2").first()
-        did3 = PersonDistinctId.objects.filter(distinct_id="did3").first()
-        did5 = PersonDistinctId.objects.filter(distinct_id="did5").first()
-        did6 = PersonDistinctId.objects.filter(distinct_id="did6").first()
+        did1 = PersonDistinctId.objects.get(distinct_id="did1")
+        did2 = PersonDistinctId.objects.get(distinct_id="did2")
+        did3 = PersonDistinctId.objects.get(distinct_id="did3")
+        did5 = PersonDistinctId.objects.get(distinct_id="did5")
+        did6 = PersonDistinctId.objects.get(distinct_id="did6")
 
         self.assertEqual(did1.version, 2500)
         self.assertEqual(did1.person.pk, person1.pk)
