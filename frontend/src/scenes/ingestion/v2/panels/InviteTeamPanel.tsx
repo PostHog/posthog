@@ -8,6 +8,7 @@ import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { GENERATING_DEMO_DATA } from '../constants'
 
 export function InviteTeamPanel(): JSX.Element {
     const { next } = useActions(ingestionLogicV2)
@@ -64,6 +65,7 @@ export function InviteTeamPanel(): JSX.Element {
                 <LemonButton
                     onClick={() => {
                         createTeam({ name: demoTeamName, is_demo: true })
+                        next({ isTechnicalUser: false, platform: GENERATING_DEMO_DATA })
                         reportProjectCreationSubmitted(
                             currentOrganization?.teams ? currentOrganization.teams.length : 0,
                             demoTeamName.length

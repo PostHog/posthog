@@ -1,6 +1,15 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { Framework, PlatformType } from 'scenes/ingestion/v2/types'
-import { API, MOBILE, BACKEND, WEB, BOOKMARKLET, thirdPartySources, THIRD_PARTY, ThirdPartySource } from './constants'
+import {
+    API,
+    MOBILE,
+    BACKEND,
+    WEB,
+    GENERATING_DEMO_DATA,
+    thirdPartySources,
+    THIRD_PARTY,
+    ThirdPartySource,
+} from './constants'
 import type { ingestionLogicV2Type } from './ingestionLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -42,7 +51,7 @@ export enum INGESTION_VIEWS {
     VERIFICATION = 'verification',
     WEB_INSTRUCTIONS = 'web-instructions',
     CHOOSE_FRAMEWORK = 'choose-framework',
-    BOOKMARKLET = 'bookmarklet',
+    GENERATING_DEMO_DATA = 'generating-demo-data',
     CHOOSE_THIRD_PARTY = 'choose-third-party',
 }
 
@@ -54,7 +63,7 @@ export const INGESTION_VIEW_TO_STEP = {
     [INGESTION_VIEWS.VERIFICATION]: INGESTION_STEPS.VERIFY,
     [INGESTION_VIEWS.WEB_INSTRUCTIONS]: INGESTION_STEPS.CONNECT_PRODUCT,
     [INGESTION_VIEWS.CHOOSE_FRAMEWORK]: INGESTION_STEPS.CONNECT_PRODUCT,
-    [INGESTION_VIEWS.BOOKMARKLET]: INGESTION_STEPS.CONNECT_PRODUCT,
+    [INGESTION_VIEWS.GENERATING_DEMO_DATA]: INGESTION_STEPS.CONNECT_PRODUCT,
     [INGESTION_VIEWS.CHOOSE_THIRD_PARTY]: INGESTION_STEPS.CONNECT_PRODUCT,
 }
 
@@ -289,8 +298,8 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                     }
                     // could be null, so we check that it's set to false
                 } else if (isTechnicalUser === false) {
-                    if (platform === BOOKMARKLET) {
-                        return INGESTION_VIEWS.BOOKMARKLET
+                    if (platform === GENERATING_DEMO_DATA) {
+                        return INGESTION_VIEWS.GENERATING_DEMO_DATA
                     }
                     if (hasInvitedMembers) {
                         return INGESTION_VIEWS.TEAM_INVITED
@@ -430,12 +439,6 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                     return actions.goToView(INGESTION_VIEWS.CHOOSE_PLATFORM)
                 case INGESTION_VIEWS.CHOOSE_FRAMEWORK:
                     return actions.goToView(INGESTION_VIEWS.CHOOSE_PLATFORM)
-                case INGESTION_VIEWS.BOOKMARKLET:
-                    if (values.hasInvitedMembers) {
-                        return actions.goToView(INGESTION_VIEWS.TEAM_INVITED)
-                    } else {
-                        return actions.goToView(INGESTION_VIEWS.INVITE_TEAM)
-                    }
                 // If they're on the InviteTeam step, but on the Team Invited panel,
                 // we still want them to be able to go back to the previous step.
                 // So this resets the state for that panel so they can go back.
@@ -513,7 +516,7 @@ function getUrl(values: ingestionLogicV2Type['values']): string | [string, Recor
             url += '/backend'
         }
 
-        if (platform === BOOKMARKLET) {
+        if (platform === GENERATING_DEMO_DATA) {
             url += '/just-exploring'
         }
 

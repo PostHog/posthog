@@ -8,7 +8,7 @@ import { ingestionLogicV2, INGESTION_VIEWS } from 'scenes/ingestion/v2/ingestion
 import { FrameworkPanel } from 'scenes/ingestion/v2/panels/FrameworkPanel'
 import { PlatformPanel } from 'scenes/ingestion/v2/panels/PlatformPanel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { BookmarkletPanel } from './panels/BookmarkletPanel'
+import { GeneratingDemoDataPanel } from './panels/GeneratingDemoDataPanel'
 import { ThirdPartyPanel } from './panels/ThirdPartyPanel'
 import { BillingPanel } from './panels/BillingPanel'
 import { Sidebar } from './Sidebar'
@@ -41,7 +41,7 @@ export function IngestionWizardV2(): JSX.Element {
             {currentView === INGESTION_VIEWS.CHOOSE_FRAMEWORK && <FrameworkPanel />}
             {currentView === INGESTION_VIEWS.WEB_INSTRUCTIONS && <InstructionsPanel />}
             {currentView === INGESTION_VIEWS.VERIFICATION && <VerificationPanel />}
-            {currentView === INGESTION_VIEWS.BOOKMARKLET && <BookmarkletPanel />}
+            {currentView === INGESTION_VIEWS.GENERATING_DEMO_DATA && <GeneratingDemoDataPanel />}
             {currentView === INGESTION_VIEWS.CHOOSE_THIRD_PARTY && <ThirdPartyPanel />}
         </IngestionContainer>
     )
