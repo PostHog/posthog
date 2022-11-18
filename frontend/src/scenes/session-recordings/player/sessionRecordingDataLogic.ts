@@ -287,16 +287,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     metadata,
                 }
             },
-            setRecordingMeta: ({ metadata }) => {
-                console.log('RECORDING MAETA', {
-                    ...values.sessionPlayerMetaData,
-                    ...metadata,
-                })
-                return {
-                    ...values.sessionPlayerMetaData,
-                    ...metadata,
-                }
-            },
+            setRecordingMeta: ({ metadata }) => ({
+                ...values.sessionPlayerMetaData,
+                ...metadata,
+            }),
         },
         sessionPlayerSnapshotData: {
             loadRecordingSnapshots: async ({ nextUrl }, breakpoint): Promise<SessionPlayerSnapshotData> => {

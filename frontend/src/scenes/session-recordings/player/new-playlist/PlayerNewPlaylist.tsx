@@ -7,7 +7,7 @@ import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { LemonButton, LemonButtonProps } from 'lib/components/LemonButton'
 import { LemonSelect } from 'lib/components/LemonSelect'
-import { SessionRecordingType } from '~/types'
+import { SessionRecordingPlayerLogicProps } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 const PLAYLIST_TYPES = [
     {
@@ -22,16 +22,15 @@ const PLAYLIST_TYPES = [
     },
 ]
 
-interface PlayerNewPlaylistProps {
-    sessionRecordingId?: SessionRecordingType['id']
+interface PlayerNewPlaylistProps extends SessionRecordingPlayerLogicProps {
     defaultStatic?: boolean // if true, only allow static playlist creation
 }
 
-function CreateNewPlaylist({ sessionRecordingId, defaultStatic }: PlayerNewPlaylistProps): JSX.Element {
+function CreateNewPlaylist({ sessionRecordingId, playerKey, defaultStatic }: PlayerNewPlaylistProps): JSX.Element {
     return (
         <Form
             logic={playerNewPlaylistLogic}
-            props={{ sessionRecordingId }}
+            props={{ sessionRecordingId, playerKey }}
             formKey="newPlaylist"
             id="new-playlist-form"
             className="space-y-2"
@@ -60,12 +59,13 @@ function CreatePlaylistButton({
     close,
     type = 'secondary',
     sessionRecordingId,
+    playerKey,
 }: {
     redirect?: boolean
     close: () => void
     type?: LemonButtonProps['type']
 } & PlayerNewPlaylistProps): JSX.Element {
-    const logic = playerNewPlaylistLogic({ sessionRecordingId })
+    const logic = playerNewPlaylistLogic({ sessionRecordingId, playerKey })
     const { submitNewPlaylist, createAndGoToPlaylist } = useActions(logic)
     const { newPlaylistHasErrors } = useValues(logic)
     return (
@@ -85,21 +85,42 @@ function CreatePlaylistButton({
 
 export function openPlayerNewPlaylistDialog({
     sessionRecordingId,
+    playerKey,
     defaultStatic = false,
 }: PlayerNewPlaylistProps): void {
     LemonDialog.open({
         title: defaultStatic ? 'New static playlist' : 'New playlist',
         description: `Use ${defaultStatic ? 'static ' : ''}playlists to track multiple recordings from a single view.`,
-        content: <CreateNewPlaylist sessionRecordingId={sessionRecordingId} defaultStatic={defaultStatic} />,
+        content: (
+            <CreateNewPlaylist
+                sessionRecordingId={sessionRecordingId}
+                playerKey={playerKey}
+                defaultStatic={defaultStatic}
+            />
+        ),
         width: '30rem',
         primaryButton: {
             content: function RenderCreatePlaylist(close) {
-                return <CreatePlaylistButton sessionRecordingId={sessionRecordingId} close={close} type="primary" />
+                return (
+                    <CreatePlaylistButton
+                        sessionRecordingId={sessionRecordingId}
+                        playerKey={playerKey}
+                        close={close}
+                        type="primary"
+                    />
+                )
             },
         },
         secondaryButton: {
             content: function RenderCreatePlaylist(close) {
-                return <CreatePlaylistButton sessionRecordingId={sessionRecordingId} close={close} redirect />
+                return (
+                    <CreatePlaylistButton
+                        sessionRecordingId={sessionRecordingId}
+                        playerKey={playerKey}
+                        close={close}
+                        redirect
+                    />
+                )
             },
         },
         tertiaryButton: {

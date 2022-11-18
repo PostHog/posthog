@@ -150,7 +150,7 @@ export function openPlayerAddToPlaylistDialog(props: SessionRecordingPlayerLogic
             children: 'Add to new static playlist',
             type: 'secondary',
             onClick: () => {
-                openPlayerNewPlaylistDialog({ sessionRecordingId: props.sessionRecordingId, defaultStatic: true })
+                openPlayerNewPlaylistDialog({ ...props, defaultStatic: true })
             },
             keepOpen: true,
         },

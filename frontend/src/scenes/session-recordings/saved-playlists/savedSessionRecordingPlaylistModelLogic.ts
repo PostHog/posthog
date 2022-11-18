@@ -56,7 +56,7 @@ export const savedSessionRecordingPlaylistModelLogic = kea<savedSessionRecording
             playlist,
             redirect,
         }),
-        duplicateSavedPlaylist: (playlist: PlaylistTypeWithShortId, redirect: boolean = false) => ({
+        duplicateSavedPlaylist: (playlist: Partial<SessionRecordingPlaylistType>, redirect: boolean = false) => ({
             playlist,
             redirect,
         }),
@@ -130,7 +130,6 @@ export const savedSessionRecordingPlaylistModelLogic = kea<savedSessionRecording
                 const newRecordingResponse = await api.recordings.updateRecording(
                     recording.id,
                     {
-                        id: recording.id,
                         playlists: [...(recording.playlists || []).filter((id) => id !== playlist.id), playlist.id],
                     },
                     toParams({
@@ -151,7 +150,6 @@ export const savedSessionRecordingPlaylistModelLogic = kea<savedSessionRecording
                 const newRecordingResponse = await api.recordings.updateRecording(
                     recording.id,
                     {
-                        id: recording.id,
                         playlists: [...(recording.playlists || []).filter((id) => id !== playlist.id)],
                     },
                     toParams({

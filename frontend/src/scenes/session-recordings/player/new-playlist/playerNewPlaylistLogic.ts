@@ -1,9 +1,10 @@
 import { actions, connect, kea, key, listeners, path, props } from 'kea'
-import { SessionRecordingPlaylistType, SessionRecordingType } from '~/types'
+import { SessionRecordingPlaylistType } from '~/types'
 import { forms } from 'kea-forms'
 import type { playerNewPlaylistLogicType } from './playerNewPlaylistLogicType'
 import { playerAddToPlaylistLogic } from 'scenes/session-recordings/player/add-to-playlist/playerAddToPlaylistLogic'
 import { savedSessionRecordingPlaylistModelLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
+import { SessionRecordingPlayerLogicProps } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 export interface NewPlaylistForm extends Pick<SessionRecordingPlaylistType, 'name' | 'description' | 'is_static'> {
     show: boolean
@@ -16,21 +17,17 @@ const defaultFormValues: NewPlaylistForm = {
     show: false,
 }
 
-export interface PlayerNewPlaylistLogicProps {
-    sessionRecordingId?: SessionRecordingType['id']
-}
-
 export const playerNewPlaylistLogic = kea<playerNewPlaylistLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'new-playlist', 'playerNewPlaylistLogic', key]),
-    props({} as PlayerNewPlaylistLogicProps),
-    key(({ sessionRecordingId }) => sessionRecordingId || 'global'),
+    props({} as SessionRecordingPlayerLogicProps),
+    key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey || 'global'}-${props.sessionRecordingId}`),
     connect(() => ({
         actions: [savedSessionRecordingPlaylistModelLogic, ['createSavedPlaylist']],
     })),
     actions({
         createAndGoToPlaylist: true,
     }),
-    forms(({ actions, key }) => ({
+    forms(({ actions, props }) => ({
         newPlaylist: {
             defaults: defaultFormValues,
             errors: ({ name }) => ({
@@ -47,7 +44,7 @@ export const playerNewPlaylistLogic = kea<playerNewPlaylistLogicType>([
                 )
 
                 actions.resetNewPlaylist()
-                playerAddToPlaylistLogic.findMounted({ recording: { id: key } })?.actions?.loadPlaylists({})
+                playerAddToPlaylistLogic.findMounted(props)?.actions?.loadPlaylists({})
                 breakpoint()
             },
         },
