@@ -452,6 +452,27 @@ test.concurrent(
     }
 )
 
+test.concurrent(`event ingestion: events without a team_id get processed correctly`, async () => {
+    const teamId = await createTeam(postgres, organizationId, '', 'token1')
+    const personIdentifier = 'test@posthog.com'
+
+    await capture(
+        producer,
+        teamId,
+        personIdentifier,
+        new UUIDT().toString(),
+        'test event',
+        {
+            distinct_id: personIdentifier,
+        },
+        'token1'
+    )
+
+    const events = await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
+    expect(events.length).toBe(1)
+    expect(events[0].team_id).toBe(teamId)
+})
+
 test.concurrent(`exports: exporting events on ingestion`, async () => {
     const plugin = await createPlugin(postgres, {
         organization_id: organizationId,
