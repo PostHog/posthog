@@ -5,8 +5,6 @@ import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import type { signupLogicTestType } from './signupLogicTestType'
 
-import type { signupLogicTestType } from './signupLogicType'
-
 export interface AccountResponse {
     success: boolean
     redirect_url?: string
