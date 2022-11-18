@@ -55,7 +55,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 'deleteSavedPlaylistWithUndoSuccess',
             ],
         ],
-        values: [savedSessionRecordingPlaylistModelLogic, ['_savedPlaylistLoading', '_savedPlaylist']],
+        values: [savedSessionRecordingPlaylistModelLogic, ['_playlistModelLoading', '_playlistModel']],
     }),
     actions(() => ({
         setSavedPlaylistsFilters: (filters: Partial<SavedSessionRecordingPlaylistsFilters>) => ({
@@ -125,15 +125,15 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             actions.loadPlaylists()
         },
         updateSavedPlaylistSuccess: () => {
-            actions.updateLocalPlaylist(values._savedPlaylist)
+            actions.updateLocalPlaylist(values._playlistModel)
         },
         deleteSavedPlaylistWithUndoSuccess: () => {
-            actions.deleteLocalPlaylist(values._savedPlaylist)
+            actions.deleteLocalPlaylist(values._playlistModel)
         },
     })),
 
     selectors(({ actions }) => ({
-        newPlaylistLoading: [(s) => [s._savedPlaylistLoading], (_savedPlaylistLoading) => !!_savedPlaylistLoading],
+        newPlaylistLoading: [(s) => [s._playlistModelLoading], (_playlistModelLoading) => !!_playlistModelLoading],
         sorting: [
             (s) => [s.filters],
             (filters): Sorting | null => {

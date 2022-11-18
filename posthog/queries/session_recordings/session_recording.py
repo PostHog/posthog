@@ -120,10 +120,11 @@ class SessionRecording:
 
         segments, start_and_end_times_by_window_id = self._process_snapshots_for_metadata(all_snapshots)
 
-        playlists = (
+        playlists = list(
             SessionRecordingPlaylistItem.objects.filter(session_id=self._session_recording_id)
             .exclude(deleted=True)
-            .values_list("id", flat=True)
+            .values_list("playlist_id", flat=True)
+            .distinct()
         )
 
         return RecordingMetadata(

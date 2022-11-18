@@ -28,7 +28,7 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             savedSessionRecordingPlaylistModelLogic,
-            ['_savedPlaylistLoading'],
+            ['_playlistModelLoading'],
         ],
         actions: [
             savedSessionRecordingPlaylistModelLogic,
@@ -67,7 +67,7 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
     }),
 
     selectors(({}) => ({
-        newPlaylistLoading: [(s) => [s._savedPlaylistLoading], (_savedPlaylistLoading) => !!_savedPlaylistLoading],
+        newPlaylistLoading: [(s) => [s._playlistModelLoading], (_playlistModelLoading) => !!_playlistModelLoading],
         breadcrumbs: [
             (s) => [s.tab],
             (tab): Breadcrumb[] => [
@@ -80,9 +80,6 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
 
     urlToAction(({ actions, values }) => {
         return {
-            [urls.sessionRecordings()]: () => {
-                router.actions.replace(urls.sessionRecordings(SessionRecordingsTabs.Recent))
-            },
             '/recordings/:tab': ({ tab }) => {
                 if (tab !== values.tab) {
                     actions.setTab(tab as SessionRecordingsTabs)

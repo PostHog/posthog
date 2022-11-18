@@ -1,10 +1,10 @@
 import { actions, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
-import { SessionRecordingPlaylistType } from '~/types'
+import { SessionRecordingPlaylistType, SessionRecordingType } from '~/types'
 import type { savedSessionRecordingPlaylistModelLogicType } from './savedSessionRecordingPlaylistModelLogicType'
 import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
-import { deleteWithUndo } from 'lib/utils'
+import { deleteWithUndo, toParams } from 'lib/utils'
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
@@ -36,6 +36,17 @@ async function createPlaylist(
     return null
 }
 
+export type PlaylistTypeWithShortId = Partial<SessionRecordingPlaylistType> &
+    Pick<SessionRecordingPlaylistType, 'short_id'>
+export type PlaylistTypeWithIds = PlaylistTypeWithShortId & Pick<SessionRecordingPlaylistType, 'id'>
+export type RecordingTypeWithIdAndPlaylist = Partial<SessionRecordingType> &
+    Pick<SessionRecordingType, 'id' | 'playlists'>
+export interface UpdatedRecordingResponse {
+    result: {
+        session_recording: RecordingTypeWithIdAndPlaylist
+    }
+}
+
 // Logic that encapsulates all saved recording playlist CRUD actions
 export const savedSessionRecordingPlaylistModelLogic = kea<savedSessionRecordingPlaylistModelLogicType>([
     path(['scenes', 'session-recordings', 'saved-playlists', 'savedSessionRecordingPlaylistModelLogic']),
@@ -45,22 +56,28 @@ export const savedSessionRecordingPlaylistModelLogic = kea<savedSessionRecording
             playlist,
             redirect,
         }),
-        duplicateSavedPlaylist: (playlist: Partial<SessionRecordingPlaylistType>, redirect: boolean = false) => ({
+        duplicateSavedPlaylist: (playlist: PlaylistTypeWithShortId, redirect: boolean = false) => ({
             playlist,
             redirect,
         }),
-        updateSavedPlaylist: (
-            shortId: SessionRecordingPlaylistType['short_id'],
-            playlist: Partial<SessionRecordingPlaylistType>,
-            silent = false
-        ) => ({ shortId, playlist, silent }),
-        deleteSavedPlaylistWithUndo: (playlist: SessionRecordingPlaylistType, undoCallback?: () => void) => ({
+        updateSavedPlaylist: (playlist: PlaylistTypeWithShortId, silent = false) => ({ playlist, silent }),
+        deleteSavedPlaylistWithUndo: (playlist: PlaylistTypeWithShortId, undoCallback?: () => void) => ({
             playlist,
             undoCallback,
         }),
+        addRecordingToPlaylist: (
+            recording: RecordingTypeWithIdAndPlaylist,
+            playlist: PlaylistTypeWithIds,
+            silent = false
+        ) => ({ recording, playlist, silent }),
+        removeRecordingFromPlaylist: (
+            recording: RecordingTypeWithIdAndPlaylist,
+            playlist: PlaylistTypeWithIds,
+            silent = false
+        ) => ({ recording, playlist, silent }),
     })),
     loaders(() => ({
-        _savedPlaylist: {
+        _playlistModel: {
             loadSavedPlaylist: async ({ shortId }) => {
                 return api.recordings.getPlaylist(shortId)
             },
@@ -74,11 +91,6 @@ export const savedSessionRecordingPlaylistModelLogic = kea<savedSessionRecording
                 await breakpoint(100)
 
                 const { id, short_id, ...partialPlaylist } = playlist
-                console.log(
-                    'PARTIAL NAME',
-                    partialPlaylist.name,
-                    partialPlaylist.name ? partialPlaylist.name + ' (copy)' : ''
-                )
                 partialPlaylist.name = partialPlaylist.name ? partialPlaylist.name + ' (copy)' : ''
                 partialPlaylist.derived_name = partialPlaylist.derived_name
 
@@ -92,9 +104,9 @@ export const savedSessionRecordingPlaylistModelLogic = kea<savedSessionRecording
 
                 return newPlaylist
             },
-            updateSavedPlaylist: async ({ shortId, playlist, silent }, breakpoint) => {
+            updateSavedPlaylist: async ({ playlist, silent }, breakpoint) => {
                 await breakpoint(100)
-                const newPlaylist = await api.recordings.updatePlaylist(shortId, playlist)
+                const newPlaylist = await api.recordings.updatePlaylist(playlist.short_id, playlist)
                 breakpoint()
 
                 if (!silent) {
@@ -111,6 +123,45 @@ export const savedSessionRecordingPlaylistModelLogic = kea<savedSessionRecording
                     callback: undoCallback,
                 })
                 return playlist
+            },
+        },
+        _recordingModel: {
+            addRecordingToPlaylist: async ({ recording, playlist, silent }) => {
+                const newRecordingResponse = await api.recordings.updateRecording(
+                    recording.id,
+                    {
+                        id: recording.id,
+                        playlists: [...(recording.playlists || []).filter((id) => id !== playlist.id), playlist.id],
+                    },
+                    toParams({
+                        recording_start_time: recording.start_time,
+                    })
+                )
+                if (!silent) {
+                    lemonToast.success('Recording added to playlist', {
+                        button: {
+                            label: 'View playlist',
+                            action: () => router.actions.push(urls.sessionRecordingPlaylist(playlist.short_id)),
+                        },
+                    })
+                }
+                return newRecordingResponse.result.session_recording
+            },
+            removeRecordingFromPlaylist: async ({ recording, playlist, silent }) => {
+                const newRecordingResponse = await api.recordings.updateRecording(
+                    recording.id,
+                    {
+                        id: recording.id,
+                        playlists: [...(recording.playlists || []).filter((id) => id !== playlist.id)],
+                    },
+                    toParams({
+                        recording_start_time: recording.start_time,
+                    })
+                )
+                if (!silent) {
+                    lemonToast.success('Recording removed from playlist')
+                }
+                return newRecordingResponse.result.session_recording
             },
         },
     })),

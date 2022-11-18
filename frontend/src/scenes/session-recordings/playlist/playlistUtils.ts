@@ -1,10 +1,9 @@
-import { PropertyOperator, RecordingFilters, SessionRecordingType } from '~/types'
+import { PropertyOperator, RecordingFilters } from '~/types'
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
-import { convertPropertyGroupToProperties, genericOperatorMap, toParams } from 'lib/utils'
+import { convertPropertyGroupToProperties, genericOperatorMap } from 'lib/utils'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
-import api from 'lib/api'
 
 function getOperatorSymbol(operator: PropertyOperator | null): string {
     if (!operator) {
@@ -49,14 +48,4 @@ export function summarizePlaylistFilters(
     }
 
     return summary.trim() || null
-}
-
-export async function updateRecording(
-    recording: Partial<SessionRecordingType> & Pick<SessionRecordingType, 'id'>,
-    params?: Record<string, any>,
-    callback?: (recording: SessionRecordingType) => void
-): Promise<SessionRecordingType> {
-    const updatedRecording = await api.recordings.updateRecording(recording.id, recording, toParams(params ?? {}))
-    callback?.(updatedRecording)
-    return updatedRecording
 }

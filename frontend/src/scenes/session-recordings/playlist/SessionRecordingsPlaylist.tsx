@@ -11,7 +11,7 @@ import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { IconChevronLeft, IconChevronRight, IconFilter, IconFolderPlus, IconWithCount } from 'lib/components/icons'
+import { IconChevronLeft, IconChevronRight, IconFilter, IconWithCount } from 'lib/components/icons'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import clsx from 'clsx'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
@@ -30,7 +30,6 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import { More } from 'lib/components/LemonButton/More'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
-import { openPlayerAddToPlaylistDialog } from 'scenes/session-recordings/player/add-to-playlist/PlayerAddToPlaylist'
 
 export const scene: SceneExport = {
     component: SessionRecordingsPlaylistScene,
@@ -82,7 +81,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                         name="name"
                         value={playlist.name || ''}
                         placeholder={derivedName}
-                        onSave={(value) => updateSavedPlaylist(playlist.short_id, { name: value })}
+                        onSave={(value) => updateSavedPlaylist({ short_id: playlist.short_id, name: value })}
                         saveOnBlur={true}
                         maxLength={400}
                         mode={undefined}
@@ -105,7 +104,8 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                     <LemonButton
                                         status="stealth"
                                         onClick={() =>
-                                            updateSavedPlaylist(playlist.short_id, {
+                                            updateSavedPlaylist({
+                                                short_id: playlist.short_id,
                                                 pinned: !playlist.pinned,
                                             })
                                         }
@@ -151,7 +151,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                             name="description"
                             value={playlist.description || ''}
                             placeholder="Description (optional)"
-                            onSave={(value) => updateSavedPlaylist(playlist.short_id, { description: value })}
+                            onSave={(value) => updateSavedPlaylist({ short_id: playlist.short_id, description: value })}
                             saveOnBlur={true}
                             maxLength={400}
                             data-attr="playlist-description"
@@ -300,21 +300,6 @@ export function SessionRecordingsPlaylist({
                 </div>
 
                 <div className="flex items-center gap-4">
-                    {activeSessionRecording && (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={() => {
-                                openPlayerAddToPlaylistDialog({
-                                    recording: activeSessionRecording as SessionRecordingType,
-                                })
-                            }}
-                            icon={<IconFolderPlus />}
-                            tooltip="Add selected recording to static playlist"
-                        >
-                            <></>
-                        </LemonButton>
-                    )}
                     <DateFilter
                         dateFrom={filters.date_from ?? '-7d'}
                         dateTo={filters.date_to ?? undefined}

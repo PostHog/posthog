@@ -35,7 +35,7 @@ const PlaylistRelationRow = ({
     const logic = playerAddToPlaylistLogic({
         recording,
     })
-    const { addToPlaylist, removeFromPlaylist } = useActions(logic)
+    const { addRecordingToPlaylist, removeRecordingFromPlaylist } = useActions(logic)
     const { playlistWithActiveAPICall } = useValues(logic)
 
     return (
@@ -55,7 +55,9 @@ const PlaylistRelationRow = ({
                 size="small"
                 onClick={(e) => {
                     e.preventDefault()
-                    isAlreadyOnPlaylist ? removeFromPlaylist(playlist) : addToPlaylist(playlist)
+                    isAlreadyOnPlaylist
+                        ? removeRecordingFromPlaylist(recording, playlist)
+                        : addRecordingToPlaylist(recording, playlist)
                 }}
             >
                 {isAlreadyOnPlaylist ? 'Added' : 'Add to playlist'}
@@ -67,8 +69,17 @@ const PlaylistRelationRow = ({
 function AddRecordingToPlaylist({ recording }: PlayerAddToPlaylistLogicProps): JSX.Element {
     const logic = playerAddToPlaylistLogic({ recording })
 
-    const { searchQuery, currentPlaylists, orderedPlaylists, scrollIndex, playlistsResponseLoading } = useValues(logic)
+    const {
+        searchQuery,
+        currentPlaylists,
+        orderedPlaylists,
+        scrollIndex,
+        playlistsResponseLoading,
+        filteredPlaylists,
+    } = useValues(logic)
     const { setSearchQuery } = useActions(logic)
+
+    console.log('currentPlaylists', recording, filteredPlaylists, currentPlaylists, orderedPlaylists)
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
         return (
@@ -78,8 +89,7 @@ function AddRecordingToPlaylist({ recording }: PlayerAddToPlaylistLogicProps): J
                 recording={recording}
                 isHighlighted={rowIndex === scrollIndex}
                 isAlreadyOnPlaylist={currentPlaylists.some(
-                    (currentPlaylist: SessionRecordingPlaylistType) =>
-                        currentPlaylist.id === orderedPlaylists[rowIndex].id
+                    (currentPlaylist) => currentPlaylist.id === orderedPlaylists[rowIndex].id
                 )}
                 style={style}
             />

@@ -1,7 +1,7 @@
 from typing import Dict, List, Optional
 
 import structlog
-from django.db.models import Q, QuerySet
+from django.db.models import Prefetch, Q, QuerySet
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import request, serializers, viewsets
@@ -52,11 +52,15 @@ def log_playlist_activity(
         )
 
 
-class SessionRecordingPlaylistItemSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SessionRecordingPlaylistItem
-        fields = ["id", "session_id", "created_at", "deleted"]
-        read_only_fields = ["id", "session_id", "created_at"]
+class SessionRecordingPlaylistItemSerializer(serializers.Serializer):
+    session_id = serializers.CharField()
+    created_at = serializers.DateTimeField()
+
+    def to_representation(self, instance):
+        return {
+            "id": instance.session_id,
+            "created_at": instance.created_at,
+        }
 
 
 class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
@@ -183,7 +187,11 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
         else:
             queryset = queryset.order_by("last_modified_at")
 
-        queryset = queryset.prefetch_related("playlist_items")
+        queryset = queryset.prefetch_related(
+            Prefetch(
+                "playlist_items", queryset=SessionRecordingPlaylistItem.objects.exclude(deleted=True).order_by("id")
+            )
+        )
 
         return queryset
 

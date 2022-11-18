@@ -34,7 +34,7 @@ class SessionRecordingMetadataSerializer(serializers.Serializer):
 
 
 class SessionRecordingWithPlaylistsSerializer(serializers.Serializer):
-    session_id = serializers.CharField()
+    id = serializers.CharField()
     playlists = serializers.ListField()
 
 
@@ -124,8 +124,44 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         ids_to_remove = [id for id in old_playlist_ids if id not in new_playlist_ids]
 
         candidate_playlists = SessionRecordingPlaylist.objects.filter(id__in=ids_to_add).exclude(deleted=True)
+
+        # Determine which records to update and which to create
+        records = []
+        records_to_create = []
+        records_to_update = []
+
+        for playlist in candidate_playlists:
+            existing_playlist_item = SessionRecordingPlaylistItem.objects.filter(
+                playlist=playlist, session_id=session_id
+            ).first()
+
+            existing_playlist_item_id = None
+            if existing_playlist_item is not None:
+                existing_playlist_item_id = existing_playlist_item.id
+
+            records.append(
+                {
+                    "id": existing_playlist_item_id,
+                    "playlist": playlist,
+                }
+            )
+
+        [
+            records_to_update.append(record) if record["id"] is not None else records_to_create.append(record)
+            for record in records
+        ]
+        [record.pop("id") for record in records_to_create]
+
         SessionRecordingPlaylistItem.objects.bulk_create(
-            [SessionRecordingPlaylistItem(playlist=playlist, session_id=session_id) for playlist in candidate_playlists]
+            [
+                SessionRecordingPlaylistItem(session_id=session_id, playlist=values.get("playlist"))
+                for values in records_to_create
+            ]
+        )
+        SessionRecordingPlaylistItem.objects.bulk_update(
+            [SessionRecordingPlaylistItem(id=values.get("id"), deleted=False) for values in records_to_update],
+            ["deleted"],
+            batch_size=500,
         )
 
         if ids_to_remove:
@@ -249,7 +285,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         session_recording_serializer = SessionRecordingWithPlaylistsSerializer(
             data={
-                "session_id": session_id,
+                "id": session_id,
                 "playlists": new_playlist_ids,
             }
         )

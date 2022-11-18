@@ -33,7 +33,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     <LemonButton
                         size="small"
                         status="primary-alt"
-                        onClick={() => updateSavedPlaylist(short_id, { pinned: !pinned })}
+                        onClick={() => updateSavedPlaylist({ short_id, pinned: !pinned })}
                     >
                         {pinned ? <PushpinFilled /> : <PushpinOutlined />}
                     </LemonButton>

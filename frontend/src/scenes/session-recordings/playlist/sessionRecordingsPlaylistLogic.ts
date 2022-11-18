@@ -21,7 +21,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             cohortsModel,
             ['cohortsById'],
             savedSessionRecordingPlaylistModelLogic,
-            ['_savedPlaylist', '_savedPlaylistLoading'],
+            ['_playlistModel', '_playlistModelLoading'],
         ],
         actions: [
             savedSessionRecordingPlaylistModelLogic,
@@ -59,20 +59,20 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
     listeners(({ actions, values, props }) => ({
         saveChanges: () => {
-            actions.updateSavedPlaylist(props.shortId, { filters: values.filters || undefined })
+            actions.updateSavedPlaylist({ short_id: props.shortId, filters: values.filters || undefined })
         },
         updateSavedPlaylistSuccess: () => {
-            actions.setPlaylist(values._savedPlaylist)
+            actions.setPlaylist(values._playlistModel)
         },
         duplicateSavedPlaylistSuccess: () => {
-            actions.setPlaylist(values._savedPlaylist)
+            actions.setPlaylist(values._playlistModel)
         },
         loadSavedPlaylistSuccess: () => {
-            actions.setPlaylist(values._savedPlaylist)
+            actions.setPlaylist(values._playlistModel)
 
             if (values.playlist?.derived_name !== values.derivedName) {
                 // This keeps the derived name up to date if the playlist changes
-                actions.updateSavedPlaylist(props.shortId, { derived_name: values.derivedName }, true)
+                actions.updateSavedPlaylist({ short_id: props.shortId, derived_name: values.derivedName }, true)
             }
         },
     })),
@@ -86,7 +86,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     })),
 
     selectors(({}) => ({
-        playlistLoading: [(s) => [s._savedPlaylistLoading], (_savedPlaylistLoading) => !!_savedPlaylistLoading],
+        playlistLoading: [(s) => [s._playlistModelLoading], (_playlistModelLoading) => !!_playlistModelLoading],
         breadcrumbs: [
             (s) => [s.playlist],
             (playlist): Breadcrumb[] => [
