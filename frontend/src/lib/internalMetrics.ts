@@ -32,7 +32,7 @@ export async function captureInternalMetric(payload: InternalMetricsPayload): Pr
 }
 
 export async function captureTimeToSeeData(teamId: number | null, payload: TimeToSeeDataPayload): Promise<void> {
-    if (window.JS_CAPTURE_TIME_TO_SEE_DATA) {
+    if (window.JS_CAPTURE_TIME_TO_SEE_DATA && teamId) {
         const sessionDetails = posthog.sessionManager?.checkAndGetSessionAndWindowId?.(true)
 
         await api.create(`api/projects/${teamId}/insights/timing`, {
