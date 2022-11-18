@@ -1,8 +1,9 @@
 import math
 from itertools import accumulate
+from string import ascii_uppercase
 from typing import Any, Dict, List
 
-from sentry_sdk import capture_exception, push_scope
+from sentry_sdk import push_scope
 
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.client import sync_execute
@@ -10,12 +11,12 @@ from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.breakdown_props import get_breakdown_cohort_name
-from posthog.queries.trends.util import parse_response
+from posthog.queries.trends.util import ensure_value_is_json_serializable, parse_response
 
 
 class TrendsFormula:
     def _run_formula_query(self, filter: Filter, team: Team):
-        letters = [chr(65 + i) for i in range(0, len(filter.entities))]
+        letters = [ascii_uppercase[i] for i in range(0, len(filter.entities))]
         queries = []
         params: Dict[str, Any] = {}
         for idx, entity in enumerate(filter.entities):
@@ -68,30 +69,26 @@ class TrendsFormula:
                 [" CROSS JOIN ({}) as sub_{}".format(query, letters[i + 1]) for i, query in enumerate(queries[1:])]
             ),
         )
-        result = sync_execute(sql, params)
-        response = []
-        for item in result:
-            additional_values: Dict[str, Any] = {"label": self._label(filter, item)}
-            if is_aggregate:
-                additional_values["data"] = []
-                additional_values["aggregated_value"] = (
-                    0.0 if math.isnan(item[1][0]) and not math.isinf(item[1][0]) else item[1][0]
-                )
-
-                if math.isnan(item[1][0]) or math.isinf(item[1][0]):
-                    with push_scope() as scope:
-                        scope.set_context("filter", filter.to_dict())
-                        scope.set_context("query", {"sql": sql, "params": params})
-                        scope.set_tag("team", team)
-                        capture_exception(Exception("Formula had aggregated_value of NaN or Inf"))
-            else:
-                additional_values["data"] = [
-                    round(number, 2) if not math.isnan(number) and not math.isinf(number) else 0.0 for number in item[1]
-                ]
-                if filter.display == TRENDS_CUMULATIVE:
-                    additional_values["data"] = list(accumulate(additional_values["data"]))
-            additional_values["count"] = float(sum(additional_values["data"]))
-            response.append(parse_response(item, filter, additional_values=additional_values))
+        with push_scope() as scope:
+            scope.set_context("filter", filter.to_dict())
+            scope.set_tag("team", team)
+            scope.set_context("query", {"sql": sql, "params": params})
+            result = sync_execute(sql, params)
+            response = []
+            for item in result:
+                additional_values: Dict[str, Any] = {"label": self._label(filter, item)}
+                if is_aggregate:
+                    additional_values["data"] = []
+                    additional_values["aggregated_value"] = ensure_value_is_json_serializable(item[1][0])
+                else:
+                    additional_values["data"] = [
+                        round(number, 2) if not math.isnan(number) and not math.isinf(number) else 0.0
+                        for number in item[1]
+                    ]
+                    if filter.display == TRENDS_CUMULATIVE:
+                        additional_values["data"] = list(accumulate(additional_values["data"]))
+                additional_values["count"] = float(sum(additional_values["data"]))
+                response.append(parse_response(item, filter, additional_values=additional_values))
         return response
 
     def _label(self, filter: Filter, item: List) -> str:
