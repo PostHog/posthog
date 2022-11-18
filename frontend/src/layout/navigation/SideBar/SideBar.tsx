@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { useState } from 'react'
-import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
+import { getDemoSnackMaybe, ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
     IconApps,
     IconBarChart,
@@ -67,7 +67,18 @@ function Pages(): JSX.Element {
         <ul>
             <div className="SideBar__heading">Project</div>
             <PageButton
-                title={currentTeam?.name ?? 'Choose project'}
+                title={
+                    currentTeam?.name ? (
+                        <>
+                            <span>
+                                {currentTeam.name}
+                                {getDemoSnackMaybe(currentTeam, 'primary-extralight')}
+                            </span>
+                        </>
+                    ) : (
+                        'Choose project'
+                    )
+                }
                 icon={<Lettermark name={currentOrganization?.name} />}
                 identifier={Scene.ProjectHomepage}
                 to={urls.projectHomepage()}
