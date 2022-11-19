@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { ingestionLogicV2 } from 'scenes/ingestion/v2/ingestionLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
@@ -6,19 +6,12 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { IconChevronRight } from 'lib/components/icons'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { GENERATING_DEMO_DATA } from '../constants'
+import { DemoProjectButton } from './PanelComponents'
 
 export function InviteTeamPanel(): JSX.Element {
     const { next } = useActions(ingestionLogicV2)
     const { showInviteModal } = useActions(inviteLogic)
-    const { reportInviteMembersButtonClicked, reportProjectCreationSubmitted, reportIngestionTryWithDemoDataClicked } =
-        useActions(eventUsageLogic)
-    const { createTeam } = useActions(teamLogic)
-    const { currentOrganization } = useValues(organizationLogic)
-
-    const demoTeamName: string = 'Demo'
+    const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
 
     return (
         <div>
@@ -63,28 +56,10 @@ export function InviteTeamPanel(): JSX.Element {
                         </p>
                     </div>
                 </LemonButton>
-                <LemonButton
-                    onClick={() => {
-                        reportIngestionTryWithDemoDataClicked()
-                        createTeam({ name: demoTeamName, is_demo: true })
-                        next({ isTechnicalUser: false, platform: GENERATING_DEMO_DATA })
-                        reportProjectCreationSubmitted(
-                            currentOrganization?.teams ? currentOrganization.teams.length : 0,
-                            demoTeamName.length
-                        )
-                    }}
-                    fullWidth
-                    size="large"
-                    type="primary"
-                    sideIcon={<IconChevronRight />}
-                >
-                    <div className="mt-4 mb-0">
-                        <p className="mb-2">I just want to try PostHog with some demo data.</p>
-                        <p className="font-normal text-xs">
-                            Explore insights, create dashboards, try out cohorts, and more.
-                        </p>
-                    </div>
-                </LemonButton>
+                <DemoProjectButton
+                    text="I just want to try PostHog with some demo data."
+                    subtext="Explore insights, create dashboards, try out cohorts, and more."
+                />
             </div>
         </div>
     )
