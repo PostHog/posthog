@@ -389,5 +389,5 @@ export function sortDates(dates: Array<string | null>): Array<string | null> {
 
 // Gets content-length header from an api call with { includeResponseReference: true } for observability purposes
 export function getResponseBytes(apiResponse: any): number {
-    return parseInt((apiResponse as any)?._response?.headers?.get?.('Content-Length') ?? 0)
+    return parseInt((apiResponse as any)?.headers?.get?.('Content-Length') ?? 0)
 }

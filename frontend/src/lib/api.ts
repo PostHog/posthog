@@ -56,7 +56,7 @@ export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
 
 export interface ApiMethodOptions {
     signal?: AbortSignal
-    includeResponseReference?: boolean
+    returnFetchResponse?: boolean
 }
 
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
@@ -76,13 +76,9 @@ export function getCookie(name: string): string | null {
     return cookieValue
 }
 
-async function getJSONOrThrow(response: Response, options?: ApiMethodOptions): Promise<any> {
+export async function getJSONOrThrow(response: Response): Promise<any> {
     try {
-        const json = await response.json()
-        if (options?.includeResponseReference) {
-            json._response = response
-        }
-        return json
+        return await response.json()
     } catch (e) {
         return { statusText: response.statusText }
     }
@@ -906,7 +902,7 @@ const api = {
 
     async get(url: string, options?: ApiMethodOptions): Promise<any> {
         const res = await api.getRaw(url, options)
-        return await getJSONOrThrow(res, options)
+        return await getJSONOrThrow(res)
     },
 
     async getRaw(url: string, options?: ApiMethodOptions): Promise<Response> {
@@ -922,7 +918,7 @@ const api = {
 
         if (!response.ok) {
             reportError('GET', url, response, startTime)
-            const data = await getJSONOrThrow(response, options)
+            const data = await getJSONOrThrow(response)
             throw { status: response.status, ...data }
         }
         return response
@@ -945,16 +941,21 @@ const api = {
 
         if (!response.ok) {
             reportError('PATCH', url, response, startTime)
-            const jsonData = await getJSONOrThrow(response, options)
+            const jsonData = await getJSONOrThrow(response)
             if (Array.isArray(jsonData)) {
                 throw jsonData
             }
             throw { status: response.status, ...jsonData }
         }
-        return await getJSONOrThrow(response, options)
+        return await getJSONOrThrow(response)
     },
 
     async create(url: string, data?: any, options?: ApiMethodOptions): Promise<any> {
+        const res = await api.createRaw(url, data, options)
+        return await getJSONOrThrow(res)
+    },
+
+    async createRaw(url: string, data?: any, options?: ApiMethodOptions): Promise<any> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
@@ -971,13 +972,13 @@ const api = {
 
         if (!response.ok) {
             reportError('POST', url, response, startTime)
-            const jsonData = await getJSONOrThrow(response, options)
+            const jsonData = await getJSONOrThrow(response)
             if (Array.isArray(jsonData)) {
                 throw jsonData
             }
             throw { status: response.status, ...jsonData }
         }
-        return await getJSONOrThrow(response, options)
+        return response
     },
 
     async delete(url: string): Promise<any> {
