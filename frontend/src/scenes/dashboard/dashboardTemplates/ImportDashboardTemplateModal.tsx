@@ -59,7 +59,7 @@ export function ImportDashboardTemplateModal(): JSX.Element {
                 </>
             }
         >
-            <div ref={dropRef}>
+            <div ref={dropRef} className={'p-2'}>
                 <Form
                     logic={importDashboardTemplateLogic}
                     formKey="importDashboardTemplate"
