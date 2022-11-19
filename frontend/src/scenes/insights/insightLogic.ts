@@ -311,15 +311,6 @@ export const insightLogic = kea<insightLogicType>([
                     let apiUrl: string = ''
                     const { currentTeamId } = values
 
-                    async function executeInsightRequest(
-                        apiMethod: any,
-                        url: string,
-                        ...args: any[]
-                    ): Promise<[any, string]> {
-                        const response = await apiMethod(url, ...args)
-                        return [response, url]
-                    }
-
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
                         includeResponseReference: true,
@@ -334,44 +325,27 @@ export const insightLogic = kea<insightLogicType>([
                         ) {
                             // Instead of making a search for filters, reload the insight via its id if possible.
                             // This makes sure we update the insight's cache key if we get new default filters.
-                            ;[response, apiUrl] = await executeInsightRequest(
-                                api.get,
-                                `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`,
-                                methodOptions
-                            )
+                            apiUrl = `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`
+                            response = await api.get(apiUrl, methodOptions)
                         } else if (
                             isTrendsFilter(filters) ||
                             isStickinessFilter(filters) ||
                             isLifecycleFilter(filters)
                         ) {
-                            ;[response, apiUrl] = await executeInsightRequest(
-                                api.get,
-                                `api/projects/${currentTeamId}/insights/trend/?${toParams(
-                                    filterTrendsClientSideParams(params)
-                                )}`,
-                                methodOptions
-                            )
+                            apiUrl = `api/projects/${currentTeamId}/insights/trend/?${toParams(
+                                filterTrendsClientSideParams(params)
+                            )}`
+                            response = api.get(apiUrl, methodOptions)
                         } else if (isRetentionFilter(filters)) {
-                            ;[response, apiUrl] = await executeInsightRequest(
-                                api.get,
-                                `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`,
-                                methodOptions
-                            )
+                            apiUrl = `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`
+                            response = await api.get(apiUrl, methodOptions)
                         } else if (isFunnelsFilter(filters)) {
                             const { refresh, ...bodyParams } = params
-                            ;[response, apiUrl] = await executeInsightRequest(
-                                api.create,
-                                `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`,
-                                bodyParams,
-                                methodOptions
-                            )
+                            apiUrl = `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`
+                            response = await api.create(apiUrl, bodyParams, methodOptions)
                         } else if (isPathsFilter(filters)) {
-                            ;[response, apiUrl] = await executeInsightRequest(
-                                api.create,
-                                `api/projects/${currentTeamId}/insights/path`,
-                                params,
-                                methodOptions
-                            )
+                            apiUrl = `api/projects/${currentTeamId}/insights/path`
+                            response = await api.create(apiUrl, params, methodOptions)
                         } else {
                             throw new Error(`Cannot load insight of type ${insight}`)
                         }
