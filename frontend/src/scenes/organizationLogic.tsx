@@ -54,9 +54,11 @@ export const organizationLogic = kea<organizationLogicType>({
         isAdminOrOwner: [
             (s) => [s.currentOrganization],
             (currentOrganization): boolean | null =>
-                currentOrganization &&
-                [OrganizationMembershipLevel.Admin, OrganizationMembershipLevel.Owner].includes(
-                    currentOrganization.membership_level
+                !!(
+                    currentOrganization?.membership_level &&
+                    [OrganizationMembershipLevel.Admin, OrganizationMembershipLevel.Owner].includes(
+                        currentOrganization.membership_level
+                    )
                 ),
         ],
     },
