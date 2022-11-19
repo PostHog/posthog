@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from posthog.models import Person, PersonDistinctId, Team
 from posthog.models.utils import UUIDT
+from posthog.session_recordings.test.test_factory import create_session_recording_events
 
 
 class DataGenerator:
@@ -67,12 +68,18 @@ class DataGenerator:
 
     def bulk_import_events(self):
         from posthog.models.event.util import create_event
-        from posthog.models.session_recording_event.util import create_session_recording_event
 
         for event_data in self.events:
             create_event(**event_data, team=self.team, event_uuid=uuid4())
         for data in self.snapshots:
-            create_session_recording_event(**data, team_id=self.team.pk, uuid=uuid4())
+            create_session_recording_events(
+                team_id=self.team.pk,
+                timestamp=data["timestamp"],
+                distinct_id=data["distinct_id"],
+                session_id=data["session_id"],
+                window_id=data["window_id"],
+                snapshots=[data["snapshot_data"]],
+            )
 
     def add_if_not_contained(self, array, value):
         if value not in array:

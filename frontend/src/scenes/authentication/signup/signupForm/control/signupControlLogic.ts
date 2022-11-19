@@ -3,7 +3,7 @@ import { urlToAction } from 'kea-router'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import type { signupLogicType } from './signupLogicType'
+import type { signupControlLogicType } from './signupControlLogicType'
 
 export interface AccountResponse {
     success: boolean
@@ -21,8 +21,8 @@ export interface SignupForm {
     role_at_organization?: string
 }
 
-export const signupLogic = kea<signupLogicType>([
-    path(['scenes', 'authentication', 'signupLogic']),
+export const signupControlLogic = kea<signupControlLogicType>([
+    path(['scenes', 'authentication', 'signupControlLogic']),
     connect({
         values: [preflightLogic, ['preflight']],
     }),

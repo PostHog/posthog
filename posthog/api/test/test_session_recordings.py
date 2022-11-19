@@ -1,5 +1,4 @@
 from datetime import timedelta, timezone
-from uuid import uuid4
 
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
@@ -8,16 +7,11 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
-from posthog.helpers.session_recording import Event, compress_and_chunk_snapshots
 from posthog.models import Organization, Person
 from posthog.models.session_recording_event import SessionRecordingViewed
-from posthog.models.session_recording_event.util import create_session_recording_event
 from posthog.models.team import Team
+from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-
-
-def _create_session_recording_event(**kwargs):
-    create_session_recording_event(uuid=uuid4(), **kwargs)
 
 
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
@@ -40,70 +34,63 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
     ):
         if team_id is None:
             team_id = self.team.pk
-        _create_session_recording_event(
+
+        create_session_recording_events(
             team_id=team_id,
             distinct_id=distinct_id,
             timestamp=timestamp,
             session_id=session_id,
             window_id=window_id,
-            snapshot_data={
-                "timestamp": timestamp.timestamp() * 1000,
-                "has_full_snapshot": has_full_snapshot,
-                "type": type,
-                "data": {"source": source},
-            },
+            snapshots=[
+                {
+                    "timestamp": timestamp.timestamp() * 1000,
+                    "has_full_snapshot": has_full_snapshot,
+                    "type": type,
+                    "data": {"source": source},
+                }
+            ],
         )
 
     def create_chunked_snapshots(
         self, snapshot_count, distinct_id, session_id, timestamp, has_full_snapshot=True, window_id=""
     ):
-        snapshot = []
+        snapshots = []
         for index in range(snapshot_count):
-            event: Event = {
-                "event": "$snapshot",
-                "properties": {
-                    "$snapshot_data": {
-                        "has_full_snapshot": has_full_snapshot,
-                        "type": 2 if has_full_snapshot else 3,
-                        "data": {
-                            "source": 0,
-                            "texts": [],
-                            "attributes": [],
-                            "removes": [],
-                            "adds": [
-                                {
-                                    "parentId": 4,
-                                    "nextId": 386,
-                                    "node": {
-                                        "type": 2,
-                                        "tagName": "style",
-                                        "attributes": {"data-emotion": "css"},
-                                        "childNodes": [],
-                                        "id": 729,
-                                    },
-                                }
-                            ],
-                        },
-                        "timestamp": (timestamp + timedelta(seconds=index)).timestamp() * 1000,
+            snapshots.append(
+                {
+                    "type": 2 if has_full_snapshot else 3,
+                    "data": {
+                        "source": 0,
+                        "texts": [],
+                        "attributes": [],
+                        "removes": [],
+                        "adds": [
+                            {
+                                "parentId": 4,
+                                "nextId": 386,
+                                "node": {
+                                    "type": 2,
+                                    "tagName": "style",
+                                    "attributes": {"data-emotion": "css"},
+                                    "childNodes": [],
+                                    "id": 729,
+                                },
+                            }
+                        ],
                     },
-                    "$window_id": window_id,
-                    "$session_id": session_id,
-                    "distinct_id": distinct_id,
-                },
-            }
-            snapshot.append(event)
-        chunked_snapshots = compress_and_chunk_snapshots(
-            snapshot, chunk_size=15
-        )  # Small chunk size makes sure the snapshots are chunked for the test
-        for snapshot_chunk in chunked_snapshots:
-            _create_session_recording_event(
-                team_id=self.team.pk,
-                distinct_id=distinct_id,
-                timestamp=timestamp,
-                session_id=session_id,
-                window_id=window_id,
-                snapshot_data=snapshot_chunk["properties"].get("$snapshot_data"),
+                    "timestamp": (timestamp + timedelta(seconds=index)).timestamp() * 1000,
+                }
             )
+
+        create_session_recording_events(
+            team_id=self.team.pk,
+            distinct_id=distinct_id,
+            timestamp=timestamp,
+            session_id=session_id,
+            window_id=window_id,
+            snapshots=snapshots,
+            chunk_size=15,
+        )
 
     def test_get_session_recordings(self):
         p = Person.objects.create(
@@ -112,7 +99,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
         Person.objects.create(
             team=self.team, distinct_ids=["user2"], properties={"$some_prop": "something", "email": "bob@bob.com"}
         )
-        base_time = now() - relativedelta(days=1)
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
         self.create_snapshot("user", "1", base_time)
         self.create_snapshot("user", "1", base_time + relativedelta(seconds=10))
         self.create_snapshot("user2", "2", base_time + relativedelta(seconds=20))

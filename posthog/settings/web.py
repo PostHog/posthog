@@ -257,3 +257,5 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
         ),
     )
 )
+
+KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS", None) or 10)

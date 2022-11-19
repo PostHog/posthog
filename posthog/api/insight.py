@@ -45,6 +45,7 @@ from posthog.constants import (
 )
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
+from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -63,7 +64,7 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
-from posthog.settings import SITE_URL
+from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 from posthog.tasks.update_cache import synchronously_update_insight_cache
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
@@ -774,9 +775,30 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
         if "client_query_id" not in request.data:
             raise serializers.ValidationError({"client_query_id": "Field is required."})
         sync_execute(
-            f"KILL QUERY ON CLUSTER {CLICKHOUSE_CLUSTER} WHERE query_id LIKE %(client_query_id)s",
+            f"KILL QUERY ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE query_id LIKE %(client_query_id)s",
             {"client_query_id": f"{self.team.pk}_{request.data['client_query_id']}%"},
         )
+        return Response(status=status.HTTP_201_CREATED)
+
+    @action(methods=["POST"], detail=False)
+    def timing(self, request: request.Request, **kwargs):
+        from posthog.kafka_client.client import KafkaProducer
+        from posthog.models.event.util import format_clickhouse_timestamp
+        from posthog.utils import cast_timestamp_or_now
+
+        if CAPTURE_TIME_TO_SEE_DATA:
+            payload = {
+                **request.data,
+                "team_id": self.team_id,
+                "user_id": self.request.user.pk,
+                "timestamp": format_clickhouse_timestamp(cast_timestamp_or_now(None)),
+            }
+            if "min_last_refresh" in payload:
+                payload["min_last_refresh"] = format_clickhouse_timestamp(payload["min_last_refresh"])
+            if "max_last_refresh" in payload:
+                payload["max_last_refresh"] = format_clickhouse_timestamp(payload["max_last_refresh"])
+            KafkaProducer().produce(topic=KAFKA_METRICS_TIME_TO_SEE_DATA, data=payload)
+
         return Response(status=status.HTTP_201_CREATED)
 
 

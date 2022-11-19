@@ -115,7 +115,7 @@ class TestCSVExporter(APIBaseTest):
 
             assert (
                 exported_asset.content
-                == b"distinct_id,elements_chain,event,id,person,properties.$browser,timestamp\r\n2,,event_name,e9ca132e-400f-4854-a83c-16c151b2f145,,Safari,2022-07-06T19:37:43.095295+00:00\r\n2,,event_name,1624228e-a4f1-48cd-aabc-6baa3ddb22e4,,Safari,2022-07-06T19:37:43.095279+00:00\r\n2,,event_name,66d45914-bdf5-4980-a54a-7dc699bdcce9,,Safari,2022-07-06T19:37:43.095262+00:00\r\n"
+                == b"id,distinct_id,properties.$browser,event,timestamp,person,elements_chain\r\ne9ca132e-400f-4854-a83c-16c151b2f145,2,Safari,event_name,2022-07-06T19:37:43.095295+00:00,,\r\n1624228e-a4f1-48cd-aabc-6baa3ddb22e4,2,Safari,event_name,2022-07-06T19:37:43.095279+00:00,,\r\n66d45914-bdf5-4980-a54a-7dc699bdcce9,2,Safari,event_name,2022-07-06T19:37:43.095262+00:00,,\r\n"
             )
             assert exported_asset.content_location is None
 
@@ -135,7 +135,7 @@ class TestCSVExporter(APIBaseTest):
             content = object_storage.read(exported_asset.content_location)
             assert (
                 content
-                == "distinct_id,elements_chain,event,id,person,properties.$browser,timestamp\r\n2,,event_name,e9ca132e-400f-4854-a83c-16c151b2f145,,Safari,2022-07-06T19:37:43.095295+00:00\r\n2,,event_name,1624228e-a4f1-48cd-aabc-6baa3ddb22e4,,Safari,2022-07-06T19:37:43.095279+00:00\r\n2,,event_name,66d45914-bdf5-4980-a54a-7dc699bdcce9,,Safari,2022-07-06T19:37:43.095262+00:00\r\n"
+                == "id,distinct_id,properties.$browser,event,timestamp,person,elements_chain\r\ne9ca132e-400f-4854-a83c-16c151b2f145,2,Safari,event_name,2022-07-06T19:37:43.095295+00:00,,\r\n1624228e-a4f1-48cd-aabc-6baa3ddb22e4,2,Safari,event_name,2022-07-06T19:37:43.095279+00:00,,\r\n66d45914-bdf5-4980-a54a-7dc699bdcce9,2,Safari,event_name,2022-07-06T19:37:43.095262+00:00,,\r\n"
             )
 
             assert exported_asset.content is None
@@ -156,7 +156,7 @@ class TestCSVExporter(APIBaseTest):
 
             assert (
                 exported_asset.content
-                == b"distinct_id,elements_chain,event,id,person,properties.$browser,timestamp\r\n2,,event_name,e9ca132e-400f-4854-a83c-16c151b2f145,,Safari,2022-07-06T19:37:43.095295+00:00\r\n2,,event_name,1624228e-a4f1-48cd-aabc-6baa3ddb22e4,,Safari,2022-07-06T19:37:43.095279+00:00\r\n2,,event_name,66d45914-bdf5-4980-a54a-7dc699bdcce9,,Safari,2022-07-06T19:37:43.095262+00:00\r\n"
+                == b"id,distinct_id,properties.$browser,event,timestamp,person,elements_chain\r\ne9ca132e-400f-4854-a83c-16c151b2f145,2,Safari,event_name,2022-07-06T19:37:43.095295+00:00,,\r\n1624228e-a4f1-48cd-aabc-6baa3ddb22e4,2,Safari,event_name,2022-07-06T19:37:43.095279+00:00,,\r\n66d45914-bdf5-4980-a54a-7dc699bdcce9,2,Safari,event_name,2022-07-06T19:37:43.095262+00:00,,\r\n"
             )
 
     @patch("posthog.models.exported_asset.UUIDT")
@@ -175,7 +175,7 @@ class TestCSVExporter(APIBaseTest):
 
             assert (
                 exported_asset.content
-                == b"distinct_id,elements_chain,event,id,person,properties.$browser,timestamp\r\n2,,event_name,e9ca132e-400f-4854-a83c-16c151b2f145,,Safari,2022-07-06T19:37:43.095295+00:00\r\n2,,event_name,1624228e-a4f1-48cd-aabc-6baa3ddb22e4,,Safari,2022-07-06T19:37:43.095279+00:00\r\n2,,event_name,66d45914-bdf5-4980-a54a-7dc699bdcce9,,Safari,2022-07-06T19:37:43.095262+00:00\r\n"
+                == b"id,distinct_id,properties.$browser,event,timestamp,person,elements_chain\r\ne9ca132e-400f-4854-a83c-16c151b2f145,2,Safari,event_name,2022-07-06T19:37:43.095295+00:00,,\r\n1624228e-a4f1-48cd-aabc-6baa3ddb22e4,2,Safari,event_name,2022-07-06T19:37:43.095279+00:00,,\r\n66d45914-bdf5-4980-a54a-7dc699bdcce9,2,Safari,event_name,2022-07-06T19:37:43.095262+00:00,,\r\n"
             )
 
     @patch("posthog.models.exported_asset.UUIDT")
