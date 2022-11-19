@@ -19,9 +19,8 @@ import { captureInternalMetric, captureTimeToSeeData } from 'lib/internalMetrics
 import { router } from 'kea-router'
 import api, { ApiMethodOptions } from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
-import { filterTrendsClientSideParams, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import {
+    filterTrendsClientSideParams,
     isFilterWithHiddenLegendKeys,
     isFunnelsFilter,
     isLifecycleFilter,
@@ -29,7 +28,9 @@ import {
     isRetentionFilter,
     isStickinessFilter,
     isTrendsFilter,
+    keyForInsightLogicProps,
 } from 'scenes/insights/sharedUtils'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import {
     extractObjectDiffKeys,
@@ -341,48 +342,24 @@ export const insightLogic = kea<insightLogicType>([
                                 `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`,
                                 methodOptions
                             )
-                        } else if (false) {
-                            // TODO
+                        } else {
                             const queryNode: LegacyQuery = {
                                 kind: NodeKind.LegacyQuery,
                                 filters: filterTrendsClientSideParams(params),
                             }
                             response = await query(queryNode, currentTeamId, methodOptions.signal)
-                        } else if (
-                            isTrendsFilter(filters) ||
-                            isStickinessFilter(filters) ||
-                            isLifecycleFilter(filters)
-                        ) {
-                            ;[response, apiUrl] = await executeInsightRequest(
-                                api.get,
-                                `api/projects/${currentTeamId}/insights/trend/?${toParams(
-                                    filterTrendsClientSideParams(params)
-                                )}`,
-                                methodOptions
-                            )
-                        } else if (isRetentionFilter(filters)) {
-                            ;[response, apiUrl] = await executeInsightRequest(
-                                api.get,
-                                `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`,
-                                methodOptions
-                            )
-                        } else if (isFunnelsFilter(filters)) {
-                            const { refresh, ...bodyParams } = params
-                            ;[response, apiUrl] = await executeInsightRequest(
-                                api.create,
-                                `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`,
-                                bodyParams,
-                                methodOptions
-                            )
-                        } else if (isPathsFilter(filters)) {
-                            ;[response, apiUrl] = await executeInsightRequest(
-                                api.create,
-                                `api/projects/${currentTeamId}/insights/path`,
-                                params,
-                                methodOptions
-                            )
-                        } else {
-                            throw new Error(`Cannot load insight of type ${insight}`)
+                            // TODO: these will all point to one API endpoint,
+                            const urls: Record<InsightType, string> = {
+                                [InsightType.FUNNELS]: 'funnel',
+                                [InsightType.LIFECYCLE]: 'trend',
+                                [InsightType.PATHS]: 'path',
+                                [InsightType.RETENTION]: 'retention',
+                                [InsightType.STICKINESS]: 'trend',
+                                [InsightType.TRENDS]: 'trend',
+                            }
+                            apiUrl = `api/projects/${currentTeamId}/insights/${
+                                urls[queryNode.filters.insight || InsightType.TRENDS]
+                            }/`
                         }
                     } catch (e: any) {
                         if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
