@@ -1,12 +1,19 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 
-import { dashboardTemplateLogic } from 'scenes/dashboard/dashboardTemplates/dashboardTemplateLogic'
+import {
+    dashboardTemplateLogic,
+    pollTemplateRefreshStatus,
+} from 'scenes/dashboard/dashboardTemplates/dashboardTemplateLogic'
 import { userLogic } from 'scenes/userLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { importDashboardTemplateLogicType } from './importDashboardTemplateLogicType'
+import { loaders } from 'kea-loaders'
+import { DashboardTemplateRefresh } from '~/types'
+import api from 'lib/api'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export interface ImportDashboardTemplateForm {
     templateJson: File[] | null
@@ -19,7 +26,7 @@ const defaultFormValues: ImportDashboardTemplateForm = {
 export const importDashboardTemplateLogic = kea<importDashboardTemplateLogicType>([
     path(['scenes', 'dashboard', 'dashboardTemplates', 'importDashboardTemplateLogic']),
     connect({
-        actions: [dashboardTemplateLogic, ['importDashboardTemplate']],
+        actions: [dashboardTemplateLogic, ['importDashboardTemplate', 'getAllDashboardTemplates']],
         values: [userLogic, ['user'], preflightLogic, ['realm', 'preflight'], teamLogic, ['currentTeam']],
     }),
     actions({
@@ -35,6 +42,17 @@ export const importDashboardTemplateLogic = kea<importDashboardTemplateLogicType
             },
         ],
     }),
+    loaders({
+        dashboardTemplateRefresh: [
+            null as DashboardTemplateRefresh | null,
+            {
+                refreshGlobalDashboardTemplate: async () => {
+                    return await api.dashboardTemplates.refreshDashboardTemplatesFromRepository()
+                },
+            },
+        ],
+    }),
+
     forms(({ actions }) => ({
         importDashboardTemplate: {
             defaults: defaultFormValues,
@@ -46,6 +64,19 @@ export const importDashboardTemplateLogic = kea<importDashboardTemplateLogicType
         },
     })),
     listeners(({ actions }) => ({
+        refreshGlobalDashboardTemplateSuccess: async ({ dashboardTemplateRefresh }) => {
+            if (dashboardTemplateRefresh.task_status === 'SUCCESS') {
+                lemonToast.success('Templates refreshed successfully')
+                actions.getAllDashboardTemplates()
+                actions.hideImportDashboardTemplateModal()
+            } else if (dashboardTemplateRefresh.task_status === 'PENDING') {
+                await pollTemplateRefreshStatus(dashboardTemplateRefresh.task_id)
+                actions.getAllDashboardTemplates()
+                actions.hideImportDashboardTemplateModal()
+            } else {
+                lemonToast.error(`Templates refresh failed: ${dashboardTemplateRefresh.task_status}`)
+            }
+        },
         hideImportDashboardTemplateModal: () => {
             actions.resetImportDashboardTemplate()
         },

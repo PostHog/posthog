@@ -1,5 +1,6 @@
 from typing import Literal, Optional
 from unittest import mock
+from unittest.mock import Mock, patch
 
 from django.http import HttpResponse
 from rest_framework import status
@@ -252,6 +253,35 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["template_name"], "a")
         self.assertEqual(response.json()["scope"], "project")
         self.assertTrue(len(response.json()["tiles"]) > 0)
+
+    def test_normal_user_cannot_refresh_from_template_repository(self) -> None:
+        refresh_response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboard_templates/refresh_global_templates"
+        )
+
+        self.assertEqual(refresh_response.status_code, status.HTTP_403_FORBIDDEN, refresh_response.json())
+
+    def test_staff_user_can_refresh_from_template_repository(self) -> None:
+        self.client.force_login(self.org_one_staff_user)
+        refresh_response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboard_templates/refresh_global_templates"
+        )
+
+        self.assertEqual(refresh_response.status_code, status.HTTP_201_CREATED, refresh_response.json())
+
+    @patch("posthog.api.dashboard_templates.AsyncResult")
+    def test_staff_user_can_poll_for_status_of_refresh_from_template_repository(self, patched_async_result) -> None:
+        self.client.force_login(self.org_one_staff_user)
+
+        # the patched_async_result when called returns a mock which has property state = "SUCCESS
+        patched_async_result.return_value = Mock(status="SUCCESS")
+
+        refresh_response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboard_templates/refresh_global_templates?task_id=abcdefgh"
+        )
+
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK, refresh_response.json())
+        self.assertEqual(refresh_response.json()["task_status"], "SUCCESS")
 
     def _create_template(
         self,

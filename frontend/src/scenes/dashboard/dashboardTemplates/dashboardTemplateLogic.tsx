@@ -2,11 +2,24 @@ import { actions, afterMount, connect, kea, listeners, path } from 'kea'
 
 import type { dashboardTemplateLogicType } from './dashboardTemplateLogicType'
 import { loaders } from 'kea-loaders'
-import { DashboardTemplateListing, DashboardTemplateScope, DashboardType, FilterType, Tileable } from '~/types'
+import {
+    DashboardTemplateListing,
+    DashboardTemplateRefresh,
+    DashboardTemplateScope,
+    DashboardType,
+    FilterType,
+    Tileable,
+} from '~/types'
 import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
 import { prompt } from 'lib/logic/prompt'
 import { teamLogic } from 'scenes/teamLogic'
+import posthog from 'posthog-js'
+import { delay } from 'lib/utils'
+import { Spinner } from 'lib/components/Spinner/Spinner'
+import { Animation } from 'lib/components/Animation/Animation'
+import { AnimationType } from 'lib/animations/animations'
+import { DelayedContent } from 'lib/components/DelayedContent/DelayedContent'
 
 type TextTilePayload = {
     type: 'TEXT'
@@ -27,6 +40,58 @@ export interface DashboardTemplateRequest {
     dashboard_description: string
     tags: string[]
     tiles: TilePayload[]
+}
+
+export async function pollTemplateRefreshStatus(task_id: string): Promise<void> {
+    const poller = new Promise(async (resolve, reject) => {
+        const startTime = performance.now()
+
+        try {
+            let attempts = 0
+            let dashboardTemplateRefresh: DashboardTemplateRefresh = await api.dashboardTemplates.templateRefreshStatus(
+                task_id
+            )
+            const maxPoll = 30000
+            while (attempts < maxPoll) {
+                attempts++
+
+                if (dashboardTemplateRefresh?.task_status === 'SUCCESS') {
+                    const refreshPollingTime = performance.now() - startTime
+                    posthog.capture('dashboard template refresh succeeded', { refreshPollingTime })
+
+                    resolve('Template refresh complete')
+                    return
+                }
+
+                dashboardTemplateRefresh = await api.dashboardTemplates.templateRefreshStatus(task_id)
+                await delay(maxPoll / 10)
+            }
+
+            reject('Content not loaded in time...')
+        } catch (e: any) {
+            const refreshPollingTime = performance.now() - startTime
+            posthog.capture('dashboard template refresh failed', { refreshPollingTime })
+            reject(`Template refresh failed: ${JSON.stringify(e)}`)
+        }
+    })
+    await lemonToast.promise(
+        poller,
+        {
+            pending: (
+                <DelayedContent atStart="Template refresh queued..." afterDelay="Waiting for template refresh..." />
+            ),
+            success: 'Template refresh complete!',
+            error: 'Template refresh failed!',
+        },
+        {
+            pending: (
+                <DelayedContent
+                    atStart={<Spinner />}
+                    afterDelay={<Animation size="small" type={AnimationType.SportsHog} />}
+                />
+            ),
+        }
+    )
 }
 
 const templateFrom = (dashboard: DashboardType): DashboardTemplateRequest => ({
@@ -58,7 +123,9 @@ const templateFrom = (dashboard: DashboardType): DashboardTemplateRequest => ({
 
 export const dashboardTemplateLogic = kea<dashboardTemplateLogicType>([
     path(['scenes', 'dashboard', 'dashboardTemplates', 'dashboardTemplateLogic']),
-    connect({ logic: [prompt({ key: 'rename-dashboard-template' })] }),
+    connect({
+        logic: [prompt({ key: 'rename-dashboard-template' })],
+    }),
     actions({
         renameDashboardTemplate: (id: string, currentName: string) => ({ id, currentName }),
     }),

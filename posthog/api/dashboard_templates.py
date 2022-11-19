@@ -1,19 +1,24 @@
-from typing import Dict, Literal, Type
+from typing import Any, Dict, Literal, Type
 
+import celery
+from celery.result import AsyncResult
 from django.db.models import Q
 from rest_framework import mixins, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.celery import update_dashboards_templates_from_templates_registry
 from posthog.models import DashboardTemplate, OrganizationMembership, Team, User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import str_to_bool
 
 
-def _check_permissions(scope: str, team: Team, user: User, action: Literal["edit", "create"]) -> None:
+def _check_permissions(scope: str, team: Team, user: User, action: Literal["edit", "create", "view"]) -> None:
     if team != user.team:
         raise PermissionDenied(f"You can only {action} templates for your own team")
 
@@ -178,3 +183,22 @@ class DashboardTemplatesViewSet(
 
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
+    @action(methods=["POST", "GET"], detail=False, url_path="refresh_global_templates")
+    def start_refresh_templates_refresh(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        user: User = request.user  # type: ignore
+        _check_permissions("global", self.team, user, "create" if request.method == "POST" else "view")
+
+        if request.method == "POST":
+            task = None
+            try:
+                task = update_dashboards_templates_from_templates_registry.delay()
+            except celery.exceptions.TimeoutError:
+                # If the refresh times out - fine, the frontend will poll instead for the response
+                pass
+            data = {"task_id": task.id, "task_status": task.status} if task else {}
+            return Response(status=201, data=data)
+        else:
+            task_id = request.query_params.get("task_id")
+            result = AsyncResult(task_id)
+            return Response(status=200, data={"task_id": task_id, "task_status": result.status})

@@ -1012,6 +1012,11 @@ export interface DashboardTemplateListing {
     scope: DashboardTemplateScope
 }
 
+export interface DashboardTemplateRefresh {
+    task_id: string
+    task_status: string
+}
+
 export interface DashboardType {
     id: number
     name: string

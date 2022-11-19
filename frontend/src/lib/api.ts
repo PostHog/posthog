@@ -30,6 +30,7 @@ import {
     EventsListQueryParams,
     SessionRecordingPlaylistType,
     DashboardTemplateListing,
+    DashboardTemplateRefresh,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -293,6 +294,17 @@ class ApiRequest {
 
     public dashboardTemplates(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('dashboard_templates')
+    }
+
+    public refreshDashboardTemplatesFromRepository(id?: string, teamId?: TeamType['id']): ApiRequest {
+        const request = this.projectsDetail(teamId)
+            .addPathComponent('dashboard_templates')
+            .addPathComponent('refresh_global_templates')
+
+        if (id) {
+            return request.withQueryString(toParams({ task_id: id }))
+        }
+        return request
     }
 
     // # Persons
@@ -922,6 +934,12 @@ const api = {
         },
         async list(): Promise<PaginatedResponse<DashboardTemplateListing>> {
             return await new ApiRequest().dashboardTemplates().get()
+        },
+        async refreshDashboardTemplatesFromRepository(): Promise<DashboardTemplateRefresh> {
+            return await new ApiRequest().refreshDashboardTemplatesFromRepository().create()
+        },
+        async templateRefreshStatus(id: string): Promise<DashboardTemplateRefresh> {
+            return await new ApiRequest().refreshDashboardTemplatesFromRepository(id).get()
         },
     },
 

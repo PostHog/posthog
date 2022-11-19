@@ -661,10 +661,10 @@ def check_flags_to_rollback():
         pass
 
 
-@app.task(ignore_result=True)
-def update_dashboards_templates_from_templates_registry():
+@app.task(ignore_result=False)
+def update_dashboards_templates_from_templates_registry() -> int:
     from posthog.tasks.update_dashboards_templates_from_templates_registry import (
         update_dashboards_templates_from_templates_registry,
     )
 
-    update_dashboards_templates_from_templates_registry()
+    return update_dashboards_templates_from_templates_registry()

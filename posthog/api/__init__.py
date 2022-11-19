@@ -68,7 +68,7 @@ projects_router.register(r"feature_flags", feature_flag.FeatureFlagViewSet, "pro
 project_dashboards_router = projects_router.register(
     r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
 )
-projects_router.register(
+dashboard_templates_router = projects_router.register(
     r"dashboard_templates", dashboard_templates.DashboardTemplatesViewSet, "project_dashboard_templates", ["team_id"]
 )
 

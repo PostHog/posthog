@@ -3,10 +3,10 @@ import { delay } from 'lib/utils'
 import posthog from 'posthog-js'
 import { ExportedAssetType, ExporterFormat } from '~/types'
 import { lemonToast } from '../lemonToast'
-import { useEffect, useState } from 'react'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { DelayedContent } from 'lib/components/DelayedContent/DelayedContent'
 
 const POLL_DELAY_MS = 1000
 const MAX_PNG_POLL = 10
@@ -96,19 +96,4 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
             ),
         }
     )
-}
-
-interface DelayedContentProps {
-    atStart: JSX.Element | string
-    afterDelay: JSX.Element | string
-}
-
-function DelayedContent({ atStart, afterDelay }: DelayedContentProps): JSX.Element {
-    const [content, setContent] = useState<JSX.Element | string>(atStart)
-    useEffect(() => {
-        setTimeout(() => {
-            setContent(afterDelay)
-        }, 30000)
-    }, [])
-    return <>{content}</>
 }
