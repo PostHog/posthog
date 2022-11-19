@@ -4,7 +4,7 @@ import { savedSessionRecordingPlaylistModelLogic } from 'scenes/session-recordin
 import { expectLogic } from 'kea-test-utils'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 
-describe('savedSessionRecordingPlaylistModelLogic', () => {
+describe('playerAddToPlaylistLogic', () => {
     let logic: ReturnType<typeof savedSessionRecordingPlaylistModelLogic.build>
 
     beforeEach(() => {
