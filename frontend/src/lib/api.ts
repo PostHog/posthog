@@ -390,6 +390,10 @@ class ApiRequest {
         return this.organizations().current().addPathComponent('feature_flag_role_access')
     }
 
+    public featureFlagAccessPermissionsDetail(id: FeatureFlagAssociatedRoleType['id']): ApiRequest {
+        return this.organizations().current().addPathComponent('feature_flag_role_access').addPathComponent(id)
+    }
+
     // Request finalization
 
     public async get(options?: { signal?: AbortSignal }): Promise<any> {
@@ -724,13 +728,19 @@ const api = {
             ): Promise<FeatureFlagAssociatedRoleType> {
                 return await new ApiRequest().featureFlagAccessPermissions().create({
                     data: {
-                        role: roleId,
-                        feature_flag: featureFlagId,
+                        role_id: roleId,
+                        feature_flag_id: featureFlagId,
                     },
                 })
             },
             async list(): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
                 return await new ApiRequest().featureFlagAccessPermissions().get()
+            },
+
+            async delete(
+                id: FeatureFlagAssociatedRoleType['id']
+            ): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
+                return await new ApiRequest().featureFlagAccessPermissionsDetail(id).delete()
             },
         },
     },

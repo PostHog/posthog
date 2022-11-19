@@ -2346,6 +2346,7 @@ export interface RolesListParams {
 }
 
 export interface FeatureFlagAssociatedRoleType {
+    id: string
     feature_flag: FeatureFlagType
     role: RoleType
     updated_at: string

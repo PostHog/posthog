@@ -47,8 +47,8 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { EventsTable } from 'scenes/events'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
-import { ResourcePermissionModal } from 'scenes/ResourcePermissionModal'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
+import { ResourcePermissionModal } from 'scenes/ResourcePermissionModal'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -70,9 +70,12 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag } = useActions(featureFlagLogic)
 
-    const { permissionModalVisible, addableRoles, unfilteredAddableRoles, rolesToAdd } =
-        useValues(featureFlagPermissionsLogic)
-    const { setModalOpen, setRolesToAdd } = useActions(featureFlagPermissionsLogic)
+    const { permissionModalVisible, addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
+        featureFlagPermissionsLogic({ flagId: featureFlag.id })
+    )
+    const { setModalOpen, setRolesToAdd, addAssociatedRoles, deleteAssociatedRole } = useActions(
+        featureFlagPermissionsLogic({ flagId: featureFlag.id })
+    )
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
@@ -390,10 +393,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                 onChange={(roleIds) => setRolesToAdd(roleIds)}
                 rolesToAdd={rolesToAdd}
                 addableRoles={addableRoles}
-                addableRolesLoading={unfilteredAddableRoles}
+                addableRolesLoading={unfilteredAddableRolesLoading}
                 onClose={() => setModalOpen(false)}
                 title="Feature Flag Permissions"
+                onAdd={() => addAssociatedRoles()}
                 visible={permissionModalVisible}
+                roles={derivedRoles}
+                deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
             />
         </>
     )
