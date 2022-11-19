@@ -79,7 +79,7 @@ export const DashboardTemplatesTable = (): JSX.Element => {
                                                 }}
                                                 fullWidth
                                             >
-                                                Create dashboard using this template
+                                                New dashboard from this template
                                             </LemonButton>
 
                                             <ExportButton
