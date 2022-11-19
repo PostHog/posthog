@@ -962,18 +962,6 @@ export const insightLogic = kea<insightLogicType>([
             let savedInsight: InsightModel
 
             try {
-                if (insightNumericId && emptyFilters(values.insight.filters)) {
-                    const error = new Error('Will not override empty filters in saveInsight.')
-
-                    Sentry.captureException(error, {
-                        extra: {
-                            filters: JSON.stringify(values.insight.filters),
-                            insight: JSON.stringify(values.insight),
-                        },
-                    })
-                    throw error
-                }
-
                 // We don't want to send ALL the insight properties back to the API, so only grabbing fields that might have changed
                 const insightRequest: Partial<InsightModel> = {
                     name,

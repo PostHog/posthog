@@ -24,7 +24,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import * as Sentry from '@sentry/react'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { useAvailableFeatures } from '~/mocks/features'
@@ -1211,21 +1210,5 @@ describe('insightLogic', () => {
                     insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
-    })
-
-    it('will not save with empty filters', async () => {
-        jest.spyOn(Sentry, 'captureException')
-        logic = insightLogic({
-            dashboardItemId: '4578' as InsightShortId,
-            cachedInsight: { filters: { insight: InsightType.FUNNELS } },
-        })
-        logic.mount()
-
-        logic.actions.setInsight({ id: 4578, short_id: '4578' as InsightShortId, filters: {} }, {})
-        logic.actions.saveInsight()
-        expect(Sentry.captureException).toHaveBeenCalledWith(
-            new Error('Will not override empty filters in saveInsight.'),
-            expect.any(Object)
-        )
     })
 })
