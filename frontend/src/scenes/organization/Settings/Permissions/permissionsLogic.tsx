@@ -8,6 +8,12 @@ const ResourceDisplayMapping: Record<Resource, string> = {
     [Resource.FEATURE_FLAGS]: 'Feature Flags',
 }
 
+export const ResourcePermissionMapping: Record<AccessLevel, string> = {
+    [AccessLevel.WRITE]: 'View & Edit',
+    [AccessLevel.READ]: 'View Only',
+    [AccessLevel.CUSTOM_ASSIGNED]: 'View & Assigned Edit',
+}
+
 export interface FormattedResourceLevel {
     id: string | null
     resource: Resource
@@ -57,7 +63,6 @@ export const permissionsLogic = kea<permissionsLogicType>([
         ],
         allPermissions: [
             (s) => [s.organizationResourcePermissionsMap],
-            // The demo announcement is persistent
             (
                 organizationResourcePermissionsMap: Record<Resource, OrganizationResourcePermissionType>
             ): FormattedResourceLevel[] => {

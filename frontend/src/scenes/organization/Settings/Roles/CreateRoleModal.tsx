@@ -9,6 +9,7 @@ import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { useState } from 'react'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { AccessLevel, Resource, RoleMemberType, UserType } from '~/types'
 import { rolesLogic } from './rolesLogic'
 
@@ -32,6 +33,8 @@ export function CreateRoleModal(): JSX.Element {
         setPermission,
         setPermissionInPlace,
     } = useActions(rolesLogic)
+
+    const { isAdminOrOwner } = useValues(organizationLogic)
 
     const [roleName, setRoleName] = useState('')
 
@@ -73,36 +76,38 @@ export function CreateRoleModal(): JSX.Element {
                     <LemonInput placeholder="Product" autoFocus value={roleName} onChange={setRoleName} />
                 </div>
             )}
-            <div className="mb-5">
-                <h5>Members</h5>
-                <div className="flex gap-2">
-                    <div className="flex-1">
-                        <LemonSelectMultiple
-                            placeholder="Search for team members to add…"
-                            value={roleMembersToAdd}
-                            loading={roleMembersInFocusLoading}
-                            onChange={(newValues) => setRoleMembersToAdd(newValues)}
-                            filterOption={true}
-                            mode="multiple"
-                            data-attr="subscribed-emails"
-                            options={usersLemonSelectOptions(addableMembers, 'uuid')}
-                        />
+            {isAdminOrOwner && (
+                <div className="mb-5">
+                    <h5>Members</h5>
+                    <div className="flex gap-2">
+                        <div className="flex-1">
+                            <LemonSelectMultiple
+                                placeholder="Search for team members to add…"
+                                value={roleMembersToAdd}
+                                loading={roleMembersInFocusLoading}
+                                onChange={(newValues) => setRoleMembersToAdd(newValues)}
+                                filterOption={true}
+                                mode="multiple"
+                                data-attr="subscribed-emails"
+                                options={usersLemonSelectOptions(addableMembers, 'uuid')}
+                            />
+                        </div>
+                        {!isNewRole && (
+                            <LemonButton
+                                type="primary"
+                                loading={roleMembersInFocusLoading}
+                                disabled={roleMembersToAdd.length === 0}
+                                onClick={() => addRoleMembers({ role: roleInFocus, membersToAdd: roleMembersToAdd })}
+                            >
+                                Add
+                            </LemonButton>
+                        )}
                     </div>
-                    {!isNewRole && (
-                        <LemonButton
-                            type="primary"
-                            loading={roleMembersInFocusLoading}
-                            disabled={roleMembersToAdd.length === 0}
-                            onClick={() => addRoleMembers({ role: roleInFocus, membersToAdd: roleMembersToAdd })}
-                        >
-                            Add
-                        </LemonButton>
-                    )}
                 </div>
-            </div>
+            )}
             {!isNewRole && (
                 <>
-                    <h5 className="mt-4">Role Members</h5>
+                    <h5>Role Members</h5>
                     {roleMembersInFocus.length > 0 ? (
                         <div
                             className="mt-2 pb-2 rounded overflow-y-auto"
@@ -116,6 +121,7 @@ export function CreateRoleModal(): JSX.Element {
                                         key={member.id}
                                         member={member}
                                         deleteMember={(roleMemberUuid) => deleteRoleMember({ roleMemberUuid })}
+                                        isAdminOrOwner={!!isAdminOrOwner}
                                     />
                                 )
                             })}
@@ -130,6 +136,7 @@ export function CreateRoleModal(): JSX.Element {
             <Row justify="space-between" align="middle">
                 <b className="">Feature Flags</b>
                 <LemonSelect
+                    disabled={!isAdminOrOwner}
                     value={permissionsToSet[Resource.FEATURE_FLAGS]}
                     onChange={updatePermission}
                     options={[
@@ -155,16 +162,18 @@ export function CreateRoleModal(): JSX.Element {
 function MemberRow({
     member,
     deleteMember,
+    isAdminOrOwner,
 }: {
     member: RoleMemberType
     deleteMember?: (roleMemberUuid: UserType['uuid']) => void
+    isAdminOrOwner: boolean
 }): JSX.Element {
     const { user } = member
 
     return (
         <div className="flex items-center justify-between mt-2 h-8">
             <ProfilePicture email={user.email} name={user.first_name} size="md" showName />
-            {deleteMember && (
+            {isAdminOrOwner && deleteMember && (
                 <LemonButton
                     icon={<IconDelete />}
                     onClick={() => deleteMember(member.id)}

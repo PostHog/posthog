@@ -34,6 +34,7 @@ import {
     OrganizationResourcePermissionType,
     RolesListParams,
     FeatureFlagAssociatedRoleType,
+    FeatureFlagResourcePermissionListParams,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -733,8 +734,10 @@ const api = {
                     },
                 })
             },
-            async list(): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
-                return await new ApiRequest().featureFlagAccessPermissions().get()
+            async list(
+                params: FeatureFlagResourcePermissionListParams
+            ): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
+                return await new ApiRequest().featureFlagAccessPermissions().withQueryString(toParams(params)).get()
             },
 
             async delete(

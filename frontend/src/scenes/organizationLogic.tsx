@@ -51,6 +51,14 @@ export const organizationLogic = kea<organizationLogicType>({
                     ? 'You need to be an organization admin or above to create new projects.'
                     : null,
         ],
+        isAdminOrOwner: [
+            (s) => [s.currentOrganization],
+            (currentOrganization): boolean | null =>
+                currentOrganization &&
+                [OrganizationMembershipLevel.Admin, OrganizationMembershipLevel.Owner].includes(
+                    currentOrganization.membership_level
+                ),
+        ],
     },
     loaders: ({ values }) => ({
         currentOrganization: [

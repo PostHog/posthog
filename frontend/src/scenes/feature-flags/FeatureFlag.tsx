@@ -18,7 +18,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { userLogic } from 'scenes/userLogic'
-import { AnyPropertyFilter, AvailableFeature } from '~/types'
+import { AnyPropertyFilter, AvailableFeature, Resource } from '~/types'
 import { Link } from 'lib/components/Link'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Field } from 'lib/forms/Field'
@@ -390,6 +390,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                 )}
             </div>
             <ResourcePermissionModal
+                resourceType={Resource.FEATURE_FLAGS}
+                isNewResource={id === 'new'}
                 onChange={(roleIds) => setRolesToAdd(roleIds)}
                 rolesToAdd={rolesToAdd}
                 addableRoles={addableRoles}

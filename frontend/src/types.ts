@@ -2370,3 +2370,7 @@ export interface OrganizationResourcePermissionType {
     updated_at: string
     created_by: UserBaseType | null
 }
+
+export interface FeatureFlagResourcePermissionListParams {
+    feature_flag_id?: FeatureFlagType['id']
+}

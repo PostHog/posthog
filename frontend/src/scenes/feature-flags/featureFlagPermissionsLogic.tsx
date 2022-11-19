@@ -46,19 +46,27 @@ export const featureFlagPermissionsLogic = kea<featureFlagPermissionsLogicType>(
             [] as FeatureFlagAssociatedRoleType[],
             {
                 loadAssociatedRoles: async () => {
-                    const response = await api.resourceAccessPermissions.featureFlags.list()
-
-                    return response.results || []
-                },
-                addAssociatedRoles: async () => {
-                    const { rolesToAdd } = values
                     if (props.flagId) {
+                        const params = {
+                            feature_flag_id: props.flagId as number,
+                        }
+                        const response = await api.resourceAccessPermissions.featureFlags.list(params)
+
+                        return response.results || []
+                    } else {
+                        return []
+                    }
+                },
+                addAssociatedRoles: async (flagId?: number) => {
+                    const { rolesToAdd } = values
+                    const possibleFlagId = props.flagId || flagId
+                    if (possibleFlagId) {
                         const newAssociatedRoles = await Promise.all(
                             rolesToAdd.map(
                                 async (roleId) =>
                                     await api.resourceAccessPermissions.featureFlags.create(
                                         roleId,
-                                        props.flagId as number
+                                        possibleFlagId as number
                                     )
                             )
                         )

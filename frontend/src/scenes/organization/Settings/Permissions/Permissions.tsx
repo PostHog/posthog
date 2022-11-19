@@ -1,12 +1,14 @@
 import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { AccessLevel } from '~/types'
-import { permissionsLogic, FormattedResourceLevel } from './permissionsLogic'
+import { permissionsLogic, FormattedResourceLevel, ResourcePermissionMapping } from './permissionsLogic'
 
 export function Permissions(): JSX.Element {
     const { allPermissions } = useValues(permissionsLogic)
     const { updateOrganizationResourcePermission } = useActions(permissionsLogic)
+    const { isAdminOrOwner } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<FormattedResourceLevel> = [
         {
@@ -24,6 +26,7 @@ export function Permissions(): JSX.Element {
             render: function RenderAccessLevel(_, permission) {
                 return (
                     <LemonSelect
+                        disabled={!isAdminOrOwner}
                         value={permission.access_level}
                         onChange={(newValue) =>
                             updateOrganizationResourcePermission({
@@ -35,15 +38,15 @@ export function Permissions(): JSX.Element {
                         options={[
                             {
                                 value: AccessLevel.WRITE,
-                                label: 'View & Edit',
+                                label: ResourcePermissionMapping[AccessLevel.WRITE],
                             },
                             {
                                 value: AccessLevel.READ,
-                                label: 'View Only',
+                                label: ResourcePermissionMapping[AccessLevel.READ],
                             },
                             {
                                 value: AccessLevel.CUSTOM_ASSIGNED,
-                                label: 'View & Assigned Edit',
+                                label: ResourcePermissionMapping[AccessLevel.CUSTOM_ASSIGNED],
                             },
                         ]}
                     />

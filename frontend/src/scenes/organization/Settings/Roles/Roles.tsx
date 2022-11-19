@@ -2,11 +2,13 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { RoleType } from '~/types'
 import { CreateRoleModal } from './CreateRoleModal'
 import { rolesLogic } from './rolesLogic'
 
 export function Roles(): JSX.Element {
+    const { isAdminOrOwner } = useValues(organizationLogic)
     const { roles, rolesLoading } = useValues(rolesLogic)
     const { setRoleInFocus, openCreateRoleModal, deleteRole } = useActions(rolesLogic)
 
@@ -36,9 +38,13 @@ export function Roles(): JSX.Element {
                 return (
                     <More
                         overlay={
-                            <LemonButton onClick={() => deleteRole(role)} status="danger">
-                                Delete
-                            </LemonButton>
+                            isAdminOrOwner ? (
+                                <LemonButton onClick={() => deleteRole(role)} status="danger">
+                                    Delete
+                                </LemonButton>
+                            ) : (
+                                "You don't have permission to delete roles"
+                            )
                         }
                     />
                 )
@@ -58,9 +64,11 @@ export function Roles(): JSX.Element {
                     </p>
                 </div>
 
-                <LemonButton type="primary" onClick={openCreateRoleModal} data-attr="create-role-button">
-                    Create Role
-                </LemonButton>
+                {isAdminOrOwner && (
+                    <LemonButton type="primary" onClick={openCreateRoleModal} data-attr="create-role-button">
+                        Create Role
+                    </LemonButton>
+                )}
             </div>
             <LemonTable
                 dataSource={roles}

@@ -71,3 +71,7 @@ class FeatureFlagRoleAccessViewSet(
     permission_classes = [IsAuthenticated, FeatureFlagRoleAccessPermissions]
     serializer_class = FeatureFlagRoleAccessSerializer
     queryset = FeatureFlagRoleAccess.objects.select_related("role").select_related("feature_flag").all()
+
+    def get_queryset(self):
+        filters = self.request.GET.dict()
+        return super().get_queryset().filter(**filters)
