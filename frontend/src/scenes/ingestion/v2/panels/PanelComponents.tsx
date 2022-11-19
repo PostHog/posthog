@@ -3,8 +3,13 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { ingestionLogicV2, INGESTION_STEPS } from '../ingestionLogic'
 import './Panels.scss'
-import { IconArrowLeft } from 'lib/components/icons'
+import { IconArrowLeft, IconChevronRight } from 'lib/components/icons'
 import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
+import { teamLogic } from 'scenes/teamLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { userLogic } from 'scenes/userLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { GENERATING_DEMO_DATA } from '../constants'
 
 export function PanelFooter(): JSX.Element {
     const { next } = useActions(ingestionLogicV2)
@@ -52,5 +57,45 @@ export function PanelHeader(): JSX.Element | null {
                     : previousStep}
             </LemonButton>
         </div>
+    )
+}
+
+export function DemoProjectButton({ text, subtext }: { text: string; subtext?: string }): JSX.Element {
+    const { next } = useActions(ingestionLogicV2)
+    const { createTeam } = useActions(teamLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const { updateCurrentTeam } = useActions(userLogic)
+    const { reportIngestionTryWithDemoDataClicked, reportProjectCreationSubmitted } = useActions(eventUsageLogic)
+
+    const demoTeamName: string = 'Demo'
+
+    return (
+        <LemonButton
+            onClick={() => {
+                // If the current org has a demo team, just navigate there
+                if (currentOrganization?.teams && currentOrganization.teams.filter((team) => team.is_demo).length > 0) {
+                    updateCurrentTeam(currentOrganization.teams.filter((team) => team.is_demo)[0].id)
+                } else {
+                    // Create a new demo team
+                    createTeam({ name: demoTeamName, is_demo: true })
+                    next({ isTechnicalUser: false, platform: GENERATING_DEMO_DATA })
+                    reportProjectCreationSubmitted(
+                        currentOrganization?.teams ? currentOrganization.teams.length : 0,
+                        demoTeamName.length
+                    )
+                }
+                reportIngestionTryWithDemoDataClicked()
+            }}
+            fullWidth
+            size="large"
+            className="ingestion-view-demo-data mb-4"
+            type="primary"
+            sideIcon={<IconChevronRight />}
+        >
+            <div className="mt-4 mb-0">
+                <p className="mb-0">{text}</p>
+                {subtext ? <p className="font-normal text-xs mt-2">{subtext}</p> : null}
+            </div>
+        </LemonButton>
     )
 }
