@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { ingestionLogicV2 } from '../ingestionLogic'
+import { ingestionLogicV2 } from '../ingestionLogicV2'
 import { THIRD_PARTY, platforms } from '../constants'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { ingestionLogicV2, INGESTION_STEPS } from '../ingestionLogic'
+import { ingestionLogicV2, INGESTION_STEPS } from '../ingestionLogicV2'
 import './Panels.scss'
 import { IconArrowLeft, IconChevronRight } from 'lib/components/icons'
 import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'

@@ -4,7 +4,7 @@ import './IngestionWizard.scss'
 import { VerificationPanel } from 'scenes/ingestion/v2/panels/VerificationPanel'
 import { InstructionsPanel } from 'scenes/ingestion/v2/panels/InstructionsPanel'
 import { useValues, useActions } from 'kea'
-import { ingestionLogicV2, INGESTION_VIEWS } from 'scenes/ingestion/v2/ingestionLogic'
+import { ingestionLogicV2, INGESTION_VIEWS } from 'scenes/ingestion/v2/ingestionLogicV2'
 import { FrameworkPanel } from 'scenes/ingestion/v2/panels/FrameworkPanel'
 import { PlatformPanel } from 'scenes/ingestion/v2/panels/PlatformPanel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -21,6 +21,7 @@ import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { PanelHeader } from './panels/PanelComponents'
 import { InviteTeamPanel } from './panels/InviteTeamPanel'
 import { TeamInvitedPanel } from './panels/TeamInvitedPanel'
+import { NoDemoIngestionPanel } from './panels/NoDemoIngestionPanel'
 
 export function IngestionWizardV2(): JSX.Element {
     const { currentView, platform } = useValues(ingestionLogicV2)
@@ -43,6 +44,7 @@ export function IngestionWizardV2(): JSX.Element {
             {currentView === INGESTION_VIEWS.VERIFICATION && <VerificationPanel />}
             {currentView === INGESTION_VIEWS.GENERATING_DEMO_DATA && <GeneratingDemoDataPanel />}
             {currentView === INGESTION_VIEWS.CHOOSE_THIRD_PARTY && <ThirdPartyPanel />}
+            {currentView === INGESTION_VIEWS.NO_DEMO_INGESTION && <NoDemoIngestionPanel />}
         </IngestionContainer>
     )
 }
