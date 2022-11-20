@@ -101,11 +101,13 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
         uploadFiles().catch(console.error)
     }, [filesToUpload])
 
+    const textAreaRef = useRef<HTMLTextAreaElement>(null)
+
     return (
         <Tabs>
             <Tabs.TabPane tab="Write" key="write-card" destroyInactiveTabPane={true}>
                 <div ref={dropRef} className={clsx('LemonTextMarkdown flex flex-col p-2 space-y-1 rounded')}>
-                    <LemonTextArea {...editAreaProps} autoFocus value={value} onChange={onChange} />
+                    <LemonTextArea ref={textAreaRef} {...editAreaProps} autoFocus value={value} onChange={onChange} />
                     <div className="text-muted inline-flex items-center space-x-1">
                         <IconMarkdown className={'text-2xl'} />
                         <span>Markdown formatting support</span>
@@ -137,9 +139,15 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
                 </div>
             </Tabs.TabPane>
             <Tabs.TabPane tab="Preview" key={'preview-card'}>
-                <div className={'relative min-w-16 min-h-8'}>
-                    <TextCardBody text={value} />
-                </div>
+                <TextCardBody
+                    text={value}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        width: textAreaRef.current?.clientWidth || '200',
+                        height: textAreaRef.current?.clientHeight || '100',
+                        margin: '0 auto',
+                    }}
+                />
             </Tabs.TabPane>
         </Tabs>
     )

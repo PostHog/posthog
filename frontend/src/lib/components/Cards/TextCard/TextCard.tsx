@@ -41,7 +41,7 @@ export function TextCardBody({ text, closeDetails, style, className }: TextCardB
     return (
         <div
             ref={ref}
-            className={clsx('p-2 w-full overflow-y-auto', className)}
+            className={clsx('TextCard-Body p-2 w-full overflow-y-auto', className)}
             onClick={() => closeDetails?.()}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ ...style, fontSize }}
@@ -175,7 +175,7 @@ export function TextCardInternal(
                         ? { height: `calc(100% - ${metaPrimaryHeight}px - 2rem /* margins */ - 1px /* border */)` }
                         : undefined
                 }
-                className={'TextCard-Body'}
+                className={'absolute'}
             />
 
             {showResizeHandles && (
