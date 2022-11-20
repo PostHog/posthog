@@ -137,7 +137,9 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
                 </div>
             </Tabs.TabPane>
             <Tabs.TabPane tab="Preview" key={'preview-card'}>
-                <TextCardBody text={value} />
+                <div className={'relative min-w-16 min-h-8'}>
+                    <TextCardBody text={value} />
+                </div>
             </Tabs.TabPane>
         </Tabs>
     )

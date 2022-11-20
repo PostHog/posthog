@@ -26,12 +26,12 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     showEditingControls?: boolean
 }
 
-interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'style'> {
+interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'style' | 'className'> {
     text: string
     closeDetails?: () => void
 }
 
-export function TextCardBody({ text, closeDetails, style }: TextCardBodyProps): JSX.Element {
+export function TextCardBody({ text, closeDetails, style, className }: TextCardBodyProps): JSX.Element {
     const { fontSize, ref } = useFitText({
         maxFontSize: 200,
         resolution: 5,
@@ -41,7 +41,7 @@ export function TextCardBody({ text, closeDetails, style }: TextCardBodyProps): 
     return (
         <div
             ref={ref}
-            className="TextCard-Body p-2 w-full overflow-y-auto"
+            className={clsx('p-2 w-full overflow-y-auto', className)}
             onClick={() => closeDetails?.()}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ ...style, fontSize }}
@@ -175,6 +175,7 @@ export function TextCardInternal(
                         ? { height: `calc(100% - ${metaPrimaryHeight}px - 2rem /* margins */ - 1px /* border */)` }
                         : undefined
                 }
+                className={'TextCard-Body'}
             />
 
             {showResizeHandles && (
