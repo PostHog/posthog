@@ -135,14 +135,17 @@ DROP_METRICS_TIME_TO_SEE_MV = lambda: f"DROP TABLE metrics_time_to_see_data_mv O
 
 METRICS_QUERY_LOG_TABLE_ENGINE = lambda: MergeTreeEngine("metrics_query_log", force_unique_zk_path=True)
 
-CREATE_METRICS_QUERY_LOG_MV = (
+CREATE_METRICS_QUERY_LOG = (
     lambda: f"""
-CREATE MATERIALIZED VIEW metrics_time_to_see_data_mv
+CREATE MATERIALIZED VIEW metrics_query_log
 ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 ENGINE = {METRICS_QUERY_LOG_TABLE_ENGINE()}
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (toDate(timestamp), team_id, query_type)
+AS
 SELECT
-    hostName() as hostName,
-    event_time,
+    hostName() AS hostName,
+    event_time AS timestamp,
     query_duration_ms,
     read_rows,
     read_bytes,
@@ -176,7 +179,7 @@ WHERE JSONHas(log_comment, 'team_id')
 """
 )
 
-DROP_METRICS_QUERY_LOG_MV = lambda: f"DROP TABLE metrics_time_to_see_data_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
+DROP_METRICS_QUERY_LOG = lambda: f"DROP TABLE metrics_query_log ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
 
 # :KLUDGE: Temporary tooling to make (re)creating this schema easier
 # Invoke via `python manage.py shell <  posthog/models/query_metrics/sql.py`
@@ -189,7 +192,7 @@ if __name__ == "django.core.management.commands.shell":
             DROP_METRICS_TIME_TO_SEE_TABLE,
             DROP_KAFKA_METRICS_TIME_TO_SEE,
             DROP_METRICS_TIME_TO_SEE_MV,
-            DROP_METRICS_TIME_TO_SEE_MV,
+            DROP_METRICS_QUERY_LOG,
         ]
     ):
         print(drop_query())  # noqa: T201
@@ -202,7 +205,7 @@ if __name__ == "django.core.management.commands.shell":
         CREATE_METRICS_TIME_TO_SEE,
         CREATE_KAFKA_METRICS_TIME_TO_SEE,
         CREATE_METRICS_TIME_TO_SEE_MV,
-        CREATE_METRICS_QUERY_LOG_MV,
+        CREATE_METRICS_QUERY_LOG,
     ]:
         print(create_query())  # noqa: T201
         print()  # noqa: T201

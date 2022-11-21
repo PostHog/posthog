@@ -406,7 +406,7 @@ class DateMixin(BaseParamMixin):
     @include_query_tags
     def query_tags_dates(self):
         if self.date_from and self.date_to:
-            delta = self.date_to - self.date_to
+            delta = self.date_to - self.date_from
             return {"query_time_range_days": delta.days}
         return {}
 
