@@ -27,6 +27,8 @@ class RetentionActorsByPeriod(ActorBaseQuery):
     _filter: RetentionFilter
     _retention_events_query = RetentionEventsQuery
 
+    QUERY_TYPE = "retention_actors_by_period"
+
     def __init__(self, team: Team, filter: RetentionFilter):
         super().__init__(team, filter)
 
