@@ -1,9 +1,10 @@
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
-from posthog.models import Filter
 
+if TYPE_CHECKING:
+    from posthog.models import Filter
 
 # Wrapper around sync_execute, adding query tags for insights performance
 def insight_sync_execute(
