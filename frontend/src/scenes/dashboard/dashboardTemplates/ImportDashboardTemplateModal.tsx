@@ -70,7 +70,7 @@ export function ImportDashboardTemplateModal(): JSX.Element {
                     <Field name="templateJson" label={'Template file'}>
                         <LemonFileInput
                             alternativeDropTargetRef={dropRef}
-                            accept={'*.json'}
+                            accept={'.json'}
                             multiple={false}
                             data-attr={'save-dashboard-template-name'}
                         />
