@@ -5,14 +5,14 @@ import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { AlertMessage } from 'lib/components/AlertMessage'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonWithSideAction } from '@posthog/lemon-ui'
 import { Tabs } from 'antd'
 import { SessionRecordingsTabs } from '~/types'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { Tooltip } from 'lib/components/Tooltip'
 import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecordingsLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { IconPlus, IconSettings } from 'lib/components/icons'
+import { IconSettings } from 'lib/components/icons'
 import { router } from 'kea-router'
 import { openSessionRecordingSettingsDialog } from './settings/SessionRecordingSettings'
 import { openPlayerNewPlaylistDialog } from 'scenes/session-recordings/player/new-playlist/PlayerNewPlaylist'
@@ -49,26 +49,56 @@ export function SessionsRecordings(): JSX.Element {
                                     : 'Create a new playlist'
                             }
                         >
-                            <LemonButton
-                                type="primary"
-                                onClick={() => {
-                                    if (tab === SessionRecordingsTabs.Recent) {
+                            {tab === SessionRecordingsTabs.Recent ? (
+                                <LemonButtonWithSideAction
+                                    type="primary"
+                                    onClick={() => {
                                         saveNewPlaylist()
-                                    } else {
+                                    }}
+                                    loading={newPlaylistLoading}
+                                    data-attr="save-recordings-playlist-button"
+                                    sideAction={{
+                                        popup: {
+                                            placement: 'bottom-end',
+                                            className: 'save-recordings-playlist-overlay',
+                                            actionable: true,
+                                            overlay: (
+                                                <LemonButton
+                                                    status="stealth"
+                                                    onClick={() => {
+                                                        openPlayerNewPlaylistDialog({
+                                                            sessionRecordingId: 'global',
+                                                            playerKey: 'recents',
+                                                            defaultStatic: true,
+                                                        })
+                                                    }}
+                                                    data-attr="create-new-playlist-button"
+                                                    fullWidth
+                                                >
+                                                    Create new static playlist
+                                                </LemonButton>
+                                            ),
+                                        },
+                                        'data-attr': 'saved-recordings-playlists-new-playlist-dropdown',
+                                    }}
+                                >
+                                    Save as dynamic playlist
+                                </LemonButtonWithSideAction>
+                            ) : (
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => {
                                         openPlayerNewPlaylistDialog({
                                             sessionRecordingId: 'global',
                                             playerKey: 'recents',
                                         })
-                                    }
-                                }}
-                                loading={newPlaylistLoading}
-                                data-attr="save-recordings-playlist-button"
-                                icon={<IconPlus />}
-                            >
-                                {tab === SessionRecordingsTabs.Recent
-                                    ? 'Save as dynamic playlist'
-                                    : 'Create new playlist'}
-                            </LemonButton>
+                                    }}
+                                    loading={newPlaylistLoading}
+                                    data-attr="save-recordings-playlist-button"
+                                >
+                                    New playlist
+                                </LemonButton>
+                            )}
                         </Tooltip>
                     </>
                 }

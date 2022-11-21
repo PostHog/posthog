@@ -39,6 +39,7 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             "playlist_items": [],
         }
 
+    @freeze_time("2022-01-01")
     def test_creates_static_playlist(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists", data={"name": "test", "is_static": True}
@@ -168,11 +169,11 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         assert result["short_id"] == playlist1.short_id
         assert result["playlist_items"] == [
             {
-                "id": playlist1Item1.id,
+                "id": int(playlist1Item1.id),
                 "created_at": "2022-01-01T00:00:00Z",
             },
             {
-                "id": playlist1Item2.id,
+                "id": int(playlist1Item2.id),
                 "created_at": "2022-01-01T00:00:00Z",
             },
         ]
@@ -184,7 +185,7 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         assert result["short_id"] == playlist2.short_id
         assert result["playlist_items"] == [
             {
-                "id": playlist2Item1.id,
+                "id": int(playlist2Item1.id),
                 "created_at": "2022-01-01T00:00:00Z",
             },
         ]
