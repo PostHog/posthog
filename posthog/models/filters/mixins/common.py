@@ -247,6 +247,13 @@ class BreakdownMixin(BaseParamMixin):
         bool_to_test = self._data.get("breakdown_normalize_url", False)
         return process_bool(bool_to_test)
 
+    @include_query_tags
+    def breakdown_query_tags(self):
+        if self.breakdown_type:
+            return {"breakdown_by": [self.breakdown_type]}
+
+        return {}
+
 
 class BreakdownValueMixin(BaseParamMixin):
     @cached_property
