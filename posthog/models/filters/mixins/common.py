@@ -456,6 +456,10 @@ class EntitiesMixin(BaseParamMixin):
             **({"exclusions": [entity.to_dict() for entity in self.exclusions]} if len(self.exclusions) > 0 else {}),
         }
 
+    @include_dict
+    def entities_query_tags(self):
+        return {"entity_math": list(set(entity.math for entity in self.entities if entity.math))}
+
 
 # These arguments are used to specify the target entity for insight actor retrieval on trend graphs
 class EntityIdMixin(BaseParamMixin):
