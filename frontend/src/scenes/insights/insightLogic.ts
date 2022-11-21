@@ -335,17 +335,17 @@ export const insightLogic = kea<insightLogicType>([
                             apiUrl = `api/projects/${currentTeamId}/insights/trend/?${toParams(
                                 filterTrendsClientSideParams(params)
                             )}`
-                            rawResponse = api.getResponse(apiUrl, methodOptions)
+                            rawResponse = await api.getResponse(apiUrl, methodOptions)
                         } else if (isRetentionFilter(filters)) {
                             apiUrl = `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`
                             rawResponse = await api.getResponse(apiUrl, methodOptions)
                         } else if (isFunnelsFilter(filters)) {
                             const { refresh, ...bodyParams } = params
                             apiUrl = `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`
-                            rawResponse = await api.createRaw(apiUrl, bodyParams, methodOptions)
+                            rawResponse = await api.createResponse(apiUrl, bodyParams, methodOptions)
                         } else if (isPathsFilter(filters)) {
                             apiUrl = `api/projects/${currentTeamId}/insights/path`
-                            rawResponse = await api.createRaw(apiUrl, params, methodOptions)
+                            rawResponse = await api.createResponse(apiUrl, params, methodOptions)
                         } else {
                             throw new Error(`Cannot load insight of type ${insight}`)
                         }
