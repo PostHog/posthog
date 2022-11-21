@@ -48,6 +48,7 @@ def parse_kafka_event_data(
     event_uuid: UUIDT,
     token: str,
 ) -> Dict:
+    logger.debug("parse_kafka_event_data", token=token, team_id=team_id)
     return {
         "uuid": str(event_uuid),
         "distinct_id": safe_clickhouse_string(distinct_id),
@@ -220,7 +221,10 @@ def get_event(request):
     ingestion_context = None
     send_events_to_dead_letter_queue = False
 
-    if token not in settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
+    if token in settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
+        logger.debug("lightweight_capture_endpoint_hit", token=token)
+        statsd.incr("lightweight_capture_endpoint_hit")
+    else:
         ingestion_context, db_error, error_response = get_event_ingestion_context(request, data, token)
 
         if error_response:
