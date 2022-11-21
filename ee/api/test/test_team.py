@@ -23,13 +23,13 @@ class TestProjectEnterpriseAPI(APILicensedTest):
     def test_create_project(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        response = self.client.post("/api/projects/", {"name": "Test2"})
+        response = self.client.post("/api/projects/", {"name": "Test"})
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Team.objects.count(), 2)
         response_data = response.json()
         self.assertDictContainsSubset(
             {
-                "name": "Test2",
+                "name": "Test",
                 "access_control": False,
                 "effective_membership_level": OrganizationMembership.Level.ADMIN,
             },
