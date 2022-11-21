@@ -10,6 +10,9 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { router } from 'kea-router'
 import { Region } from '~/types'
 import { CLOUD_HOSTNAMES } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconCheckCircleOutline } from '../icons'
 
 export type BridgePageProps = {
     className?: string
@@ -40,6 +43,7 @@ export function BridgePage({
 }: BridgePageProps): JSX.Element {
     const [messageShowing, setMessageShowing] = useState(false)
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useEffect(() => {
         const t = setTimeout(() => {
@@ -53,6 +57,24 @@ export function BridgePage({
         return `https://${CLOUD_HOSTNAMES[region]}${pathname}${search}${hash}`
     }
 
+    const productBenefits: {
+        benefit: string
+        description: string
+    }[] = [
+        {
+            benefit: 'Free for 1M events every month',
+            description: 'Product analytics, feature flags, experiments, and more.',
+        },
+        {
+            benefit: 'Start collecting events immediately',
+            description: 'Integrate with developer-friendly APIs or use our easy autocapture script.',
+        },
+        {
+            benefit: 'Join industry leaders who run their product on PostHog',
+            description: 'Brex, Airbus, Hasura, Y Combinator, and thousands more trust Posthog as their Product OS.',
+        },
+    ]
+
     return (
         <div className={clsx('BridgePage', fixedWidth && 'BridgePage--fixed-width', className)}>
             <div className="BridgePage__main">
@@ -64,12 +86,34 @@ export function BridgePage({
                                     <WelcomeLogo view={view} />
                                 </div>
                             )}
-                            <LaptopHog3 alt="" draggable="false" />
-                            {message ? (
-                                <CSSTransition in={messageShowing} timeout={200} classNames="BridgePage__art__message-">
-                                    <div className="BridgePage__art__message">{message}</div>
-                                </CSSTransition>
-                            ) : null}
+                            {featureFlags[FEATURE_FLAGS.SIGNUP_PRODUCT_INFO_EXPERIMENT] !== 'test' && showSignupCta ? (
+                                <div className="mb-16 max-w-100">
+                                    {productBenefits.map((benefit, i) => (
+                                        <div className="flex flex-row gap-4 mb-4" key={i}>
+                                            <div>
+                                                <IconCheckCircleOutline className="mt-2 w-4 h-4 text-primary" />
+                                            </div>
+                                            <div>
+                                                <h3 className="mb-0 font-bold">{benefit.benefit}</h3>
+                                                <p className="m-0 text-sm">{benefit.description}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <>
+                                    <LaptopHog3 alt="" draggable="false" />
+                                    {message ? (
+                                        <CSSTransition
+                                            in={messageShowing}
+                                            timeout={200}
+                                            classNames="BridgePage__art__message-"
+                                        >
+                                            <div className="BridgePage__art__message">{message}</div>
+                                        </CSSTransition>
+                                    ) : null}
+                                </>
+                            )}
                         </div>
                         {showSignupCta && (
                             <div className="BridgePage__cta border rounded p-4 mt-8 text-center">
