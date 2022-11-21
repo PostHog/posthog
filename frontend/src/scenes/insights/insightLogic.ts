@@ -307,7 +307,7 @@ export const insightLogic = kea<insightLogicType>([
                         dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
                     }
 
-                    let rawResponse: any
+                    let fetchResponse: any
                     let response: any
                     let apiUrl: string = ''
                     const { currentTeamId } = values
@@ -326,7 +326,7 @@ export const insightLogic = kea<insightLogicType>([
                             // Instead of making a search for filters, reload the insight via its id if possible.
                             // This makes sure we update the insight's cache key if we get new default filters.
                             apiUrl = `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`
-                            rawResponse = await api.getResponse(apiUrl, methodOptions)
+                            fetchResponse = await api.getResponse(apiUrl, methodOptions)
                         } else if (
                             isTrendsFilter(filters) ||
                             isStickinessFilter(filters) ||
@@ -335,21 +335,21 @@ export const insightLogic = kea<insightLogicType>([
                             apiUrl = `api/projects/${currentTeamId}/insights/trend/?${toParams(
                                 filterTrendsClientSideParams(params)
                             )}`
-                            rawResponse = await api.getResponse(apiUrl, methodOptions)
+                            fetchResponse = await api.getResponse(apiUrl, methodOptions)
                         } else if (isRetentionFilter(filters)) {
                             apiUrl = `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`
-                            rawResponse = await api.getResponse(apiUrl, methodOptions)
+                            fetchResponse = await api.getResponse(apiUrl, methodOptions)
                         } else if (isFunnelsFilter(filters)) {
                             const { refresh, ...bodyParams } = params
                             apiUrl = `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`
-                            rawResponse = await api.createResponse(apiUrl, bodyParams, methodOptions)
+                            fetchResponse = await api.createResponse(apiUrl, bodyParams, methodOptions)
                         } else if (isPathsFilter(filters)) {
                             apiUrl = `api/projects/${currentTeamId}/insights/path`
-                            rawResponse = await api.createResponse(apiUrl, params, methodOptions)
+                            fetchResponse = await api.createResponse(apiUrl, params, methodOptions)
                         } else {
                             throw new Error(`Cannot load insight of type ${insight}`)
                         }
-                        response = await getJSONOrThrow(rawResponse)
+                        response = await getJSONOrThrow(fetchResponse)
                     } catch (e: any) {
                         if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
                             actions.abortQuery({
@@ -393,7 +393,7 @@ export const insightLogic = kea<insightLogicType>([
                         lastRefresh: response.last_refresh,
                         response: {
                             cached: response?.is_cached,
-                            apiResponseBytes: getResponseBytes(rawResponse),
+                            apiResponseBytes: getResponseBytes(fetchResponse),
                             apiUrl,
                         },
                     })
