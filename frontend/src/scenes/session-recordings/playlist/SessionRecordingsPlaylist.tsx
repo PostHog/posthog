@@ -1,7 +1,13 @@
 import { Fragment, useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { range } from '~/lib/utils'
-import { RecordingDurationFilter, RecordingFilters, SessionRecordingsTabs, SessionRecordingType } from '~/types'
+import {
+    RecordingDurationFilter,
+    RecordingFilters,
+    SessionRecordingPlaylistType,
+    SessionRecordingsTabs,
+    SessionRecordingType,
+} from '~/types'
 import {
     defaultPageviewPropertyEntityFilter,
     PLAYLIST_LIMIT,
@@ -171,6 +177,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     filters={playlist.filters}
                     onFiltersChange={setFilters}
                     isStatic={!!playlist.is_static}
+                    staticRecordings={playlist.playlist_items}
                 />
             ) : null}
         </div>
@@ -184,6 +191,7 @@ export type SessionRecordingsPlaylistProps = {
     updateSearchParams?: boolean
     onFiltersChange?: (filters: RecordingFilters) => void
     isStatic?: boolean
+    staticRecordings?: SessionRecordingPlaylistType['playlist_items']
 }
 
 export function SessionRecordingsPlaylist({
@@ -193,13 +201,14 @@ export function SessionRecordingsPlaylist({
     updateSearchParams,
     onFiltersChange,
     isStatic = false,
+    staticRecordings = [],
 }: SessionRecordingsPlaylistProps): JSX.Element {
     const logic = sessionRecordingsListLogic({
         key: logicKey,
         personUUID,
         filters: defaultFilters,
         updateSearchParams,
-        isStatic,
+        staticRecordings,
     })
     const {
         sessionRecordings,

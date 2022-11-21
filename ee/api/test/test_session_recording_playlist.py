@@ -158,9 +158,9 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             team=self.team, name="playlist2", created_by=self.user, is_static=True
         )
 
-        playlist1Item1 = SessionRecordingPlaylistItem.objects.create(session_id="1", playlist=playlist1)
-        playlist1Item2 = SessionRecordingPlaylistItem.objects.create(session_id="2", playlist=playlist1)
-        playlist2Item1 = SessionRecordingPlaylistItem.objects.create(session_id="1", playlist=playlist2)
+        SessionRecordingPlaylistItem.objects.create(session_id="1-playlist1", playlist=playlist1)
+        SessionRecordingPlaylistItem.objects.create(session_id="2-playlist1", playlist=playlist1)
+        SessionRecordingPlaylistItem.objects.create(session_id="3-playlist2", playlist=playlist2)
 
         result = self.client.get(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}",
@@ -169,11 +169,11 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         assert result["short_id"] == playlist1.short_id
         assert result["playlist_items"] == [
             {
-                "id": str(playlist1Item1.id),
+                "id": "1-playlist1",
                 "created_at": "2022-01-01T00:00:00Z",
             },
             {
-                "id": str(playlist1Item2.id),
+                "id": "2-playlist1",
                 "created_at": "2022-01-01T00:00:00Z",
             },
         ]
@@ -185,7 +185,7 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         assert result["short_id"] == playlist2.short_id
         assert result["playlist_items"] == [
             {
-                "id": str(playlist2Item1.id),
+                "id": "3-playlist2",
                 "created_at": "2022-01-01T00:00:00Z",
             },
         ]

@@ -1,7 +1,12 @@
 import json
-from typing import Optional
+from typing import List, Optional
 
-from posthog.constants import PERSON_UUID_FILTER, SESSION_RECORDINGS_FILTER_TYPE_DURATION
+from posthog.constants import (
+    PERSON_UUID_FILTER,
+    SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS,
+    SESSION_RECORDINGS_FILTER_TYPE_DURATION,
+)
+from posthog.helpers.session_recording import MinimalStaticSessionRecording
 from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import Property
@@ -21,3 +26,12 @@ class SessionRecordingsMixin(BaseParamMixin):
             filter_data = json.loads(duration_filter_data_str)
             return Property(**filter_data)
         return None
+
+    @cached_property
+    def static_recordings(self) -> List[MinimalStaticSessionRecording]:
+        static_recordings_str = self._data.get(SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS, "[]")
+        static_recordings = json.loads(static_recordings_str)
+        return [
+            MinimalStaticSessionRecording(id=recording["id"], created_at=recording["created_at"])
+            for recording in static_recordings
+        ]

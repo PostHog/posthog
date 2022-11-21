@@ -7,6 +7,7 @@ import {
     PropertyOperator,
     RecordingFilters,
     SessionRecordingId,
+    SessionRecordingPlaylistType,
     SessionRecordingPropertiesType,
     SessionRecordingsResponse,
     SessionRecordingType,
@@ -99,7 +100,7 @@ export interface SessionRecordingListLogicProps {
     personUUID?: PersonUUID
     filters?: RecordingFilters
     updateSearchParams?: boolean
-    isStatic?: boolean
+    staticRecordings?: SessionRecordingPlaylistType['playlist_items']
 }
 
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
@@ -135,6 +136,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
                         limit: PLAYLIST_LIMIT,
+                        static_recordings: props.staticRecordings ?? undefined,
                     }
                     const params = toParams(paramsDict)
                     await breakpoint(100) // Debounce for lots of quick filter changes

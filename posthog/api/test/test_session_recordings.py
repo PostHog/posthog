@@ -410,3 +410,40 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
                 f"/api/projects/{self.team.id}/session_recordings/1", {"playlists": [playlist2.id, playlist3.id]}
             ).json()
             self.assertEqual(response_data["result"]["session_recording"]["playlists"], [playlist1.id, playlist3.id])
+
+    def test_static_recordings_filter(self):
+        with freeze_time("2020-09-13T12:26:40.000Z"):
+            Person.objects.create(
+                team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+            )
+            self.create_snapshot("user", "1", now() - relativedelta(days=1))
+            self.create_snapshot("user", "2", now() - relativedelta(days=2))
+            self.create_snapshot("user", "3", now() - relativedelta(days=3))
+            playlist = SessionRecordingPlaylist.objects.create(
+                team=self.team, name="playlist1", created_by=self.user, is_static=True
+            )
+
+            # Add all recordings to playlist
+            self.client.patch(
+                f"/api/projects/{self.team.id}/session_recordings/1",
+                {"playlists": [playlist.id]},
+            ).json()
+            self.client.patch(
+                f"/api/projects/{self.team.id}/session_recordings/2",
+                {"playlists": [playlist.id]},
+            ).json()
+            self.client.patch(
+                f"/api/projects/{self.team.id}/session_recordings/3",
+                {"playlists": [playlist.id]},
+            ).json()
+
+            # Fetch playlist
+            response_data = self.client.get(
+                f"/api/projects/{self.team.id}/session_recordings",
+                data={"static_recordings": [{id: "1"}, {id: "2"}, {id: "3"}]},
+            ).json()
+
+            self.assertEqual(len(response_data["results"]), 3)
+            self.assertEqual(response_data["results"][0]["id"], "1")
+            self.assertEqual(response_data["results"][1]["id"], "2")
+            self.assertEqual(response_data["results"][2]["id"], "3")

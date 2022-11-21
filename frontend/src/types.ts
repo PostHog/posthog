@@ -817,7 +817,7 @@ export interface SessionRecordingPlaylistType {
     last_modified_at: string
     last_modified_by: UserBasicType | null
     filters?: RecordingFilters
-    playlist_items?: SessionRecordingType[]
+    playlist_items?: Pick<SessionRecordingType, 'id'>[] // only id is exposed by api to minimize data passed through components
     is_static?: boolean
 }
 
