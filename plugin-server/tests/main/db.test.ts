@@ -1219,7 +1219,7 @@ describe('DB', () => {
             const fetchedTeam = await hub.db.fetchTeamByToken('token2')
             expect(fetchedTeam).toEqual({
                 anonymize_ips: false,
-                api_token: 'token1',
+                api_token: 'token2',
                 id: teamId,
                 ingested_event: true,
                 name: 'TEST PROJECT',
