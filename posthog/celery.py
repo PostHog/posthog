@@ -182,16 +182,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 # Set up clickhouse query instrumentation
 @task_prerun.connect
 def set_up_instrumentation(task_id, task, **kwargs):
-    from posthog import client
+    from posthog.clickhouse.query_tagging import tag_queries
 
-    client._request_information = {"kind": "celery", "id": task.name}
+    tag_queries(kind="celery", id=task.name)
 
 
 @task_postrun.connect
 def teardown_instrumentation(task_id, task, **kwargs):
-    from posthog import client
+    from posthog.clickhouse.query_tagging import reset_query_tags
 
-    client._request_information = None
+    reset_query_tags()
 
 
 @app.task(ignore_result=True)
