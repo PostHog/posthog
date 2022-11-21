@@ -6,11 +6,11 @@ import { Field } from 'lib/forms/Field'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { signupLogic } from '../signupLogic'
+import { signupTestLogic } from '../signupTestLogic'
 
 export function SignupPanel1(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
-    const { isSignupPanel1Submitting, signupPanel1 } = useValues(signupLogic)
+    const { isSignupPanel1Submitting, signupPanel1 } = useValues(signupTestLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
 
     useEffect(() => {
@@ -20,7 +20,7 @@ export function SignupPanel1(): JSX.Element | null {
 
     return (
         <div className="space-y-4 Signup__panel__1">
-            <Form logic={signupLogic} formKey={'signupPanel1'} className="space-y-4" enableFormOnSubmit>
+            <Form logic={signupTestLogic} formKey={'signupPanel1'} className="space-y-4" enableFormOnSubmit>
                 <Field name="email" label="Email">
                     <LemonInput
                         className="ph-ignore-input"

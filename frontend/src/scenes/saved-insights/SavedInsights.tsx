@@ -20,7 +20,7 @@ import {
     InsightsTrendsIcon,
 } from 'lib/components/icons'
 import { SceneExport } from 'scenes/sceneTypes'
-import { TZLabel } from 'lib/components/TimezoneAware'
+import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'

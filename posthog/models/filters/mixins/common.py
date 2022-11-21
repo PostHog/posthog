@@ -100,10 +100,6 @@ class ClientQueryIdMixin(BaseParamMixin):
     def client_query_id(self) -> Optional[str]:
         return self._data.get(CLIENT_QUERY_ID, None)
 
-    @include_dict
-    def client_query_id_to_dict(self):
-        return {"client_query_id": self.client_query_id} if self.client_query_id else {}
-
 
 class FilterTestAccountsMixin(BaseParamMixin):
     @cached_property

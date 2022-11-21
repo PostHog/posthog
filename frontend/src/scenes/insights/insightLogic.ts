@@ -17,7 +17,7 @@ import {
 } from '~/types'
 import { captureInternalMetric, captureTimeToSeeData } from 'lib/internalMetrics'
 import { router } from 'kea-router'
-import api, { ApiMethodOptions } from 'lib/api'
+import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
 import { filterTrendsClientSideParams, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
@@ -307,22 +307,13 @@ export const insightLogic = kea<insightLogicType>([
                         dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
                     }
 
+                    let fetchResponse: any
                     let response: any
                     let apiUrl: string = ''
                     const { currentTeamId } = values
 
-                    async function executeInsightRequest(
-                        apiMethod: any,
-                        url: string,
-                        ...args: any[]
-                    ): Promise<[any, string]> {
-                        const response = await apiMethod(url, ...args)
-                        return [response, url]
-                    }
-
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
-                        includeResponseReference: true,
                     }
                     if (!currentTeamId) {
                         throw new Error("Can't load insight before current project is determined.")
@@ -334,47 +325,31 @@ export const insightLogic = kea<insightLogicType>([
                         ) {
                             // Instead of making a search for filters, reload the insight via its id if possible.
                             // This makes sure we update the insight's cache key if we get new default filters.
-                            ;[response, apiUrl] = await executeInsightRequest(
-                                api.get,
-                                `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`,
-                                methodOptions
-                            )
+                            apiUrl = `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`
+                            fetchResponse = await api.getResponse(apiUrl, methodOptions)
                         } else if (
                             isTrendsFilter(filters) ||
                             isStickinessFilter(filters) ||
                             isLifecycleFilter(filters)
                         ) {
-                            ;[response, apiUrl] = await executeInsightRequest(
-                                api.get,
-                                `api/projects/${currentTeamId}/insights/trend/?${toParams(
-                                    filterTrendsClientSideParams(params)
-                                )}`,
-                                methodOptions
-                            )
+                            apiUrl = `api/projects/${currentTeamId}/insights/trend/?${toParams(
+                                filterTrendsClientSideParams(params)
+                            )}`
+                            fetchResponse = await api.getResponse(apiUrl, methodOptions)
                         } else if (isRetentionFilter(filters)) {
-                            ;[response, apiUrl] = await executeInsightRequest(
-                                api.get,
-                                `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`,
-                                methodOptions
-                            )
+                            apiUrl = `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`
+                            fetchResponse = await api.getResponse(apiUrl, methodOptions)
                         } else if (isFunnelsFilter(filters)) {
                             const { refresh, ...bodyParams } = params
-                            ;[response, apiUrl] = await executeInsightRequest(
-                                api.create,
-                                `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`,
-                                bodyParams,
-                                methodOptions
-                            )
+                            apiUrl = `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`
+                            fetchResponse = await api.createResponse(apiUrl, bodyParams, methodOptions)
                         } else if (isPathsFilter(filters)) {
-                            ;[response, apiUrl] = await executeInsightRequest(
-                                api.create,
-                                `api/projects/${currentTeamId}/insights/path`,
-                                params,
-                                methodOptions
-                            )
+                            apiUrl = `api/projects/${currentTeamId}/insights/path`
+                            fetchResponse = await api.createResponse(apiUrl, params, methodOptions)
                         } else {
                             throw new Error(`Cannot load insight of type ${insight}`)
                         }
+                        response = await getJSONOrThrow(fetchResponse)
                     } catch (e: any) {
                         if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
                             actions.abortQuery({
@@ -418,7 +393,7 @@ export const insightLogic = kea<insightLogicType>([
                         lastRefresh: response.last_refresh,
                         response: {
                             cached: response?.is_cached,
-                            apiResponseBytes: getResponseBytes(response),
+                            apiResponseBytes: getResponseBytes(fetchResponse),
                             apiUrl,
                         },
                     })
@@ -962,18 +937,6 @@ export const insightLogic = kea<insightLogicType>([
             let savedInsight: InsightModel
 
             try {
-                if (insightNumericId && emptyFilters(values.insight.filters)) {
-                    const error = new Error('Will not override empty filters in saveInsight.')
-
-                    Sentry.captureException(error, {
-                        extra: {
-                            filters: JSON.stringify(values.insight.filters),
-                            insight: JSON.stringify(values.insight),
-                        },
-                    })
-                    throw error
-                }
-
                 // We don't want to send ALL the insight properties back to the API, so only grabbing fields that might have changed
                 const insightRequest: Partial<InsightModel> = {
                     name,

@@ -6,7 +6,7 @@ import structlog
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
-from posthog import client
+from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.group.sql import GROUPS_TABLE
@@ -150,11 +150,11 @@ def run_backfill(options):
     print_and_execute_query(PERSON_DISTINCT_IDS_DICTIONARY_SQL, "PERSON_DISTINCT_IDS_DICTIONARY_SQL", dry_run)
     print_and_execute_query(PERSONS_DICTIONARY_SQL, "PERSONS_DICTIONARY_SQL", dry_run)
 
-    client._request_information = {"kind": "backfill", "id": backfill_query_id}
+    tag_queries(kind="backfill", id=backfill_query_id)
     print_and_execute_query(
         BACKFILL_SQL, "BACKFILL_SQL", dry_run, 0, {"team_id": options["team_id"], "id": backfill_query_id}
     )
-    client._request_information = None
+    reset_query_tags()
 
     if dry_run or settings.TEST:
         return

@@ -14,6 +14,7 @@ from posthog.models import (
     Insight,
     InstanceSetting,
     Organization,
+    OrganizationMembership,
     Person,
     Plugin,
     PluginConfig,
@@ -67,8 +68,15 @@ class UserChangeForm(DjangoUserChangeForm):
         self.fields["password"].help_text = (
             "Raw passwords are not stored, so there is no way to see this user’s password, but you can send them "
             f'<a target="_blank" href="/reset/{self.instance.uuid}/{password_reset_token}">this password reset link</a> '
-            "(only works when logged out)."
+            "(it only works when logged out)."
         )
+
+
+class OrganizationMemberInline(admin.TabularInline):
+    extra = 0
+    model = OrganizationMembership
+    readonly_fields = ("joined_at", "updated_at")
+    autocomplete_fields = ("user", "organization")
 
 
 @admin.register(User)
@@ -79,35 +87,28 @@ class UserAdmin(DjangoUserAdmin):
     change_password_form = None  # This view is not exposed in our subclass of UserChangeForm
     change_form_template = "loginas/change_form.html"
 
+    inlines = [OrganizationMemberInline]
     fieldsets = (
-        (None, {"fields": ("email", "password", "organization_name", "org_count")}),
+        (None, {"fields": ("email", "password", "current_organization")}),
         (_("Personal info"), {"fields": ("first_name", "last_name")}),
         (_("Permissions"), {"fields": ("is_active", "is_staff")}),
         (_("Important dates"), {"fields": ("last_login", "date_joined")}),
-        (_("PostHog"), {"fields": ("temporary_token",)}),
+        (_("Toolbar authentication"), {"fields": ("temporary_token",)}),
     )
     add_fieldsets = ((None, {"classes": ("wide",), "fields": ("email", "password1", "password2")}),)
-    list_display = ("email", "first_name", "last_name", "organization_name", "org_count", "is_staff")
+    list_display = ("email", "first_name", "last_name", "current_organization", "is_staff")
     list_filter = ("is_staff", "is_active", "groups")
     search_fields = ("email", "first_name", "last_name")
-    readonly_fields = ["organization_name", "org_count"]
+    readonly_fields = ["current_organization"]
     ordering = ("email",)
 
-    def organization_name(self, user: User):
+    def current_organization(self, user: User):
         if not user.organization:
-            return "No Organization"
+            return "None"
 
         return format_html(
             '<a href="/admin/posthog/organization/{}/change/">{}</a>', user.organization.pk, user.organization.name
         )
-
-    def org_count(self, user: User) -> int:
-        return user.organization_memberships.count()
-
-
-class OrganizationMemberInline(admin.TabularInline):
-    extra = 0
-    model = Organization.members.through
 
 
 class OrganizationTeamInline(admin.TabularInline):
