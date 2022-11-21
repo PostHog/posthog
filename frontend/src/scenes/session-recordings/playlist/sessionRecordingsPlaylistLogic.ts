@@ -37,6 +37,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     }),
     actions({
+        getPlaylist: true,
         setPlaylist: (playlist: SessionRecordingPlaylistType | null) => ({ playlist }),
         setFilters: (filters: RecordingFilters | null) => ({ filters }),
         saveChanges: true,
@@ -58,6 +59,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     })),
 
     listeners(({ actions, values, props }) => ({
+        getPlaylist: () => {
+            actions.loadSavedPlaylist(props.shortId)
+        },
         saveChanges: () => {
             actions.updateSavedPlaylist({ short_id: props.shortId, filters: values.filters || undefined })
         },
@@ -111,7 +115,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     })),
 
-    afterMount(({ actions, props }) => {
-        actions.loadSavedPlaylist(props.shortId)
+    afterMount(({ actions }) => {
+        actions.getPlaylist()
     }),
 ])

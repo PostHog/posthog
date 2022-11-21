@@ -13,6 +13,7 @@ import {
 } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
 import { SessionRecordingPlayerLogicProps } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'add-to-playlist', 'playerAddToPlaylistLogic', key]),
@@ -74,7 +75,7 @@ export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
                 playlist
             )
         },
-        addRecordingToPlaylistSuccess: ({ _recordingModel }) => {
+        addRecordingToPlaylistSuccess: ({ _recordingModel, payload }) => {
             if (_recordingModel.playlists) {
                 actions.setRecordingMeta({
                     metadata: {
@@ -82,6 +83,11 @@ export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
                         playlists: [..._recordingModel.playlists],
                     },
                 })
+                // Update playlist if playlist detail page is mounted
+                payload?.playlist?.short_id &&
+                    sessionRecordingsPlaylistLogic
+                        .findMounted({ shortId: payload.playlist.short_id })
+                        ?.actions?.getPlaylist()
             }
         },
         removeFromPlaylist: async ({ playlist }) => {
@@ -93,7 +99,7 @@ export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
                 playlist
             )
         },
-        removeRecordingFromPlaylistSuccess: ({ _recordingModel }) => {
+        removeRecordingFromPlaylistSuccess: ({ _recordingModel, payload }) => {
             if (_recordingModel.playlists) {
                 actions.setRecordingMeta({
                     metadata: {
@@ -101,6 +107,11 @@ export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
                         playlists: [..._recordingModel.playlists],
                     },
                 })
+                // Update playlist if playlist detail page is mounted
+                payload?.playlist?.short_id &&
+                    sessionRecordingsPlaylistLogic
+                        .findMounted({ shortId: payload.playlist.short_id })
+                        ?.actions?.getPlaylist()
             }
         },
     })),

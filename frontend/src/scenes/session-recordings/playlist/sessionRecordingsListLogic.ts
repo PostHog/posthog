@@ -1,6 +1,6 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import api, { PaginatedResponse } from 'lib/api'
-import { toParams } from 'lib/utils'
+import { objectsEqual, toParams } from 'lib/utils'
 import {
     PropertyFilter,
     PropertyFilterType,
@@ -106,6 +106,11 @@ export interface SessionRecordingListLogicProps {
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsListLogic', key]),
     props({} as SessionRecordingListLogicProps),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.staticRecordings && !objectsEqual(props.staticRecordings, oldProps.staticRecordings)) {
+            actions.getSessionRecordings({ static_recordings: props.staticRecordings })
+        }
+    }),
     key((props) => `${props.key}-${props.updateSearchParams ?? '-with-search'}`),
     connect({
         actions: [
@@ -114,7 +119,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         ],
     }),
     actions({
-        getSessionRecordings: true,
+        getSessionRecordings: (filters: Partial<RecordingFilters>) => ({ filters }),
         setFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
         replaceFilters: (filters: RecordingFilters) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
@@ -131,12 +136,13 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 has_next: false,
             } as SessionRecordingsResponse,
             {
-                getSessionRecordings: async (_, breakpoint) => {
+                getSessionRecordings: async ({ filters: nextFilters }, breakpoint) => {
                     const paramsDict = {
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
                         limit: PLAYLIST_LIMIT,
                         static_recordings: props.staticRecordings ?? undefined,
+                        ...nextFilters,
                     }
                     const params = toParams(paramsDict)
                     await breakpoint(100) // Debounce for lots of quick filter changes
@@ -230,10 +236,10 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     })),
     listeners(({ actions, values }) => ({
         setFilters: () => {
-            actions.getSessionRecordings()
+            actions.getSessionRecordings({})
         },
         replaceFilters: () => {
-            actions.getSessionRecordings()
+            actions.getSessionRecordings({})
         },
         loadNext: () => {
             actions.setFilters({
@@ -294,7 +300,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     }),
 
     afterMount(({ actions }) => {
-        actions.getSessionRecordings()
+        actions.getSessionRecordings({})
     }),
 
     actionToUrl(({ props, values }) => {
