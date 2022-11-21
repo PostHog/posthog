@@ -4848,7 +4848,7 @@ def trend_test_factory(trends):
             with self.assertRaises(ValidationError):
                 trends().run(Filter(data={"events": [{"id": "sign up", "math": "sum"}]}), self.team)
 
-        @patch("posthog.queries.trends.trends.sync_execute")
+        @patch("posthog.queries.trends.trends.insight_sync_execute")
         def test_should_throw_exception(self, patch_sync_execute):
             self._create_events()
             patch_sync_execute.side_effect = Exception()
