@@ -121,12 +121,11 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
     def _run_query(self, filter: Filter, team: Team, entity: Entity) -> List[Dict[str, Any]]:
         adjusted_filter, cached_result = self.adjusted_filter(filter, team)
-        sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
         with push_scope() as scope:
+            query_type, sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
             scope.set_context("filter", filter.to_dict())
             scope.set_tag("team", team)
             scope.set_context("query", {"sql": sql, "params": params})
-            query_type, sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
             result = insight_sync_execute(
                 sql,
                 params,
