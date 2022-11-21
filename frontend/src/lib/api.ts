@@ -56,7 +56,6 @@ export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
 
 export interface ApiMethodOptions {
     signal?: AbortSignal
-    returnFetchResponse?: boolean
 }
 
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
