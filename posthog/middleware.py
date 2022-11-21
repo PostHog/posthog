@@ -163,7 +163,12 @@ class CHQueries:
         route = resolve(request.path)
         route_id = f"{route.route} ({route.func.__name__})"
 
-        tag_queries(user_id=request.user.pk, kind="request", id=request.path)
+        tag_queries(
+            user_id=request.user.pk,
+            kind="request",
+            id=request.path,
+            route_id=route.route,
+        )
 
         response: HttpResponse = self.get_response(request)
 
