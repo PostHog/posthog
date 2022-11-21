@@ -390,14 +390,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             playlist2 = SessionRecordingPlaylist.objects.create(
                 team=self.team, name="playlist2", created_by=self.user, is_static=True
             )
-            dynamic_playlist = SessionRecordingPlaylist.objects.create(
-                team=self.team, name="dynamic", created_by=self.user
-            )
 
             # Add to playlists 1 and 2
             response_data = self.client.patch(
                 f"/api/projects/{self.team.id}/session_recordings/1",
-                {"playlists": [playlist1.id, playlist2.id, dynamic_playlist.id]},
+                {"playlists": [playlist1.id, playlist2.id]},
             ).json()
             self.assertEqual(response_data["result"]["session_recording"]["playlists"], [playlist1.id, playlist2.id])
 
@@ -438,10 +435,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             ).json()
 
             # Fetch playlist
-            response_data = self.client.get(
+            response = self.client.get(
                 f"/api/projects/{self.team.id}/session_recordings",
                 data={"static_recordings": [{id: "1"}, {id: "2"}, {id: "3"}]},
-            ).json()
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_data = response.json()
 
             self.assertEqual(len(response_data["results"]), 3)
             self.assertEqual(response_data["results"][0]["id"], "1")
