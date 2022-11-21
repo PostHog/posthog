@@ -337,6 +337,7 @@ export const createOrganization = async (pgClient: Pool) => {
 
 export const createTeam = async (pgClient: Pool, organizationId: string, token?: string) => {
     const team = await insertRow(pgClient, 'posthog_team', {
+        id: Math.round(Math.random() * 10000000),
         organization_id: organizationId,
         app_urls: [],
         name: 'TEST PROJECT',
