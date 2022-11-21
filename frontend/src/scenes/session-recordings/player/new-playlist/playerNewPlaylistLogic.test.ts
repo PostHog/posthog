@@ -46,7 +46,46 @@ describe('playerNewPlaylistLogic', () => {
             logic = playerNewPlaylistLogic()
             logic.mount()
         })
-        it('createPlaylist', async () => {})
-        it('createAndGoToPlaylist', () => {})
+        it('createPlaylist', async () => {
+            await expectLogic(logic, async () => {
+                await logic.actions.setNewPlaylistValues({
+                    name: 'blah',
+                    description: 'blah description',
+                    is_static: true,
+                })
+                logic.actions.submitNewPlaylist()
+            }).toDispatchActions(['setNewPlaylistValues', 'submitNewPlaylist', 'submitNewPlaylistSuccess'])
+        })
+        it('createPlaylist with no name', async () => {
+            await expectLogic(logic, async () => {
+                await logic.actions.setNewPlaylistValues({
+                    description: 'blah description',
+                    is_static: true,
+                })
+                logic.actions.submitNewPlaylist()
+            })
+                .toDispatchActions(['setNewPlaylistValues', 'submitNewPlaylist', 'submitNewPlaylistFailure'])
+                .toMatchValues({
+                    newPlaylistErrors: {
+                        name: 'Please give your playlist a name.',
+                    },
+                })
+        })
+        it('createAndGoToPlaylist', async () => {
+            await expectLogic(logic, async () => {
+                await logic.actions.setNewPlaylistValues({
+                    name: 'blah',
+                    description: 'blah description',
+                })
+                logic.actions.createAndGoToPlaylist()
+            })
+                .toDispatchActions(['setNewPlaylistValue'])
+                .toMatchValues({
+                    newPlaylist: expect.objectContaining({
+                        show: true,
+                    }),
+                })
+                .toDispatchActions(['submitNewPlaylist', 'submitNewPlaylistSuccess'])
+        })
     })
 })
