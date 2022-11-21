@@ -11,10 +11,11 @@ export interface QueryProps {
     setQuery?: (node: Node) => void
 }
 
-export function Query({ query, setQuery }: QueryProps): JSX.Element {
+export function Query(props: QueryProps): JSX.Element {
+    const { query, setQuery } = props
     if (typeof query === 'string') {
         try {
-            return <Query query={JSON.parse(query)} setQuery={setQuery} />
+            return <Query {...props} query={JSON.parse(query)} />
         } catch (e: any) {
             return <div className="border border-danger p-4 text-danger">Error parsing JSON: {e.message}</div>
         }
