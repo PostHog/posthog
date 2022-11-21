@@ -1,5 +1,5 @@
 import { kea, props, path, key, actions, reducers, selectors, afterMount, connect, listeners } from 'kea'
-import { SessionRecordingPlaylistType, SessionRecordingType } from '~/types'
+import { SessionRecordingPlaylistType } from '~/types'
 import type { playerAddToPlaylistLogicType } from './playerAddToPlaylistLogicType'
 import FuseClass from 'fuse.js'
 import { Fuse } from 'lib/components/AddToDashboard/addToDashboardModalLogic'
@@ -35,10 +35,7 @@ export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
         values: [sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }), ['sessionPlayerMetaData']],
     })),
     actions(() => ({
-        addNewPlaylist: true,
         setSearchQuery: (query: string) => ({ query }),
-        setRecording: (recording: SessionRecordingType) => ({ recording }),
-        setScrollIndex: (index: number) => ({ index }),
         addToPlaylist: (playlist: PlaylistTypeWithIds) => ({ playlist }),
         removeFromPlaylist: (playlist: PlaylistTypeWithIds) => ({ playlist }),
     })),
@@ -55,7 +52,6 @@ export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
     })),
     reducers(() => ({
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
-        scrollIndex: [-1 as number, { setScrollIndex: (_, { index }) => index }],
         playlistWithActiveAPICall: [
             null as number | null,
             {

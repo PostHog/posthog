@@ -19,13 +19,11 @@ interface PlaylistRelationRowProps {
     playlist: SessionRecordingPlaylistType
     sessionRecordingId: SessionRecordingPlayerLogicProps['sessionRecordingId']
     playerKey: SessionRecordingPlayerLogicProps['playerKey']
-    isHighlighted: boolean
     isAlreadyOnPlaylist: boolean
     style: CSSProperties
 }
 
 const PlaylistRelationRow = ({
-    isHighlighted,
     isAlreadyOnPlaylist,
     playlist,
     style,
@@ -40,11 +38,7 @@ const PlaylistRelationRow = ({
     const { playlistWithActiveAPICall } = useValues(logic)
 
     return (
-        <div
-            data-attr="dashboard-list-item"
-            style={style}
-            className={clsx('flex items-center space-x-2', isHighlighted && 'highlighted')}
-        >
+        <div data-attr="dashboard-list-item" style={style} className={clsx('flex items-center space-x-2')}>
             <Link to={urls.sessionRecordingPlaylist(playlist.short_id)}>
                 {playlist.name || playlist.derived_name || 'Untitled'}
             </Link>
@@ -89,7 +83,6 @@ function AddRecordingToPlaylist({
                 playlist={orderedPlaylists[rowIndex]}
                 sessionRecordingId={sessionRecordingId}
                 playerKey={playerKey}
-                isHighlighted={rowIndex === scrollIndex}
                 isAlreadyOnPlaylist={currentPlaylists.some(
                     (currentPlaylist) => currentPlaylist.id === orderedPlaylists[rowIndex].id
                 )}
