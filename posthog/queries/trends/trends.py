@@ -147,7 +147,9 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         return merged_results
 
-    def _run_query_for_threading(self, result: List, index: int, query_type, sql, params, client_query_id: str, team_id: int):
+    def _run_query_for_threading(
+        self, result: List, index: int, query_type, sql, params, client_query_id: str, team_id: int
+    ):
         with push_scope() as scope:
             scope.set_context("query", {"sql": sql, "params": params})
             result[index] = insight_sync_execute(
