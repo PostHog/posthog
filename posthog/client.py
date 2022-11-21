@@ -504,11 +504,7 @@ def _annotate_tagged_query(query, args):
     Adds in a /* */ so we can look in clickhouses `system.query_log`
     to easily marry up to the generating code.
     """
-    from copy import copy
-
-    tags = copy(get_query_tags())
-    if isinstance(args, dict) and "team_id" in args:
-        tags["team_id"] = args["team_id"]
+    tags = get_query_tags()
     # Annotate the query with information on the request/task
     if "kind" in tags:
         user_id = f" user_id:{tags['user_id']}" if "user_id" in tags else ""
