@@ -152,11 +152,7 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
 
 
 class UnexpectedEmptyJsonResponse(Exception):
-    def __init__(self, message: str, response: requests.models.Response) -> None:
-        super().__init__(message)
-
-        self.response = response
-        self.response_text = response.text
+    pass
 
 
 def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: int = 3_500) -> None:
@@ -190,7 +186,15 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
         data = response.json()
 
         if not data:
-            raise UnexpectedEmptyJsonResponse("JSON is None when calling API for data", response)
+            unexpected_empty_json_response = UnexpectedEmptyJsonResponse("JSON is None when calling API for data")
+            logger.error(
+                "csv_exporter.json_was_none",
+                exc=unexpected_empty_json_response,
+                exc_info=True,
+                response_text=response.text,
+            )
+
+            raise unexpected_empty_json_response
 
         csv_rows = _convert_response_to_csv_data(data)
 
