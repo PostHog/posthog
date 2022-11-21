@@ -1,5 +1,5 @@
 import { isBreakpoint, kea } from 'kea'
-import api from 'lib/api'
+import api, { getJSONOrThrow } from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { router } from 'kea-router'
 import { clearDOMTextSelection, isUserLoggedIn, toParams, uuid } from 'lib/utils'
@@ -139,7 +139,9 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     try {
                         // :TODO: Send dashboardQueryId forward as well if refreshing
                         const apiUrl = values.apiUrl(refresh)
-                        const dashboard: DashboardType = await api.get(apiUrl, { includeResponseReference: true })
+                        const dashboardRaw: Response = await api.getRaw(apiUrl)
+                        const dashboard: DashboardType = await getJSONOrThrow(dashboardRaw)
+
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
                         const lastRefresh = sortDates(dashboard.tiles.map((tile) => tile.last_refresh))
 
@@ -868,9 +870,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 try {
                     breakpoint()
 
-                    const refreshedInsight: InsightModel = await api.get(apiUrl, {
-                        includeResponseReference: true,
-                    })
+                    const refreshedInsightRaw: Response = await api.getRaw(apiUrl)
+                    const refreshedInsight: InsightModel = await getJSONOrThrow(refreshedInsightRaw)
                     breakpoint()
                     // reload the cached results inside the insight's logic
                     if (insight.filters.insight) {

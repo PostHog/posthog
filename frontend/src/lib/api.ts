@@ -954,7 +954,7 @@ const api = {
         return await getJSONOrThrow(res)
     },
 
-    async createRaw(url: string, data?: any, options?: ApiMethodOptions): Promise<any> {
+    async createRaw(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
