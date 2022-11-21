@@ -15,6 +15,11 @@ def include_dict(f):
     return f
 
 
+def include_query_tags(f):
+    f.include_query_tags = True
+    return f
+
+
 def process_bool(bool_to_test: Optional[Union[str, bool]]) -> bool:
     if isinstance(bool_to_test, bool):
         return bool_to_test

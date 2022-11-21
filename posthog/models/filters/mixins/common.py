@@ -48,7 +48,7 @@ from posthog.constants import (
 )
 from posthog.models.entity import Entity, ExclusionEntity, MathType
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
-from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
+from posthog.models.filters.mixins.utils import cached_property, include_dict, include_query_tags, process_bool
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse_with_delta_mapping
 
@@ -391,6 +391,13 @@ class DateMixin(BaseParamMixin):
             result_dict.update({EXPLICIT_DATE: "true"})
 
         return result_dict
+
+    @include_query_tags
+    def query_tags_dates(self):
+        if self.date_from and self.date_to:
+            delta = self.date_to - self.date_to
+            return {"query_time_range_days": delta.days}
+        return {}
 
 
 class EntitiesMixin(BaseParamMixin):
