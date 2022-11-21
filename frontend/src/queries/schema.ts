@@ -7,7 +7,6 @@ import {
     EntityType,
     EventType,
     FunnelsFilterType,
-    InsightShortId,
     IntervalType,
     LifecycleFilterType,
     PathsFilterType,
@@ -25,7 +24,6 @@ export enum NodeKind {
     // Interface nodes
     EventsTableNode = 'EventsTableNode',
     LegacyQuery = 'LegacyQuery',
-    SavedInsightNode = 'SavedInsightNode',
 
     // New queries, not yet implemented
     FunnelsQuery = 'FunnelsQuery',
@@ -45,7 +43,6 @@ export type QuerySchema =
     // Interface nodes
     | EventsTableNode
     | LegacyQuery
-    | SavedInsightNode
 
     // New queries, not yet implemented
     | TrendsQuery
@@ -93,11 +90,6 @@ export interface ActionNode extends DataNode {
 export interface LegacyQuery extends Node {
     kind: NodeKind.LegacyQuery
     filters: AnyPartialFilterType
-}
-
-export interface SavedInsightNode extends Node {
-    kind: NodeKind.SavedInsightNode
-    shortId: InsightShortId
 }
 
 export interface EventsTableNode extends Node {

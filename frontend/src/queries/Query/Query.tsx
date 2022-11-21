@@ -1,6 +1,5 @@
-import { isDataNode, isEventsTableNode, isLegacyQuery, isSavedInsightNode } from '../utils'
+import { isDataNode, isEventsTableNode, isLegacyQuery } from '../utils'
 import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery'
-import { SavedInsightQuery } from '~/queries/nodes/SavedInsightQuery'
 import { EventsTableQuery } from '~/queries/nodes/EventsTableQuery'
 import { DataNodeQuery } from '~/queries/nodes/DataNodeQuery'
 import { Node } from '~/queries/schema'
@@ -23,8 +22,6 @@ export function Query(props: QueryProps): JSX.Element {
     let component
     if (isLegacyQuery(query)) {
         component = <LegacyInsightQuery query={query} />
-    } else if (isSavedInsightNode(query)) {
-        component = <SavedInsightQuery query={query} />
     } else if (isEventsTableNode(query)) {
         component = <EventsTableQuery query={query} setQuery={setQuery} />
     } else if (isDataNode(query)) {

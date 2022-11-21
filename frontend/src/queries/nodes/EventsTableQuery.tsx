@@ -9,9 +9,11 @@ interface EventsTableQueryProps {
 }
 
 let uniqueNode = 0
+
 export function EventsTableQuery({ query }: EventsTableQueryProps): JSX.Element {
     const [id] = useState(uniqueNode++)
 
+    // TODO: replace this with something that actually uses the query
     return (
         <EventsTable
             pageKey={`events-node-${id}`}

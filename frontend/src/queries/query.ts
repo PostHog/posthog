@@ -1,7 +1,8 @@
 import { DataNode } from './schema'
 import { isEventsNode, isLegacyQuery } from './utils'
-import api from 'lib/api'
+import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
+import { AnyPartialFilterType } from '~/types'
 import {
     filterTrendsClientSideParams,
     isFunnelsFilter,
@@ -13,37 +14,50 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { toParams } from 'lib/utils'
 
-export async function query<N extends DataNode>(
-    query: N,
-    teamId: number = getCurrentTeamId(),
-    abortSignal?: AbortSignal
-): Promise<N['response']> {
-    if (isLegacyQuery(query)) {
-        const { filters } = query
-        if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
-            return await api.get(
-                `api/projects/${teamId}/insights/trend/?${toParams(filterTrendsClientSideParams(filters))}`,
-                { signal: abortSignal }
-            )
-        } else if (isRetentionFilter(filters)) {
-            return await api.get(`api/projects/${teamId}/insights/retention/?${toParams(filters)}`, {
-                signal: abortSignal,
-            })
-        } else if (isFunnelsFilter(filters)) {
-            // @ts-expect-error "refresh" is not part of FilterType, but is here anyway
-            const { refresh, ...bodyParams } = filters
-            return await api.create(
-                `api/projects/${teamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`,
-                bodyParams,
-                { signal: abortSignal }
-            )
-        } else if (isPathsFilter(filters)) {
-            return await api.create(`api/projects/${teamId}/insights/path`, filters, { signal: abortSignal })
-        } else {
-            throw new Error(`Cannot load insight of type ${filters.insight}`)
-        }
-    } else if (isEventsNode(query)) {
+// Return data for a given query
+export async function query<N extends DataNode>(query: N, methodOptions?: ApiMethodOptions): Promise<N['response']> {
+    if (isEventsNode(query)) {
         return await api.events.list({ properties: query.properties })
+    } else if (isLegacyQuery(query)) {
+        const [response] = await legacyInsightQuery({
+            filters: query.filters,
+            currentTeamId: getCurrentTeamId(),
+            methodOptions,
+        })
+        return await response.json()
     }
-    return await api.create(`api/projects/${teamId}/query/`, { query }, { signal: abortSignal })
+    throw new Error(`Unsupported query: ${query.kind}`)
+}
+
+interface LegacyInsightQueryParams {
+    filters: AnyPartialFilterType
+    currentTeamId: number
+    methodOptions?: ApiMethodOptions
+    refresh?: boolean
+}
+
+export async function legacyInsightQuery({
+    filters,
+    currentTeamId,
+    methodOptions,
+    refresh,
+}: LegacyInsightQueryParams): Promise<[Response, string]> {
+    let apiUrl: string
+    let fetchResponse: Response
+    if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
+        apiUrl = `api/projects/${currentTeamId}/insights/trend/?${toParams(filterTrendsClientSideParams(filters))}`
+        fetchResponse = await api.getResponse(apiUrl, methodOptions)
+    } else if (isRetentionFilter(filters)) {
+        apiUrl = `api/projects/${currentTeamId}/insights/retention/?${toParams(filters)}`
+        fetchResponse = await api.getResponse(apiUrl, methodOptions)
+    } else if (isFunnelsFilter(filters)) {
+        apiUrl = `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`
+        fetchResponse = await api.createResponse(apiUrl, filters, methodOptions)
+    } else if (isPathsFilter(filters)) {
+        apiUrl = `api/projects/${currentTeamId}/insights/path`
+        fetchResponse = await api.createResponse(apiUrl, filters, methodOptions)
+    } else {
+        throw new Error(`Unsupported insight type: ${filters.insight}`)
+    }
+    return [fetchResponse, apiUrl]
 }

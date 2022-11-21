@@ -1,12 +1,4 @@
-import {
-    ActionNode,
-    EventsNode,
-    EventsTableNode,
-    LegacyQuery,
-    Node,
-    NodeKind,
-    SavedInsightNode,
-} from '~/queries/schema'
+import { ActionNode, EventsNode, EventsTableNode, LegacyQuery, Node, NodeKind } from '~/queries/schema'
 
 export function isDataNode(node?: Node): node is EventsNode | ActionNode {
     return isEventsNode(node) || isActionNode(node)
@@ -26,8 +18,4 @@ export function isActionNode(node?: Node): node is ActionNode {
 
 export function isLegacyQuery(node?: Node): node is LegacyQuery {
     return node?.kind === NodeKind.LegacyQuery
-}
-
-export function isSavedInsightNode(node?: Node): node is SavedInsightNode {
-    return node?.kind === NodeKind.SavedInsightNode
 }

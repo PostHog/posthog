@@ -4,6 +4,7 @@ import { BindLogic } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { AdHocInsight } from 'lib/components/AdHocInsight/AdHocInsight'
 
+/** Given a FilterType, display a graph. */
 export function LegacyInsightQuery({ query }: { query: LegacyQuery }): JSX.Element {
     const insightProps: InsightLogicProps = { dashboardItemId: 'new', cachedInsight: { filters: query.filters } }
     return (

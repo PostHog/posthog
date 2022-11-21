@@ -57,8 +57,7 @@ import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { insightsModel } from '~/models/insightsModel'
 import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { loaders } from 'kea-loaders'
-import { LegacyQuery, NodeKind } from '~/queries/schema'
-import { query } from '~/queries/query'
+import { legacyInsightQuery } from '~/queries/query'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -302,7 +301,6 @@ export const insightLogic = kea<insightLogicType>([
                     const { filters } = values
 
                     const insight = (filters.insight as InsightType | undefined) || InsightType.TRENDS
-                    const params = { ...filters, ...(refresh ? { refresh: true } : {}), client_query_id: queryId }
 
                     const dashboardItemId = props.dashboardItemId
                     actions.startQuery(queryId)
@@ -330,43 +328,18 @@ export const insightLogic = kea<insightLogicType>([
                             // This makes sure we update the insight's cache key if we get new default filters.
                             apiUrl = `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`
                             fetchResponse = await api.getResponse(apiUrl, methodOptions)
-                        } else if (
-                            isTrendsFilter(filters) ||
-                            isStickinessFilter(filters) ||
-                            isLifecycleFilter(filters)
-                        ) {
-                            apiUrl = `api/projects/${currentTeamId}/insights/trend/?${toParams(
-                                filterTrendsClientSideParams(params)
-                            )}`
-                            fetchResponse = await api.getResponse(apiUrl, methodOptions)
-                        } else if (isRetentionFilter(filters)) {
-                            apiUrl = `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`
-                            fetchResponse = await api.getResponse(apiUrl, methodOptions)
-                        } else if (isFunnelsFilter(filters)) {
-                            const { refresh, ...bodyParams } = params
-                            apiUrl = `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`
-                            fetchResponse = await api.createResponse(apiUrl, bodyParams, methodOptions)
-                        } else if (isPathsFilter(filters)) {
-                            apiUrl = `api/projects/${currentTeamId}/insights/path`
-                            fetchResponse = await api.createResponse(apiUrl, params, methodOptions)
                         } else {
-                            const queryNode: LegacyQuery = {
-                                kind: NodeKind.LegacyQuery,
-                                filters: filterTrendsClientSideParams(params),
+                            const params = {
+                                ...filters,
+                                ...(refresh ? { refresh: true } : {}),
+                                client_query_id: queryId,
                             }
-                            response = await query(queryNode, currentTeamId, methodOptions.signal)
-                            // TODO: these will all point to one API endpoint,
-                            const urls: Record<InsightType, string> = {
-                                [InsightType.FUNNELS]: 'funnel',
-                                [InsightType.LIFECYCLE]: 'trend',
-                                [InsightType.PATHS]: 'path',
-                                [InsightType.RETENTION]: 'retention',
-                                [InsightType.STICKINESS]: 'trend',
-                                [InsightType.TRENDS]: 'trend',
-                            }
-                            apiUrl = `api/projects/${currentTeamId}/insights/${
-                                urls[queryNode.filters.insight || InsightType.TRENDS]
-                            }/`
+                            ;[fetchResponse, apiUrl] = await legacyInsightQuery({
+                                filters: params,
+                                currentTeamId,
+                                methodOptions,
+                                refresh,
+                            })
                         }
                         response = await getJSONOrThrow(fetchResponse)
                     } catch (e: any) {
