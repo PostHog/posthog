@@ -6,12 +6,16 @@ from typing import Any, Dict, List
 from sentry_sdk import push_scope
 
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
-from posthog.client import sync_execute
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.breakdown_props import get_breakdown_cohort_name
+<<<<<<< HEAD
 from posthog.queries.trends.util import ensure_value_is_json_serializable, parse_response
+=======
+from posthog.queries.insight import insight_sync_execute
+from posthog.queries.trends.util import parse_response
+>>>>>>> dc09e6181... Tag trends formula query
 
 
 class TrendsFormula:
@@ -73,7 +77,12 @@ class TrendsFormula:
             scope.set_context("filter", filter.to_dict())
             scope.set_tag("team", team)
             scope.set_context("query", {"sql": sql, "params": params})
-            result = sync_execute(sql, params)
+            result = insight_sync_execute(
+                sql,
+                params,
+                query_type="trends_formula",
+                filter=filter,
+            )
             response = []
             for item in result:
                 additional_values: Dict[str, Any] = {"label": self._label(filter, item)}
