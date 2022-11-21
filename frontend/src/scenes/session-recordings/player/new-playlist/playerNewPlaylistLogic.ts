@@ -1,10 +1,11 @@
 import { actions, connect, kea, key, listeners, path, props } from 'kea'
-import { SessionRecordingPlaylistType } from '~/types'
+import { SessionRecordingPlaylistType, SessionRecordingsTabs } from '~/types'
 import { forms } from 'kea-forms'
 import type { playerNewPlaylistLogicType } from './playerNewPlaylistLogicType'
 import { playerAddToPlaylistLogic } from 'scenes/session-recordings/player/add-to-playlist/playerAddToPlaylistLogic'
 import { savedSessionRecordingPlaylistModelLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
 import { SessionRecordingPlayerLogicProps } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 export interface NewPlaylistForm extends Pick<SessionRecordingPlaylistType, 'name' | 'description' | 'is_static'> {
     show: boolean
@@ -45,6 +46,9 @@ export const playerNewPlaylistLogic = kea<playerNewPlaylistLogicType>([
 
                 actions.resetNewPlaylist()
                 playerAddToPlaylistLogic.findMounted(props)?.actions?.loadPlaylists({})
+                savedSessionRecordingPlaylistsLogic
+                    .findMounted({ tab: SessionRecordingsTabs.Playlists })
+                    ?.actions?.loadPlaylists()
                 breakpoint()
             },
         },

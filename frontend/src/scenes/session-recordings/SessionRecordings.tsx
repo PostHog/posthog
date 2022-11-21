@@ -55,7 +55,10 @@ export function SessionsRecordings(): JSX.Element {
                                     if (tab === SessionRecordingsTabs.Recent) {
                                         saveNewPlaylist()
                                     } else {
-                                        openPlayerNewPlaylistDialog({})
+                                        openPlayerNewPlaylistDialog({
+                                            sessionRecordingId: 'global',
+                                            playerKey: 'recents',
+                                        })
                                     }
                                 }}
                                 loading={newPlaylistLoading}
