@@ -66,14 +66,8 @@ function AddRecordingToPlaylist({
 }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logic = playerAddToPlaylistLogic({ sessionRecordingId, playerKey, recordingStartTime })
 
-    const {
-        searchQuery,
-        currentPlaylists,
-        orderedPlaylists,
-        scrollIndex,
-        playlistsResponseLoading,
-        sessionPlayerMetaData,
-    } = useValues(logic)
+    const { searchQuery, currentPlaylists, orderedPlaylists, playlistsResponseLoading, sessionPlayerMetaData } =
+        useValues(logic)
     const { setSearchQuery } = useActions(logic)
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
@@ -120,7 +114,6 @@ function AddRecordingToPlaylist({
                                 overscanRowCount={100}
                                 rowHeight={40}
                                 rowRenderer={renderItem}
-                                scrollToIndex={scrollIndex}
                             />
                         )}
                     </AutoSizer>
