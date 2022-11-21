@@ -100,6 +100,10 @@ class ClientQueryIdMixin(BaseParamMixin):
     def client_query_id(self) -> Optional[str]:
         return self._data.get(CLIENT_QUERY_ID, None)
 
+    @include_query_tags
+    def client_query_tags(self):
+        return {"client_query_id": self.client_query_id} if self.client_query_id else {}
+
 
 class FilterTestAccountsMixin(BaseParamMixin):
     @cached_property
@@ -456,7 +460,7 @@ class EntitiesMixin(BaseParamMixin):
             **({"exclusions": [entity.to_dict() for entity in self.exclusions]} if len(self.exclusions) > 0 else {}),
         }
 
-    @include_dict
+    @include_query_tags
     def entities_query_tags(self):
         return {"entity_math": list(set(entity.math for entity in self.entities if entity.math))}
 
