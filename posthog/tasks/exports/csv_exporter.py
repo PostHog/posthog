@@ -183,7 +183,7 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
             raise Exception(f"export API call failed with status_code: {response.status_code}. {response_json}")
 
         # Figure out how to handle funnel polling....
-        data = []  # response.json()
+        data = response.json()
 
         if data is None:
             unexpected_empty_json_response = UnexpectedEmptyJsonResponse("JSON is None when calling API for data")
