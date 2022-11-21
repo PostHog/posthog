@@ -10,12 +10,8 @@ from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.breakdown_props import get_breakdown_cohort_name
-<<<<<<< HEAD
-from posthog.queries.trends.util import ensure_value_is_json_serializable, parse_response
-=======
 from posthog.queries.insight import insight_sync_execute
-from posthog.queries.trends.util import parse_response
->>>>>>> dc09e6181... Tag trends formula query
+from posthog.queries.trends.util import ensure_value_is_json_serializable, parse_response
 
 
 class TrendsFormula:
