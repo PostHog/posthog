@@ -1,4 +1,5 @@
 from datetime import timedelta, timezone
+from urllib.parse import urlencode
 
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
@@ -416,29 +417,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             self.create_snapshot("user", "1", now() - relativedelta(days=1))
             self.create_snapshot("user", "2", now() - relativedelta(days=2))
             self.create_snapshot("user", "3", now() - relativedelta(days=3))
-            playlist = SessionRecordingPlaylist.objects.create(
-                team=self.team, name="playlist1", created_by=self.user, is_static=True
-            )
-
-            # Add all recordings to playlist
-            self.client.patch(
-                f"/api/projects/{self.team.id}/session_recordings/1",
-                {"playlists": [playlist.id]},
-            ).json()
-            self.client.patch(
-                f"/api/projects/{self.team.id}/session_recordings/2",
-                {"playlists": [playlist.id]},
-            ).json()
-            self.client.patch(
-                f"/api/projects/{self.team.id}/session_recordings/3",
-                {"playlists": [playlist.id]},
-            ).json()
 
             # Fetch playlist
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/session_recordings",
-                data={"static_recordings": [{id: "1"}, {id: "2"}, {id: "3"}]},
-            )
+            params_string = urlencode({"static_recordings": [{id: "1"}, {id: "2"}, {id: "3"}]})
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()
 
