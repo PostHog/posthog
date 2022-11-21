@@ -139,7 +139,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     try {
                         // :TODO: Send dashboardQueryId forward as well if refreshing
                         const apiUrl = values.apiUrl(refresh)
-                        const dashboardRaw: Response = await api.getRaw(apiUrl)
+                        const dashboardRaw: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType = await getJSONOrThrow(dashboardRaw)
 
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
@@ -870,7 +870,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 try {
                     breakpoint()
 
-                    const refreshedInsightRaw: Response = await api.getRaw(apiUrl)
+                    const refreshedInsightRaw: Response = await api.getResponse(apiUrl)
                     const refreshedInsight: InsightModel = await getJSONOrThrow(refreshedInsightRaw)
                     breakpoint()
                     // reload the cached results inside the insight's logic

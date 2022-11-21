@@ -326,7 +326,7 @@ export const insightLogic = kea<insightLogicType>([
                             // Instead of making a search for filters, reload the insight via its id if possible.
                             // This makes sure we update the insight's cache key if we get new default filters.
                             apiUrl = `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`
-                            rawResponse = await api.getRaw(apiUrl, methodOptions)
+                            rawResponse = await api.getResponse(apiUrl, methodOptions)
                         } else if (
                             isTrendsFilter(filters) ||
                             isStickinessFilter(filters) ||
@@ -335,10 +335,10 @@ export const insightLogic = kea<insightLogicType>([
                             apiUrl = `api/projects/${currentTeamId}/insights/trend/?${toParams(
                                 filterTrendsClientSideParams(params)
                             )}`
-                            rawResponse = api.getRaw(apiUrl, methodOptions)
+                            rawResponse = api.getResponse(apiUrl, methodOptions)
                         } else if (isRetentionFilter(filters)) {
                             apiUrl = `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`
-                            rawResponse = await api.getRaw(apiUrl, methodOptions)
+                            rawResponse = await api.getResponse(apiUrl, methodOptions)
                         } else if (isFunnelsFilter(filters)) {
                             const { refresh, ...bodyParams } = params
                             apiUrl = `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`

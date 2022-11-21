@@ -363,8 +363,8 @@ class ApiRequest {
         return await api.get(this.assembleFullUrl(), options)
     }
 
-    public async getRaw(options?: ApiMethodOptions): Promise<Response> {
-        return await api.getRaw(this.assembleFullUrl(), options)
+    public async getResponse(options?: ApiMethodOptions): Promise<Response> {
+        return await api.getResponse(this.assembleFullUrl(), options)
     }
 
     public async update(options?: { data: any }): Promise<any> {
@@ -900,11 +900,11 @@ const api = {
     },
 
     async get(url: string, options?: ApiMethodOptions): Promise<any> {
-        const res = await api.getRaw(url, options)
+        const res = await api.getResponse(url, options)
         return await getJSONOrThrow(res)
     },
 
-    async getRaw(url: string, options?: ApiMethodOptions): Promise<Response> {
+    async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         let response
@@ -950,11 +950,11 @@ const api = {
     },
 
     async create(url: string, data?: any, options?: ApiMethodOptions): Promise<any> {
-        const res = await api.createRaw(url, data, options)
+        const res = await api.createResponse(url, data, options)
         return await getJSONOrThrow(res)
     },
 
-    async createRaw(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
+    async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
