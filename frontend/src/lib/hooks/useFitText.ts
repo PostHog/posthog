@@ -94,7 +94,7 @@ const useFitText = ({
     }, [text])
 
     useLayoutEffect(() => {
-        // Don't start calculating font size until the `resizeKey` is incremented
+        // Don't start calculating font size until the `calcKey` is incremented
         // above in the `ResizeObserver` callback. This avoids an extra resize
         // on initialization.
         if (calcKey === 0 || finishedSeeking) {
