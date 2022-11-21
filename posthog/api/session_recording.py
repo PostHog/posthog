@@ -1,7 +1,7 @@
 import dataclasses
 import json
 from datetime import datetime
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional, Union, cast
 
 from dateutil import parser
 from rest_framework import exceptions, request, response, serializers, viewsets
@@ -100,8 +100,8 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         ).get_metadata()
 
     def _update_recording_playlists(
-        self, playlist_ids: List[str], session_id: str, recording_start_time: Optional[datetime]
-    ) -> List[str]:
+        self, request, playlist_ids: List[int], session_id: str, recording_start_time: Optional[datetime]
+    ) -> List[int]:
         session_recording = SessionRecording(
             request=request,
             team=self.team,
@@ -146,20 +146,28 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 }
             )
 
-        [
-            records_to_update.append(record) if record["id"] is not None else records_to_create.append(record)
-            for record in records
-        ]
-        [record.pop("id") for record in records_to_create]
+        for record in records:
+            if record["id"] is not None:
+                records_to_update.append(record)
+            else:
+                records_to_create.append(record)
+
+        for record in records_to_create:
+            record.pop("id")
 
         SessionRecordingPlaylistItem.objects.bulk_create(
             [
-                SessionRecordingPlaylistItem(session_id=session_id, playlist=values.get("playlist"))
+                SessionRecordingPlaylistItem(
+                    session_id=session_id, playlist=cast(SessionRecordingPlaylist, values.get("playlist"))
+                )
                 for values in records_to_create
             ]
         )
         SessionRecordingPlaylistItem.objects.bulk_update(
-            [SessionRecordingPlaylistItem(id=values.get("id"), deleted=False) for values in records_to_update],
+            [
+                SessionRecordingPlaylistItem(id=cast(int, values.get("id")), deleted=False)
+                for values in records_to_update
+            ],
             ["deleted"],
             batch_size=500,
         )
@@ -169,10 +177,12 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 deleted=True
             )
 
-        return (
-            SessionRecordingPlaylistItem.objects.filter(session_id=session_id)
-            .exclude(deleted=True)
-            .values_list("playlist_id", flat=True)
+        return list(
+            (
+                SessionRecordingPlaylistItem.objects.filter(session_id=session_id)
+                .exclude(deleted=True)
+                .values_list("playlist_id", flat=True)
+            )
         )
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -281,7 +291,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         new_playlist_ids = []
         if playlist_ids is not None:
-            new_playlist_ids = self._update_recording_playlists(playlist_ids, session_id, recording_start_time)
+            new_playlist_ids = self._update_recording_playlists(request, playlist_ids, session_id, recording_start_time)
 
         session_recording_serializer = SessionRecordingWithPlaylistsSerializer(
             data={

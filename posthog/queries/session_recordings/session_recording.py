@@ -24,7 +24,7 @@ class RecordingMetadata:
     distinct_id: str
     segments: List[RecordingSegment]
     start_and_end_times_by_window_id: Dict[WindowId, Dict]
-    playlists: List[str]
+    playlists: List[int]
 
 
 class SessionRecording:
