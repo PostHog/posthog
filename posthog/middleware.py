@@ -172,8 +172,8 @@ class CHQueries:
             route_id=route.route,
         )
 
-        if user.team:
-            tag_queries(team_id=user.team.pk)
+        if hasattr(user, "current_team_id") and user.current_team_id:
+            tag_queries(team_id=user.current_team_id)
 
         response: HttpResponse = self.get_response(request)
 
