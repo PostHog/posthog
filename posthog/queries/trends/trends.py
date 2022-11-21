@@ -9,7 +9,6 @@ from dateutil import parser
 from django.db.models.query import Prefetch
 from sentry_sdk import push_scope
 
-from posthog.client import sync_execute
 from posthog.constants import (
     NON_BREAKDOWN_DISPLAY_TYPES,
     TREND_FILTER_TYPE_ACTIONS,
@@ -148,10 +147,12 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         return merged_results
 
-    def _run_query_for_threading(self, result: List, index: int, sql, params, client_query_id: str, team_id: int):
+    def _run_query_for_threading(self, result: List, index: int, query_type, sql, params, client_query_id: str, team_id: int):
         with push_scope() as scope:
             scope.set_context("query", {"sql": sql, "params": params})
-            result[index] = sync_execute(sql, params, client_query_id=client_query_id, client_query_team_id=team_id)
+            result[index] = insight_sync_execute(
+                sql, params, query_type=query_type, client_query_id=client_query_id, client_query_team_id=team_id
+            )
 
     def _run_parallel(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         result: List[Optional[List[Dict[str, Any]]]] = [None] * len(filter.entities)
@@ -167,7 +168,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             sql_statements_with_params[entity.index] = (sql, params)
             thread = threading.Thread(
                 target=self._run_query_for_threading,
-                args=(result, entity.index, sql, params, filter.client_query_id, team.pk),
+                args=(result, entity.index, query_type, sql, params, filter.client_query_id, team.pk),
             )
             jobs.append(thread)
 
