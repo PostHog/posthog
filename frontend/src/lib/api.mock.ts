@@ -23,10 +23,10 @@ export const MOCK_TEAM_UUID: TeamType['uuid'] = 'TEAM_UUID'
 export const MOCK_ORGANIZATION_ID: OrganizationType['id'] = 'ABCD'
 
 type APIMockReturnType = {
-    [K in keyof Pick<typeof apiReal, 'create' | 'get' | 'update' | 'delete'>]: jest.Mock<
-        ReturnType<typeof apiReal[K]>,
-        Parameters<typeof apiReal[K]>
-    >
+    [K in keyof Pick<
+        typeof apiReal,
+        'create' | 'createResponse' | 'get' | 'getResponse' | 'update' | 'delete'
+    >]: jest.Mock<ReturnType<typeof apiReal[K]>, Parameters<typeof apiReal[K]>>
 }
 
 export const api = apiReal as any as APIMockReturnType

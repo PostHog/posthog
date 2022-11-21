@@ -1,5 +1,5 @@
 import { isBreakpoint, kea } from 'kea'
-import api from 'lib/api'
+import api, { getJSONOrThrow } from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { router } from 'kea-router'
 import { clearDOMTextSelection, isUserLoggedIn, toParams, uuid } from 'lib/utils'
@@ -139,7 +139,9 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     try {
                         // :TODO: Send dashboardQueryId forward as well if refreshing
                         const apiUrl = values.apiUrl(refresh)
-                        const dashboard: DashboardType = await api.get(apiUrl, { includeResponseReference: true })
+                        const dashboardResponse: Response = await api.getResponse(apiUrl)
+                        const dashboard: DashboardType = await getJSONOrThrow(dashboardResponse)
+
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
                         const lastRefresh = sortDates(dashboard.tiles.map((tile) => tile.last_refresh))
 
@@ -149,7 +151,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                             action,
                             dashboard_query_id: dashboardQueryId,
                             time_to_see_data_ms: Math.floor(performance.now() - refreshStartTime),
-                            api_response_bytes: getResponseBytes(dashboard),
+                            api_response_bytes: getResponseBytes(dashboardResponse),
                             insights_fetched: dashboard.tiles.length,
                             insights_fetched_cached: dashboard.tiles.reduce(
                                 (acc, curr) => acc + (curr.is_cached ? 1 : 0),
@@ -868,9 +870,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 try {
                     breakpoint()
 
-                    const refreshedInsight: InsightModel = await api.get(apiUrl, {
-                        includeResponseReference: true,
-                    })
+                    const refreshedInsightResponse: Response = await api.getResponse(apiUrl)
+                    const refreshedInsight: InsightModel = await getJSONOrThrow(refreshedInsightResponse)
                     breakpoint()
                     // reload the cached results inside the insight's logic
                     if (insight.filters.insight) {
@@ -899,7 +900,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         query_id: queryId,
                         status: 'success',
                         time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),
-                        api_response_bytes: getResponseBytes(refreshedInsight),
+                        api_response_bytes: getResponseBytes(refreshedInsightResponse),
                         insights_fetched: 1,
                         insights_fetched_cached: 0,
                         api_url: apiUrl,
