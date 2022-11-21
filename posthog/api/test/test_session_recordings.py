@@ -407,7 +407,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             response_data = self.client.patch(
                 f"/api/projects/{self.team.id}/session_recordings/1", {"playlists": [playlist2.id, playlist3.id]}
             ).json()
-            self.assertEqual(response_data["result"]["session_recording"]["playlists"], [playlist1.id, playlist3.id])
+            self.assertEqual(response_data["result"]["session_recording"]["playlists"], [playlist2.id, playlist3.id])
 
     def test_static_recordings_filter(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -419,7 +419,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             self.create_snapshot("user", "3", now() - relativedelta(days=3))
 
             # Fetch playlist
-            params_string = urlencode({"static_recordings": [{id: "1"}, {id: "2"}, {id: "3"}]})
+            params_string = urlencode({"static_recordings": '[{"id": "1"}, {"id": "2"}, {"id": "3"}]'})
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()

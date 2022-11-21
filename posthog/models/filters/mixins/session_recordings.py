@@ -32,6 +32,6 @@ class SessionRecordingsMixin(BaseParamMixin):
         static_recordings_str = self._data.get(SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS, "[]")
         static_recordings = json.loads(static_recordings_str)
         return [
-            MinimalStaticSessionRecording(id=recording["id"], created_at=recording["created_at"])
+            MinimalStaticSessionRecording(id=recording.get("id", None), created_at=recording.get("created_at", None))
             for recording in static_recordings
         ]
