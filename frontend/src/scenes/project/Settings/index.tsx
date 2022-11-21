@@ -77,7 +77,7 @@ export function ProjectSettings(): JSX.Element {
 
     useAnchor(location.hash)
 
-    const loadingComponent = (
+    const LoadingComponent = (): JSX.Element => (
         <div className="space-y-4">
             <LemonSkeleton className="w-1/2" />
             <LemonSkeleton repeat={3} />
@@ -96,12 +96,12 @@ export function ProjectSettings(): JSX.Element {
                 <h2 id="name" className="subtitle mt-0">
                     Display name
                 </h2>
-                {currentTeamLoading && !currentTeam ? loadingComponent : <DisplayName />}
+                {currentTeamLoading && !currentTeam ? <LoadingComponent /> : <DisplayName />}
                 <LemonDivider className="my-6" />
                 {currentTeamLoading && !currentTeam ? (
-                    loadingComponent
+                    <LoadingComponent />
                 ) : (
-                    <IngestionInfo loadingComponent={<loadingComponent />} />
+                    <IngestionInfo loadingComponent={<LoadingComponent />} />
                 )}
                 <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="timezone">

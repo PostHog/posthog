@@ -94,7 +94,7 @@ export const teamLogic = kea<teamLogicType>([
 
                     return patchedTeam
                 },
-                createTeam: async ({ name, is_demo = false }: { name: string; is_demo?: boolean }): Promise<TeamType> =>
+                createTeam: async ({ name, is_demo }: { name: string; is_demo: boolean }): Promise<TeamType> =>
                     await api.create('api/projects/', { name, is_demo }),
                 resetToken: async () => await api.update(`api/projects/${values.currentTeamId}/reset_token`, {}),
             },

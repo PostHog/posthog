@@ -7,7 +7,7 @@ import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { IconRefresh } from 'lib/components/icons'
 import { Link } from 'lib/components/Link'
 
-export function IngestionInfo(loadingComponent: JSX.Element): JSX.Element {
+export function IngestionInfo({ loadingComponent }: { loadingComponent: JSX.Element }): JSX.Element {
     const { currentTeam, currentTeamLoading, isTeamTokenResetAvailable } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
 
