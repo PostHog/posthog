@@ -151,6 +151,14 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
     return []
 
 
+class UnexpectedEmptyJsonResponse(Exception):
+    def __init__(self, message: str, response: requests.models.Response) -> None:
+        super().__init__(message)
+
+        self.response = response
+        self.response_text = response.text
+
+
 def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: int = 3_500) -> None:
     resource = exported_asset.export_context
 
@@ -180,6 +188,10 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
 
         # Figure out how to handle funnel polling....
         data = response.json()
+
+        if not data:
+            raise UnexpectedEmptyJsonResponse("JSON is None when calling API for data", response)
+
         csv_rows = _convert_response_to_csv_data(data)
 
         all_csv_rows = all_csv_rows + csv_rows
