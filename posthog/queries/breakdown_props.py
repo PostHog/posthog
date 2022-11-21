@@ -186,7 +186,7 @@ def get_breakdown_prop_values(
             **date_params,
         },
         query_type="get_breakdown_prop_values",
-        filters=filter,
+        filter=filter,
     )[0][0]
 
 

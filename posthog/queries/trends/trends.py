@@ -132,7 +132,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
                 sql,
                 params,
                 query_type=query_type,
-                filters=adjusted_filter,
+                filter=adjusted_filter,
                 client_query_id=filter.client_query_id,
                 client_query_team_id=team.pk,
             )
