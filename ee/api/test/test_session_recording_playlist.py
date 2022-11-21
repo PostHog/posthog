@@ -169,11 +169,11 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         assert result["short_id"] == playlist1.short_id
         assert result["playlist_items"] == [
             {
-                "id": int(playlist1Item1.id),
+                "id": str(playlist1Item1.id),
                 "created_at": "2022-01-01T00:00:00Z",
             },
             {
-                "id": int(playlist1Item2.id),
+                "id": str(playlist1Item2.id),
                 "created_at": "2022-01-01T00:00:00Z",
             },
         ]
@@ -185,7 +185,7 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         assert result["short_id"] == playlist2.short_id
         assert result["playlist_items"] == [
             {
-                "id": int(playlist2Item1.id),
+                "id": str(playlist2Item1.id),
                 "created_at": "2022-01-01T00:00:00Z",
             },
         ]
