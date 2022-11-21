@@ -133,6 +133,51 @@ FROM {CLICKHOUSE_DATABASE}.kafka_metrics_time_to_see_data
 )
 DROP_METRICS_TIME_TO_SEE_MV = lambda: f"DROP TABLE metrics_time_to_see_data_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
 
+METRICS_QUERY_LOG_TABLE_ENGINE = lambda: MergeTreeEngine("metrics_query_log", force_unique_zk_path=True)
+
+CREATE_METRICS_QUERY_LOG_MV = (
+    lambda: f"""
+CREATE MATERIALIZED VIEW metrics_time_to_see_data_mv
+ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+ENGINE = {METRICS_QUERY_LOG_TABLE_ENGINE()}
+SELECT
+    hostName() as hostName,
+    event_time,
+    query_duration_ms,
+    read_rows,
+    read_bytes,
+    result_rows,
+    result_bytes,
+    memory_usage,
+    query,
+    tables,
+    columns,
+    is_initial_query,
+    exception_code,
+    JSONExtractInt(log_comment, 'team_id') AS team_id,
+    JSONExtractInt(log_comment, 'user_id') AS user_id,
+    JSONExtractString(log_comment, 'kind') AS kind,
+    JSONExtractString(log_comment, 'query_type') AS query_type,
+    JSONExtractString(log_comment, 'client_query_id') AS client_query_id,
+    JSONExtractString(log_comment, 'id') AS endpoint,
+    JSONExtractString(log_comment, 'route_id') AS route_id,
+    JSONExtractInt(log_comment, 'query_time_range_days') AS query_time_range_days,
+    JSONExtractBool(log_comment, 'has_joins') AS has_joins,
+    JSONExtractBool(log_comment, 'has_json_operations') AS has_json_operations,
+    JSONExtract(log_comment, 'filter_by_type', 'Array(String)') as filter_by_type,
+    JSONExtract(log_comment, 'breakdown_by', 'Array(String)') as breakdown_by,
+    JSONExtract(log_comment, 'entity_math', 'Array(String)') as entity_math,
+    dictGet('team_events_last_month_dictionary', 'event_count', team_id) AS team_events_last_month,
+    log_comment
+FROM system.query_log
+WHERE JSONHas(log_comment, 'team_id')
+  AND JSONHas(log_comment, 'query_type')
+  AND type = 'QueryFinish'
+"""
+)
+
+DROP_METRICS_QUERY_LOG_MV = lambda: f"DROP TABLE metrics_time_to_see_data_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
+
 # :KLUDGE: Temporary tooling to make (re)creating this schema easier
 # Invoke via `python manage.py shell <  posthog/models/query_metrics/sql.py`
 if __name__ == "django.core.management.commands.shell":
@@ -143,6 +188,7 @@ if __name__ == "django.core.management.commands.shell":
             DROP_TEAM_EVENTS_LAST_MONTH_DICTIONARY,
             DROP_METRICS_TIME_TO_SEE_TABLE,
             DROP_KAFKA_METRICS_TIME_TO_SEE,
+            DROP_METRICS_TIME_TO_SEE_MV,
             DROP_METRICS_TIME_TO_SEE_MV,
         ]
     ):
@@ -156,6 +202,7 @@ if __name__ == "django.core.management.commands.shell":
         CREATE_METRICS_TIME_TO_SEE,
         CREATE_KAFKA_METRICS_TIME_TO_SEE,
         CREATE_METRICS_TIME_TO_SEE_MV,
+        CREATE_METRICS_QUERY_LOG_MV,
     ]:
         print(create_query())  # noqa: T201
         print()  # noqa: T201
