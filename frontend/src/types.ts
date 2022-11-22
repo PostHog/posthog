@@ -398,7 +398,7 @@ export enum ExperimentStatus {
 }
 
 export enum PropertyFilterType {
-    /** Event metadata (fields on the clickhouse event row) */
+    /** Event metadata and fields on the clickhouse events table */
     Meta = 'meta',
     /** Event properties */
     Event = 'event',

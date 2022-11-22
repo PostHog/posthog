@@ -15,6 +15,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { EventDetails } from 'scenes/events'
+import { EventActions } from '~/queries/nodes/DataTable/EventActions'
 
 interface DataTableProps {
     query: DataTableNode
@@ -38,12 +39,12 @@ function renderTitle(type: PropertyFilterType, key: string): JSX.Element | strin
         }
         return key
     } else if (type === PropertyFilterType.Event || type === PropertyFilterType.Element) {
-        return <PropertyKeyInfo value={key} type={type} />
+        return <PropertyKeyInfo value={key} type={type} disableIcon />
     } else if (type === PropertyFilterType.Person) {
         if (key === '') {
             return 'Person'
         } else {
-            return <PropertyKeyInfo value={key} type="event" />
+            return <PropertyKeyInfo value={key} type="event" disableIcon />
         }
     } else {
         return String(type)
@@ -71,6 +72,8 @@ function renderColumn(type: PropertyFilterType, key: string, record: EventType):
         } else {
             return String(record[key])
         }
+    } else if (type === PropertyFilterType.Event) {
+        return <Property value={record.properties[key]} />
     } else if (type === PropertyFilterType.Person) {
         if (key === '') {
             return (
@@ -81,8 +84,6 @@ function renderColumn(type: PropertyFilterType, key: string, record: EventType):
         } else {
             return <Property value={record.person?.properties[key]} />
         }
-    } else if (type === PropertyFilterType.Event) {
-        return <Property value={record.properties[key]} />
     }
     return <div>Unknown</div>
 }
@@ -91,12 +92,30 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     const columns = query.columns ? normalizeDataTableColumns(query.columns) : defaultDataTableColumns
     const showPropertyFilter = query.showPropertyFilter ?? true
     const showEventFilter = query.showEventFilter ?? true
+    const showMore = query.showMore ?? true
     const expandable = query.expandable ?? true
 
     const [id] = useState(uniqueNode++)
     const logic = dataNodeLogic({ query: query.source, key: `DataTable.${id}` })
     const { response, responseLoading } = useValues(logic)
     const rows = (response as null | EventsNode['response'])?.results ?? []
+    const lemonColumns = columns.map(({ type, key }) => ({
+        dataIndex: `${type}.${key}` as any,
+        title: renderTitle(type, key),
+        render: function RenderDataTableColumn(_: any, record: EventType) {
+            return renderColumn(type, key, record)
+        },
+    }))
+
+    if (showMore) {
+        lemonColumns.push({
+            dataIndex: 'more' as any,
+            title: '',
+            render: function RenderMore(_: any, record: EventType) {
+                return <EventActions event={record} />
+            },
+        })
+    }
 
     return (
         <>
@@ -115,13 +134,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
             )}
             <LemonTable
                 loading={responseLoading}
-                columns={columns.map(({ type, key }) => ({
-                    dataIndex: `${type}.${key}` as any,
-                    title: renderTitle(type, key),
-                    render: function RenderDataTableColumn(_: any, record: EventType) {
-                        return renderColumn(type, key, record)
-                    },
-                }))}
+                columns={lemonColumns}
                 dataSource={rows}
                 expandable={
                     expandable
