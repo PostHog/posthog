@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { KeyboardEvent, useEffect, useState } from 'react'
 import './EditableField.scss'
 import { IconEdit } from '../icons'
 import { LemonButton } from '../LemonButton'
@@ -83,7 +83,7 @@ export function EditableField({
 
     const isEditing = !paywall && (mode === 'edit' || localIsEditing)
 
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>): void => {
+    const handleKeyDown = (e: KeyboardEvent<any>): void => {
         if (isEditing) {
             // Cmd/Ctrl are required in addition to Enter if newlines are permitted
             if (isSaveable && e.key === 'Enter' && (!multiline || e.metaKey || e.ctrlKey)) {
