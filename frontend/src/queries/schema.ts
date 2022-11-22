@@ -54,6 +54,8 @@ export interface DataTableNode extends Node {
     showPropertyFilter?: boolean
     /** Show the "..." menu at the end of the row */
     showMore?: boolean
+    /** Show the export button */
+    showExport?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
 }

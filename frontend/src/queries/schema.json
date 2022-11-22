@@ -1158,6 +1158,10 @@
                     "description": "Include an event filter above the table (default: true)",
                     "type": "boolean"
                 },
+                "showExport": {
+                    "description": "Show the export button",
+                    "type": "boolean"
+                },
                 "showMore": {
                     "description": "Show the \"...\" menu at the end of the row",
                     "type": "boolean"

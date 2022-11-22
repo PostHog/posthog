@@ -16,6 +16,7 @@ import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { EventDetails } from 'scenes/events'
 import { EventActions } from '~/queries/nodes/DataTable/EventActions'
+import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
 
 interface DataTableProps {
     query: DataTableNode
@@ -93,6 +94,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     const showPropertyFilter = query.showPropertyFilter ?? true
     const showEventFilter = query.showEventFilter ?? true
     const showMore = query.showMore ?? true
+    const showExport = query.showExport ?? true
     const expandable = query.expandable ?? true
 
     const [id] = useState(uniqueNode++)
@@ -119,7 +121,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
 
     return (
         <>
-            {(showPropertyFilter || showEventFilter) && (
+            {(showPropertyFilter || showEventFilter || showExport) && (
                 <div className="flex space-x-4 mb-4">
                     {showEventFilter && (
                         <EventName query={query.source} setQuery={(source) => setQuery?.({ ...query, source })} />
@@ -130,6 +132,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
                             setQuery={(source) => setQuery?.({ ...query, source })}
                         />
                     )}
+                    {showExport && <DataTableExport query={query} setQuery={setQuery} />}
                 </div>
             )}
             <LemonTable
