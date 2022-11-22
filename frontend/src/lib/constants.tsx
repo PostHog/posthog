@@ -203,3 +203,6 @@ export const CLOUD_HOSTNAMES = {
 }
 
 export const SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
+
+// If _any_ item on a dashboard is older than this, dashboard is automatically reloaded
+export const AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS = 20
