@@ -144,7 +144,7 @@ PARTITION BY toYYYYMM(timestamp)
 ORDER BY (toDate(timestamp), team_id, query_type)
 AS
 SELECT
-    hostName() AS hostName,
+    getMacro('replica') AS host,
     event_time AS timestamp,
     query_duration_ms,
     read_rows,
@@ -152,12 +152,10 @@ SELECT
     result_rows,
     result_bytes,
     memory_usage,
-    query,
-    tables,
-    columns,
     is_initial_query,
     exception_code,
     JSONExtractInt(log_comment, 'team_id') AS team_id,
+    dictGet('team_events_last_month_dictionary', 'event_count', team_id) AS team_events_last_month,
     JSONExtractInt(log_comment, 'user_id') AS user_id,
     JSONExtractString(log_comment, 'kind') AS kind,
     JSONExtractString(log_comment, 'query_type') AS query_type,
@@ -170,7 +168,10 @@ SELECT
     JSONExtract(log_comment, 'filter_by_type', 'Array(String)') as filter_by_type,
     JSONExtract(log_comment, 'breakdown_by', 'Array(String)') as breakdown_by,
     JSONExtract(log_comment, 'entity_math', 'Array(String)') as entity_math,
-    dictGet('team_events_last_month_dictionary', 'event_count', team_id) AS team_events_last_month,
+    JSONExtractString(log_comment, 'filter') AS filter,
+    tables,
+    columns,
+    query,
     log_comment
 FROM system.query_log
 WHERE JSONHas(log_comment, 'team_id')
