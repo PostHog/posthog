@@ -4,7 +4,7 @@ import { useValues } from 'kea'
 import { dataNodeLogic } from '~/queries/nodes/dataNodeLogic'
 import { LemonTable } from 'lib/components/LemonTable'
 import { normalizeDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { EventType, PropertyFilterType } from '~/types'
+import { AnyPropertyFilter, EventType, PropertyFilterType } from '~/types'
 import { autoCaptureEventToDescription } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { urls } from 'scenes/urls'
@@ -12,6 +12,8 @@ import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { Link } from 'lib/components/Link'
 import { Property } from 'lib/components/Property'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonEventName } from 'scenes/actions/EventName'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 interface DataTableProps {
     query: DataTableNode
@@ -84,24 +86,54 @@ function renderColumn(type: PropertyFilterType, key: string, record: EventType):
     return <div>Unknown</div>
 }
 
-export function DataTable({ query }: DataTableProps): JSX.Element {
+export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     const columns = query.columns ? normalizeDataTableColumns(query.columns) : defaultDataTableColumns
+    const showPropertyFilter = query.showPropertyFilter ?? true
+    const showEventFilter = query.showEventFilter ?? true
+
     const [id] = useState(uniqueNode++)
     const logic = dataNodeLogic({ query: query.events, key: `DataTable.${id}` })
     const { response, responseLoading } = useValues(logic)
     const rows = (response as null | EventsNode['response'])?.results ?? []
 
     return (
-        <LemonTable
-            loading={responseLoading}
-            columns={columns.map(({ type, key }) => ({
-                dataIndex: `${type}.${key}` as any,
-                title: renderTitle(type, key),
-                render: function RenderDataTableColumn(_: any, record: EventType) {
-                    return renderColumn(type, key, record)
-                },
-            }))}
-            dataSource={rows}
-        />
+        <>
+            {(showPropertyFilter || showEventFilter) && (
+                <div className="flex space-x-4 mb-4">
+                    {showEventFilter && (
+                        <LemonEventName
+                            value={query.events.event ?? ''}
+                            disabled={!setQuery}
+                            onChange={(value: string) => {
+                                setQuery?.({ ...query, events: { ...query.events, event: value } })
+                            }}
+                        />
+                    )}
+                    {showPropertyFilter && (
+                        <PropertyFilters
+                            /** TODO: this does not yet support PropertyFilterGroups */
+                            propertyFilters={(query.events.properties || []) as AnyPropertyFilter[]}
+                            onChange={(value: AnyPropertyFilter[]) =>
+                                setQuery?.({ ...query, events: { ...query.events, properties: value } })
+                            }
+                            pageKey={`DataTable.${id}.properties`}
+                            style={{ marginBottom: 0, marginTop: 0 }}
+                            eventNames={query.events.event ? [query.events.event] : []}
+                        />
+                    )}
+                </div>
+            )}
+            <LemonTable
+                loading={responseLoading}
+                columns={columns.map(({ type, key }) => ({
+                    dataIndex: `${type}.${key}` as any,
+                    title: renderTitle(type, key),
+                    render: function RenderDataTableColumn(_: any, record: EventType) {
+                        return renderColumn(type, key, record)
+                    },
+                }))}
+                dataSource={rows}
+            />
+        </>
     )
 }

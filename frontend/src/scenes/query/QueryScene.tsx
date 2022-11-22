@@ -37,7 +37,7 @@ export function QueryScene(): JSX.Element {
                 <QueryEditor query={query} setQuery={setQuery} />
 
                 <strong>Response:</strong>
-                <Query query={query} />
+                <Query query={query} setQuery={(query) => setQuery(JSON.stringify(query, null, 2))} />
             </div>
         </div>
     )

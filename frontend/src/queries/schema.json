@@ -1147,11 +1147,20 @@
                     "description": "Columns shown in the table"
                 },
                 "events": {
-                    "$ref": "#/definitions/EventsNode"
+                    "$ref": "#/definitions/EventsNode",
+                    "description": "Source of the events"
                 },
                 "kind": {
                     "const": "DataTableNode",
                     "type": "string"
+                },
+                "showEventFilter": {
+                    "description": "Include an event filter above the table",
+                    "type": "boolean"
+                },
+                "showPropertyFilter": {
+                    "description": "Include a property filter above the table",
+                    "type": "boolean"
                 }
             },
             "required": ["events", "kind"],
