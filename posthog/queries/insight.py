@@ -23,7 +23,7 @@ def insight_sync_execute(
     )
 
     if filter is not None:
-        tag_queries(**filter.query_tags())
+        tag_queries(filter=filter.to_dict(), **filter.query_tags())
 
     return sync_execute(
         query, args=args, settings=settings, client_query_id=client_query_id, client_query_team_id=client_query_team_id

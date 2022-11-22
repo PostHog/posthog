@@ -41,6 +41,7 @@
     background: #fff;
     z-index: 101; // Elevate above viz
     overflow: hidden;
+    border-radius: var(--radius);
     h5 {
         color: var(--muted);
         line-height: 1.5rem;
