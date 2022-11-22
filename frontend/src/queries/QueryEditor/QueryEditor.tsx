@@ -25,7 +25,7 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
             validate: true,
             schemas: [
                 {
-                    uri: 'https://internal.posthog.com/node-schema.json',
+                    uri: 'http://internal/node-schema.json',
                     fileMatch: ['*'], // associate with our model
                     schema: schema,
                 },
