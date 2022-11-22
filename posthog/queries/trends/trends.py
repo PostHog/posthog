@@ -9,7 +9,6 @@ from dateutil import parser
 from django.db.models.query import Prefetch
 from sentry_sdk import push_scope
 
-from posthog.client import sync_execute
 from posthog.constants import (
     NON_BREAKDOWN_DISPLAY_TYPES,
     TREND_FILTER_TYPE_ACTIONS,
@@ -23,6 +22,7 @@ from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
 from posthog.queries.base import handle_compare
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.trends.breakdown import TrendsBreakdown
 from posthog.queries.trends.formula import TrendsFormula
 from posthog.queries.trends.lifecycle import Lifecycle
@@ -31,17 +31,20 @@ from posthog.utils import generate_cache_key, get_safe_cache
 
 
 class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
-    def _get_sql_for_entity(self, filter: Filter, team: Team, entity: Entity) -> Tuple[str, Dict, Callable]:
+    def _get_sql_for_entity(self, filter: Filter, team: Team, entity: Entity) -> Tuple[str, str, Dict, Callable]:
         if filter.breakdown and filter.display not in NON_BREAKDOWN_DISPLAY_TYPES:
+            query_type = "trends_breakdown"
             sql, params, parse_function = TrendsBreakdown(
                 entity, filter, team, using_person_on_events=team.actor_on_events_querying_enabled
             ).get_query()
         elif filter.shown_as == TRENDS_LIFECYCLE:
+            query_type = "trends_lifecycle"
             sql, params, parse_function = self._format_lifecycle_query(entity, filter, team)
         else:
+            query_type = "trends_total_volume"
             sql, params, parse_function = self._total_volume_query(entity, filter, team)
 
-        return sql, params, parse_function
+        return query_type, sql, params, parse_function
 
     # Use cached result even on refresh if team has strict caching enabled
     def get_cached_result(self, filter: Filter, team: Team) -> Optional[List[Dict[str, Any]]]:
@@ -118,12 +121,19 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
     def _run_query(self, filter: Filter, team: Team, entity: Entity) -> List[Dict[str, Any]]:
         adjusted_filter, cached_result = self.adjusted_filter(filter, team)
-        sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
         with push_scope() as scope:
+            query_type, sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
             scope.set_context("filter", filter.to_dict())
             scope.set_tag("team", team)
             scope.set_context("query", {"sql": sql, "params": params})
-            result = sync_execute(sql, params, client_query_id=filter.client_query_id, client_query_team_id=team.pk)
+            result = insight_sync_execute(
+                sql,
+                params,
+                query_type=query_type,
+                filter=adjusted_filter,
+                client_query_id=filter.client_query_id,
+                client_query_team_id=team.pk,
+            )
             result = parse_function(result)
             serialized_data = self._format_serialized(entity, result)
             merged_results, cached_result = self.merge_results(
@@ -136,10 +146,14 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         return merged_results
 
-    def _run_query_for_threading(self, result: List, index: int, sql, params, client_query_id: str, team_id: int):
+    def _run_query_for_threading(
+        self, result: List, index: int, query_type, sql, params, client_query_id: str, team_id: int
+    ):
         with push_scope() as scope:
             scope.set_context("query", {"sql": sql, "params": params})
-            result[index] = sync_execute(sql, params, client_query_id=client_query_id, client_query_team_id=team_id)
+            result[index] = insight_sync_execute(
+                sql, params, query_type=query_type, client_query_id=client_query_id, client_query_team_id=team_id
+            )
 
     def _run_parallel(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         result: List[Optional[List[Dict[str, Any]]]] = [None] * len(filter.entities)
@@ -150,12 +164,12 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         for entity in filter.entities:
             adjusted_filter, cached_result = self.adjusted_filter(filter, team)
-            sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
+            query_type, sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
             parse_functions[entity.index] = parse_function
             sql_statements_with_params[entity.index] = (sql, params)
             thread = threading.Thread(
                 target=self._run_query_for_threading,
-                args=(result, entity.index, sql, params, filter.client_query_id, team.pk),
+                args=(result, entity.index, query_type, sql, params, filter.client_query_id, team.pk),
             )
             jobs.append(thread)
 

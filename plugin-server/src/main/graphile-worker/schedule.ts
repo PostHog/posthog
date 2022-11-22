@@ -32,5 +32,6 @@ export async function runScheduledTasks(server: Hub, piscina: Piscina, taskType:
     for (const pluginConfigId of server.pluginSchedule?.[taskType] || []) {
         status.info('⏲️', `Running ${taskType} for plugin config with ID ${pluginConfigId}`)
         await piscina.run({ task: taskType, args: { pluginConfigId } })
+        server.statsd?.increment('completed_scheduled_task', { taskType })
     }
 }

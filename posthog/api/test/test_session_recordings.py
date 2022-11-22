@@ -428,3 +428,20 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response_data["results"][0]["id"], "1")
             self.assertEqual(response_data["results"][1]["id"], "2")
             self.assertEqual(response_data["results"][2]["id"], "3")
+
+    def test_empty_list_static_recordings_filter_returns_no_recordings(self):
+        with freeze_time("2020-09-13T12:26:40.000Z"):
+            Person.objects.create(
+                team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+            )
+            self.create_snapshot("user", "1", now() - relativedelta(days=1))
+            self.create_snapshot("user", "2", now() - relativedelta(days=2))
+            self.create_snapshot("user", "3", now() - relativedelta(days=3))
+
+            # Fetch playlist
+            params_string = urlencode({"static_recordings": "[]"})
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_data = response.json()
+
+            self.assertEqual(len(response_data["results"]), 0)

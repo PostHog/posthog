@@ -208,6 +208,7 @@ export function SessionRecordingsPlaylist({
         personUUID,
         filters: defaultFilters,
         updateSearchParams,
+        isStatic,
         staticRecordings,
     })
     const {

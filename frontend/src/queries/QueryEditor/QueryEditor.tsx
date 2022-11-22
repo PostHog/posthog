@@ -38,7 +38,7 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
             <MonacoEditor
                 theme="vs-light"
                 className="border"
-                language={'json'}
+                language="json"
                 value={queryInput}
                 onChange={(v) => setQueryInput(v ?? '')}
                 height={300}
