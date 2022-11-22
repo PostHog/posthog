@@ -53,7 +53,10 @@ export interface DataTableColumn {
     key: string
 }
 
-export type DataTableStringColumn = `${PropertyFilterType}.${string}` | 'person'
+// TODO: not supported by "ts-json-schema-generator" nor "typescript-json-schema" :(
+// export type PropertyColumnString = `${PropertyFilterType}.${string}`
+export type PropertyColumnString = string
+export type DataTableStringColumn = PropertyColumnString | 'person'
 
 // Legacy queries
 
