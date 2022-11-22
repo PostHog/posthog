@@ -1,4 +1,4 @@
-import { Hub, PluginConfig, PluginLogEntryType } from '../../../types'
+import { EnqueuedPluginJob, Hub, PluginConfig, PluginLogEntryType } from '../../../types'
 
 type JobRunner = {
     runAt: (date: Date) => Promise<void>
@@ -40,12 +40,18 @@ export function durationToMs(duration: number, unit: string): number {
 export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
     const runJob = async (type: string, payload: Record<string, any>, timestamp: number) => {
         try {
-            const job = {
+            const job: EnqueuedPluginJob = {
                 type,
                 payload,
                 timestamp,
                 pluginConfigId: pluginConfig.id,
                 pluginConfigTeam: pluginConfig.team_id,
+            }
+
+            // jobKey is used for debouncing
+            // i.e. jobs triggered n times with the same jobKey will only run once
+            if ('jobKey' in payload) {
+                job['jobKey'] = `${pluginConfig.team_id}:${pluginConfig.id}:${payload.jobKey}`
             }
             server.statsd?.increment('job_enqueue_attempt')
             await server.enqueuePluginJob(job)

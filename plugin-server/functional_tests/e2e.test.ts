@@ -869,8 +869,69 @@ test.concurrent(`plugin jobs: can call runNow from processEvent`, async () => {
     expect(runNow.length).toBeGreaterThan(0)
 })
 
+test.concurrent(`plugin jobs: passing a jobKey ensures a job is only run once`, async () => {
+    const indexJs = `    
+        export function onEvent (event, { jobs }) {
+            console.info(JSON.stringify(['onEvent', event]))
+            jobs.runMeAsync({ jobKey: 'uniqueKey' }).runNow()
+        }
+
+        export const jobs = {
+            runMeAsync: async () => {
+                console.info(JSON.stringify(['runMeAsync']))
+            }
+        }
+    `
+
+    const plugin = await createPlugin(postgres, {
+        organization_id: organizationId,
+        name: 'jobs plugin',
+        plugin_type: 'source',
+        is_global: false,
+        source__index_ts: indexJs,
+    })
+    const teamId = await createTeam(postgres, organizationId)
+    const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
+
+    // First let's ingest an event
+    await capture(producer, teamId, distinctId, uuid, 'custom event 1', {
+        name: 'hehe',
+        uuid: new UUIDT().toString(),
+    })
+
+    await capture(producer, teamId, distinctId, uuid, 'custom event 2', {
+        name: 'hehe',
+        uuid: new UUIDT().toString(),
+    })
+
+    await capture(producer, teamId, distinctId, uuid, 'custom event 3', {
+        name: 'hehe',
+        uuid: new UUIDT().toString(),
+    })
+
+    await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 3, 500, 40)
+
+    const events = await fetchEvents(clickHouseClient, teamId)
+    expect(events.length).toBe(3)
+
+    // Then check that the runNow function was called only once
+    const runNow = await delayUntilEventIngested(
+        async () =>
+            (
+                await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+            ).filter(({ message: [method] }) => method === 'runMeAsync'),
+        1,
+        500,
+        40
+    )
+
+    expect(runNow.length).toBe(1)
+})
+
 test.concurrent(
-    `plugin jobs: runEveryMinute is executed`,
+    `plugin scheduled tasks: runEveryMinute is executed`,
     async () => {
         // NOTE: we do not check Hour and Day, merely because if we advance
         // too much it seems we end up performing alot of reloads of

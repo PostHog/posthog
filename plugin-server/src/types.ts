@@ -204,6 +204,7 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
+    enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
 }
 
 export interface PluginServerCapabilities {
