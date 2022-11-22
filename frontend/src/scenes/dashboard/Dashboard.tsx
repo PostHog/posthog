@@ -8,7 +8,6 @@ import './Dashboard.scss'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { TZIndicator } from 'lib/components/TimezoneAware'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 import { NotFound } from 'lib/components/NotFound'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
@@ -108,8 +107,7 @@ function DashboardScene(): JSX.Element {
                     ].includes(placement) && (
                         <>
                             <div className="flex space-x-4">
-                                <div className="flex items-center" style={{ height: '2rem' }}>
-                                    <TZIndicator style={{ marginRight: '0.5rem' }} />
+                                <div className="flex items-center h-8">
                                     <DateFilter
                                         showCustom
                                         dateFrom={dashboardFilters?.date_from ?? undefined}

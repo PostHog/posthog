@@ -77,6 +77,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "refresh_attempt": None,
             "refreshing": None,
             "last_refresh": None,
+            "is_cached": False,
             "insight": None,
             "filters_hash": None,
         }

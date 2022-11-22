@@ -248,7 +248,7 @@ function InsightMeta({
                         </h4>
                     </Link>
 
-                    <div className="CardMeta__description">{insight.description || <i>No description</i>}</div>
+                    {!!insight.description && <div className="CardMeta__description">{insight.description}</div>}
                     {insight.tags && insight.tags.length > 0 && <ObjectTags tags={insight.tags} staticOnly />}
                     <UserActivityIndicator at={insight.last_modified_at} by={insight.last_modified_by} />
                 </>

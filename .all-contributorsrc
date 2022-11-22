@@ -2277,6 +2277,24 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "BTruer",
+      "name": "Bhargav Tarpara",
+      "avatar_url": "https://avatars.githubusercontent.com/u/9146475?v=4",
+      "profile": "http://bhargavtarpara.com",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "Growthfyi",
+      "name": "Ankit Ghosh",
+      "avatar_url": "https://avatars.githubusercontent.com/u/109241881?v=4",
+      "profile": "https://github.com/Growthfyi",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
