@@ -24,9 +24,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             null as DataNode['response'] | null,
             {
                 loadData: async () => {
-                    console.log(values.query)
-                    const response = (await query<DataNode>(values.query)) ?? null
-                    return response
+                    return (await query<DataNode>(values.query)) ?? null
                 },
             },
         ],
