@@ -38,6 +38,11 @@ class SessionRecordingEventSummary(TypedDict):
     data: Dict[str, Union[int, str]]
 
 
+class MinimalStaticSessionRecording(TypedDict):
+    id: int
+    created_at: datetime
+
+
 @dataclasses.dataclass
 class EventActivityData:
     timestamp: datetime

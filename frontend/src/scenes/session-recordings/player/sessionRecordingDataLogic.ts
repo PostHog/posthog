@@ -15,6 +15,7 @@ import {
     SessionRecordingEvents,
     SessionRecordingId,
     SessionRecordingMeta,
+    SessionRecordingPlaylistType,
     SessionRecordingUsageType,
 } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -42,6 +43,7 @@ export interface UnparsedMetadata {
     viewed: boolean
     segments: UnparsedRecordingSegment[]
     start_and_end_times_by_window_id: Record<string, Record<string, string>>
+    playlists: SessionRecordingPlaylistType['id'][]
 }
 
 export const parseMetadataResponse = (metadata?: UnparsedMetadata): SessionRecordingMeta => {
@@ -80,6 +82,7 @@ export const parseMetadataResponse = (metadata?: UnparsedMetadata): SessionRecor
         segments,
         startAndEndTimesByWindowId,
         recordingDurationMs: sum(segments.map((s) => s.durationMs)),
+        playlists: metadata?.playlists ?? [],
     }
 }
 
@@ -134,6 +137,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 segments: [],
                 startAndEndTimesByWindowId: {},
                 recordingDurationMs: 0,
+                playlists: [],
             },
             bufferedTo: null,
         } as SessionPlayerMetaData,
@@ -150,6 +154,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         }),
         loadEntireRecording: true,
         loadRecordingMeta: true,
+        setRecordingMeta: (metadata: Partial<SessionPlayerMetaData>) => ({ metadata }),
         loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
         loadEvents: (nextUrl?: string) => ({ nextUrl }),
     }),
@@ -282,6 +287,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     metadata,
                 }
             },
+            setRecordingMeta: ({ metadata }) => ({
+                ...values.sessionPlayerMetaData,
+                ...metadata,
+            }),
         },
         sessionPlayerSnapshotData: {
             loadRecordingSnapshots: async ({ nextUrl }, breakpoint): Promise<SessionPlayerSnapshotData> => {
