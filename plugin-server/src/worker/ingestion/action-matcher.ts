@@ -52,6 +52,25 @@ export function castingCompare(
     b: any,
     operator: PropertyOperator.Exact | PropertyOperator.IsNot | PropertyOperator.LessThan | PropertyOperator.GreaterThan
 ): boolean {
+    // Check null case first
+    if (a === null || b === null) {
+        const aNullCast = String(a)
+        const bNullCast = String(b)
+        switch (operator) {
+            case PropertyOperator.Exact:
+                if (aNullCast === bNullCast) {
+                    return true
+                }
+                break
+            case PropertyOperator.IsNot:
+                if (aNullCast === bNullCast) {
+                    return false
+                }
+                break
+            default:
+                break
+        }
+    }
     // Check basic case first
     switch (operator) {
         case PropertyOperator.Exact:
