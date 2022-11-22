@@ -8,6 +8,7 @@ const Events: EventsNode = {
     properties: [
         { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
     ],
+    limit: 100,
 }
 
 const EventsTable: DataTableNode = {

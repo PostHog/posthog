@@ -1276,6 +1276,9 @@
                     "const": "EventsNode",
                     "type": "string"
                 },
+                "limit": {
+                    "type": "number"
+                },
                 "properties": {
                     "anyOf": [
                         {

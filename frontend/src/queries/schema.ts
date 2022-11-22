@@ -33,6 +33,7 @@ export interface EventsNode extends DataNode {
     kind: NodeKind.EventsNode
     event?: string
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
+    limit?: number
     response?: {
         results: EventType[]
         next?: string
