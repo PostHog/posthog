@@ -1,7 +1,13 @@
-import { useEffect, useRef } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { range } from '~/lib/utils'
-import { RecordingDurationFilter, RecordingFilters, SessionRecordingsTabs, SessionRecordingType } from '~/types'
+import {
+    RecordingDurationFilter,
+    RecordingFilters,
+    SessionRecordingPlaylistType,
+    SessionRecordingsTabs,
+    SessionRecordingType,
+} from '~/types'
 import {
     defaultPageviewPropertyEntityFilter,
     PLAYLIST_LIMIT,
@@ -30,7 +36,6 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import { More } from 'lib/components/LemonButton/More'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
-import { deletePlaylistWithUndo } from './playlistUtils'
 
 export const scene: SceneExport = {
     component: SessionRecordingsPlaylistScene,
@@ -42,7 +47,8 @@ export const scene: SceneExport = {
 
 export function SessionRecordingsPlaylistScene(): JSX.Element {
     const { playlist, playlistLoading, hasChanges, derivedName } = useValues(sessionRecordingsPlaylistLogic)
-    const { updatePlaylist, setFilters, saveChanges, duplicatePlaylist } = useActions(sessionRecordingsPlaylistLogic)
+    const { updateSavedPlaylist, setFilters, saveChanges, duplicateSavedPlaylist, deleteSavedPlaylistWithUndo } =
+        useActions(sessionRecordingsPlaylistLogic)
 
     if (!playlist && playlistLoading) {
         return (
@@ -81,7 +87,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                         name="name"
                         value={playlist.name || ''}
                         placeholder={derivedName}
-                        onSave={(value) => updatePlaylist({ name: value })}
+                        onSave={(value) => updateSavedPlaylist({ short_id: playlist.short_id, name: value })}
                         saveOnBlur={true}
                         maxLength={400}
                         mode={undefined}
@@ -95,7 +101,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                 <>
                                     <LemonButton
                                         status="stealth"
-                                        onClick={() => duplicatePlaylist()}
+                                        onClick={() => duplicateSavedPlaylist(playlist, true)}
                                         fullWidth
                                         data-attr="duplicate-playlist"
                                     >
@@ -104,7 +110,8 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                     <LemonButton
                                         status="stealth"
                                         onClick={() =>
-                                            updatePlaylist({
+                                            updateSavedPlaylist({
+                                                short_id: playlist.short_id,
                                                 pinned: !playlist.pinned,
                                             })
                                         }
@@ -117,7 +124,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                     <LemonButton
                                         status="danger"
                                         onClick={() =>
-                                            deletePlaylistWithUndo(playlist, () => {
+                                            deleteSavedPlaylistWithUndo(playlist, () => {
                                                 router.actions.replace(
                                                     urls.sessionRecordings(SessionRecordingsTabs.Playlists)
                                                 )
@@ -150,7 +157,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                             name="description"
                             value={playlist.description || ''}
                             placeholder="Description (optional)"
-                            onSave={(value) => updatePlaylist({ description: value })}
+                            onSave={(value) => updateSavedPlaylist({ short_id: playlist.short_id, description: value })}
                             saveOnBlur={true}
                             maxLength={400}
                             data-attr="playlist-description"
@@ -169,6 +176,8 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     logicKey={playlist.short_id}
                     filters={playlist.filters}
                     onFiltersChange={setFilters}
+                    isStatic={!!playlist.is_static}
+                    staticRecordings={playlist.playlist_items}
                 />
             ) : null}
         </div>
@@ -181,6 +190,8 @@ export type SessionRecordingsPlaylistProps = {
     filters?: RecordingFilters
     updateSearchParams?: boolean
     onFiltersChange?: (filters: RecordingFilters) => void
+    isStatic?: boolean
+    staticRecordings?: SessionRecordingPlaylistType['playlist_items']
 }
 
 export function SessionRecordingsPlaylist({
@@ -189,8 +200,17 @@ export function SessionRecordingsPlaylist({
     filters: defaultFilters,
     updateSearchParams,
     onFiltersChange,
+    isStatic = false,
+    staticRecordings = [],
 }: SessionRecordingsPlaylistProps): JSX.Element {
-    const logic = sessionRecordingsListLogic({ key: logicKey, personUUID, filters: defaultFilters, updateSearchParams })
+    const logic = sessionRecordingsListLogic({
+        key: logicKey,
+        personUUID,
+        filters: defaultFilters,
+        updateSearchParams,
+        isStatic,
+        staticRecordings,
+    })
     const {
         sessionRecordings,
         sessionRecordingIdToProperties,
@@ -264,26 +284,30 @@ export function SessionRecordingsPlaylist({
     return (
         <>
             <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={
-                        <IconWithCount count={totalFiltersCount}>
-                            <IconFilter />
-                        </IconWithCount>
-                    }
-                    onClick={() => {
-                        setShowFilters(!showFilters)
-                        if (personUUID) {
-                            const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
-                            if (entityFilterButtons.length > 0) {
-                                ;(entityFilterButtons[0] as HTMLElement).click()
+                <div className="flex items-center gap-4">
+                    {!isStatic && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={
+                                <IconWithCount count={totalFiltersCount}>
+                                    <IconFilter />
+                                </IconWithCount>
                             }
-                        }
-                    }}
-                >
-                    {showFilters ? 'Hide filters' : 'Filter recordings'}
-                </LemonButton>
+                            onClick={() => {
+                                setShowFilters(!showFilters)
+                                if (personUUID) {
+                                    const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
+                                    if (entityFilterButtons.length > 0) {
+                                        ;(entityFilterButtons[0] as HTMLElement).click()
+                                    }
+                                }
+                            }}
+                        >
+                            {showFilters ? 'Hide filters' : 'Filter recordings'}
+                        </LemonButton>
+                    )}
+                </div>
 
                 <div className="flex items-center gap-4">
                     <DateFilter
@@ -349,10 +373,9 @@ export function SessionRecordingsPlaylist({
                         ) : (
                             <ul className={clsx(sessionRecordingsResponseLoading ? 'opacity-50' : '')}>
                                 {sessionRecordings.map((rec, i) => (
-                                    <>
+                                    <Fragment key={rec.id}>
                                         {i > 0 && <div className="border-t" />}
                                         <SessionRecordingPlaylistItem
-                                            key={rec.id}
                                             recording={rec}
                                             recordingProperties={sessionRecordingIdToProperties[rec.id]}
                                             recordingPropertiesLoading={sessionRecordingsPropertiesResponseLoading}
@@ -360,7 +383,7 @@ export function SessionRecordingsPlaylist({
                                             onPropertyClick={onPropertyClick}
                                             isActive={activeSessionRecording?.id === rec.id}
                                         />
-                                    </>
+                                    </Fragment>
                                 ))}
                             </ul>
                         )}

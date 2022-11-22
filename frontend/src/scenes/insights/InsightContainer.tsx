@@ -21,7 +21,6 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import clsx from 'clsx'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepsTable } from './views/Funnels/FunnelStepsTable'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -41,25 +40,19 @@ const VIEW_MAP = {
     [`${InsightType.PATHS}`]: <Paths />,
 }
 
-export function InsightContainer(
-    {
-        disableHeader,
-        disableTable,
-        disableCorrelationTable,
-        disableLastComputation,
-    }: {
-        disableHeader?: boolean
-        disableTable?: boolean
-        disableCorrelationTable?: boolean
-        disableLastComputation?: boolean
-    } = {
-        disableHeader: false,
-        disableTable: false,
-        disableCorrelationTable: false,
-        disableLastComputation: false,
-    }
-): JSX.Element {
-    const { insightMode } = useValues(insightSceneLogic)
+export function InsightContainer({
+    disableHeader,
+    disableTable,
+    disableCorrelationTable,
+    disableLastComputation,
+    insightMode,
+}: {
+    disableHeader?: boolean
+    disableTable?: boolean
+    disableCorrelationTable?: boolean
+    disableLastComputation?: boolean
+    insightMode?: ItemMode
+}): JSX.Element {
     const {
         insightProps,
         canEditInsight,
@@ -189,7 +182,7 @@ export function InsightContainer(
                     disableHeader ? null : (
                         <InsightDisplayConfig
                             activeView={activeView as InsightType}
-                            insightMode={insightMode}
+                            insightMode={insightMode || ItemMode.View}
                             filters={filters}
                             disableTable={!!disableTable}
                         />

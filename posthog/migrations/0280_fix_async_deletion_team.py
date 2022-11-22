@@ -12,7 +12,7 @@ class RenameFieldSafe(migrations.RenameField):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0278_organization_customer_id"),
+        ("posthog", "0279_recording_playlist_item_model"),
     ]
 
     operations = [

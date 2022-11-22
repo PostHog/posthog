@@ -6,7 +6,7 @@ import { savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlay
 
 export function SavedSessionRecordingPlaylistsEmptyState({ tab }: { tab: SessionRecordingsTabs }): JSX.Element {
     const { newPlaylistLoading } = useValues(savedSessionRecordingPlaylistsLogic({ tab }))
-    const { createPlaylist } = useActions(savedSessionRecordingPlaylistsLogic({ tab }))
+    const { createSavedPlaylist } = useActions(savedSessionRecordingPlaylistsLogic({ tab }))
 
     return (
         <div className="flex items-center justify-center">
@@ -20,7 +20,7 @@ export function SavedSessionRecordingPlaylistsEmptyState({ tab }: { tab: Session
                     icon={<IconPlus />}
                     loading={newPlaylistLoading}
                     onClick={() => {
-                        createPlaylist()
+                        createSavedPlaylist({}, true)
                     }}
                 >
                     New Playlist

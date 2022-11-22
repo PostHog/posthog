@@ -267,6 +267,8 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
     @staticmethod
     def _update_tiles(instance: Dashboard, tile_data: Dict, user: User) -> None:
+        tile_data.pop("is_cached", None)  # read only field
+
         if tile_data.get("text", None):
             text_json: Dict = tile_data.get("text", {})
             created_by_json = text_json.get("created_by", None)

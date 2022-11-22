@@ -29,6 +29,7 @@ import {
     SessionRecordingPropertiesType,
     EventsListQueryParams,
     SessionRecordingPlaylistType,
+    SessionRecordingType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -40,6 +41,7 @@ import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/even
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { UpdatedRecordingResponse } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -56,7 +58,6 @@ export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
 
 export interface ApiMethodOptions {
     signal?: AbortSignal
-    includeResponseReference?: boolean
 }
 
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
@@ -76,13 +77,9 @@ export function getCookie(name: string): string | null {
     return cookieValue
 }
 
-async function getJSONOrThrow(response: Response, options?: ApiMethodOptions): Promise<any> {
+export async function getJSONOrThrow(response: Response): Promise<any> {
     try {
-        const json = await response.json()
-        if (options?.includeResponseReference) {
-            json._response = response
-        }
-        return json
+        return await response.json()
     } catch (e) {
         return { statusText: response.statusText }
     }
@@ -243,6 +240,9 @@ class ApiRequest {
     }
 
     // Recordings
+    public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('session_recordings').addPathComponent(recordingId)
+    }
     public recordings(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('session_recordings')
     }
@@ -368,8 +368,8 @@ class ApiRequest {
         return await api.get(this.assembleFullUrl(), options)
     }
 
-    public async getRaw(options?: ApiMethodOptions): Promise<Response> {
-        return await api.getRaw(this.assembleFullUrl(), options)
+    public async getResponse(options?: ApiMethodOptions): Promise<Response> {
+        return await api.getResponse(this.assembleFullUrl(), options)
     }
 
     public async update(options?: { data: any }): Promise<any> {
@@ -833,6 +833,13 @@ const api = {
         async listProperties(params: string): Promise<PaginatedResponse<SessionRecordingPropertiesType>> {
             return await new ApiRequest().recordings().withAction('properties').withQueryString(params).get()
         },
+        async updateRecording(
+            recordingId: SessionRecordingType['id'],
+            recording: Partial<SessionRecordingType>,
+            params?: string
+        ): Promise<UpdatedRecordingResponse> {
+            return await new ApiRequest().recording(recordingId).withQueryString(params).update({ data: recording })
+        },
         async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {
             return await new ApiRequest().recordingPlaylists().withQueryString(params).get()
         },
@@ -905,11 +912,11 @@ const api = {
     },
 
     async get(url: string, options?: ApiMethodOptions): Promise<any> {
-        const res = await api.getRaw(url, options)
-        return await getJSONOrThrow(res, options)
+        const res = await api.getResponse(url, options)
+        return await getJSONOrThrow(res)
     },
 
-    async getRaw(url: string, options?: ApiMethodOptions): Promise<Response> {
+    async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         let response
@@ -922,7 +929,7 @@ const api = {
 
         if (!response.ok) {
             reportError('GET', url, response, startTime)
-            const data = await getJSONOrThrow(response, options)
+            const data = await getJSONOrThrow(response)
             throw { status: response.status, ...data }
         }
         return response
@@ -945,16 +952,21 @@ const api = {
 
         if (!response.ok) {
             reportError('PATCH', url, response, startTime)
-            const jsonData = await getJSONOrThrow(response, options)
+            const jsonData = await getJSONOrThrow(response)
             if (Array.isArray(jsonData)) {
                 throw jsonData
             }
             throw { status: response.status, ...jsonData }
         }
-        return await getJSONOrThrow(response, options)
+        return await getJSONOrThrow(response)
     },
 
     async create(url: string, data?: any, options?: ApiMethodOptions): Promise<any> {
+        const res = await api.createResponse(url, data, options)
+        return await getJSONOrThrow(res)
+    },
+
+    async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
@@ -971,13 +983,13 @@ const api = {
 
         if (!response.ok) {
             reportError('POST', url, response, startTime)
-            const jsonData = await getJSONOrThrow(response, options)
+            const jsonData = await getJSONOrThrow(response)
             if (Array.isArray(jsonData)) {
                 throw jsonData
             }
             throw { status: response.status, ...jsonData }
         }
-        return await getJSONOrThrow(response, options)
+        return response
     },
 
     async delete(url: string): Promise<any> {

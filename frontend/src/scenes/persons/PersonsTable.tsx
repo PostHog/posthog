@@ -1,4 +1,4 @@
-import { TZLabel } from 'lib/components/TimezoneAware'
+import { TZLabel } from 'lib/components/TZLabel'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PersonType } from '~/types'
 import './Persons.scss'

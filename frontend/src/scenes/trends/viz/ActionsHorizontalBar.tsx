@@ -15,7 +15,7 @@ import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 type DataSet = any
 
-export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): JSX.Element | null {
+export function ActionsHorizontalBar({ inCardView, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
     const { insightProps, insight, hiddenLegendKeys } = useValues(insightLogic)
@@ -83,6 +83,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
             hiddenLegendKeys={hiddenLegendKeys}
             showPersonsModal={showPersonsModal}
             filters={insight.filters}
+            inCardView={inCardView}
             onClick={
                 !showPersonsModal || (isTrendsFilter(insight.filters) && insight.filters.formula)
                     ? undefined
