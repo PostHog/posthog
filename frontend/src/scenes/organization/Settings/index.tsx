@@ -87,9 +87,9 @@ export function OrganizationSettings(): JSX.Element {
                 <LemonDivider className="my-6" />
                 <Invites />
                 <LemonDivider className="my-6" />
-                <Permissions />
+                <RestrictedArea Component={Permissions} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <LemonDivider className="my-6" />
-                <Roles />
+                <RestrictedArea Component={Roles} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <LemonDivider className="my-6" />
                 {user && <Members user={user} />}
                 <LemonDivider className="my-6" />
