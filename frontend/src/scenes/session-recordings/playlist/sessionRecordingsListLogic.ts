@@ -259,8 +259,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         },
     })),
     subscriptions(({ actions }) => ({
-        staticRecordings: (staticRecordings) => {
-            console.log('STATIC RECORDINGS CHANGEd', staticRecordings)
+        staticRecordings: () => {
             actions.getSessionRecordings({})
         },
     })),
