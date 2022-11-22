@@ -345,6 +345,7 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                         "end_time": now() + relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 4),
                     },
                 },
+                playlists=[],
             )
             self.assertEqual(
                 recording,

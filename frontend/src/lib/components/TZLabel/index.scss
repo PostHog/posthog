@@ -1,0 +1,8 @@
+.tz-label {
+    white-space: nowrap;
+
+    &.tz-label--hoverable {
+        border-bottom: 1px dotted var(--border-dark);
+        cursor: default;
+    }
+}
