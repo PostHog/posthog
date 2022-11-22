@@ -559,7 +559,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         tiles = dashboard_json["tiles"]
         assert len(tiles) == 1
         tile_id = tiles[0]["id"]
-        # layouts used to live on insights, but moved onto the relation from a dashboard to its insights
+        
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
             {
