@@ -86,7 +86,8 @@ export function BridgePage({
                                     <WelcomeLogo view={view} />
                                 </div>
                             )}
-                            {featureFlags[FEATURE_FLAGS.SIGNUP_PRODUCT_INFO_EXPERIMENT] === 'test' && showSignupCta ? (
+                            {featureFlags[FEATURE_FLAGS.SIGNUP_PRODUCT_BENEFITS_EXPERIMENT] === 'test' &&
+                            showSignupCta ? (
                                 <div className="mb-16 max-w-100">
                                     {productBenefits.map((benefit, i) => (
                                         <div className="flex flex-row gap-4 mb-4" key={i}>
