@@ -151,6 +151,8 @@ export function Experiment(): JSX.Element {
         return 'complete'
     }
 
+    const maxVariants = 10
+
     const variantLabelColors = [
         { background: '#35416b', color: '#fff' },
         { background: '#C278CE66', color: '#35416B' },
@@ -289,14 +291,22 @@ export function Experiment(): JSX.Element {
                                                                     className={`feature-flag-variant ${
                                                                         idx === 0
                                                                             ? 'border-t'
-                                                                            : idx >= 3
+                                                                            : idx >= maxVariants
                                                                             ? 'border-b'
                                                                             : ''
                                                                     }`}
                                                                 >
                                                                     <div
                                                                         className="variant-label"
-                                                                        style={{ ...variantLabelColors[idx] }}
+                                                                        style={
+                                                                            idx === 0
+                                                                                ? { ...variantLabelColors[idx] }
+                                                                                : {
+                                                                                      ...variantLabelColors[
+                                                                                          (idx % 3) + 1
+                                                                                      ],
+                                                                                  }
+                                                                        }
                                                                     >
                                                                         {idx === 0 ? 'Control' : 'Test'}
                                                                     </div>
@@ -359,7 +369,8 @@ export function Experiment(): JSX.Element {
                                                         )
                                                     )}
 
-                                                    {newExperimentData.parameters.feature_flag_variants.length < 4 && (
+                                                    {newExperimentData.parameters.feature_flag_variants.length <
+                                                        maxVariants && (
                                                         <div className="feature-flag-variant border-b">
                                                             <LemonButton
                                                                 onClick={() => addExperimentGroup()}
@@ -818,7 +829,17 @@ export function Experiment(): JSX.Element {
                                         </Col>
                                     )}
                                     {(experimentResults || experimentData.secondary_metrics?.length > 0) && (
-                                        <Col className="secondary-progress" span={experimentData?.start_date ? 12 : 24}>
+                                        <Col
+                                            className="secondary-progress"
+                                            span={
+                                                experimentData?.start_date &&
+                                                ((experimentData.secondary_metrics?.length > 0 &&
+                                                    experimentData?.parameters?.feature_flag_variants?.length) ||
+                                                    0 <= 5)
+                                                    ? 12
+                                                    : 24
+                                            }
+                                        >
                                             {!!experimentData?.secondary_metrics.length && (
                                                 <Col className="border-b">
                                                     <Row align="middle" justify="space-between" className="mb-2">
