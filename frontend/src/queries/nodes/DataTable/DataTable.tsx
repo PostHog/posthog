@@ -14,6 +14,7 @@ import { Property } from 'lib/components/Property'
 import { TZLabel } from 'lib/components/TZLabel'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
+import { EventDetails } from 'scenes/events'
 
 interface DataTableProps {
     query: DataTableNode
@@ -90,6 +91,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     const columns = query.columns ? normalizeDataTableColumns(query.columns) : defaultDataTableColumns
     const showPropertyFilter = query.showPropertyFilter ?? true
     const showEventFilter = query.showEventFilter ?? true
+    const expandable = query.expandable ?? true
 
     const [id] = useState(uniqueNode++)
     const logic = dataNodeLogic({ query: query.source, key: `DataTable.${id}` })
@@ -121,6 +123,17 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
                     },
                 }))}
                 dataSource={rows}
+                expandable={
+                    expandable
+                        ? {
+                              expandedRowRender: function renderExpand(event) {
+                                  return event && <EventDetails event={event} />
+                              },
+                              rowExpandable: () => true,
+                              noIndent: true,
+                          }
+                        : undefined
+                }
             />
         </>
     )

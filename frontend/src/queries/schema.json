@@ -1146,6 +1146,10 @@
                     ],
                     "description": "Columns shown in the table"
                 },
+                "expandable": {
+                    "description": "Can expand row to show raw event data (default: true)",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "DataTableNode",
                     "type": "string"
