@@ -49,7 +49,7 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         )
         response_data = res.json()
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response_data, self.permission_denied_response("You can't edit roles to this feature flag."))
+        self.assertEqual(response_data, self.permission_denied_response("You can't edit roles for this feature flag."))
 
     def test_can_add_role_access_if_role_feature_flags_access_level_allows(self):
         OrganizationResourceAccess.objects.create(
