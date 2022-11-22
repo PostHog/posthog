@@ -132,7 +132,7 @@ def probability_D_beats_A_B_and_C(
     )
 
 
-# @flaky(max_runs=10, min_passes=1)
+@flaky(max_runs=10, min_passes=1)
 class TestFunnelExperimentCalculator(unittest.TestCase):
     def test_calculate_results(self):
 
