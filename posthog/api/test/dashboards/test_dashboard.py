@@ -559,7 +559,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         tiles = dashboard_json["tiles"]
         assert len(tiles) == 1
         tile_id = tiles[0]["id"]
-        
+
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
             {
@@ -567,12 +567,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     {
                         "id": tile_id,
                         "color": "red",
-                        "is_cached": True,  # included to ensure we can update tiles with this readonly property
+                        "is_cached": True,  # included to ensure we can update existing tiles with this readonly property
                     },
                     {
                         "id": tile_id + 1,
                         "color": "red",
-                        "is_cached": True,  # included to ensure we can update tiles with this readonly property
+                        "is_cached": True,  # included to ensure we can update new tiles with this readonly property
+                        "text": {"body": "an example"},
+                        "layouts": {},
                     },
                 ]
             },
