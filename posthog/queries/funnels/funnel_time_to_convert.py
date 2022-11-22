@@ -8,6 +8,8 @@ from posthog.queries.funnels.utils import get_funnel_order_class
 
 
 class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
+    QUERY_TYPE = "funnel_time_to_convert"
+
     def __init__(self, filter: Filter, team: Team) -> None:
         super().__init__(filter, team)
         self.funnel_order = get_funnel_order_class(filter)(filter, team)

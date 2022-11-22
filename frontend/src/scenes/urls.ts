@@ -47,7 +47,7 @@ export const urls = {
     webPerformance: (): string => '/web-performance',
     webPerformanceWaterfall: (id: string): string => `/web-performance/${id}/waterfall`,
     sessionRecordings: (tab?: SessionRecordingsTabs, filters?: Partial<FilterType>): string =>
-        combineUrl(tab ? `/recordings/${tab}` : '/recordings', filters ? { filters } : {}).url,
+        combineUrl(tab ? `/recordings/${tab}` : '/recordings/recent', filters ? { filters } : {}).url,
     sessionRecordingPlaylist: (id: string, filters?: Partial<FilterType>): string =>
         combineUrl(`/recordings/playlists/${id}`, filters ? { filters } : {}).url,
     sessionRecording: (id: string, filters?: Partial<FilterType>): string =>

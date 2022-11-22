@@ -33,6 +33,8 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
     See test_advanced_funnel_multiple_exclusions_between_steps for details.
     """
 
+    QUERY_TYPE = "funnel_unordered"
+
     def _serialize_step(self, step: Entity, count: int, people: Optional[List[uuid.UUID]] = None) -> Dict[str, Any]:
         return {
             "action_id": None,
