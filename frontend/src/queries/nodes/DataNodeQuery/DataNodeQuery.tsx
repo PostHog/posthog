@@ -28,7 +28,7 @@ export function DataNodeQuery(props: DataNodeQueryProps): JSX.Element {
                     className="border"
                     language={'json'}
                     value={JSON.stringify(response, null, 2)}
-                    height={Math.max(height - 62, 300)}
+                    height={Math.max(height, 300)}
                 />
             )}
         </AutoSizer>
