@@ -28,8 +28,11 @@ class SessionRecordingsMixin(BaseParamMixin):
         return None
 
     @cached_property
-    def static_recordings(self) -> List[MinimalStaticSessionRecording]:
-        static_recordings_str = self._data.get(SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS, "[]")
+    def static_recordings(self) -> Optional[List[MinimalStaticSessionRecording]]:
+        static_recordings_str = self._data.get(SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS, None)
+        if static_recordings_str is None:
+            return None
+
         static_recordings = json.loads(static_recordings_str)
         return [
             MinimalStaticSessionRecording(id=recording.get("id", None), created_at=recording.get("created_at", None))
