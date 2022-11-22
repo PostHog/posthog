@@ -3,13 +3,10 @@ from rest_framework import status
 from ee.api.test.base import APILicensedTest
 from ee.models.organization_resource_access import OrganizationResourceAccess
 from ee.models.role import Role
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 
 
 class TestRoleAPI(APILicensedTest):
-    def setUp(self):
-        super().setUp()
-
     def test_only_organization_admins_and_higher_can_create(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -104,3 +101,27 @@ class TestRoleAPI(APILicensedTest):
             Role.objects.first().feature_flags_access_level,  # type: ignore
             OrganizationResourceAccess.AccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE,
         )
+
+    def test_returns_correct_results_by_organization(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.client.post(
+            "/api/organizations/@current/roles",
+            {
+                "name": "Product",
+            },
+        )
+        self.client.post(
+            "/api/organizations/@current/roles",
+            {
+                "name": "Customer Success",
+            },
+        )
+        other_org = Organization.objects.create(name="other org")
+        Role.objects.create(name="Product", organization=other_org)
+        self.assertEqual(Role.objects.count(), 3)
+        res = self.client.get("/api/organizations/@current/roles")
+        results = res.json()
+        self.assertEqual(results["count"], 2)
+        self.assertNotContains(res, str(other_org.id))

@@ -21,7 +21,7 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
     def test_can_always_add_role_access_if_creator_of_feature_flag(self):
         OrganizationResourceAccess.objects.create(
             resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
-            access_level=OrganizationResourceAccess.AccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE,
+            access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
             organization=self.organization,
         )
         self.assertEqual(self.user.role_memberships.count(), 0)

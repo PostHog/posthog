@@ -2,7 +2,7 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.organization_resource_access import OrganizationResourceAccess
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 
 
 class TestOrganizationResourceAccessAPI(APILicensedTest):
@@ -117,3 +117,28 @@ class TestOrganizationResourceAccessAPI(APILicensedTest):
         flag_id = create_flag.json()["id"]
         get_res = self.client.get(f"/api/projects/@current/feature_flags/{flag_id}")
         self.assertEqual(get_res.json()["name"], "keropi")
+
+    def test_returns_correct_results_by_organization(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.post(
+            "/api/organizations/@current/resource_access",
+            {
+                "resource": OrganizationResourceAccess.Resources.FEATURE_FLAGS,
+            },
+        )
+        self.client.post(
+            "/api/organizations/@current/resource_access",
+            {
+                "resource": OrganizationResourceAccess.Resources.COHORTS,
+            },
+        )
+        other_org = Organization.objects.create(name="other org")
+        OrganizationResourceAccess.objects.create(
+            resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS, organization=other_org
+        )
+        self.assertEqual(OrganizationResourceAccess.objects.count(), 3)
+        res = self.client.get("/api/organizations/@current/resource_access")
+        results = res.json()
+        self.assertEqual(results["count"], 2)
+        self.assertNotContains(res, str(other_org.id))

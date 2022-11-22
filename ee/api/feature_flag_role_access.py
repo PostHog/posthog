@@ -8,7 +8,7 @@ from posthog.models import FeatureFlag
 
 
 class FeatureFlagRoleAccessPermissions(BasePermission):
-    message = "You can't edit roles to this feature flag."
+    message = "You can't edit roles for this feature flag."
 
     def has_permission(self, request, view):
         if request.method in SAFE_METHODS:
@@ -28,15 +28,10 @@ class FeatureFlagRoleAccessPermissions(BasePermission):
         except FeatureFlag.DoesNotExist:
             raise exceptions.NotFound("Feature flag not found.")
 
-        has_role_membership_with_access = (
-            request.user.role_memberships.all()
-            .filter(role__feature_flags_access_level=OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT)
-            .exists()
-        )
-        if has_role_membership_with_access:
-            return True
-
-        return False
+        has_role_membership_with_access = request.user.role_memberships.filter(
+            role__feature_flags_access_level=OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT
+        ).exists()
+        return has_role_membership_with_access
 
 
 class FeatureFlagRoleAccessSerializer(serializers.ModelSerializer):
