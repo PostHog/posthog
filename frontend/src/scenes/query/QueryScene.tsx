@@ -8,6 +8,7 @@ import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { Query } from '~/queries/Query/Query'
 import { useActions, useValues } from 'kea'
 import { stringifiedExamples } from '~/queries/examples'
+import { LemonDivider } from 'lib/components/LemonDivider'
 
 export function QueryScene(): JSX.Element {
     const { query } = useValues(querySceneLogic)
@@ -16,7 +17,7 @@ export function QueryScene(): JSX.Element {
     return (
         <div className="QueryScene">
             <PageHeader title="Query" />
-            <div className="space-y-2 flex flex-col">
+            <div className="space-y-2">
                 <div>
                     For example:{' '}
                     {Object.entries(stringifiedExamples).map(([key, q], index) => (
@@ -35,8 +36,9 @@ export function QueryScene(): JSX.Element {
                     ))}
                 </div>
                 <QueryEditor query={query} setQuery={setQuery} />
-
-                <strong>Response:</strong>
+                <div className="my-4">
+                    <LemonDivider />
+                </div>
                 <Query query={query} setQuery={(query) => setQuery(JSON.stringify(query, null, 2))} />
             </div>
         </div>

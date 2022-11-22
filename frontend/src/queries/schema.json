@@ -1146,24 +1146,24 @@
                     ],
                     "description": "Columns shown in the table"
                 },
-                "events": {
-                    "$ref": "#/definitions/EventsNode",
-                    "description": "Source of the events"
-                },
                 "kind": {
                     "const": "DataTableNode",
                     "type": "string"
                 },
                 "showEventFilter": {
-                    "description": "Include an event filter above the table",
+                    "description": "Include an event filter above the table (default: true)",
                     "type": "boolean"
                 },
                 "showPropertyFilter": {
-                    "description": "Include a property filter above the table",
+                    "description": "Include a property filter above the table (default: true)",
                     "type": "boolean"
+                },
+                "source": {
+                    "$ref": "#/definitions/EventsNode",
+                    "description": "Source of the events"
                 }
             },
-            "required": ["events", "kind"],
+            "required": ["kind", "source"],
             "type": "object"
         },
         "DataTableStringColumn": {

@@ -4,7 +4,7 @@ import { useValues } from 'kea'
 import { dataNodeLogic } from '~/queries/nodes/dataNodeLogic'
 import { LemonTable } from 'lib/components/LemonTable'
 import { normalizeDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { AnyPropertyFilter, EventType, PropertyFilterType } from '~/types'
+import { EventType, PropertyFilterType } from '~/types'
 import { autoCaptureEventToDescription } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { urls } from 'scenes/urls'
@@ -12,8 +12,8 @@ import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { Link } from 'lib/components/Link'
 import { Property } from 'lib/components/Property'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonEventName } from 'scenes/actions/EventName'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { EventName } from '~/queries/nodes/EventsNode/EventName'
+import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 
 interface DataTableProps {
     query: DataTableNode
@@ -101,28 +101,14 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
             {(showPropertyFilter || showEventFilter) && (
                 <div className="flex space-x-4 mb-4">
                     {showEventFilter && (
-                        <LemonEventName
-                            value={query.source.event ?? ''}
-                            disabled={!setQuery}
-                            onChange={(value: string) => {
-                                setQuery?.({ ...query, source: { ...query.source, event: value } })
-                            }}
+                        <EventName query={query.source} setQuery={(source) => setQuery?.({ ...query, source })} />
+                    )}
+                    {showPropertyFilter && (
+                        <EventPropertyFilters
+                            query={query.source}
+                            setQuery={(source) => setQuery?.({ ...query, source })}
                         />
                     )}
-                    {showPropertyFilter &&
-                        (!query.source.properties || Array.isArray(query.source.properties) ? (
-                            <PropertyFilters
-                                propertyFilters={query.source.properties || []}
-                                onChange={(value: AnyPropertyFilter[]) =>
-                                    setQuery?.({ ...query, source: { ...query.source, properties: value } })
-                                }
-                                pageKey={`DataTable.${id}.properties`}
-                                style={{ marginBottom: 0, marginTop: 0 }}
-                                eventNames={query.source.event ? [query.source.event] : []}
-                            />
-                        ) : (
-                            <div>Error: property groups are not supported.</div>
-                        ))}
                 </div>
             )}
             <LemonTable

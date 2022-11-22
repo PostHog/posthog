@@ -6,14 +6,14 @@ import { useValues } from 'kea'
 import { dataNodeLogic } from '~/queries/nodes/dataNodeLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 
-interface DataNodeQueryProps {
+interface DataNodeProps {
     query: Node
 }
 
 let i = 0
 
 /** Default renderer for data nodes. Display the JSON in a Monaco editor.  */
-export function DataNodeQuery(props: DataNodeQueryProps): JSX.Element {
+export function DataNode(props: DataNodeProps): JSX.Element {
     const [key] = useState(() => String(i++))
     const logic = dataNodeLogic({ ...props, key })
     const { response, responseLoading } = useValues(logic)

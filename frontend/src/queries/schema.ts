@@ -52,6 +52,8 @@ export interface DataTableNode extends Node {
     showEventFilter?: boolean
     /** Include a property filter above the table (default: true) */
     showPropertyFilter?: boolean
+    /** Can expand row to show raw event data (default: true) */
+    expandable?: boolean
 }
 
 export interface DataTableColumn {
