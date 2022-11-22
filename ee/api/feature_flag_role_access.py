@@ -25,7 +25,7 @@ class FeatureFlagRoleAccessPermissions(BasePermission):
         except OrganizationResourceAccess.DoesNotExist:  # no organization resource access for this means full default edit access
             return True
         try:
-            feature_flag: FeatureFlag = FeatureFlag.objects.get(id=request.data["feature_flag_id"])
+            feature_flag: FeatureFlag = FeatureFlag.objects.get(id=view.parents_query_dict["feature_flag_id"])
             if feature_flag.created_by.uuid == request.user.uuid:
                 return True
         except FeatureFlag.DoesNotExist:
@@ -53,6 +53,7 @@ class FeatureFlagRoleAccessSerializer(serializers.ModelSerializer):
 
 class FeatureFlagRoleAccessViewSet(
     StructuredViewSetMixin,
+    mixins.ListModelMixin,
     mixins.CreateModelMixin,
     mixins.DestroyModelMixin,
     mixins.RetrieveModelMixin,
@@ -60,6 +61,8 @@ class FeatureFlagRoleAccessViewSet(
 ):
     permission_classes = [IsAuthenticated, FeatureFlagRoleAccessPermissions]
     serializer_class = FeatureFlagRoleAccessSerializer
+    queryset = FeatureFlagRoleAccess.objects.select_related("feature_flag")
+    filter_rewrite_rules = {"team_id": "feature_flag__team_id"}
 
     def get_queryset(self):
         filters = self.request.GET.dict()

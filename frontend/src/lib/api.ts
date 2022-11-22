@@ -34,7 +34,6 @@ import {
     OrganizationResourcePermissionType,
     RolesListParams,
     FeatureFlagAssociatedRoleType,
-    FeatureFlagResourcePermissionListParams,
     SessionRecordingType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
@@ -396,12 +395,16 @@ class ApiRequest {
 
     // Resource Access Permissions
 
-    public featureFlagAccessPermissions(): ApiRequest {
-        return this.organizations().current().addPathComponent('feature_flag_role_access')
+    public featureFlagAccessPermissions(teamId: TeamType['id'], flagId: FeatureFlagType['id']): ApiRequest {
+        return this.featureFlag(flagId, teamId).addPathComponent('role_access')
     }
 
-    public featureFlagAccessPermissionsDetail(id: FeatureFlagAssociatedRoleType['id']): ApiRequest {
-        return this.organizations().current().addPathComponent('feature_flag_role_access').addPathComponent(id)
+    public featureFlagAccessPermissionsDetail(
+        teamId: TeamType['id'],
+        flagId: FeatureFlagType['id'],
+        id: FeatureFlagAssociatedRoleType['id']
+    ): ApiRequest {
+        return this.featureFlagAccessPermissions(teamId, flagId).addPathComponent(id)
     }
 
     // Request finalization
@@ -733,10 +736,11 @@ const api = {
     resourceAccessPermissions: {
         featureFlags: {
             async create(
-                roleId: RoleType['id'],
-                featureFlagId: FeatureFlagType['id']
+                teamId: TeamType['id'],
+                featureFlagId: number,
+                roleId: RoleType['id']
             ): Promise<FeatureFlagAssociatedRoleType> {
-                return await new ApiRequest().featureFlagAccessPermissions().create({
+                return await new ApiRequest().featureFlagAccessPermissions(teamId, featureFlagId).create({
                     data: {
                         role_id: roleId,
                         feature_flag_id: featureFlagId,
@@ -744,15 +748,18 @@ const api = {
                 })
             },
             async list(
-                params: FeatureFlagResourcePermissionListParams
+                teamId: TeamType['id'],
+                featureFlagId: number
             ): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
-                return await new ApiRequest().featureFlagAccessPermissions().withQueryString(toParams(params)).get()
+                return await new ApiRequest().featureFlagAccessPermissions(teamId, featureFlagId).get()
             },
 
             async delete(
+                teamId: TeamType['id'],
+                featureFlagId: number,
                 id: FeatureFlagAssociatedRoleType['id']
             ): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
-                return await new ApiRequest().featureFlagAccessPermissionsDetail(id).delete()
+                return await new ApiRequest().featureFlagAccessPermissionsDetail(teamId, featureFlagId, id).delete()
             },
         },
     },

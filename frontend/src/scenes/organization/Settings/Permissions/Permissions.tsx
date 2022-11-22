@@ -2,6 +2,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { AccessLevel } from '~/types'
 import { permissionsLogic, FormattedResourceLevel, ResourcePermissionMapping } from './permissionsLogic'
 
@@ -15,7 +16,7 @@ export function Permissions({ isRestricted }: RestrictedComponentProps): JSX.Ele
             title: 'Resource',
             dataIndex: 'name',
             render: function RenderResource(_, permission) {
-                return <b>{permission.resource}</b>
+                return <b>{capitalizeFirstLetter(permission.resource)}</b>
             },
         },
         {
@@ -62,8 +63,8 @@ export function Permissions({ isRestricted }: RestrictedComponentProps): JSX.Ele
                         Permission Defaults
                     </h2>
                     <p className="text-muted-alt">
-                        Add default permission levels for posthog resources. Use roles to apply permissions to specific
-                        sets of users.
+                        Add organizational default permission levels for posthog resources. Use roles to apply
+                        permissions to specific sets of users.
                     </p>
                 </div>
             </div>

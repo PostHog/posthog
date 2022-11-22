@@ -29,6 +29,7 @@ def extend_api_router(
     projects_router: NestedRegistryItem,
     organizations_router: NestedRegistryItem,
     project_dashboards_router: NestedRegistryItem,
+    project_feature_flags_router: NestedRegistryItem,
 ) -> None:
     root_router.register(r"billing-v2", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
@@ -46,11 +47,11 @@ def extend_api_router(
         "organization_role_memberships",
         ["organization_id", "role_id"],
     )
-    organizations_router.register(
-        r"feature_flag_role_access",
+    project_feature_flags_router.register(
+        r"role_access",
         feature_flag_role_access.FeatureFlagRoleAccessViewSet,
-        "organization_feature_flag_role_access",
-        ["organization_id"],
+        "feature_flag_role_access",
+        ["team_id", "feature_flag_id"],
     )
     organizations_router.register(
         r"resource_access",

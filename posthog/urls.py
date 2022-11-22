@@ -17,6 +17,7 @@ from posthog.api import (
     decide,
     organizations_router,
     project_dashboards_router,
+    project_feature_flags_router,
     projects_router,
     router,
     sharing,
@@ -46,6 +47,7 @@ else:
         projects_router=projects_router,
         organizations_router=organizations_router,
         project_dashboards_router=project_dashboards_router,
+        project_feature_flags_router=project_feature_flags_router,
     )
 
 
