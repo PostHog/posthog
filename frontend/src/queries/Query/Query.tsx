@@ -1,7 +1,7 @@
 import { isDataNode, isEventsTableNode, isLegacyQuery } from '../utils'
-import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery'
-import { EventsTableQuery } from '~/queries/nodes/EventsTableQuery'
-import { DataNodeQuery } from '~/queries/nodes/DataNodeQuery'
+import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyInsightQuery'
+import { EventsTableQuery } from '~/queries/nodes/EventsTableQuery/EventsTableQuery'
+import { DataNodeQuery } from '~/queries/nodes/DataNodeQuery/DataNodeQuery'
 import { Node } from '~/queries/schema'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
