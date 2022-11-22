@@ -65,6 +65,8 @@ function renderColumn(type: PropertyFilterType, key: string, record: EventType):
             }
         } else if (key === 'timestamp') {
             return <TZLabel time={record.timestamp} showSeconds />
+        } else {
+            return String(record[key])
         }
     } else if (type === PropertyFilterType.Person) {
         if (key === '') {
