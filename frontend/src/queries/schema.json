@@ -1158,6 +1158,10 @@
                     "description": "Include an event filter above the table (default: true)",
                     "type": "boolean"
                 },
+                "showMore": {
+                    "description": "Show the \"...\" menu at the end of the row",
+                    "type": "boolean"
+                },
                 "showPropertyFilter": {
                     "description": "Include a property filter above the table (default: true)",
                     "type": "boolean"

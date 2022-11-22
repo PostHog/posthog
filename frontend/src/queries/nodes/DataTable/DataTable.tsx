@@ -2,7 +2,7 @@ import { DataTableColumn, DataTableNode, DataTableStringColumn, EventsNode } fro
 import { useState } from 'react'
 import { useValues } from 'kea'
 import { dataNodeLogic } from '~/queries/nodes/dataNodeLogic'
-import { LemonTable } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import { normalizeDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { EventType, PropertyFilterType } from '~/types'
 import { autoCaptureEventToDescription } from 'lib/utils'
@@ -26,7 +26,7 @@ let uniqueNode = 0
 export const defaultDataTableStringColumns: DataTableStringColumn[] = [
     'meta.event',
     'person',
-    'event.$browser',
+    'event.$current_url',
     'person.email',
     'meta.timestamp',
 ]
@@ -99,7 +99,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     const logic = dataNodeLogic({ query: query.source, key: `DataTable.${id}` })
     const { response, responseLoading } = useValues(logic)
     const rows = (response as null | EventsNode['response'])?.results ?? []
-    const lemonColumns = columns.map(({ type, key }) => ({
+    const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = columns.map(({ type, key }) => ({
         dataIndex: `${type}.${key}` as any,
         title: renderTitle(type, key),
         render: function RenderDataTableColumn(_: any, record: EventType) {
