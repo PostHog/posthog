@@ -1,11 +1,11 @@
-import { AnyPartialFilterType, AnyPropertyFilter, EventType, PropertyGroupFilter } from '~/types'
+import { AnyPartialFilterType, AnyPropertyFilter, EventType, PropertyFilterType, PropertyGroupFilter } from '~/types'
 
 export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
 
     // Interface nodes
-    EventsTableNode = 'EventsTableNode',
+    DataTableNode = 'DataTableNode',
     LegacyQuery = 'LegacyQuery',
 }
 
@@ -14,7 +14,7 @@ export type QuerySchema =
     | EventsNode
 
     // Interface nodes
-    | EventsTableNode
+    | DataTableNode
     | LegacyQuery
 
 /** Node base class, everything else inherits from here */
@@ -39,15 +39,25 @@ export interface EventsNode extends DataNode {
     }
 }
 
-// Interface nodes
+// Data table node
+
+export interface DataTableNode extends Node {
+    kind: NodeKind.DataTableNode
+    events: EventsNode
+    /** Columns shown in the table  */
+    columns?: DataTableColumn[] | DataTableStringColumn[]
+}
+
+export interface DataTableColumn {
+    type: PropertyFilterType
+    key: string
+}
+
+export type DataTableStringColumn = `${PropertyFilterType}.${string}` | 'person'
+
+// Legacy queries
 
 export interface LegacyQuery extends Node {
     kind: NodeKind.LegacyQuery
     filters: AnyPartialFilterType
-}
-
-export interface EventsTableNode extends Node {
-    kind: NodeKind.EventsTableNode
-    events: EventsNode
-    columns?: string[]
 }

@@ -1,6 +1,7 @@
 // This file contains example queries, used in storybook and in the /query interface.
-import { EventsNode, EventsTableNode, LegacyQuery, Node, NodeKind } from '~/queries/schema'
+import { EventsNode, DataTableNode, LegacyQuery, Node, NodeKind } from '~/queries/schema'
 import { ChartDisplayType, InsightType, PropertyFilterType, PropertyOperator } from '~/types'
+import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/DataTable'
 
 const Events: EventsNode = {
     kind: NodeKind.EventsNode,
@@ -9,8 +10,9 @@ const Events: EventsNode = {
     ],
 }
 
-const EventsTable: EventsTableNode = {
-    kind: NodeKind.EventsTableNode,
+const EventsTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    columns: defaultDataTableStringColumns,
     events: Events,
 }
 

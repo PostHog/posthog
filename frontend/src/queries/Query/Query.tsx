@@ -1,6 +1,6 @@
-import { isDataNode, isEventsTableNode, isLegacyQuery } from '../utils'
+import { isDataNode, isDataTableNode, isLegacyQuery } from '../utils'
 import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyInsightQuery'
-import { EventsTableQuery } from '~/queries/nodes/EventsTableQuery/EventsTableQuery'
+import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataNodeQuery } from '~/queries/nodes/DataNodeQuery/DataNodeQuery'
 import { Node } from '~/queries/schema'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -22,8 +22,8 @@ export function Query(props: QueryProps): JSX.Element {
     let component
     if (isLegacyQuery(query)) {
         component = <LegacyInsightQuery query={query} />
-    } else if (isEventsTableNode(query)) {
-        component = <EventsTableQuery query={query} setQuery={setQuery} />
+    } else if (isDataTableNode(query)) {
+        component = <DataTable query={query} setQuery={setQuery} />
     } else if (isDataNode(query)) {
         component = <DataNodeQuery query={query} />
     }
