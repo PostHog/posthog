@@ -13,7 +13,13 @@ class PassThroughThrottle(UserRateThrottle):
         if not request_would_be_allowed:
             try:
                 scope = getattr(self, "scope", None)
-                incr("rate_limit_exceeded", tags={"team_id": getattr(view, "team_id", None), "scope": scope})
+                try:
+                    team_id = view.team_id
+                except (AttributeError, KeyError):
+                    # AttributeError results from view not having a team_id attribute
+                    # KeyError results from view.team_id being unspecified (e.g. in an organization-based endpoint)
+                    team_id = None
+                incr("rate_limit_exceeded", tags={"team_id": team_id, "scope": scope})
             except Exception as e:
                 capture_exception(e)
         return True

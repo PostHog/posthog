@@ -47,7 +47,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setIsMetadataExpanded: (_, { isMetadataExpanded }) => isMetadataExpanded,
             },
         ],
-
         autoplayEnabled: [
             true,
             { persist: true },
