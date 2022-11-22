@@ -17,7 +17,10 @@ import { toParams } from 'lib/utils'
 // Return data for a given query
 export async function query<N extends DataNode>(query: N, methodOptions?: ApiMethodOptions): Promise<N['response']> {
     if (isEventsNode(query)) {
-        return await api.events.list({ properties: query.properties }, query.limit)
+        return await api.events.list(
+            { properties: query.properties, ...(query.event ? { event: query.event } : {}) },
+            query.limit
+        )
     } else if (isLegacyQuery(query)) {
         const [response] = await legacyInsightQuery({
             filters: query.filters,
