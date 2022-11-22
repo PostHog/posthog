@@ -45,7 +45,7 @@ export interface EventsNode extends DataNode {
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    events: EventsNode
+    source: EventsNode
     /** Columns shown in the table  */
     columns?: DataTableColumn[] | DataTableStringColumn[]
     /** Include an event filter above the table (default: true) */

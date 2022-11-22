@@ -14,7 +14,7 @@ const Events: EventsNode = {
 const EventsTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
     columns: defaultDataTableStringColumns,
-    events: Events,
+    source: Events,
 }
 
 const LegacyTrendsQuery: LegacyQuery = {
