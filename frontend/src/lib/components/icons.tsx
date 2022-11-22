@@ -552,11 +552,79 @@ export function IconFlag(props: SvgIconProps): JSX.Element {
     )
 }
 
+/** Material Design Show Chart icon. */
+export function IconShowChart(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99l1.5 1.5z" fill="currentColor" />
+        </SvgIcon>
+    )
+}
+
+export function IconCumulativeChart(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M20.8805 7.97408C15.0614 18.7809 6.51281 19.5979 2.71265 18.4578L3.28734 16.5422C6.15384 17.4021 13.7386 17.0191 19.1195 7.02588L20.8805 7.97408Z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
 /** Material Design Bar Chart icon. */
 export function IconBarChart(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
             <path d="m5 9.2h3v9.8h-3zm5.6-4.2h2.8v14h-2.8zm5.6 8h2.8v6h-2.8z" fill="currentColor" />
+        </SvgIcon>
+    )
+}
+
+/** Material Design Pie Chart icon. */
+export function IconPieChart(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm7.93 9H13V4.07c3.61.45 6.48 3.32 6.93 6.93zM4 12c0-4.07 3.06-7.44 7-7.93v15.86c-3.94-.49-7-3.86-7-7.93zm9 7.93V13h6.93c-.45 3.61-3.32 6.48-6.93 6.93z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+/** Material Design Table Chart icon. */
+export function IconTableChart(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M20 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h15c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 2v3H5V5h15zm-5 14h-5v-9h5v9zM5 10h3v9H5v-9zm12 9v-9h3v9h-3z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+/** Material Design 123 icon. */
+export function Icon123(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M7,15H5.5v-4.5H4V9h3V15z M13.5,13.5h-3v-1h2c0.55,0,1-0.45,1-1V10c0-0.55-0.45-1-1-1H9v1.5h3v1h-2c-0.55,0-1,0.45-1,1V15 h4.5V13.5z M19.5,14v-4c0-0.55-0.45-1-1-1H15v1.5h3v1h-2v1h2v1h-3V15h3.5C19.05,15,19.5,14.55,19.5,14z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+/** Material Public icon. */
+export function IconPublic(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-.61.08-1.21.21-1.78L8.99 15v1c0 1.1.9 2 2 2v1.93C7.06 19.43 4 16.07 4 12zm13.89 5.4c-.26-.81-1-1.4-1.9-1.4h-1v-3c0-.55-.45-1-1-1h-6v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41C17.92 5.77 20 8.65 20 12c0 2.08-.81 3.98-2.11 5.4z"
+                fill="currentColor"
+            />
         </SvgIcon>
     )
 }
@@ -1914,6 +1982,18 @@ export function IconSkipBackward(props: SvgIconProps): JSX.Element {
             <path
                 d="M21.8636 13.6486C22.7745 8.20179 18.9753 3.03539 13.3613 2.08842C10.1083 1.5397 6.96075 2.53504 4.71122 4.52864L3.64727 3.39843C3.52963 3.27464 3.31814 3.33531 3.29323 3.49844L2.61914 7.61871C2.59751 7.7469 2.70624 7.86158 2.83872 7.85097L7.12768 7.57298C7.16635 7.57046 7.20339 7.55738 7.23454 7.53524C7.26569 7.5131 7.28969 7.48281 7.30378 7.44784C7.31787 7.41288 7.32148 7.37466 7.31418 7.33758C7.30689 7.3005 7.289 7.26607 7.26256 7.23825L6.10772 6.01158C6.35345 5.79443 6.6153 5.59014 6.89033 5.40074C7.75239 4.80488 8.72707 4.3786 9.7602 4.14561C10.831 3.90282 11.9307 3.87537 13.0286 4.06056C14.1265 4.24575 15.1564 4.63245 16.0883 5.21303C16.9896 5.77326 17.7628 6.48932 18.3877 7.34012C19.0126 8.19091 19.4575 9.13303 19.7082 10.1413C19.9684 11.1866 20.0076 12.2555 19.828 13.3205C19.6483 14.3854 19.2606 15.3823 18.6724 16.282C18.1048 17.1522 17.3755 17.8963 16.5061 18.495C15.6366 19.0938 14.6714 19.5166 13.6362 19.7502C12.5654 19.993 11.4657 20.0204 10.3678 19.8352C9.26987 19.65 8.23995 19.2633 7.30808 18.6827C6.40854 18.1237 5.62762 17.4013 5.00872 16.5557C4.8493 16.3386 4.70383 16.1163 4.56724 15.8879C4.54048 15.8423 4.49636 15.8085 4.44446 15.7941C4.39256 15.7796 4.3371 15.7856 4.29013 15.8108L2.84288 16.5656C2.74229 16.6196 2.70583 16.7427 2.76244 16.841C4.25318 19.3768 6.85284 21.2731 10.0347 21.8098C15.6538 22.7576 20.9514 19.1029 21.8636 13.6486Z"
                 fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+/** Material Design Content Save Outline icon. */
+export function IconSave(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                fill="currentColor"
+                d="M17 3H5C3.89 3 3 3.9 3 5V19C3 20.1 3.89 21 5 21H19C20.1 21 21 20.1 21 19V7L17 3M19 19H5V5H16.17L19 7.83V19M12 12C10.34 12 9 13.34 9 15S10.34 18 12 18 15 16.66 15 15 13.66 12 12 12M6 6H15V10H6V6Z"
             />
         </SvgIcon>
     )

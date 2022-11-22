@@ -16,7 +16,7 @@ from posthog.settings import (
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import csv_exporter
-from posthog.tasks.exports.csv_exporter import add_query_params
+from posthog.tasks.exports.csv_exporter import UnexpectedEmptyJsonResponse, add_query_params
 from posthog.test.base import APIBaseTest
 from posthog.utils import absolute_uri
 
@@ -244,6 +244,17 @@ class TestCSVExporter(APIBaseTest):
             actual_bits = self._split_to_dict(modified_url)
             expected_bits = {**self._split_to_dict(regression_11204), **{"limit": "3500"}}
             assert expected_bits == actual_bits
+
+    @patch("posthog.tasks.exports.csv_exporter.make_api_call")
+    def test_raises_expected_error_when_json_is_none(self, patched_api_call) -> None:
+        mock_response = Mock()
+        mock_response.json.return_value = None
+        mock_response.status_code = 200
+        mock_response.text = "i am the text"
+        patched_api_call.return_value = mock_response
+
+        with pytest.raises(UnexpectedEmptyJsonResponse, match="JSON is None when calling API for data"):
+            csv_exporter.export_csv(self._create_asset())
 
     def _split_to_dict(self, url: str) -> Dict[str, Any]:
         first_split_parts = url.split("?")

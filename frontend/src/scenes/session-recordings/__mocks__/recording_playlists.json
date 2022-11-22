@@ -1,0 +1,287 @@
+[
+    {
+        "id": 3,
+        "short_id": "RWbNI7Mx",
+        "name": "nightly",
+        "derived_name": "(Untitled)",
+        "description": "",
+        "pinned": true,
+        "created_at": "2022-11-17T16:52:29.444128Z",
+        "created_by": {
+            "id": 1,
+            "uuid": "01848677-afb6-0000-31a7-0ea1d72223c0",
+            "distinct_id": "1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G",
+            "first_name": "Alex",
+            "email": "alex@posthog.com"
+        },
+        "deleted": false,
+        "filters": {
+            "events": [],
+            "actions": [],
+            "date_from": "2022-10-27",
+            "properties": [],
+            "session_recording_duration": {
+                "key": "duration",
+                "type": "recording",
+                "value": 60,
+                "operator": "gt"
+            }
+        },
+        "last_modified_at": "2022-11-18T23:17:23.944256Z",
+        "last_modified_by": {
+            "id": 1,
+            "uuid": "01848677-afb6-0000-31a7-0ea1d72223c0",
+            "distinct_id": "1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G",
+            "first_name": "Alex",
+            "email": "alex@posthog.com"
+        },
+        "is_static": true,
+        "playlist_items": [
+            {
+                "id": "1848680525e814-001288b3cb4051-18525635-16a7f0-1848680525f25db",
+                "created_at": "2022-11-17T16:52:55.730686Z"
+            },
+            {
+                "id": "184868838b5124a-0bdea3242c845-18525635-16a7f0-184868838b6932",
+                "created_at": "2022-11-17T17:01:20.861169Z"
+            },
+            {
+                "id": "1848b0536b225f1-043a124c75ca9f-18525635-384000-1848b0536b326d7",
+                "created_at": "2022-11-18T14:17:55.015989Z"
+            },
+            {
+                "id": "1848b5ca1431c7a-0416b711cd124d-18525635-384000-1848b5ca1442a00",
+                "created_at": "2022-11-18T15:32:36.843081Z"
+            },
+            {
+                "id": "1848b7205f7239-083a13e56ee4cd-18525635-384000-1848b7205f81b93",
+                "created_at": "2022-11-18T15:55:16.193560Z"
+            },
+            {
+                "id": "1848ba02595195c-07a325eb8b39b5-18525635-384000-1848ba02596295a",
+                "created_at": "2022-11-18T16:49:51.818072Z"
+            },
+            {
+                "id": "1848baa0c561017-0019f4684694b1-18525635-384000-1848baa0c57253a",
+                "created_at": "2022-11-18T17:00:52.542484Z"
+            },
+            {
+                "id": "1848baf741a162c-0b385cd27eecf3-18525635-384000-1848baf741b2278",
+                "created_at": "2022-11-18T17:03:24.135501Z"
+            },
+            {
+                "id": "1848bb17fb96f6-08baedcc6aacf6-18525635-384000-1848bb17fba2684",
+                "created_at": "2022-11-18T17:04:07.600031Z"
+            },
+            {
+                "id": "1848bb2837128f-0a871782919302-18525635-384000-1848bb283721203",
+                "created_at": "2022-11-18T17:10:20.909796Z"
+            },
+            {
+                "id": "1848b928fc71e15-001f6fee9c041b-18525635-384000-1848b928fc815da",
+                "created_at": "2022-11-18T17:34:10.507584Z"
+            },
+            {
+                "id": "1848bcd139ce3e-0d866be30c8fd5-18525635-384000-1848bcd139d2436",
+                "created_at": "2022-11-18T17:36:02.592194Z"
+            },
+            {
+                "id": "1848b68171c1818-06ac588fd7c63a-18525635-384000-1848b68171d2aac",
+                "created_at": "2022-11-18T17:49:32.163980Z"
+            },
+            {
+                "id": "1848be37d68360-0991cd01680dcf-18525635-384000-1848be37d6b884",
+                "created_at": "2022-11-18T17:57:48.102765Z"
+            },
+            {
+                "id": "1848be232132826-0ae637070b2b0e-18525635-384000-1848be2321434b0",
+                "created_at": "2022-11-18T17:58:46.233124Z"
+            },
+            {
+                "id": "1848c04b9b017d7-0f70eb536aedd6-18525635-384000-1848c04b9b11c62",
+                "created_at": "2022-11-18T18:39:35.358706Z"
+            },
+            {
+                "id": "1848c110ac4e1-0d570abd6bfc6e-18525635-384000-1848c110ac51d73",
+                "created_at": "2022-11-18T23:15:38.563922Z"
+            }
+        ]
+    },
+    {
+        "id": 14,
+        "short_id": "86WM5Ksx",
+        "name": "blah",
+        "derived_name": "(Untitled)",
+        "description": "",
+        "pinned": false,
+        "created_at": "2022-11-18T18:46:26.494109Z",
+        "created_by": {
+            "id": 1,
+            "uuid": "01848677-afb6-0000-31a7-0ea1d72223c0",
+            "distinct_id": "1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G",
+            "first_name": "Alex",
+            "email": "alex@posthog.com"
+        },
+        "deleted": false,
+        "filters": {
+            "events": [],
+            "actions": [],
+            "date_from": "2022-10-28",
+            "properties": [],
+            "session_recording_duration": {
+                "key": "duration",
+                "type": "recording",
+                "value": 60,
+                "operator": "gt"
+            }
+        },
+        "last_modified_at": "2022-11-18T23:17:04.416860Z",
+        "last_modified_by": {
+            "id": 1,
+            "uuid": "01848677-afb6-0000-31a7-0ea1d72223c0",
+            "distinct_id": "1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G",
+            "first_name": "Alex",
+            "email": "alex@posthog.com"
+        },
+        "is_static": true,
+        "playlist_items": [
+            {
+                "id": "1848c0de28114de-051668687374a-18525635-384000-1848c0de28213be",
+                "created_at": "2022-11-18T18:46:28.981807Z"
+            },
+            {
+                "id": "1848c110ac4e1-0d570abd6bfc6e-18525635-384000-1848c110ac51d73",
+                "created_at": "2022-11-18T23:15:39.730201Z"
+            }
+        ]
+    },
+    {
+        "id": 15,
+        "short_id": "neSyz9VK",
+        "name": "dynamic test",
+        "derived_name": null,
+        "description": "with a description",
+        "pinned": true,
+        "created_at": "2022-11-18T23:15:57.823086Z",
+        "created_by": {
+            "id": 1,
+            "uuid": "01848677-afb6-0000-31a7-0ea1d72223c0",
+            "distinct_id": "1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G",
+            "first_name": "Alex",
+            "email": "alex@posthog.com"
+        },
+        "deleted": false,
+        "filters": {
+            "events": [],
+            "actions": [],
+            "date_from": "2022-10-28",
+            "properties": [],
+            "session_recording_duration": {
+                "key": "duration",
+                "type": "recording",
+                "value": 60,
+                "operator": "gt"
+            }
+        },
+        "last_modified_at": "2022-11-18T23:15:57.822851Z",
+        "last_modified_by": {
+            "id": 1,
+            "uuid": "01848677-afb6-0000-31a7-0ea1d72223c0",
+            "distinct_id": "1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G",
+            "first_name": "Alex",
+            "email": "alex@posthog.com"
+        },
+        "is_static": false,
+        "playlist_items": []
+    },
+    {
+        "id": 13,
+        "short_id": "IwejPyVW",
+        "name": "asdfdasfsad",
+        "derived_name": null,
+        "description": "",
+        "pinned": false,
+        "created_at": "2022-11-18T18:46:20.354174Z",
+        "created_by": {
+            "id": 1,
+            "uuid": "01848677-afb6-0000-31a7-0ea1d72223c0",
+            "distinct_id": "1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G",
+            "first_name": "Alex",
+            "email": "alex@posthog.com"
+        },
+        "deleted": false,
+        "filters": {
+            "events": [],
+            "actions": [],
+            "date_from": "2022-10-28",
+            "properties": [],
+            "session_recording_duration": {
+                "key": "duration",
+                "type": "recording",
+                "value": 60,
+                "operator": "gt"
+            }
+        },
+        "last_modified_at": "2022-11-18T18:46:20.353927Z",
+        "last_modified_by": {
+            "id": 1,
+            "uuid": "01848677-afb6-0000-31a7-0ea1d72223c0",
+            "distinct_id": "1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G",
+            "first_name": "Alex",
+            "email": "alex@posthog.com"
+        },
+        "is_static": true,
+        "playlist_items": [
+            {
+                "id": "1848c110ac4e1-0d570abd6bfc6e-18525635-384000-1848c110ac51d73",
+                "created_at": "2022-11-18T23:15:37.584232Z"
+            }
+        ]
+    },
+    {
+        "id": 1,
+        "short_id": "V4Fi2f8k",
+        "name": null,
+        "derived_name": "(Untitled)",
+        "description": "",
+        "pinned": false,
+        "created_at": "2022-11-17T16:46:09.854845Z",
+        "created_by": {
+            "id": 1,
+            "uuid": "01848677-afb6-0000-31a7-0ea1d72223c0",
+            "distinct_id": "1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G",
+            "first_name": "Alex",
+            "email": "alex@posthog.com"
+        },
+        "deleted": false,
+        "filters": {
+            "events": [
+                {
+                    "id": "$groupidentify",
+                    "name": "$groupidentify",
+                    "type": "events",
+                    "order": 0
+                }
+            ],
+            "actions": [],
+            "date_from": "2022-10-27",
+            "properties": [],
+            "session_recording_duration": {
+                "key": "duration",
+                "type": "recording",
+                "value": 1,
+                "operator": "gt"
+            }
+        },
+        "last_modified_at": "2022-11-18T17:55:49.552699Z",
+        "last_modified_by": {
+            "id": 1,
+            "uuid": "01848677-afb6-0000-31a7-0ea1d72223c0",
+            "distinct_id": "1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G",
+            "first_name": "Alex",
+            "email": "alex@posthog.com"
+        },
+        "is_static": false,
+        "playlist_items": []
+    }
+]

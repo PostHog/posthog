@@ -21,7 +21,7 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
     def test_can_always_add_role_access_if_creator_of_feature_flag(self):
         OrganizationResourceAccess.objects.create(
             resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
-            access_level=OrganizationResourceAccess.AccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE,
+            access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
             organization=self.organization,
         )
         self.assertEqual(self.user.role_memberships.count(), 0)
@@ -49,7 +49,7 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         )
         response_data = res.json()
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response_data, self.permission_denied_response("You can't edit roles to this feature flag."))
+        self.assertEqual(response_data, self.permission_denied_response("You can't edit roles for this feature flag."))
 
     def test_can_add_role_access_if_role_feature_flags_access_level_allows(self):
         OrganizationResourceAccess.objects.create(

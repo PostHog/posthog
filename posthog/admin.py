@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from django.contrib.auth.forms import UserChangeForm as DjangoUserChangeForm
+from django.contrib.auth.tokens import default_token_generator
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
@@ -12,6 +14,7 @@ from posthog.models import (
     Insight,
     InstanceSetting,
     Organization,
+    OrganizationMembership,
     Person,
     Plugin,
     PluginConfig,
@@ -53,41 +56,59 @@ class PluginConfigAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
 
 
-@admin.register(User)
-class UserAdmin(DjangoUserAdmin):
-    """Define admin model for custom User model with no email field."""
-
-    change_form_template = "loginas/change_form.html"
-
-    fieldsets = (
-        (None, {"fields": ("email", "password", "organization_name", "org_count")}),
-        (_("Personal info"), {"fields": ("first_name", "last_name")}),
-        (_("Permissions"), {"fields": ("is_active", "is_staff")}),
-        (_("Important dates"), {"fields": ("last_login", "date_joined")}),
-        (_("PostHog"), {"fields": ("temporary_token",)}),
-    )
-    add_fieldsets = ((None, {"classes": ("wide",), "fields": ("email", "password1", "password2")}),)
-    list_display = ("email", "first_name", "last_name", "organization_name", "org_count", "is_staff")
-    list_filter = ("is_staff", "is_active", "groups")
-    search_fields = ("email", "first_name", "last_name")
-    readonly_fields = ["organization_name", "org_count"]
-    ordering = ("email",)
-
-    def organization_name(self, user: User):
-        if not user.organization:
-            return "No Organization"
-
-        return format_html(
-            '<a href="/admin/posthog/organization/{}/change/">{}</a>', user.organization.pk, user.organization.name
+class UserChangeForm(DjangoUserChangeForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # This is a riff on https://github.com/django/django/blob/stable/4.1.x/django/contrib/auth/forms.py#L151-L153.
+        # The difference from the Django default is that instead of a form where the _admin_ sets the new password,
+        # we have a link to the password reset page which the _user_ can use themselves.
+        # This way if some user needs to reset their password and there's a problem with receiving the reset link email,
+        # an admin can provide that reset link manually – much better than sending a new password in plain text.
+        password_reset_token = default_token_generator.make_token(self.instance)
+        self.fields["password"].help_text = (
+            "Raw passwords are not stored, so there is no way to see this user’s password, but you can send them "
+            f'<a target="_blank" href="/reset/{self.instance.uuid}/{password_reset_token}">this password reset link</a> '
+            "(it only works when logged out)."
         )
-
-    def org_count(self, user: User) -> int:
-        return user.organization_memberships.count()
 
 
 class OrganizationMemberInline(admin.TabularInline):
     extra = 0
-    model = Organization.members.through
+    model = OrganizationMembership
+    readonly_fields = ("joined_at", "updated_at")
+    autocomplete_fields = ("user", "organization")
+
+
+@admin.register(User)
+class UserAdmin(DjangoUserAdmin):
+    """Define admin model for custom User model with no email field."""
+
+    form = UserChangeForm
+    change_password_form = None  # This view is not exposed in our subclass of UserChangeForm
+    change_form_template = "loginas/change_form.html"
+
+    inlines = [OrganizationMemberInline]
+    fieldsets = (
+        (None, {"fields": ("email", "password", "current_organization")}),
+        (_("Personal info"), {"fields": ("first_name", "last_name")}),
+        (_("Permissions"), {"fields": ("is_active", "is_staff")}),
+        (_("Important dates"), {"fields": ("last_login", "date_joined")}),
+        (_("Toolbar authentication"), {"fields": ("temporary_token",)}),
+    )
+    add_fieldsets = ((None, {"classes": ("wide",), "fields": ("email", "password1", "password2")}),)
+    list_display = ("email", "first_name", "last_name", "current_organization", "is_staff")
+    list_filter = ("is_staff", "is_active", "groups")
+    search_fields = ("email", "first_name", "last_name")
+    readonly_fields = ["current_organization"]
+    ordering = ("email",)
+
+    def current_organization(self, user: User):
+        if not user.organization:
+            return "None"
+
+        return format_html(
+            '<a href="/admin/posthog/organization/{}/change/">{}</a>', user.organization.pk, user.organization.name
+        )
 
 
 class OrganizationTeamInline(admin.TabularInline):

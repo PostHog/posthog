@@ -162,15 +162,6 @@ class Migration(migrations.Migration):
                         to="ee.role",
                     ),
                 ),
-                (
-                    "organization",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="roles",
-                        related_query_name="role",
-                        to="posthog.organization",
-                    ),
-                ),
             ],
         ),
         migrations.AddConstraint(

@@ -35,6 +35,7 @@ import {
     RolesListParams,
     FeatureFlagAssociatedRoleType,
     FeatureFlagResourcePermissionListParams,
+    SessionRecordingType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -46,6 +47,7 @@ import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/even
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { UpdatedRecordingResponse } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -58,6 +60,10 @@ export interface PaginatedResponse<T> {
 
 export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
     total_count: number
+}
+
+export interface ApiMethodOptions {
+    signal?: AbortSignal
 }
 
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
@@ -77,7 +83,7 @@ export function getCookie(name: string): string | null {
     return cookieValue
 }
 
-async function getJSONOrThrow(response: Response): Promise<any> {
+export async function getJSONOrThrow(response: Response): Promise<any> {
     try {
         return await response.json()
     } catch (e) {
@@ -248,6 +254,9 @@ class ApiRequest {
     }
 
     // Recordings
+    public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('session_recordings').addPathComponent(recordingId)
+    }
     public recordings(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('session_recordings')
     }
@@ -397,12 +406,12 @@ class ApiRequest {
 
     // Request finalization
 
-    public async get(options?: { signal?: AbortSignal }): Promise<any> {
-        return await api.get(this.assembleFullUrl(), options?.signal)
+    public async get(options?: ApiMethodOptions): Promise<any> {
+        return await api.get(this.assembleFullUrl(), options)
     }
 
-    public async getRaw(options?: { signal?: AbortSignal }): Promise<Response> {
-        return await api.getRaw(this.assembleFullUrl(), options?.signal)
+    public async getResponse(options?: ApiMethodOptions): Promise<Response> {
+        return await api.getResponse(this.assembleFullUrl(), options)
     }
 
     public async update(options?: { data: any }): Promise<any> {
@@ -937,6 +946,13 @@ const api = {
         async listProperties(params: string): Promise<PaginatedResponse<SessionRecordingPropertiesType>> {
             return await new ApiRequest().recordings().withAction('properties').withQueryString(params).get()
         },
+        async updateRecording(
+            recordingId: SessionRecordingType['id'],
+            recording: Partial<SessionRecordingType>,
+            params?: string
+        ): Promise<UpdatedRecordingResponse> {
+            return await new ApiRequest().recording(recordingId).withQueryString(params).update({ data: recording })
+        },
         async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {
             return await new ApiRequest().recordingPlaylists().withQueryString(params).get()
         },
@@ -1025,18 +1041,18 @@ const api = {
         },
     },
 
-    async get(url: string, signal?: AbortSignal): Promise<any> {
-        const res = await api.getRaw(url, signal)
+    async get(url: string, options?: ApiMethodOptions): Promise<any> {
+        const res = await api.getResponse(url, options)
         return await getJSONOrThrow(res)
     },
 
-    async getRaw(url: string, signal?: AbortSignal): Promise<Response> {
+    async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         let response
         const startTime = new Date().getTime()
         try {
-            response = await fetch(url, { signal })
+            response = await fetch(url, { signal: options?.signal })
         } catch (e) {
             throw { status: 0, message: e }
         }
@@ -1049,7 +1065,7 @@ const api = {
         return response
     },
 
-    async update(url: string, data: any): Promise<any> {
+    async update(url: string, data: any, options?: ApiMethodOptions): Promise<any> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
@@ -1061,6 +1077,7 @@ const api = {
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: isFormData ? data : JSON.stringify(data),
+            signal: options?.signal,
         })
 
         if (!response.ok) {
@@ -1074,7 +1091,12 @@ const api = {
         return await getJSONOrThrow(response)
     },
 
-    async create(url: string, data?: any, signal?: AbortSignal): Promise<any> {
+    async create(url: string, data?: any, options?: ApiMethodOptions): Promise<any> {
+        const res = await api.createResponse(url, data, options)
+        return await getJSONOrThrow(res)
+    },
+
+    async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
@@ -1086,7 +1108,7 @@ const api = {
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
-            signal,
+            signal: options?.signal,
         })
 
         if (!response.ok) {
@@ -1097,7 +1119,7 @@ const api = {
             }
             throw { status: response.status, ...jsonData }
         }
-        return await getJSONOrThrow(response)
+        return response
     },
 
     async delete(url: string): Promise<any> {

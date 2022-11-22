@@ -56,6 +56,7 @@ from posthog.queries.trends.sql import (
 from posthog.queries.trends.util import (
     COUNT_PER_ACTOR_MATH_FUNCTIONS,
     PROPERTY_MATH_FUNCTIONS,
+    ensure_value_is_json_serializable,
     enumerate_time_range,
     get_active_user_params,
     parse_response,
@@ -457,6 +458,7 @@ class TrendsBreakdown:
         def _parse(result: List) -> List:
             parsed_results = []
             for stats in result:
+                aggregated_value = ensure_value_is_json_serializable(stats[0])
                 result_descriptors = self._breakdown_result_descriptors(stats[1], filter, entity)
                 filter_params = filter.to_params()
                 extra_params = {
@@ -467,7 +469,7 @@ class TrendsBreakdown:
                 }
                 parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
                 parsed_result = {
-                    "aggregated_value": stats[0],
+                    "aggregated_value": aggregated_value,
                     "filter": filter_params,
                     "persons": {
                         "filter": extra_params,

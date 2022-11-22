@@ -21,6 +21,7 @@ import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNot
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { SessionRecordingType } from '~/types'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
+import { PlayerHeader } from 'scenes/session-recordings/player/PlayerHeader'
 
 export function useFrameRef({
     sessionRecordingId,
@@ -138,6 +139,9 @@ export function SessionRecordingPlayer({
                 {includeMeta || isFullScreen ? (
                     <PlayerMeta sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                 ) : null}
+                <div className="SessionRecordingPlayer__header">
+                    <PlayerHeader sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+                </div>
                 <div className="SessionRecordingPlayer__body">
                     <PlayerFrame sessionRecordingId={sessionRecordingId} ref={frame} playerKey={playerKey} />
                     <PlayerFrameOverlay

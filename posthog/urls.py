@@ -59,7 +59,9 @@ else:
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
 admin_urlpatterns = (
-    [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)] if is_cloud() or settings.DEMO else []
+    [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)]
+    if is_cloud() or settings.DEMO or settings.DEBUG
+    else []
 )
 
 
