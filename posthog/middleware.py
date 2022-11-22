@@ -163,7 +163,17 @@ class CHQueries:
         route = resolve(request.path)
         route_id = f"{route.route} ({route.func.__name__})"
 
-        tag_queries(user_id=request.user.pk, kind="request", id=request.path)
+        user = cast(User, request.user)
+
+        tag_queries(
+            user_id=user.pk,
+            kind="request",
+            id=request.path,
+            route_id=route.route,
+        )
+
+        if hasattr(user, "current_team_id") and user.current_team_id:
+            tag_queries(team_id=user.current_team_id)
 
         response: HttpResponse = self.get_response(request)
 
