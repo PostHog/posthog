@@ -5,7 +5,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { IngestionWarning, ingestionWarningsLogic, IngestionWarningSummary } from './ingestionWarningsLogic'
 import { LemonTable } from 'lib/components/LemonTable'
-import { TZLabel } from 'lib/components/TimezoneAware'
+import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/components/Link'
 import { WarningEventsGraph } from './WarningEventsGraph'
 

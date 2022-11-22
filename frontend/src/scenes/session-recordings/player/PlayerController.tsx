@@ -8,11 +8,10 @@ import { SessionPlayerState } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { IconFullScreen, IconPause, IconPlay, IconSkipInactivity, IconLink } from 'lib/components/icons'
+import { IconFullScreen, IconPause, IconPlay, IconSkipInactivity } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
 import { PlayerInspectorPicker } from './PlayerInspector'
-import { openPlayerShareDialog } from './share/PlayerShare'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonCheckbox } from '@posthog/lemon-ui'
@@ -29,7 +28,7 @@ export function PlayerController({
     hideInspectorPicker = false,
 }: PlayerControllerProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    const { togglePlayPause, setPause } = useActions(logic)
+    const { togglePlayPause } = useActions(logic)
     const { currentPlayerState, isSmallScreen } = useValues(logic)
 
     const { speed, skipInactivitySetting, isFullScreen, autoplayEnabled } = useValues(playerSettingsLogic)
@@ -37,14 +36,6 @@ export function PlayerController({
     const { featureFlags } = useValues(featureFlagLogic)
 
     const featureAutoplay = !!featureFlags[FEATURE_FLAGS.RECORDING_AUTOPLAY]
-
-    const onShare = (): void => {
-        setPause()
-        openPlayerShareDialog({
-            seconds: Math.floor((logic.values.currentPlayerTime || 0) / 1000),
-            id: sessionRecordingId,
-        })
-    }
 
     return (
         <div className="p-3 bg-light flex flex-col select-none">
@@ -127,13 +118,6 @@ export function PlayerController({
                             }}
                         >
                             <IconFullScreen
-                                className={clsx('text-2xl', isFullScreen ? 'text-primary' : 'text-primary-alt')}
-                            />
-                        </LemonButton>
-                    </Tooltip>
-                    <Tooltip title={`Share recording`}>
-                        <LemonButton size="small" status="primary-alt" onClick={() => onShare()}>
-                            <IconLink
                                 className={clsx('text-2xl', isFullScreen ? 'text-primary' : 'text-primary-alt')}
                             />
                         </LemonButton>

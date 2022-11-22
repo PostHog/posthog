@@ -3,7 +3,7 @@ import { Link } from 'lib/components/Link'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { signupLogic } from './signupLogic'
+import { signupControlLogic } from './signupControlLogic'
 import { userLogic } from '../../../../userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Form } from 'kea-forms'
@@ -12,10 +12,11 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import RegionSelect from '../../../RegionSelect'
+import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 
 export const scene: SceneExport = {
     component: SignupForm,
-    logic: signupLogic,
+    logic: signupControlLogic,
 }
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
@@ -23,7 +24,7 @@ const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 export function SignupForm(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
-    const { isSignupSubmitting, signupManualErrors, signup } = useValues(signupLogic)
+    const { isSignupSubmitting, signupManualErrors, signup } = useValues(signupControlLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
 
     useEffect(() => {
@@ -50,7 +51,7 @@ export function SignupForm(): JSX.Element | null {
                     {signupManualErrors.generic?.detail || 'Could not complete your signup. Please try again.'}
                 </AlertMessage>
             )}
-            <Form logic={signupLogic} formKey={'signup'} className="space-y-4" enableFormOnSubmit>
+            <Form logic={signupControlLogic} formKey={'signup'} className="space-y-4" enableFormOnSubmit>
                 <RegionSelect />
                 <Field name="email" label="Email">
                     <LemonInput
@@ -101,6 +102,7 @@ export function SignupForm(): JSX.Element | null {
                         disabled={isSignupSubmitting}
                     />
                 </Field>
+                <SignupRoleSelect />
                 <Field name="referral_source" label="Where did you hear about us?" showOptional>
                     <LemonInput
                         className="ph-ignore-input"

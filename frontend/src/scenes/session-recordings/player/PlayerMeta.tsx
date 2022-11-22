@@ -4,7 +4,7 @@ import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { useActions, useValues } from 'kea'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
-import { TZLabel } from 'lib/components/TimezoneAware'
+import { TZLabel } from 'lib/components/TZLabel'
 import { percentage } from 'lib/utils'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -29,6 +29,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
         currentWindowIndex,
         recordingStartTime,
         sessionPlayerMetaDataLoading,
+        windowIds,
     } = useValues(playerMetaLogic({ sessionRecordingId, playerKey }))
 
     const { isFullScreen, isMetadataExpanded } = useValues(playerSettingsLogic)
@@ -135,18 +136,15 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                         ) : null}
                     </div>
                 </div>
-                <Tooltip
-                    title={isMetadataExpanded ? 'Hide person properties' : 'Show person properties'}
-                    placement={isFullScreen ? 'bottom' : 'left'}
-                >
-                    <LemonButton
-                        className={clsx('PlayerMeta__expander', isFullScreen ? 'rotate-90' : '')}
-                        status="stealth"
-                        active={isMetadataExpanded}
-                        onClick={() => setIsMetadataExpanded(!isMetadataExpanded)}
-                        icon={isMetadataExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                    />
-                </Tooltip>
+                <LemonButton
+                    className={clsx('PlayerMeta__expander', isFullScreen ? 'rotate-90' : '')}
+                    status="stealth"
+                    active={isMetadataExpanded}
+                    onClick={() => setIsMetadataExpanded(!isMetadataExpanded)}
+                    icon={isMetadataExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                    tooltip={isMetadataExpanded ? 'Hide person properties' : 'Show person properties'}
+                    tooltipPlacement={isFullScreen ? 'bottom' : 'left'}
+                />
             </div>
             {sessionPerson && (
                 <CSSTransition
@@ -176,7 +174,10 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                 ) : (
                     <>
                         <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
-                        {!isSmallPlayer && <div className="text-muted-alt">Window {currentWindowIndex + 1}</div>}
+                        {windowIds.length > 1 && !isSmallPlayer ? (
+                            <div className="text-muted-alt">Window {currentWindowIndex + 1}</div>
+                        ) : null}
+
                         {lastPageviewEvent?.properties?.['$current_url'] && (
                             <span className="flex items-center gap-2 truncate">
                                 <span>·</span>

@@ -3,7 +3,7 @@ import { urlToAction } from 'kea-router'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import type { signupLogicType } from './signupLogicType'
+import type { signupControlLogicType } from './signupControlLogicType'
 
 export interface AccountResponse {
     success: boolean
@@ -18,17 +18,18 @@ export interface SignupForm {
     password: string
     first_name: string
     organization_name: string
+    role_at_organization?: string
 }
 
-export const signupLogic = kea<signupLogicType>([
-    path(['scenes', 'authentication', 'signupLogic']),
+export const signupControlLogic = kea<signupControlLogicType>([
+    path(['scenes', 'authentication', 'signupControlLogic']),
     connect({
         values: [preflightLogic, ['preflight']],
     }),
     forms(({ actions, values }) => ({
         signup: {
             defaults: { email: '', password: '', first_name: '', organization_name: '' } as SignupForm,
-            errors: ({ email, password, first_name, organization_name }) => ({
+            errors: ({ email, password, first_name, organization_name, role_at_organization }) => ({
                 email: !email ? 'Please enter your email to continue' : undefined,
                 password: !values.preflight?.demo
                     ? !password
@@ -39,6 +40,7 @@ export const signupLogic = kea<signupLogicType>([
                     : undefined,
                 first_name: !first_name ? 'Please enter your name' : undefined,
                 organization_name: !organization_name ? 'Please enter your organization name' : undefined,
+                role_at_organization: !role_at_organization ? 'Please enter your role' : undefined,
             }),
             submit: async (payload, breakpoint) => {
                 await breakpoint()

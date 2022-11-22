@@ -136,6 +136,7 @@ def get_breakdown_prop_values(
         filter.breakdown_type,
         filter.breakdown,
         filter.breakdown_group_type_index,
+        filter.breakdown_normalize_url,
         direct_on_events=True if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else False,
         cast_as_float=filter.using_histogram,
     )
@@ -191,6 +192,7 @@ def _to_value_expression(
     breakdown_type: Optional[BREAKDOWN_TYPES],
     breakdown: Union[str, List[Union[str, int]], None],
     breakdown_group_type_index: Optional[GroupTypeIndex],
+    breakdown_normalize_url: bool = False,
     direct_on_events: bool = False,
     cast_as_float: bool = False,
 ) -> str:
@@ -229,6 +231,9 @@ def _to_value_expression(
 
     if cast_as_float:
         value_expression = f"toFloat64OrNull(toString({value_expression}))"
+
+    value_expression = normalize_url_breakdown(value_expression, breakdown_normalize_url)
+
     return f"{value_expression} AS value"
 
 
@@ -310,3 +315,12 @@ def get_breakdown_cohort_name(cohort_id: int) -> str:
         return "all users"
     else:
         return Cohort.objects.get(pk=cohort_id).name
+
+
+def normalize_url_breakdown(breakdown_value, breakdown_normalize_url: bool = True):
+    if breakdown_normalize_url:
+        return (
+            f"if( empty(trim(TRAILING '/?#' from {breakdown_value})), '/', trim(TRAILING '/?#' from {breakdown_value}))"
+        )
+
+    return breakdown_value

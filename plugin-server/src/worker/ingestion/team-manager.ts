@@ -9,7 +9,7 @@ import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
 import { status } from '../../utils/status'
-import { getByAge, UUIDT } from '../../utils/utils'
+import { UUIDT } from '../../utils/utils'
 import { detectPropertyDefinitionTypes } from './property-definitions-auto-discovery'
 import { PropertyDefinitionsCache } from './property-definitions-cache'
 
@@ -27,12 +27,10 @@ const NOT_SYNCED_PROPERTIES = new Set([
     '$group_4',
 ])
 
-type TeamCache<T> = Map<TeamId, [T, number]>
-
 export class TeamManager {
     db: DB
-    teamCache: TeamCache<Team | null>
-    eventDefinitionsCache: Map<TeamId, Set<string>>
+    teamCache: LRU<TeamId, Team>
+    eventDefinitionsCache: LRU<TeamId, Set<string>>
     eventPropertiesCache: LRU<string, Set<string>> // Map<JSON.stringify([TeamId, Event], Set<Property>>
     eventLastSeenCache: LRU<string, number> // key: JSON.stringify([team_id, event]); value: parseInt(YYYYMMDD)
     propertyDefinitionsCache: PropertyDefinitionsCache
@@ -43,9 +41,20 @@ export class TeamManager {
     constructor(db: DB, serverConfig: PluginsServerConfig, statsd?: StatsD) {
         this.db = db
         this.statsd = statsd
-        this.teamCache = new Map()
-        this.eventDefinitionsCache = new Map()
         this.lruCacheSize = serverConfig.EVENT_PROPERTY_LRU_SIZE
+
+        this.teamCache = new LRU({
+            max: 10000,
+            maxAge: 2 * ONE_MINUTE,
+            // being explicit about the fact that we want to update
+            // the team cache every 2min, irrespective of the last access
+            updateAgeOnGet: false,
+        })
+        this.eventDefinitionsCache = new LRU({
+            max: this.lruCacheSize,
+            maxAge: ONE_HOUR * 24,
+            updateAgeOnGet: true,
+        })
         this.eventPropertiesCache = new LRU({
             max: this.lruCacheSize, // keep in memory the last 10k team+event combos we have seen
             maxAge: ONE_HOUR * 24, // cache up to 24h
@@ -61,7 +70,7 @@ export class TeamManager {
     }
 
     public async fetchTeam(teamId: number): Promise<Team | null> {
-        const cachedTeam = getByAge(this.teamCache, teamId, 2 * ONE_MINUTE)
+        const cachedTeam = this.teamCache.get(teamId)
         if (cachedTeam) {
             return cachedTeam
         }
@@ -69,7 +78,7 @@ export class TeamManager {
         const timeout = timeoutGuard(`Still running "fetchTeam". Timeout warning after 30 sec!`)
         try {
             const team: Team | null = (await this.db.fetchTeam(teamId)) || null
-            this.teamCache.set(teamId, [team, Date.now()])
+            this.teamCache.set(teamId, team)
             return team
         } finally {
             clearTimeout(timeout)

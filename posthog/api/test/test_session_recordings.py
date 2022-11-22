@@ -1,5 +1,5 @@
 from datetime import timedelta, timezone
-from uuid import uuid4
+from urllib.parse import urlencode
 
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
@@ -8,16 +8,11 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
-from posthog.helpers.session_recording import Event, compress_and_chunk_snapshots
-from posthog.models import Organization, Person
+from posthog.models import Organization, Person, SessionRecordingPlaylist
 from posthog.models.session_recording_event import SessionRecordingViewed
-from posthog.models.session_recording_event.util import create_session_recording_event
 from posthog.models.team import Team
+from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-
-
-def _create_session_recording_event(**kwargs):
-    create_session_recording_event(uuid=uuid4(), **kwargs)
 
 
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
@@ -40,70 +35,63 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
     ):
         if team_id is None:
             team_id = self.team.pk
-        _create_session_recording_event(
+
+        create_session_recording_events(
             team_id=team_id,
             distinct_id=distinct_id,
             timestamp=timestamp,
             session_id=session_id,
             window_id=window_id,
-            snapshot_data={
-                "timestamp": timestamp.timestamp() * 1000,
-                "has_full_snapshot": has_full_snapshot,
-                "type": type,
-                "data": {"source": source},
-            },
+            snapshots=[
+                {
+                    "timestamp": timestamp.timestamp() * 1000,
+                    "has_full_snapshot": has_full_snapshot,
+                    "type": type,
+                    "data": {"source": source},
+                }
+            ],
         )
 
     def create_chunked_snapshots(
         self, snapshot_count, distinct_id, session_id, timestamp, has_full_snapshot=True, window_id=""
     ):
-        snapshot = []
+        snapshots = []
         for index in range(snapshot_count):
-            event: Event = {
-                "event": "$snapshot",
-                "properties": {
-                    "$snapshot_data": {
-                        "has_full_snapshot": has_full_snapshot,
-                        "type": 2 if has_full_snapshot else 3,
-                        "data": {
-                            "source": 0,
-                            "texts": [],
-                            "attributes": [],
-                            "removes": [],
-                            "adds": [
-                                {
-                                    "parentId": 4,
-                                    "nextId": 386,
-                                    "node": {
-                                        "type": 2,
-                                        "tagName": "style",
-                                        "attributes": {"data-emotion": "css"},
-                                        "childNodes": [],
-                                        "id": 729,
-                                    },
-                                }
-                            ],
-                        },
-                        "timestamp": (timestamp + timedelta(seconds=index)).timestamp() * 1000,
+            snapshots.append(
+                {
+                    "type": 2 if has_full_snapshot else 3,
+                    "data": {
+                        "source": 0,
+                        "texts": [],
+                        "attributes": [],
+                        "removes": [],
+                        "adds": [
+                            {
+                                "parentId": 4,
+                                "nextId": 386,
+                                "node": {
+                                    "type": 2,
+                                    "tagName": "style",
+                                    "attributes": {"data-emotion": "css"},
+                                    "childNodes": [],
+                                    "id": 729,
+                                },
+                            }
+                        ],
                     },
-                    "$window_id": window_id,
-                    "$session_id": session_id,
-                    "distinct_id": distinct_id,
-                },
-            }
-            snapshot.append(event)
-        chunked_snapshots = compress_and_chunk_snapshots(
-            snapshot, chunk_size=15
-        )  # Small chunk size makes sure the snapshots are chunked for the test
-        for snapshot_chunk in chunked_snapshots:
-            _create_session_recording_event(
-                team_id=self.team.pk,
-                distinct_id=distinct_id,
-                timestamp=timestamp,
-                session_id=session_id,
-                window_id=window_id,
-                snapshot_data=snapshot_chunk["properties"].get("$snapshot_data"),
+                    "timestamp": (timestamp + timedelta(seconds=index)).timestamp() * 1000,
+                }
             )
+
+        create_session_recording_events(
+            team_id=self.team.pk,
+            distinct_id=distinct_id,
+            timestamp=timestamp,
+            session_id=session_id,
+            window_id=window_id,
+            snapshots=snapshots,
+            chunk_size=15,
+        )
 
     def test_get_session_recordings(self):
         p = Person.objects.create(
@@ -112,7 +100,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
         Person.objects.create(
             team=self.team, distinct_ids=["user2"], properties={"$some_prop": "something", "email": "bob@bob.com"}
         )
-        base_time = now() - relativedelta(days=1)
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
         self.create_snapshot("user", "1", base_time)
         self.create_snapshot("user", "1", base_time + relativedelta(seconds=10))
         self.create_snapshot("user2", "2", base_time + relativedelta(seconds=20))
@@ -360,6 +348,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             )
             self.assertEqual(response_data["result"]["session_recording"]["viewed"], False)
             self.assertEqual(response_data["result"]["session_recording"]["session_id"], chunked_session_id)
+            self.assertEqual(response_data["result"]["session_recording"]["playlists"], [])
 
     def test_single_session_recording_doesnt_leak_teams(self):
         another_team = Team.objects.create(organization=self.organization)
@@ -389,3 +378,53 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
         self.create_snapshot("user", "id_no_team_leaking", now() - relativedelta(days=1), team_id=another_team.pk)
         response = self.client.get(f"/api/projects/{another_team.pk}/session_recordings/id_no_team_leaking")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_adding_and_removing_recording_from_static_playlists(self):
+        with freeze_time("2020-09-13T12:26:40.000Z"):
+            Person.objects.create(
+                team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+            )
+            self.create_snapshot("user", "1", now() - relativedelta(days=1))
+            playlist1 = SessionRecordingPlaylist.objects.create(
+                team=self.team, name="playlist1", created_by=self.user, is_static=True
+            )
+            playlist2 = SessionRecordingPlaylist.objects.create(
+                team=self.team, name="playlist2", created_by=self.user, is_static=True
+            )
+
+            # Add to playlists 1 and 2
+            response_data = self.client.patch(
+                f"/api/projects/{self.team.id}/session_recordings/1",
+                {"playlists": [playlist1.id, playlist2.id]},
+            ).json()
+            self.assertEqual(response_data["result"]["session_recording"]["playlists"], [playlist1.id, playlist2.id])
+
+            playlist3 = SessionRecordingPlaylist.objects.create(
+                team=self.team, name="playlist3", created_by=self.user, is_static=True
+            )
+
+            # Remove from playlist 1 and add to playlist 3
+            response_data = self.client.patch(
+                f"/api/projects/{self.team.id}/session_recordings/1", {"playlists": [playlist2.id, playlist3.id]}
+            ).json()
+            self.assertEqual(response_data["result"]["session_recording"]["playlists"], [playlist2.id, playlist3.id])
+
+    def test_static_recordings_filter(self):
+        with freeze_time("2020-09-13T12:26:40.000Z"):
+            Person.objects.create(
+                team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+            )
+            self.create_snapshot("user", "1", now() - relativedelta(days=1))
+            self.create_snapshot("user", "2", now() - relativedelta(days=2))
+            self.create_snapshot("user", "3", now() - relativedelta(days=3))
+
+            # Fetch playlist
+            params_string = urlencode({"static_recordings": '[{"id": "1"}, {"id": "2"}, {"id": "3"}]'})
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_data = response.json()
+
+            self.assertEqual(len(response_data["results"]), 3)
+            self.assertEqual(response_data["results"][0]["id"], "1")
+            self.assertEqual(response_data["results"][1]["id"], "2")
+            self.assertEqual(response_data["results"][2]["id"], "3")

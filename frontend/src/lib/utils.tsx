@@ -32,7 +32,7 @@ import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from './utils/getAppContext'
-import { isValidPropertyFilter } from './components/PropertyFilters/utils'
+import { isPropertyFilterWithOperator, isValidPropertyFilter } from './components/PropertyFilters/utils'
 import { IconCopy } from './components/icons'
 import { lemonToast } from './components/lemonToast'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -381,7 +381,9 @@ export function formatLabel(label: string, action: ActionFilter): string {
             .map(
                 (property) =>
                     `${property.key ? `${property.key} ` : ''}${
-                        allOperatorsMapping[property.operator || 'exact'].split(' ')[0]
+                        allOperatorsMapping[
+                            (isPropertyFilterWithOperator(property) && property.operator) || 'exact'
+                        ].split(' ')[0]
                     } ${property.value}`
             )
             .join(', ')})`

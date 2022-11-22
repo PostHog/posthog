@@ -130,7 +130,6 @@ export const FEATURE_FLAGS = {
     AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE
     WEBSITE_ANALYTICS_TEMPLATE: 'website-analytics-template', // owner: @pauldambra
     VARIANT_OVERRIDES: 'variant-overrides', // owner: @neilkakkar
-    RECORDING_PLAYLISTS: 'recording-playlists', // owner: #team-session-recordings
     ONBOARDING_V2_EXPERIMENT: 'onboarding-v2-experiment', // owner: #team-growth
     RECORDING_AUTOPLAY: 'recording-autoplay', // owner: #team-session-recordings
     SIGNUP_FORM_EXPERIMENT: 'signup-form-experiment', // owner: #team-growth
@@ -204,3 +203,6 @@ export const CLOUD_HOSTNAMES = {
 }
 
 export const SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
+
+// If _any_ item on a dashboard is older than this, dashboard is automatically reloaded
+export const AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS = 20

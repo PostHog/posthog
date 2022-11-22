@@ -2,7 +2,7 @@ import { sessionRecordingsListLogic, PLAYLIST_LIMIT, DEFAULT_RECORDING_FILTERS }
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
-import { PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 import { useMocks } from '~/mocks/jest'
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 
@@ -54,6 +54,13 @@ describe('sessionRecordingsListLogic', () => {
                             200,
                             {
                                 results: ['Recordings filtered by duration'],
+                            },
+                        ]
+                    } else if (searchParams.get('static_recordings')) {
+                        return [
+                            200,
+                            {
+                                results: ['Recordings belonging to static playlist'],
                             },
                         ]
                     }
@@ -201,7 +208,7 @@ describe('sessionRecordingsListLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.setFilters({
                         session_recording_duration: {
-                            type: 'recording',
+                            type: PropertyFilterType.Recording,
                             key: 'duration',
                             value: 600,
                             operator: PropertyOperator.LessThan,
@@ -211,7 +218,7 @@ describe('sessionRecordingsListLogic', () => {
                     .toMatchValues({
                         filters: expect.objectContaining({
                             session_recording_duration: {
-                                type: 'recording',
+                                type: PropertyFilterType.Recording,
                                 key: 'duration',
                                 value: 600,
                                 operator: PropertyOperator.LessThan,
@@ -222,11 +229,28 @@ describe('sessionRecordingsListLogic', () => {
                     .toMatchValues({ sessionRecordings: ['Recordings filtered by duration'] })
 
                 expect(router.values.searchParams.filters).toHaveProperty('session_recording_duration', {
-                    type: 'recording',
+                    type: PropertyFilterType.Recording,
                     key: 'duration',
                     value: 600,
                     operator: PropertyOperator.LessThan,
                 })
+            })
+        })
+
+        describe('fetch static recordings list', () => {
+            beforeEach(() => {
+                logic = sessionRecordingsListLogic({
+                    key: 'static-tests',
+                    staticRecordings: [{ id: '1' }, { id: '2' }],
+                })
+                logic.mount()
+            })
+            it('calls list session recordings for static playlists', async () => {
+                await expectLogic(logic)
+                    .toDispatchActions(['getSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        sessionRecordings: ['Recordings belonging to static playlist'],
+                    })
             })
         })
 
@@ -294,7 +318,7 @@ describe('sessionRecordingsListLogic', () => {
                     date_to: '2021-10-10',
                     offset: 50,
                     session_recording_duration: {
-                        type: 'recording',
+                        type: PropertyFilterType.Recording,
                         key: 'duration',
                         value: 600,
                         operator: PropertyOperator.LessThan,
@@ -312,7 +336,7 @@ describe('sessionRecordingsListLogic', () => {
                         date_to: '2021-10-10',
                         offset: 50,
                         session_recording_duration: {
-                            type: 'recording',
+                            type: PropertyFilterType.Recording,
                             key: 'duration',
                             value: 600,
                             operator: PropertyOperator.LessThan,

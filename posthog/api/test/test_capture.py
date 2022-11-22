@@ -15,6 +15,9 @@ import lzstring
 from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
+from kafka.errors import KafkaError
+from kafka.producer.future import FutureProduceResult, FutureRecordMetadata
+from kafka.structs import TopicPartition
 from rest_framework import status
 
 from posthog.api.capture import get_distinct_id
@@ -122,6 +125,35 @@ class TestCapture(BaseTest):
             },
             self._to_arguments(kafka_produce),
         )
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_events_503_on_kafka_produce_errors(self, kafka_produce):
+        produce_future = FutureProduceResult(topic_partition=TopicPartition(KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, 1))
+        future = FutureRecordMetadata(
+            produce_future=produce_future,
+            relative_offset=0,
+            timestamp_ms=0,
+            checksum=0,
+            serialized_key_size=0,
+            serialized_value_size=0,
+            serialized_header_size=0,
+        )
+        future.failure(KafkaError("Failed to produce"))
+        kafka_produce.return_value = future
+        data = {
+            "event": "$autocapture",
+            "properties": {
+                "distinct_id": 2,
+                "token": self.team.api_token,
+                "$elements": [
+                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm"},
+                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻"},
+                ],
+            },
+        }
+
+        response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event_ip(self, kafka_produce):

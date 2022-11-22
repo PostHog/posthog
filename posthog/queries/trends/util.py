@@ -1,8 +1,11 @@
 import datetime
 from datetime import timedelta
+from math import isinf, isnan
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import structlog
 from rest_framework.exceptions import ValidationError
+from sentry_sdk import capture_exception
 
 from posthog.constants import UNIQUE_USERS, WEEKLY_ACTIVE
 from posthog.models.entity import Entity
@@ -12,6 +15,8 @@ from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
 from posthog.queries.util import get_earliest_timestamp
+
+logger = structlog.get_logger(__name__)
 
 PROPERTY_MATH_FUNCTIONS = {
     "sum": "sum",
@@ -123,3 +128,15 @@ def enumerate_time_range(filter: Filter, seconds_in_interval: int) -> List[str]:
         time_range.append(date_from.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else "")))
         date_from += delta
     return time_range
+
+
+def ensure_value_is_json_serializable(value: float) -> Optional[float]:
+    """Protect against the undesirable cases of a value being NaN or Infinity, and track occurences of those.
+
+    This function returns a null as fallback, so that JSON (de)serialization doesn't trip over the NaN."""
+    if isnan(value) or isinf(value):
+        exception = Exception("Non-serializable value found in insight result")
+        logger.error("queries.trends.non_serializable_value", exc=exception, exc_info=True)
+        capture_exception(exception)
+        return None
+    return value

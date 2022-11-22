@@ -16,6 +16,7 @@ from posthog.constants import (
     BREAKDOWN_GROUP_TYPE_INDEX,
     BREAKDOWN_HISTOGRAM_BIN_COUNT,
     BREAKDOWN_LIMIT,
+    BREAKDOWN_NORMALIZE_URL,
     BREAKDOWN_TYPE,
     BREAKDOWN_VALUE,
     BREAKDOWN_VALUES_LIMIT,
@@ -98,10 +99,6 @@ class ClientQueryIdMixin(BaseParamMixin):
     @cached_property
     def client_query_id(self) -> Optional[str]:
         return self._data.get(CLIENT_QUERY_ID, None)
-
-    @include_dict
-    def client_query_id_to_dict(self):
-        return {"client_query_id": self.client_query_id} if self.client_query_id else {}
 
 
 class FilterTestAccountsMixin(BaseParamMixin):
@@ -220,6 +217,8 @@ class BreakdownMixin(BaseParamMixin):
             result[BREAKDOWN_ATTRIBUTION_VALUE] = self.breakdown_attribution_value
         if self.breakdown_histogram_bin_count is not None:
             result[BREAKDOWN_HISTOGRAM_BIN_COUNT] = self.breakdown_histogram_bin_count
+        if self.breakdown_normalize_url is not None:
+            result[BREAKDOWN_NORMALIZE_URL] = self.breakdown_normalize_url
         return result
 
     @cached_property
@@ -239,6 +238,14 @@ class BreakdownMixin(BaseParamMixin):
             return {BREAKDOWN_TYPE: self.breakdown_type}
         else:
             return {}
+
+    @cached_property
+    def breakdown_normalize_url(self) -> bool:
+        """
+        When breaking down by $current_url or $pathname, we ignore trailing slashes, question marks, and hashes.
+        """
+        bool_to_test = self._data.get("breakdown_normalize_url", False)
+        return process_bool(bool_to_test)
 
 
 class BreakdownValueMixin(BaseParamMixin):

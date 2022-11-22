@@ -112,7 +112,7 @@ export function Login(): JSX.Element {
                             }}
                         />
                     </Field>
-                    <div className={clsx('PasswordWrapper', isPasswordHidden && 'hidden')}>
+                    <div className={clsx('PasswordWrapper', isPasswordHidden && 'zero-height')}>
                         <Field name="password" label="Password">
                             <LemonInput
                                 type="password"

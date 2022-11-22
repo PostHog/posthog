@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useInterval } from 'lib/hooks/useInterval'
 import { CardContainer } from '../CardContainer'
-import { ingestionLogic } from '../ingestionLogic'
+import { ingestionLogicV2 } from '../ingestionLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -13,8 +13,8 @@ import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
 export function VerificationPanel(): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { setAddBilling, completeOnboarding } = useActions(ingestionLogic)
-    const { showBillingStep } = useValues(ingestionLogic)
+    const { next, completeOnboarding } = useActions(ingestionLogicV2)
+    const { showBillingStep } = useValues(ingestionLogicV2)
     const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
 
     useInterval(() => {
@@ -26,7 +26,7 @@ export function VerificationPanel(): JSX.Element {
     return (
         <CardContainer>
             <div className="text-center">
-                {currentTeam?.ingested_event ? (
+                {!currentTeam?.ingested_event ? (
                     <>
                         <div className="ingestion-listening-for-events">
                             <Spinner className="text-4xl" />
@@ -43,7 +43,7 @@ export function VerificationPanel(): JSX.Element {
                                 type="tertiary"
                                 onClick={() => {
                                     if (showBillingStep) {
-                                        setAddBilling(true)
+                                        next({ showBilling: true })
                                     } else {
                                         completeOnboarding()
                                     }
@@ -67,7 +67,7 @@ export function VerificationPanel(): JSX.Element {
                                 type="primary"
                                 onClick={() => {
                                     if (showBillingStep) {
-                                        setAddBilling(true)
+                                        next({ showBilling: true })
                                     } else {
                                         completeOnboarding()
                                     }

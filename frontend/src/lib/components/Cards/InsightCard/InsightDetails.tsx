@@ -22,11 +22,16 @@ import { Lettermark } from '../../Lettermark/Lettermark'
 import { Link } from '../../Link'
 import { ProfilePicture } from '../../ProfilePicture'
 import { keyMapping, PropertyKeyInfo } from '../../PropertyKeyInfo'
-import { TZLabel } from '../../TimezoneAware'
+import { TZLabel } from '../../TZLabel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import React from 'react'
 import { isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import {
+    isAnyPropertyfilter,
+    isCohortPropertyFilter,
+    isPropertyFilterWithOperator,
+} from 'lib/components/PropertyFilters/utils'
 
 function CompactPropertyFiltersDisplay({
     groupFilter,
@@ -64,7 +69,7 @@ function CompactPropertyFiltersDisplay({
                                         : subType === FilterLogicalOperator.Or
                                         ? 'or '
                                         : 'and '}
-                                    {leafFilter.type === 'cohort' ? (
+                                    {isCohortPropertyFilter(leafFilter) ? (
                                         <>
                                             {isFirstFilterOverall && !embedded ? 'Person' : 'person'} belongs to cohort
                                             <span className="SeriesDisplay__raw-name">
@@ -85,13 +90,21 @@ function CompactPropertyFiltersDisplay({
                                                 : leafFilter.type || 'event'}
                                             's
                                             <span className="SeriesDisplay__raw-name">
-                                                {leafFilter.key && <PropertyKeyInfo value={leafFilter.key} />}
+                                                {isAnyPropertyfilter(leafFilter) && leafFilter.key && (
+                                                    <PropertyKeyInfo value={leafFilter.key} />
+                                                )}
                                             </span>
-                                            {allOperatorsMapping[leafFilter.operator || 'exact']}{' '}
+                                            {
+                                                allOperatorsMapping[
+                                                    (isPropertyFilterWithOperator(leafFilter) && leafFilter.operator) ||
+                                                        'exact'
+                                                ]
+                                            }{' '}
                                             <b>
-                                                {Array.isArray(leafFilter.value)
-                                                    ? leafFilter.value.join(' or ')
-                                                    : leafFilter.value}
+                                                {isAnyPropertyfilter(leafFilter) &&
+                                                    (Array.isArray(leafFilter.value)
+                                                        ? leafFilter.value.join(' or ')
+                                                        : leafFilter.value)}
                                             </b>
                                         </>
                                     )}

@@ -1,5 +1,6 @@
 from rest_framework import authentication, request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import StructuredViewSetMixin
@@ -53,13 +54,22 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         date_to, date_to_params = query_date_range.date_to
         date_params.update(date_from_params)
         date_params.update(date_to_params)
+        try:
+            limit = int(request.GET.get("limit", 100))
+        except ValueError:
+            raise ValidationError("Limit must be an integer")
 
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
             team_id=self.team.pk, property_group=filter.property_groups
         )
         result = sync_execute(
-            GET_ELEMENTS.format(date_from=date_from, date_to=date_to, query=prop_filters),
-            {"team_id": self.team.pk, "timezone": self.team.timezone, **prop_filter_params, **date_params},
+            GET_ELEMENTS.format(date_from=date_from, date_to=date_to, query=prop_filters, limit=limit),
+            {
+                "team_id": self.team.pk,
+                "timezone": self.team.timezone,
+                **prop_filter_params,
+                **date_params,
+            },
         )
         return response.Response(
             [
