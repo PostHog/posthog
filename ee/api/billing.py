@@ -90,7 +90,9 @@ def get_cached_current_usage(organization: Organization) -> Dict[str, int]:
     # TODO BW: For self-hosted this should be priced across all orgs
 
     if usage is None:
-        teams = Team.objects.filter(organization=organization).exclude(organization__for_internal_metrics=True)
+        teams = Team.objects.filter(organization=organization, is_demo=False).exclude(
+            organization__for_internal_metrics=True
+        )
 
         usage = {
             "events": 0,
