@@ -414,7 +414,6 @@ interface BasePropertyFilter {
     value: PropertyFilterValue
     label?: string
     type?: PropertyFilterType
-    group_type_index?: number | null
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -449,6 +448,17 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     value: number
 }
 
+export interface GroupPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Group
+    group_type_index?: number | null
+    operator: PropertyOperator
+}
+
+export interface FeaturePropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Feature
+    operator: PropertyOperator
+}
+
 export type PropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
@@ -456,6 +466,8 @@ export type PropertyFilter =
     | SessionPropertyFilter
     | CohortPropertyFilter
     | RecordingDurationFilter
+    | GroupPropertyFilter
+    | FeaturePropertyFilter
 
 export type AnyPropertyFilter =
     | Partial<EventPropertyFilter>
@@ -464,6 +476,8 @@ export type AnyPropertyFilter =
     | Partial<SessionPropertyFilter>
     | Partial<CohortPropertyFilter>
     | Partial<RecordingDurationFilter>
+    | Partial<GroupPropertyFilter>
+    | Partial<FeaturePropertyFilter>
 
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
