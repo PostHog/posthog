@@ -1,16 +1,17 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import React from 'react'
 import api from 'lib/api'
 import type { teamLogicType } from './teamLogicType'
-import { TeamType } from '~/types'
+import { CorrelationConfigType, TeamType } from '~/types'
 import { userLogic } from './userLogic'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { organizationLogic } from './organizationLogic'
 import { getAppContext } from '../lib/utils/getAppContext'
 import { lemonToast } from 'lib/components/lemonToast'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { IconSwapHoriz } from 'lib/components/icons'
 import { loaders } from 'kea-loaders'
+import { OrganizationMembershipLevel } from '../lib/constants'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { systemStatusLogic } from './instance/SystemStatus/systemStatusLogic'
 
 const parseUpdatedAttributeName = (attr: string | null): string => {
     if (attr === 'slack_incoming_webhook') {
@@ -25,7 +26,8 @@ const parseUpdatedAttributeName = (attr: string | null): string => {
 export const teamLogic = kea<teamLogicType>([
     path(['scenes', 'teamLogic']),
     connect({
-        actions: [eventUsageLogic, ['reportTeamHasIngestedEvents'], userLogic, ['loadUser']],
+        actions: [userLogic, ['loadUser']],
+        values: [systemStatusLogic, ['instanceSettings']],
     }),
     actions({
         deleteTeam: (team: TeamType) => ({ team }),
@@ -74,8 +76,15 @@ export const teamLogic = kea<teamLogicType>([
                                   payload.slack_incoming_webhook
                               )}`
                             : 'Webhook integration disabled'
+                    } else if (updatedAttribute === 'completed_snippet_onboarding') {
+                        message = "Congrats! You're now ready to use PostHog."
                     } else {
                         message = `${parseUpdatedAttributeName(updatedAttribute)} updated successfully!`
+                    }
+
+                    if (updatedAttribute) {
+                        const updatedValue = Object.values(payload).length === 1 ? Object.values(payload)[0] : null
+                        eventUsageLogic.findMounted()?.actions?.reportTeamSettingChange(updatedAttribute, updatedValue)
                     }
 
                     lemonToast.dismiss('updateCurrentTeam')
@@ -101,6 +110,11 @@ export const teamLogic = kea<teamLogicType>([
             (currentTeam, currentTeamLoading): boolean =>
                 !currentTeam?.effective_membership_level && !currentTeamLoading,
         ],
+        sentryIntegrationEnabled: [
+            (selectors) => [selectors.instanceSettings],
+            (instanceSettings): boolean =>
+                instanceSettings?.filter((setting) => setting.key.startsWith('SENTRY') && setting.value).length > 0,
+        ],
         demoOnlyProject: [
             (selectors) => [selectors.currentTeam, organizationLogic.selectors.currentOrganization],
             (currentTeam, currentOrganization): boolean =>
@@ -114,12 +128,19 @@ export const teamLogic = kea<teamLogicType>([
         ],
         funnelCorrelationConfig: [
             (selectors) => [selectors.currentTeam],
-            (currentTeam): Partial<TeamType['correlation_config']> => {
+            (currentTeam): CorrelationConfigType => {
                 return currentTeam?.correlation_config || {}
             },
         ],
+        timezone: [(selectors) => [selectors.currentTeam], (currentTeam): string => currentTeam?.timezone || 'UTC'],
+        isTeamTokenResetAvailable: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): boolean =>
+                !!currentTeam?.effective_membership_level &&
+                currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin,
+        ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         deleteTeam: async ({ team }) => {
             try {
                 await api.delete(`api/projects/${team.id}`)
@@ -134,13 +155,6 @@ export const teamLogic = kea<teamLogicType>([
         },
         createTeamSuccess: () => {
             window.location.href = '/ingestion'
-        },
-        loadCurrentTeamSuccess: () => {
-            // For Onboarding 1's experiment, we are tracking whether a team has ingested events on the client side
-            // because experiments doesn't support this yet in other libraries
-            if (values.currentTeam?.ingested_event) {
-                actions.reportTeamHasIngestedEvents()
-            }
         },
     })),
     events(({ actions }) => ({

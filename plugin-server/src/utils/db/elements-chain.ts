@@ -102,15 +102,26 @@ export function chainToElements(chain: string, options: { throwOnError?: boolean
     return elements
 }
 
-export function extractElements(elements: Record<string, any>[]): Element[] {
+export function extractElements(elements: Array<Record<string, any>>): Element[] {
     return elements.map((el) => ({
         text: el['$el_text']?.slice(0, 400),
         tag_name: el['tag_name'],
         href: el['attr__href']?.slice(0, 2048),
-        attr_class: el['attr__class']?.split(' '),
+        attr_class: extractAttrClass(el),
         attr_id: el['attr__id'],
         nth_child: el['nth_child'],
         nth_of_type: el['nth_of_type'],
         attributes: Object.fromEntries(Object.entries(el).filter(([key]) => key.startsWith('attr__'))),
     }))
+}
+
+function extractAttrClass(el: Record<string, any>): Element['attr_class'] {
+    const attr_class = el['attr__class']
+    if (!attr_class) {
+        return undefined
+    } else if (Array.isArray(attr_class)) {
+        return attr_class
+    } else {
+        return attr_class.split(' ')
+    }
 }

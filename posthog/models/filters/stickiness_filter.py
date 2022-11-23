@@ -6,6 +6,7 @@ from rest_framework.request import Request
 
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import (
+    ClientQueryIdMixin,
     CompareMixin,
     EntitiesMixin,
     EntityIdMixin,
@@ -16,6 +17,7 @@ from posthog.models.filters.mixins.common import (
     InsightMixin,
     LimitMixin,
     OffsetMixin,
+    SearchMixin,
     ShownAsMixin,
 )
 from posthog.models.filters.mixins.property import PropertyMixin
@@ -32,6 +34,7 @@ class StickinessFilter(
     EntityOrderMixin,
     EntityMathMixin,
     SelectedIntervalMixin,
+    SearchMixin,
     PropertyMixin,
     FilterTestAccountsMixin,
     OffsetMixin,
@@ -40,6 +43,7 @@ class StickinessFilter(
     InsightMixin,
     SimplifyFilterMixin,
     LimitMixin,
+    ClientQueryIdMixin,
     BaseFilter,
 ):
     get_earliest_timestamp: Optional[Callable]

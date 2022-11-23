@@ -10,7 +10,10 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveConstraint(model_name="propertydefinition", name="property_type_and_format_are_valid",),
+        migrations.RemoveConstraint(
+            model_name="propertydefinition",
+            name="property_type_and_format_are_valid",
+        ),
         migrations.AlterField(
             model_name="propertydefinition",
             name="property_type_format",

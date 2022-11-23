@@ -29,7 +29,7 @@ class TestUrls(APIBaseTest):
 
         # Complex URL
         response = self.client.get(
-            '/insights/new?interval=day&display=ActionsLineGraph&events=[{"id":"$pageview","name":"$pageview","type":"events","order":0}]&properties=[]',
+            '/insights/new?interval=day&display=ActionsLineGraph&events=[{"id":"$pageview","name":"$pageview","type":"events","order":0}]&properties=[]'
         )
 
         # Test that the URL is properly encoded to redirect the user to the final destination

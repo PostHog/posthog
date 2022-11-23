@@ -62,7 +62,7 @@ def journeys_for(
                         group = Group.objects.get(team_id=team.pk, group_type_index=group_type_index, group_key=value)
                         group_property_key = f"group{group_type_index}_properties"
                         group_props = {
-                            group_property_key: {**group.group_properties, **event.get(group_property_key, {})},
+                            group_property_key: {**group.group_properties, **event.get(group_property_key, {})}
                         }
 
                     except Group.DoesNotExist:

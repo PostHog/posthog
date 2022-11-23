@@ -2,7 +2,7 @@ import { DateTimePropertyTypeFormat, PropertyType, UnixTimestampPropertyTypeForm
 
 // magic copied from https://stackoverflow.com/a/54930905
 // allows candidate to be typed as any
-// eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
+
 export const isNumericString = (candidate: any): boolean => {
     return !(candidate instanceof Array) && candidate - parseFloat(candidate) + 1 >= 0
 }
@@ -71,6 +71,14 @@ export const detectPropertyDefinitionTypes = (value: unknown, key: string): Prop
                 return true
             }
         })
+    }
+
+    if (/^utm_/i.test(key)) {
+        // utm_ prefixed properties should always be detected as strings.
+        // Sometimes the first value sent looks like a number, event though
+        // subsequent values are not. See
+        // https://github.com/PostHog/posthog/issues/12529 for more context.
+        return PropertyType.String
     }
 
     if (typeof value === 'number') {

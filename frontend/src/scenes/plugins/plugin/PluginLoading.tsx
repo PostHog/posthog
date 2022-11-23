@@ -1,5 +1,4 @@
 import { Card, Col, Row, Skeleton } from 'antd'
-import React from 'react'
 
 export function PluginLoading(): JSX.Element {
     return (

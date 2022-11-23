@@ -11,20 +11,42 @@ export function instrumentQuery<T>(
     tag: string | undefined,
     runQuery: () => Promise<T>
 ): Promise<T> {
+    return instrument(
+        statsd,
+        {
+            metricName,
+            key: 'queryTag',
+            tag,
+        },
+        runQuery
+    )
+}
+
+export function instrument<T>(
+    statsd: StatsD | undefined,
+    options: {
+        metricName: string
+        key?: string
+        tag?: string
+        tags?: Tags
+        data?: any
+    },
+    runQuery: () => Promise<T>
+): Promise<T> {
+    const tags: Tags | undefined = options.key ? { ...options.tags, [options.key]: options.tag! } : options.tags
     return runInSpan(
         {
-            op: metricName,
-            description: tag,
+            op: options.metricName,
+            description: options.tag,
+            data: { ...tags, ...options.data },
         },
         async () => {
-            const tags: Tags | undefined = tag ? { queryTag: tag } : undefined
             const timer = new Date()
-
-            statsd?.increment(`${metricName}.total`, tags)
+            statsd?.increment(`${options.metricName}.total`, tags)
             try {
                 return await runQuery()
             } finally {
-                statsd?.timing(metricName, timer, tags)
+                statsd?.timing(options.metricName, timer, tags)
             }
         }
     )

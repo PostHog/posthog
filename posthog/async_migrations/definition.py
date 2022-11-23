@@ -1,4 +1,13 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+)
 
 from posthog.constants import AnalyticsDBMS
 from posthog.models.utils import sane_repr
@@ -10,9 +19,7 @@ if TYPE_CHECKING:
 
 
 class AsyncMigrationOperation:
-    def __init__(
-        self, fn: Callable[[str], None], rollback_fn: Callable[[str], None] = lambda _: None,
-    ):
+    def __init__(self, fn: Callable[[str], None], rollback_fn: Callable[[str], None] = lambda _: None):
         self.fn = fn
 
         # This should not be a long operation as it will be executed synchronously!
@@ -86,15 +93,10 @@ class AsyncMigrationDefinition:
     depends_on: Optional[str] = None
 
     # optional parameters for this async migration. Shown in the UI when starting the migration
-    parameters: Dict[str, Tuple[(int, str, Callable[[Any], Any])]] = {}
+    parameters: Dict[str, Tuple[(Optional[Union[int, str]], str, Callable[[Any], Any])]] = {}
 
     def __init__(self, name: str):
         self.name = name
-
-    # run before creating the migration model. Returns a boolean specifying if the instance should
-    # set up the AsyncMigration model and show this migration in the UI
-    def is_hidden(self) -> bool:
-        return False
 
     # will be run before starting the migration, return a boolean specifying if the instance needs this migration
     # e.g. instances where fresh setups are already set up correctly

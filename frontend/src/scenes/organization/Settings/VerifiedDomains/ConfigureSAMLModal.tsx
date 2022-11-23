@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
-import React from 'react'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { Field } from 'lib/forms/Field'
 import { AlertMessage } from 'lib/components/AlertMessage'
@@ -43,7 +42,7 @@ export function ConfigureSAMLModal(): JSX.Element {
                         />
                     </Field>
                     {!samlReady && (
-                        <AlertMessage type="info" style={{ marginBottom: 16 }}>
+                        <AlertMessage type="info">
                             SAML will not be enabled unless you enter all attributes above. However you can still
                             settings as draft.
                         </AlertMessage>

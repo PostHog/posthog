@@ -1,4 +1,3 @@
-import React from 'react'
 import { FunnelPathType, PathType, InsightType } from '~/types'
 import { funnelLogic } from './funnelLogic'
 import { useValues } from 'kea'

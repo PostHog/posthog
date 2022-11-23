@@ -1,6 +1,16 @@
 // This is separate from utils.ts because here we don't include `funnelLogic`, `retentionTableLogic`, etc
 
-import { FilterType, InsightLogicProps, InsightType } from '~/types'
+import {
+    FilterType,
+    FunnelsFilterType,
+    InsightLogicProps,
+    InsightType,
+    LifecycleFilterType,
+    PathsFilterType,
+    RetentionFilterType,
+    StickinessFilterType,
+    TrendsFilterType,
+} from '~/types'
 
 /**
  * Get a key function for InsightLogicProps.
@@ -20,12 +30,42 @@ export const keyForInsightLogicProps =
             : defaultKey
     }
 
-export function filterTrendsClientSideParams(filters: Partial<FilterType>): Partial<FilterType> {
-    const { people_day: _discard, people_action: __discard, stickiness_days: ___discard, ...newFilters } = filters
-
+export function filterTrendsClientSideParams(
+    filters: Partial<TrendsFilterType & StickinessFilterType>
+): Partial<TrendsFilterType & StickinessFilterType> {
+    const { stickiness_days: ___discard, ...newFilters } = filters
     return newFilters
 }
 
 export function isTrendsInsight(insight?: InsightType | InsightType): boolean {
     return insight === InsightType.TRENDS || insight === InsightType.LIFECYCLE || insight === InsightType.STICKINESS
+}
+
+export function isTrendsFilter(filters?: Partial<FilterType>): filters is Partial<TrendsFilterType> {
+    return filters?.insight === InsightType.TRENDS || (!!filters && !filters.insight)
+}
+export function isFunnelsFilter(filters?: Partial<FilterType>): filters is Partial<FunnelsFilterType> {
+    return filters?.insight === InsightType.FUNNELS
+}
+export function isRetentionFilter(filters?: Partial<FilterType>): filters is Partial<RetentionFilterType> {
+    return filters?.insight === InsightType.RETENTION
+}
+export function isStickinessFilter(filters?: Partial<FilterType>): filters is Partial<StickinessFilterType> {
+    return filters?.insight === InsightType.STICKINESS
+}
+export function isLifecycleFilter(filters?: Partial<FilterType>): filters is Partial<LifecycleFilterType> {
+    return filters?.insight === InsightType.LIFECYCLE
+}
+export function isPathsFilter(filters?: Partial<FilterType>): filters is Partial<PathsFilterType> {
+    return filters?.insight === InsightType.PATHS
+}
+export function isFilterWithHiddenLegendKeys(
+    filters: Partial<FilterType>
+): filters is Partial<TrendsFilterType> | Partial<StickinessFilterType> | Partial<FunnelsFilterType> {
+    return isTrendsFilter(filters) || isFunnelsFilter(filters) || isStickinessFilter(filters)
+}
+export function isFilterWithDisplay(
+    filters: Partial<FilterType>
+): filters is Partial<TrendsFilterType> | Partial<StickinessFilterType> {
+    return isTrendsFilter(filters) || isStickinessFilter(filters)
 }

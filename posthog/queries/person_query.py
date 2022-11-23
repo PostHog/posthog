@@ -18,6 +18,7 @@ from posthog.models.property.util import (
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.queries.trends.util import COUNT_PER_ACTOR_MATH_FUNCTIONS
 
 
 class PersonQuery:
@@ -73,7 +74,10 @@ class PersonQuery:
             f", argMax({column_name}, version) as {alias}" for column_name, alias in self._get_fields()
         )
 
-        person_filters, params = self._get_person_filters(prepend=prepend)
+        grouped_person_filters, grouped_person_params = self._get_grouped_person_filters(
+            prepend=f"grouped_filters_{prepend}"
+        )
+        person_filters, person_params = self._get_person_filters(prepend=prepend)
         cohort_query, cohort_params = self._get_cohort_query()
         if paginate:
             limit_offset, limit_params = self._get_limit_offset()
@@ -88,16 +92,34 @@ class PersonQuery:
             f"""
             SELECT {fields}
             FROM person
+            WHERE team_id = %(team_id)s
+            AND id IN (
+                SELECT id FROM person
+                {cohort_query}
+                WHERE team_id = %(team_id)s
+                {person_filters}
+            )
+            GROUP BY id
+            HAVING max(is_deleted) = 0
+            {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
+            {"ORDER BY max(created_at) DESC, id" if paginate else ""}
+            {limit_offset}
+        """
+            if person_filters
+            else f"""
+            SELECT {fields}
+            FROM person
             {cohort_query}
             WHERE team_id = %(team_id)s
             GROUP BY id
             HAVING max(is_deleted) = 0
-            {person_filters} {search_clause} {distinct_id_clause} {email_clause}
+            {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
             {"ORDER BY max(created_at) DESC, id" if paginate else ""}
             {limit_offset}
         """,
             {
-                **params,
+                **person_params,
+                **grouped_person_params,
                 **cohort_params,
                 **limit_params,
                 **search_params,
@@ -117,8 +139,11 @@ class PersonQuery:
         "Returns whether properties or any other columns are actually being queried"
         if any(self._uses_person_id(prop) for prop in self._filter.property_groups.flat):
             return True
-        if any(self._uses_person_id(prop) for entity in self._filter.entities for prop in entity.property_groups.flat):
-            return True
+        for entity in self._filter.entities:
+            if entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS or any(
+                self._uses_person_id(prop) for prop in entity.property_groups.flat
+            ):
+                return True
 
         return len(self._column_optimizer.person_columns_to_query) > 0
 
@@ -130,7 +155,7 @@ class PersonQuery:
         #   We use the result from column_optimizer to figure out counts of all properties to be filtered and queried.
         #   Here, we remove the ones only to be used for filtering.
         # The same property might be present for both querying and filtering, and hence the Counter.
-        properties_to_query = self._column_optimizer._used_properties_with_type("person")
+        properties_to_query = self._column_optimizer.used_properties_with_type("person")
         if self._inner_person_properties:
             properties_to_query -= extract_tables_and_properties(self._inner_person_properties.flat)
 
@@ -138,7 +163,7 @@ class PersonQuery:
 
         return [(column_name, self.ALIASES.get(column_name, column_name)) for column_name in sorted(columns)]
 
-    def _get_person_filters(self, prepend: str = "") -> Tuple[str, Dict]:
+    def _get_grouped_person_filters(self, prepend: str = "") -> Tuple[str, Dict]:
         return parse_prop_grouped_clauses(
             self._team_id,
             self._inner_person_properties,
@@ -146,6 +171,17 @@ class PersonQuery:
             group_properties_joined=False,
             person_properties_mode=PersonPropertiesMode.DIRECT,
             prepend=prepend,
+        )
+
+    def _get_person_filters(self, prepend: str = "") -> Tuple[str, Dict]:
+        return parse_prop_grouped_clauses(
+            self._team_id,
+            self._inner_person_properties,
+            has_person_id_joined=False,
+            group_properties_joined=False,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_PERSONS,
+            prepend=prepend,
+            table_name="person",
         )
 
     def _get_cohort_query(self) -> Tuple[str, Dict]:

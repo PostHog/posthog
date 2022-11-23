@@ -11,6 +11,8 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="license", name="max_users", field=models.IntegerField(default=None, null=True),
+            model_name="license",
+            name="max_users",
+            field=models.IntegerField(default=None, null=True),
         ),
     ]

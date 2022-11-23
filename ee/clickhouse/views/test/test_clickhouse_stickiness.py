@@ -48,7 +48,7 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
         create_group(team_id=self.team.pk, group_type_index=1, group_key=f"instance:1", properties={})
 
         p1, p2, p3, p4 = self._create_multiple_people(
-            period=timedelta(weeks=1), event_properties=lambda i: {"$group_0": f"org:{i}", "$group_1": "instance:1"},
+            period=timedelta(weeks=1), event_properties=lambda i: {"$group_0": f"org:{i}", "$group_1": "instance:1"}
         )
 
         with freeze_time("2020-02-15T13:01:01Z"):
@@ -90,7 +90,7 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
             team_id=self.team.pk, group_type_index=0, group_key=f"org:2", properties={"industry": "technology"}
         )
         self._create_multiple_people(
-            period=timedelta(weeks=1), event_properties=lambda i: {"$group_0": f"org:{i // 2}"},
+            period=timedelta(weeks=1), event_properties=lambda i: {"$group_0": f"org:{i // 2}"}
         )
 
         with freeze_time("2020-02-15T13:01:01Z"):
@@ -130,7 +130,7 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
                     },  # this time will fall on 5/1 in US Pacific
                     {"event": "$pageview", "timestamp": datetime(2021, 5, 2, 9)},
                     {"event": "$pageview", "timestamp": datetime(2021, 5, 4, 3)},
-                ],
+                ]
             },
             self.team,
         )

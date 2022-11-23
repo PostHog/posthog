@@ -17,13 +17,24 @@ from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
 from rest_framework.test import APITestCase as DRFTestCase
 
+from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.client import ch_pool, sync_execute
+from posthog.cloud_utils import TEST_clear_cloud_cache
 from posthog.models import Organization, Team, User
+from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
 from posthog.models.event.util import bulk_create_events
+from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person import Person
-from posthog.models.person.sql import DROP_PERSON_TABLE_SQL, PERSONS_TABLE_SQL, TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL
+from posthog.models.person.sql import (
+    DROP_PERSON_TABLE_SQL,
+    PERSONS_TABLE_SQL,
+    TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
+    TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
+    TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
+)
 from posthog.models.person.util import bulk_create_persons, create_person
 from posthog.models.session_recording_event.sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -31,10 +42,11 @@ from posthog.models.session_recording_event.sql import (
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
 from posthog.settings import CLICKHOUSE_REPLICATION
+from posthog.settings.utils import get_from_env, str_to_bool
 
 persons_cache_tests: List[Dict[str, Any]] = []
 events_cache_tests: List[Dict[str, Any]] = []
-persons_ordering_int: int = 0
+persons_ordering_int: int = 1
 
 
 def _setup_test_data(klass):
@@ -42,9 +54,7 @@ def _setup_test_data(klass):
     klass.team = Team.objects.create(
         organization=klass.organization,
         api_token=klass.CONFIG_API_TOKEN,
-        test_account_filters=[
-            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
-        ],
+        test_account_filters=[{"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}],
     )
     if klass.CONFIG_EMAIL:
         klass.user = User.objects.create_and_join(klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD)
@@ -61,22 +71,12 @@ class ErrorResponsesMixin:
     }
 
     def not_found_response(self, message: str = "Not found.") -> Dict[str, Optional[str]]:
-        return {
-            "type": "invalid_request",
-            "code": "not_found",
-            "detail": message,
-            "attr": None,
-        }
+        return {"type": "invalid_request", "code": "not_found", "detail": message, "attr": None}
 
     def permission_denied_response(
-        self, message: str = "You do not have permission to perform this action.",
+        self, message: str = "You do not have permission to perform this action."
     ) -> Dict[str, Optional[str]]:
-        return {
-            "type": "authentication_error",
-            "code": "permission_denied",
-            "detail": message,
-            "attr": None,
-        }
+        return {"type": "authentication_error", "code": "permission_denied", "detail": message, "attr": None}
 
     def method_not_allowed_response(self, method: str) -> Dict[str, Optional[str]]:
         return {
@@ -89,22 +89,12 @@ class ErrorResponsesMixin:
     def unauthenticated_response(
         self, message: str = "Authentication credentials were not provided.", code: str = "not_authenticated"
     ) -> Dict[str, Optional[str]]:
-        return {
-            "type": "authentication_error",
-            "code": code,
-            "detail": message,
-            "attr": None,
-        }
+        return {"type": "authentication_error", "code": code, "detail": message, "attr": None}
 
     def validation_error_response(
-        self, message: str = "Malformed request", code: str = "invalid_input", attr: Optional[str] = None,
+        self, message: str = "Malformed request", code: str = "invalid_input", attr: Optional[str] = None
     ) -> Dict[str, Optional[str]]:
-        return {
-            "type": "validation_error",
-            "code": code,
-            "detail": message,
-            "attr": attr,
-        }
+        return {"type": "validation_error", "code": code, "detail": message, "attr": attr}
 
 
 class TestMixin:
@@ -133,10 +123,17 @@ class TestMixin:
             _setup_test_data(cls)
 
     def setUp(self):
+
+        if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+            from posthog.models.team import util
+
+            util.can_enable_person_on_events = True
+
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
 
     def tearDown(self):
+
         if len(persons_cache_tests) > 0:
             persons_cache_tests.clear()
             raise Exception(
@@ -170,6 +167,10 @@ class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     Read more: https://docs.djangoproject.com/en/3.1/topics/testing/tools/#testcase
     """
 
+    def is_cloud(self, value: bool):
+        TEST_clear_cloud_cache()
+        return self.settings(MULTI_TENANCY=value)
+
 
 class NonAtomicBaseTest(TestMixin, ErrorResponsesMixin, TransactionTestCase):
     """
@@ -190,6 +191,10 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
 
     def setUp(self):
         super().setUp()
+
+        # Clear the cached "is_cloud" setting so that it's recalculated for each test
+        TEST_clear_cloud_cache()
+
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
 
@@ -197,6 +202,10 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
         stripped_response1 = stripResponse(response1, remove=remove)
         stripped_response2 = stripResponse(response2, remove=remove)
         self.assertDictEqual(stripped_response1[0], stripped_response2[0])
+
+    def is_cloud(self, value: bool):
+        TEST_clear_cloud_cache()
+        return self.settings(MULTI_TENANCY=value)
 
 
 def stripResponse(response, remove=("action", "label", "persons_urls", "filter")):
@@ -207,7 +216,48 @@ def stripResponse(response, remove=("action", "label", "persons_urls", "filter")
     return response
 
 
-def test_with_materialized_columns(event_properties=[], person_properties=[], verify_no_jsonextract=True):
+def default_materialised_columns():
+    try:
+        from ee.clickhouse.materialized_columns.analyze import get_materialized_columns
+        from ee.clickhouse.materialized_columns.test.test_columns import EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
+
+    except:
+        # EE not available? Skip
+        return []
+
+    default_columns = []
+    for prop in EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS:
+        column_name = get_materialized_columns("events")[(prop, "properties")]
+        default_columns.append(column_name)
+
+    return default_columns
+
+
+def cleanup_materialized_columns():
+    try:
+        from ee.clickhouse.materialized_columns.analyze import get_materialized_columns
+    except:
+        # EE not available? Skip
+        return
+
+    default_columns = default_materialised_columns()
+    for column_name in get_materialized_columns("events").values():
+        if column_name not in default_columns:
+            sync_execute(f"ALTER TABLE events DROP COLUMN {column_name}")
+    for column_name in get_materialized_columns("person").values():
+        sync_execute(f"ALTER TABLE person DROP COLUMN {column_name}")
+    for column_name in get_materialized_columns("groups").values():
+        sync_execute(f"ALTER TABLE groups DROP COLUMN {column_name}")
+
+
+def test_with_materialized_columns(
+    event_properties=[],
+    person_properties=[],
+    group_properties=[],
+    verify_no_jsonextract=True,
+    # :TODO: Remove this when groups-on-events is released
+    materialize_only_with_person_on_events=False,
+):
     """
     Runs the test twice on clickhouse - once verifying it works normally, once with materialized columns.
 
@@ -215,9 +265,15 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
     """
 
     try:
-        from ee.clickhouse.materialized_columns.analyze import get_materialized_columns, materialize
+        from ee.clickhouse.materialized_columns.analyze import materialize
     except:
         # EE not available? Just run the main test
+        return lambda fn: fn
+
+    if materialize_only_with_person_on_events and not get_from_env(
+        "PERSON_ON_EVENTS_ENABLED", False, type_cast=str_to_bool
+    ):
+        # Don't run materialized test unless PERSON_ON_EVENTS_ENABLED
         return lambda fn: fn
 
     def decorator(fn):
@@ -231,21 +287,19 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
                 materialize("events", prop)
             for prop in person_properties:
                 materialize("person", prop)
+                materialize("events", prop, table_column="person_properties")
+            for group_type_index, prop in group_properties:
+                materialize("events", prop, table_column=f"group{group_type_index}_properties")  # type: ignore
 
             try:
                 with self.capture_select_queries() as sqls:
                     fn(self, *args, **kwargs)
             finally:
-                for prop in event_properties:
-                    column_name = get_materialized_columns("events")[prop]
-                    sync_execute(f"ALTER TABLE events DROP COLUMN {column_name}")
-                for prop in person_properties:
-                    column_name = get_materialized_columns("person")[prop]
-                    sync_execute(f"ALTER TABLE person DROP COLUMN {column_name}")
+                cleanup_materialized_columns()
 
             if verify_no_jsonextract:
                 for sql in sqls:
-                    self.assertNotIn("JSONExtract(properties", sql)
+                    self.assertNotIn("JSONExtract", sql)
 
         # To add the test, we inspect the frame this function was called in and add the test there
         frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
@@ -266,27 +320,32 @@ class QueryMatchingTest:
         if replace_all_numbers:
             query = re.sub(r"(\"?) = \d+", r"\1 = 2", query)
             query = re.sub(r"(\"?) IN \(\d+(, \d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
+            # feature flag conditions use primary keys as columns in queries, so replace those too
+            query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
         else:
             query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 2", query)
+            query = re.sub(r"\d+ as (team|cohort)_id(\"?)", r"2 as \1_id\2", query)
 
         # Replace organization_id lookups, for postgres
         query = re.sub(
-            fr"""("organization_id"|"posthog_organization"\."id") = '[^']+'::uuid""",
+            rf"""("organization_id"|"posthog_organization"\."id") = '[^']+'::uuid""",
             r"""\1 = '00000000-0000-0000-0000-000000000000'::uuid""",
             query,
         )
         query = re.sub(
-            fr"""("organization_id"|"posthog_organization"\."id") IN \('[^']+'::uuid\)""",
+            rf"""("organization_id"|"posthog_organization"\."id") IN \('[^']+'::uuid\)""",
             r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid)""",
             query,
         )
 
         # Replace tag id lookups for postgres
         query = re.sub(
-            fr"""("posthog_tag"\."id") IN \(('[^']+'::uuid)+(, ('[^']+'::uuid)+)*\)""",
+            rf"""("posthog_tag"\."id") IN \(('[^']+'::uuid)+(, ('[^']+'::uuid)+)*\)""",
             r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid /* ... */)""",
             query,
         )
+
+        query = re.sub(rf"""user_id:([0-9]+) request:[a-zA-Z0-9-_]+""", r"""user_id:0 request:_snapshot_""", query)
 
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
@@ -319,25 +378,25 @@ def snapshot_postgres_queries(fn):
 
 class BaseTestMigrations(QueryMatchingTest):
     @property
-    def app(self):
+    def app(self) -> str:
         return apps.get_containing_app_config(type(self).__module__).name  # type: ignore
 
-    migrate_from = None
-    migrate_to = None
+    migrate_from: str
+    migrate_to: str
     apps = None
     assert_snapshots = False
 
     def setUp(self):
-        assert (
-            self.migrate_from and self.migrate_to  # type: ignore
+        assert hasattr(self, "migrate_from") and hasattr(
+            self, "migrate_to"
         ), "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
-        self.migrate_from = [(self.app, self.migrate_from)]  # type: ignore
-        self.migrate_to = [(self.app, self.migrate_to)]
+        migrate_from = [(self.app, self.migrate_from)]
+        migrate_to = [(self.app, self.migrate_to)]
         executor = MigrationExecutor(connection)
-        old_apps = executor.loader.project_state(self.migrate_from).apps
+        old_apps = executor.loader.project_state(migrate_from).apps
 
         # Reverse to the original migration
-        executor.migrate(self.migrate_from)
+        executor.migrate(migrate_from)  # type: ignore
 
         self.setUpBeforeMigration(old_apps)
 
@@ -348,13 +407,14 @@ class BaseTestMigrations(QueryMatchingTest):
         if self.assert_snapshots:
             self._execute_migration_with_snapshots(executor)
         else:
-            executor.migrate(self.migrate_to)
+            executor.migrate(migrate_to)  # type: ignore
 
-        self.apps = executor.loader.project_state(self.migrate_to).apps
+        self.apps = executor.loader.project_state(migrate_to).apps
 
     @snapshot_postgres_queries
     def _execute_migration_with_snapshots(self, executor):
-        executor.migrate(self.migrate_to)
+        migrate_to = [(self.app, self.migrate_to)]
+        executor.migrate(migrate_to)
 
     def setUpBeforeMigration(self, apps):
         pass
@@ -400,9 +460,10 @@ def _create_person(*args, **kwargs):
     Pass immediate=True to create immediately and get a pk back
     """
     global persons_ordering_int
-    kwargs["uuid"] = uuid.UUID(
-        int=persons_ordering_int, version=4
-    )  # make sure the ordering of uuids is always consistent
+    if not (kwargs.get("uuid")):
+        kwargs["uuid"] = uuid.UUID(
+            int=persons_ordering_int, version=4
+        )  # make sure the ordering of uuids is always consistent
     persons_ordering_int += 1
     # If we've done freeze_time just create straight away
     if kwargs.get("immediate") or (hasattr(now(), "__module__") and now().__module__ == "freezegun.api"):
@@ -431,7 +492,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
     snapshot: Any
 
     def capture_select_queries(self):
-        return self.capture_queries(("SELECT", "WITH",))
+        return self.capture_queries(("SELECT", "WITH"))
 
     @contextmanager
     def capture_queries(self, query_prefixes: Union[str, Tuple[str, str]]):
@@ -486,11 +547,16 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_EVENTS_TABLE_SQL(),
                 DROP_PERSON_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
+                TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                TRUNCATE_GROUPS_TABLE_SQL,
+                TRUNCATE_COHORTPEOPLE_TABLE_SQL,
+                TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
+                TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
             ]
         )
         run_clickhouse_statement_in_parallel(
-            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL(),]
+            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
         )
         if CLICKHOUSE_REPLICATION:
             run_clickhouse_statement_in_parallel(
@@ -509,7 +575,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
             ]
         )
         run_clickhouse_statement_in_parallel(
-            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL(),]
+            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
         )
         if CLICKHOUSE_REPLICATION:
             run_clickhouse_statement_in_parallel(
@@ -547,6 +613,23 @@ def snapshot_clickhouse_alter_queries(fn):
     @wraps(fn)
     def wrapped(self, *args, **kwargs):
         with self.capture_queries("ALTER") as queries:
+            fn(self, *args, **kwargs)
+
+        for query in queries:
+            if "FROM system.columns" not in query:
+                self.assertQueryMatchesSnapshot(query)
+
+    return wrapped
+
+
+def snapshot_clickhouse_insert_cohortpeople_queries(fn):
+    """
+    Captures and snapshots INSERT queries from test using `syrupy` library.
+    """
+
+    @wraps(fn)
+    def wrapped(self, *args, **kwargs):
+        with self.capture_queries("INSERT INTO cohortpeople") as queries:
             fn(self, *args, **kwargs)
 
         for query in queries:

@@ -8,7 +8,7 @@
     > .LemonTable td {
         padding-bottom: 0.75rem !important;
         padding-top: 0.75rem !important;
-        &.icon-column .ant-skeleton-title {
+        &.icon-column .LemonSkeleton {
             height: 2rem;
             width: 2rem;
         }
@@ -102,8 +102,5 @@
     }
     @include screen($xxl) {
         grid-template-columns: repeat(3, 1fr);
-    }
-    .loading-overlay {
-        min-height: 30rem;
     }
 }

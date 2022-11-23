@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { visibilitySensorLogic } from './visibilitySensorLogic'
 
 interface VisibilityProps {

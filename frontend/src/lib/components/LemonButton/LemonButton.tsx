@@ -4,7 +4,7 @@ import { IconArrowDropDown, IconChevronRight } from '../icons'
 import { Link } from '../Link'
 import { Popup, PopupProps, PopupContext } from '../Popup/Popup'
 import { Spinner } from '../Spinner/Spinner'
-import { Tooltip } from '../Tooltip'
+import { Tooltip, TooltipProps } from '../Tooltip'
 import './LemonButton.scss'
 
 export interface LemonButtonPopup extends Omit<PopupProps, 'children'> {
@@ -12,7 +12,10 @@ export interface LemonButtonPopup extends Omit<PopupProps, 'children'> {
 }
 export interface LemonButtonPropsBase
     // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
-    extends Pick<React.ButtonHTMLAttributes<HTMLElement>, 'title' | 'onClick' | 'id' | 'tabIndex' | 'form'> {
+    extends Pick<
+        React.ButtonHTMLAttributes<HTMLElement>,
+        'title' | 'onClick' | 'id' | 'tabIndex' | 'form' | 'onMouseDown'
+    > {
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
     /** What color scheme the button should follow */
@@ -21,8 +24,11 @@ export interface LemonButtonPropsBase
     active?: boolean
     /** URL to link to. */
     to?: string
+    /** force the "to" link to reload the page */
+    disableClientSideRouting?: boolean
+    /** If set clicking this button will open the page in a new tab. */
+    targetBlank?: boolean
     /** External URL to link to. */
-    href?: string
     className?: string
 
     icon?: React.ReactElement | null
@@ -30,17 +36,16 @@ export interface LemonButtonPropsBase
     htmlType?: 'button' | 'submit' | 'reset'
     loading?: boolean
     /** Tooltip to display on hover. */
-    tooltip?: any
+    tooltip?: TooltipProps['title']
+    tooltipPlacement?: TooltipProps['placement']
     /** Whether the row should take up the parent's full width. */
     fullWidth?: boolean
     center?: boolean
     /** @deprecated Buttons should never be disabled. Work with Design to find an alternative approach. */
     disabled?: boolean
-    /** Special case value for buttons such as compact icon-only buttons */
     noPadding?: boolean
     size?: 'small' | 'medium' | 'large'
     'data-attr'?: string
-    'data-tooltip'?: string
     'aria-label'?: string
 }
 
@@ -54,8 +59,6 @@ function LemonButtonInternal(
         children,
         active = false,
         className,
-        to,
-        href,
         disabled,
         loading,
         type = 'tertiary',
@@ -66,17 +69,23 @@ function LemonButtonInternal(
         center,
         size,
         tooltip,
+        tooltipPlacement,
         htmlType = 'button',
         noPadding,
+        to,
+        targetBlank,
+        disableClientSideRouting,
         ...buttonProps
     }: LemonButtonProps,
     ref: React.Ref<HTMLElement>
 ): JSX.Element {
     if (loading) {
-        icon = <Spinner size="sm" />
+        icon = <Spinner monocolor />
     }
 
-    const ButtonComponent = to || href ? Link : 'button'
+    const ButtonComponent = to ? Link : 'button'
+
+    const linkOnlyProps = to ? { disableClientSideRouting } : {}
 
     if (ButtonComponent === 'button' && !buttonProps['aria-label'] && typeof tooltip === 'string') {
         buttonProps['aria-label'] = tooltip
@@ -103,19 +112,23 @@ function LemonButtonInternal(
             )}
             disabled={disabled || loading}
             to={to}
-            href={href}
-            target={href ? '_blank' : undefined}
-            rel={href ? 'noopener noreferrer' : undefined}
+            target={targetBlank ? '_blank' : undefined}
+            {...linkOnlyProps}
             {...buttonProps}
         >
-            {icon}
+            {icon ? <span className="LemonButton__icon">{icon}</span> : null}
             {children ? <span className="LemonButton__content flex items-center">{children}</span> : null}
-            {sideIcon}
+            {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
         </ButtonComponent>
     )
 
     if (tooltip) {
-        workingButton = <Tooltip title={tooltip}>{workingButton}</Tooltip>
+        workingButton = (
+            <Tooltip title={tooltip} placement={tooltipPlacement}>
+                {/* If the button is disabled, wrap it in a div so that the tooltip can still work */}
+                {disabled ? <div>{workingButton}</div> : workingButton}
+            </Tooltip>
+        )
     }
 
     return workingButton

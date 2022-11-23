@@ -7,7 +7,7 @@ from posthog.models.utils import UUIDModel, sane_repr
 # We call models that grant a user access to some resource (which isn't a grouping of users) a "privilege"
 class DashboardPrivilege(UUIDModel):
     dashboard: models.ForeignKey = models.ForeignKey(
-        "posthog.Dashboard", on_delete=models.CASCADE, related_name="privileges", related_query_name="privilege",
+        "posthog.Dashboard", on_delete=models.CASCADE, related_name="privileges", related_query_name="privilege"
     )
     user: models.ForeignKey = models.ForeignKey(
         "posthog.User",
@@ -23,7 +23,7 @@ class DashboardPrivilege(UUIDModel):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["dashboard", "user"], name="unique_explicit_dashboard_privilege"),
+            models.UniqueConstraint(fields=["dashboard", "user"], name="unique_explicit_dashboard_privilege")
         ]
 
     __repr__ = sane_repr("dashboard", "user", "level")

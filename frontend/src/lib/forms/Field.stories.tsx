@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { Field, PureField } from './Field'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
@@ -11,6 +10,7 @@ export default {
     title: 'Lemon UI/Forms and Fields',
     component: PureField,
     parameters: {
+        chromatic: { disableSnapshot: false },
         docs: {
             description: {
                 component: `
@@ -43,7 +43,7 @@ export const _PureFields = (): JSX.Element => {
             </PureField>
 
             <PureField label={'Select label'} info={<>With info!</>}>
-                <LemonSelect options={{ foo: { label: 'bar' } }} fullWidth />
+                <LemonSelect options={[{ value: 'foo', label: 'bar' }]} fullWidth />
             </PureField>
 
             <PureField label="Textarea label" error="This field has an error">
@@ -131,14 +131,14 @@ export const _FieldsWithKeaForm = (): JSX.Element => {
                 </Field>
 
                 <Field name="select" label={'Select label'} info={<>With info!</>}>
-                    <LemonSelect options={{ foo: { label: 'bar' } }} fullWidth />
+                    <LemonSelect options={[{ value: 'foo', label: 'bar' }]} fullWidth />
                 </Field>
 
                 <Field name="email" label="Email address">
                     <LemonInput type="email" />
                 </Field>
                 <Field name="pineappleOnPizza">
-                    <LemonCheckbox bordered label="Checkbox labels are set differently" fullWidth />
+                    <LemonCheckbox bordered label="Pineapple on your pizza?" fullWidth />
                 </Field>
 
                 <div className="flex justify-end gap-2 border-t mt-4 pt-4">

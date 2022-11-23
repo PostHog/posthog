@@ -11,7 +11,9 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="pluginsourcefile", name="error", field=models.TextField(blank=True, null=True),
+            model_name="pluginsourcefile",
+            name="error",
+            field=models.TextField(blank=True, null=True),
         ),
         migrations.AddField(
             model_name="pluginsourcefile",
@@ -23,6 +25,8 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AddField(
-            model_name="pluginsourcefile", name="transpiled", field=models.TextField(blank=True, null=True),
+            model_name="pluginsourcefile",
+            name="transpiled",
+            field=models.TextField(blank=True, null=True),
         ),
     ]

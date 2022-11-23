@@ -32,9 +32,14 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', ''))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', ''))))))) person ON person.person_id = behavior_query.person_id
+        AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))))) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND ((((performed_event_condition_None_level_level_0_level_0_level_0_0)
            OR (performed_event_condition_None_level_level_0_level_0_level_1_0))
@@ -103,9 +108,14 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND (((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', ''))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND (((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))))) person ON person.person_id = funnel_query.person_id
+        AND (((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))) person ON person.person_id = funnel_query.person_id
   WHERE 1 = 1
     AND ((((steps_0))
           AND (steps_1))) SETTINGS allow_experimental_window_functions = 1
@@ -140,9 +150,14 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))))))) person ON person.person_id = behavior_query.person_id
+        AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))))))) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND (((performed_event_condition_None_level_level_0_level_0_0))) SETTINGS allow_experimental_window_functions = 1
   '
@@ -335,9 +350,14 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '')))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '')))))) person ON person.person_id = funnel_query.person_id
+        AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))))) person ON person.person_id = funnel_query.person_id
   WHERE 1 = 1
     AND (((steps_0)
           AND (performed_event_multiple_condition_None_level_level_0_level_1_0))) SETTINGS allow_experimental_window_functions = 1
@@ -452,9 +472,14 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', ''))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', ''))))))) person ON person.person_id = behavior_query.person_id
+        AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))))) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND ((((performed_event_condition_None_level_level_0_level_0_level_0_0)
            OR (performed_event_condition_None_level_level_0_level_0_level_1_0)
@@ -468,12 +493,33 @@
   SELECT id
   FROM person
   WHERE team_id = 2
+    AND id IN
+      (SELECT id
+       FROM person
+       WHERE team_id = 2
+         AND (((has(['test1@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '')))
+               OR (has(['test2@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', ''))))
+              OR ((has(['test3'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))
+                  AND (has(['test3@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', ''))))) )
   GROUP BY id
   HAVING max(is_deleted) = 0
-  AND (((has(['test1@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '')))
-        OR (has(['test2@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', ''))))
-       OR ((has(['test3'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))
-           AND (has(['test3@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '')))))
+  AND (((has(['test1@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))
+        OR (has(['test2@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))
+       OR ((has(['test3'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))
+           AND (has(['test3@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))))
+  '
+---
+# name: TestCohortQuery.test_person_props_only.1
+  '
+  
+  SELECT id,
+         properties as person_props
+  FROM person
+  WHERE team_id = 2
+    AND (((has(['test1@posthog.com'], replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '')))
+          OR (has(['test2@posthog.com'], replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', ''))))
+         OR ((has(['test3'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', '')))
+             AND (has(['test3@posthog.com'], replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '')))))
   '
 ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters
@@ -514,10 +560,16 @@
   SELECT id
   FROM person
   WHERE team_id = 2
+    AND id IN
+      (SELECT id
+       FROM person
+       WHERE team_id = 2
+         AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))))
+              OR (has(['test2'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))) )
   GROUP BY id
   HAVING max(is_deleted) = 0
-  AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))))
-       OR (has(['test2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))
+  AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))))
+       OR (has(['test2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))
   '
 ---
 # name: TestCohortQuery.test_static_cohort_filter
@@ -535,7 +587,7 @@
         HAVING max(is_deleted) = 0)) person
   WHERE 1 = 1
     AND (((id IN
-             (SELECT person_id
+             (SELECT person_id as id
               FROM person_static_cohort
               WHERE cohort_id = 2
                 AND team_id = 2)))) SETTINGS allow_experimental_window_functions = 1
@@ -574,7 +626,7 @@
         HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND (((id IN
-             (SELECT person_id
+             (SELECT person_id as id
               FROM person_static_cohort
               WHERE cohort_id = 2
                 AND team_id = 2))
@@ -614,7 +666,7 @@
         HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND ((((id IN
-              (SELECT person_id
+              (SELECT person_id as id
                FROM person_static_cohort
                WHERE cohort_id = 2
                  AND team_id = 2)))
@@ -658,7 +710,7 @@
   WHERE 1 = 1
     AND ((((performed_event_condition_None_level_level_0_level_0_level_0_0)
            AND (id NOT IN
-                  (SELECT person_id
+                  (SELECT person_id as id
                    FROM person_static_cohort
                    WHERE cohort_id = 2
                      AND team_id = 2)))

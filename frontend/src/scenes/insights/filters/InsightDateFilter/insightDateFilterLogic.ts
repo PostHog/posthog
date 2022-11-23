@@ -13,7 +13,7 @@ export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
         values: [insightLogic(props), ['filters']],
     }),
     actions: () => ({
-        setDates: (dateFrom: string | undefined, dateTo: string | undefined) => ({
+        setDates: (dateFrom: string | undefined | null, dateTo: string | undefined | null) => ({
             dateFrom,
             dateTo,
         }),

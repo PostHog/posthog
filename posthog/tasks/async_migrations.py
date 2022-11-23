@@ -44,7 +44,7 @@ def check_async_migration_health() -> None:
     # failures and successes are handled elsewhere
     # pending means we haven't picked up the task yet
     # retry is not possible as max_retries == 0
-    if migration_task_celery_state not in (states.STARTED, states.PENDING):
+    if migration_task_celery_state not in (states.STARTED, states.PENDING, states.FAILURE):
         return
 
     inspector = app.control.inspect()

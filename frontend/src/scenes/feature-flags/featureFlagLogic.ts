@@ -3,14 +3,21 @@ import type { featureFlagLogicType } from './featureFlagLogicType'
 import {
     AnyPropertyFilter,
     Breadcrumb,
+    FeatureFlagRollbackConditions,
     FeatureFlagType,
+    FilterType,
+    InsightModel,
+    InsightType,
     MultivariateFlagOptions,
     MultivariateFlagVariant,
     PropertyFilter,
+    PropertyFilterType,
+    PropertyOperator,
+    RolloutConditionType,
 } from '~/types'
 import api from 'lib/api'
-import { router } from 'kea-router'
-import { convertPropertyGroupToProperties, deleteWithUndo } from 'lib/utils'
+import { router, urlToAction } from 'kea-router'
+import { convertPropertyGroupToProperties, deleteWithUndo, sum, toParams } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { teamLogic } from '../teamLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
@@ -18,16 +25,31 @@ import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/components/lemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { urlToAction } from 'kea-router'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { dayjs } from 'lib/dayjs'
+import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
+
+const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
+    operator: 'gt',
+    threshold_type: RolloutConditionType.Sentry,
+    threshold: 50,
+    threshold_metric: {
+        ...cleanFilters({
+            insight: InsightType.TRENDS,
+            date_from: dayjs().subtract(7, 'day').format('YYYY-MM-DDTHH:mm'),
+            date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+        }),
+    },
+})
 
 const NEW_FLAG: FeatureFlagType = {
     id: null,
     created_at: null,
     key: '',
     name: '',
-    filters: { groups: [{ properties: [], rollout_percentage: null }], multivariate: null },
+    filters: { groups: [{ properties: [], rollout_percentage: null, variant: undefined }], multivariate: null },
     deleted: false,
     active: true,
     created_by: null,
@@ -35,6 +57,8 @@ const NEW_FLAG: FeatureFlagType = {
     rollout_percentage: null,
     ensure_experience_continuity: false,
     experiment_set: null,
+    rollback_conditions: [],
+    performed_rollback: false,
 }
 const NEW_VARIANT = {
     key: '',
@@ -51,6 +75,38 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
     ],
 }
 
+export const defaultEntityFilterOnFlag = (flagKey: string): Partial<FilterType> => ({
+    events: [
+        {
+            id: '$feature_flag_called',
+            name: '$feature_flag_called',
+            type: 'events',
+            properties: defaultPropertyOnFlag(flagKey),
+        },
+    ],
+})
+
+export const defaultPropertyOnFlag = (flagKey: string): AnyPropertyFilter[] => [
+    {
+        key: '$feature/' + flagKey,
+        type: PropertyFilterType.Event,
+        value: ['false'],
+        operator: PropertyOperator.IsNot,
+    },
+    {
+        key: '$feature/' + flagKey,
+        type: PropertyFilterType.Event,
+        value: 'is_set',
+        operator: PropertyOperator.IsSet,
+    },
+    {
+        key: '$feature_flag',
+        type: PropertyFilterType.Event,
+        value: flagKey,
+        operator: PropertyOperator.Exact,
+    },
+]
+
 export interface FeatureFlagLogicProps {
     id: number | 'new'
 }
@@ -58,31 +114,47 @@ export interface FeatureFlagLogicProps {
 export const featureFlagLogic = kea<featureFlagLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagLogic']),
     props({} as FeatureFlagLogicProps),
-    key(({ id }) => id ?? 'new'),
+    key(({ id }) => id ?? 'unknown'),
     connect({
-        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel']],
+        values: [
+            teamLogic,
+            ['currentTeamId', 'sentryIntegrationEnabled'],
+            groupsModel,
+            ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel'],
+        ],
     }),
     actions({
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
+        setFeatureFlagMissing: true,
         addConditionSet: true,
+        addRollbackCondition: true,
         setAggregationGroupTypeIndex: (value: number | null) => ({ value }),
         removeConditionSet: (index: number) => ({ index }),
+        removeRollbackCondition: (index: number) => ({ index }),
         duplicateConditionSet: (index: number) => ({ index }),
         updateConditionSet: (
             index: number,
             newRolloutPercentage?: number | null,
-            newProperties?: AnyPropertyFilter[]
+            newProperties?: AnyPropertyFilter[],
+            newVariant?: string
         ) => ({
             index,
             newRolloutPercentage,
             newProperties,
+            newVariant,
         }),
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
         addVariant: true,
+        duplicateVariant: (index: number) => ({ index }),
         removeVariant: (index: number) => ({ index }),
+        editFeatureFlag: (editing: boolean) => ({ editing }),
         distributeVariantsEqually: true,
+        setFilters: (filters) => ({ filters }),
+        loadInsightAtIndex: (index: number, filters: Partial<FilterType>) => ({ index, filters }),
+        setInsightResultAtIndex: (index: number, average: number) => ({ index, average }),
+        loadAllInsightsForFlag: true,
     }),
     forms(({ actions }) => ({
         featureFlag: {
@@ -138,7 +210,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     const groups = [...state?.filters.groups, { properties: [], rollout_percentage: null }]
                     return { ...state, filters: { ...state.filters, groups } }
                 },
-                updateConditionSet: (state, { index, newRolloutPercentage, newProperties }) => {
+                addRollbackCondition: (state) => {
+                    if (!state) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        rollback_conditions: [...state.rollback_conditions, getDefaultRollbackCondition()],
+                    }
+                },
+                removeRollbackCondition: (state, { index }) => {
+                    if (!state) {
+                        return state
+                    }
+                    const rollback_conditions = [...state.rollback_conditions]
+                    rollback_conditions.splice(index, 1)
+                    return { ...state, rollback_conditions: rollback_conditions }
+                },
+                updateConditionSet: (state, { index, newRolloutPercentage, newProperties, newVariant }) => {
                     if (!state) {
                         return state
                     }
@@ -150,6 +239,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
                     if (newProperties !== undefined) {
                         groups[index] = { ...groups[index], properties: newProperties }
+                    }
+
+                    if (newVariant !== undefined) {
+                        groups[index] = { ...groups[index], variant: newVariant }
                     }
 
                     return { ...state, filters: { ...state.filters, groups } }
@@ -257,12 +350,34 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+
+        featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
+        isEditingFlag: [
+            false,
+            {
+                editFeatureFlag: (_, { editing }) => editing,
+            },
+        ],
+        insightRollingAverages: [
+            {},
+            {
+                setInsightResultAtIndex: (state, { index, average }) => ({
+                    ...state,
+                    [`${index}`]: average,
+                }),
+            },
+        ],
     }),
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, actions }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
                 if (props.id && props.id !== 'new') {
-                    return await api.get(`api/projects/${values.currentTeamId}/feature_flags/${props.id}`)
+                    try {
+                        return await api.get(`api/projects/${values.currentTeamId}/feature_flags/${props.id}`)
+                    } catch (e) {
+                        actions.setFeatureFlagMissing()
+                        throw e
+                    }
                 }
                 return NEW_FLAG
             },
@@ -286,12 +401,36 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
         },
+        recentInsights: [
+            [] as InsightModel[],
+            {
+                loadRecentInsights: async () => {
+                    if (props.id && props.id !== 'new' && values.featureFlag.key) {
+                        const response = await api.get(
+                            `api/projects/${values.currentTeamId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
+                        )
+                        return response.results
+                    }
+                    return []
+                },
+            },
+        ],
+        sentryErrorCount: [
+            undefined as number | undefined,
+            {
+                loadSentryErrorCount: async () => {
+                    const response = await api.get(`api/sentry_errors/`)
+                    return response.total_count
+                },
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
             featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
             router.actions.replace(urls.featureFlag(featureFlag.id))
+            actions.editFeatureFlag(false)
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
             deleteWithUndo({
@@ -310,6 +449,37 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             } else {
                 actions.setMultivariateOptions(null)
             }
+        },
+        loadFeatureFlagSuccess: async () => {
+            actions.loadRecentInsights()
+            actions.loadAllInsightsForFlag()
+        },
+        loadInsightAtIndex: async ({ index, filters }) => {
+            if (filters) {
+                const response = await api.get(
+                    `api/projects/${values.currentTeamId}/insights/trend/?${toParams(
+                        filterTrendsClientSideParams(filters)
+                    )}`
+                )
+                const counts = response.result?.[0]?.data
+                const firstWeek = counts.slice(0, 7)
+                const avg = Math.round(sum(firstWeek) / 7)
+                actions.setInsightResultAtIndex(index, avg)
+            }
+        },
+        loadAllInsightsForFlag: () => {
+            values.featureFlag.rollback_conditions?.forEach((condition, index) => {
+                if (condition.threshold_metric) {
+                    actions.loadInsightAtIndex(index, condition.threshold_metric)
+                }
+            })
+        },
+        addRollbackCondition: () => {
+            const index = values.featureFlag.rollback_conditions.length - 1
+            actions.loadInsightAtIndex(
+                index,
+                values.featureFlag.rollback_conditions[index].threshold_metric as FilterType
+            )
         },
     })),
     selectors({
@@ -378,8 +548,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         const foundFlag = featureFlagsLogic.findMounted()?.values.featureFlags.find((flag) => flag.id === props.id)
         if (foundFlag) {
             actions.setFeatureFlag(foundFlag)
+            actions.loadRecentInsights()
+            actions.loadAllInsightsForFlag()
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
         }
+        actions.loadSentryErrorCount()
     }),
 ])

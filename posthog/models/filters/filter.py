@@ -9,6 +9,7 @@ from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import (
     BreakdownMixin,
     BreakdownValueMixin,
+    ClientQueryIdMixin,
     CompareMixin,
     DateMixin,
     DisplayDerivedMixin,
@@ -88,6 +89,7 @@ class Filter(
     DistinctIdMixin,
     EmailMixin,
     BaseFilter,
+    ClientQueryIdMixin,
 ):
     """
     Filters allow us to describe what events to show/use in various places in the system, for example Trends or Funnels.
@@ -112,12 +114,7 @@ class Filter(
             elif request.data and request.data.get(PROPERTIES):
                 properties = request.data[PROPERTIES]
 
-            data = {
-                **request.GET.dict(),
-                **request.data,
-                **(data if data else {}),
-                **({PROPERTIES: properties}),
-            }
+            data = {**request.GET.dict(), **request.data, **(data if data else {}), **({PROPERTIES: properties})}
         elif not data:
             raise ValueError("You need to define either a data dict or a request")
 

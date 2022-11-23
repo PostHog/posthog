@@ -1,9 +1,10 @@
 import json
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from rest_framework import status
 
-from posthog.demo import create_demo_team
+from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
@@ -56,7 +57,7 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response.json(), self.not_found_response())
 
     def test_cant_create_team_without_license_on_selfhosted(self):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post("/api/projects/", {"name": "Test"})
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertEqual(Team.objects.count(), 1)
@@ -74,6 +75,17 @@ class TestTeamAPI(APIBaseTest):
 
         self.team.refresh_from_db()
         self.assertEqual(self.team.timezone, "Europe/Istanbul")
+
+    def test_update_test_filter_default_checked(self):
+
+        response = self.client.patch("/api/projects/@current/", {"test_account_filters_default_checked": "true"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(response_data["test_account_filters_default_checked"], True)
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.test_account_filters_default_checked, True)
 
     def test_cannot_set_invalid_timezone_for_project(self):
         response = self.client.patch("/api/projects/@current/", {"timezone": "America/I_Dont_Exist"})
@@ -104,7 +116,7 @@ class TestTeamAPI(APIBaseTest):
 
     def test_filter_permission(self):
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/", {"test_account_filters": [{"key": "$current_url", "value": "test"}]},
+            f"/api/projects/{self.team.id}/", {"test_account_filters": [{"key": "$current_url", "value": "test"}]}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -112,11 +124,13 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response_data["name"], self.team.name)
         self.assertEqual(response_data["test_account_filters"], [{"key": "$current_url", "value": "test"}])
 
-    def test_delete_team_own_second(self):
+    @patch("posthog.api.team.delete_bulky_postgres_data")
+    @patch("posthoganalytics.capture")
+    def test_delete_team_own_second(self, mock_capture: MagicMock, mock_delete_bulky_postgres_data: MagicMock):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        team = create_demo_team(organization=self.organization)
+        team: Team = Team.objects.create_with_data(organization=self.organization)
 
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
@@ -124,8 +138,21 @@ class TestTeamAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 204)
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
+        self.assertEqual(
+            AsyncDeletion.objects.filter(team_id=team.id, deletion_type=DeletionType.Team, key=str(team.id)).count(), 1
+        )
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id,
+            "team deleted",
+            properties={},
+            groups={"instance": ANY, "organization": str(self.organization.id), "project": str(self.team.uuid)},
+        )
+        mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.pk])
 
     def test_reset_token(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
         self.team.api_token = "xyz"
         self.team.save()
 
@@ -133,10 +160,17 @@ class TestTeamAPI(APIBaseTest):
         response_data = response.json()
 
         self.team.refresh_from_db()
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertNotEqual(response_data["api_token"], "xyz")
         self.assertEqual(response_data["api_token"], self.team.api_token)
         self.assertTrue(response_data["api_token"].startswith("phc_"))
+
+    def test_reset_token_insufficient_priviledges(self):
+        self.team.api_token = "xyz"
+        self.team.save()
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/reset_token/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_update_primary_dashboard(self):
         d = Dashboard.objects.create(name="Test", team=self.team)
@@ -167,19 +201,17 @@ class TestTeamAPI(APIBaseTest):
             data={"filters": {"events": json.dumps([{"id": "user signed up"}])}},
         )
         response = self.client.post(
-            f"/api/projects/{self.team.id}/insights/", data={"filters": {"events": json.dumps([{"id": "$pageview"}])}},
+            f"/api/projects/{self.team.id}/insights/", data={"filters": {"events": json.dumps([{"id": "$pageview"}])}}
         ).json()
         self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/", data={"events": json.dumps([{"id": "$pageview"}])},
+            f"/api/projects/{self.team.id}/insights/trend/", data={"events": json.dumps([{"id": "$pageview"}])}
         )
         self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/", data={"events": json.dumps([{"id": "user signed up"}])},
+            f"/api/projects/{self.team.id}/insights/trend/", data={"events": json.dumps([{"id": "user signed up"}])}
         )
 
         self.assertEqual(cache.get(response["filters_hash"])["result"][0]["count"], 0)
-        self.client.patch(
-            f"/api/projects/{self.team.id}/", {"timezone": "US/Pacific"},
-        )
+        self.client.patch(f"/api/projects/{self.team.id}/", {"timezone": "US/Pacific"})
         # Verify cache was deleted
         self.assertEqual(cache.get(response["filters_hash"]), None)
 
@@ -191,5 +223,5 @@ def create_team(organization: Organization, name: str = "Test team") -> Team:
     with real world  scenarios.
     """
     return Team.objects.create(
-        organization=organization, name=name, ingested_event=True, completed_snippet_onboarding=True, is_demo=True,
+        organization=organization, name=name, ingested_event=True, completed_snippet_onboarding=True, is_demo=True
     )

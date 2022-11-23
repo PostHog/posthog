@@ -7,7 +7,6 @@ import Fuse from 'fuse.js'
 import type { PostHog } from 'posthog-js'
 import { posthog } from '~/toolbar/posthog'
 import { encodeParams } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export const featureFlagsLogic = kea<featureFlagsLogicType>({
     path: ['toolbar', 'flags', 'featureFlagsLogic'],
@@ -126,11 +125,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             },
         ],
         countFlagsOverridden: [(s) => [s.localOverrides], (localOverrides) => Object.keys(localOverrides).length],
-        // Remove once `simplify-actions` FF is released
-        shouldSimplifyActions: [
-            (s) => [s.userFlagsWithOverrideInfo],
-            (flags) => flags.find((f) => f.feature_flag.name === FEATURE_FLAGS.SIMPLIFY_ACTIONS)?.currentValue || false,
-        ],
     },
     events: ({ actions }) => ({
         afterMount: async () => {

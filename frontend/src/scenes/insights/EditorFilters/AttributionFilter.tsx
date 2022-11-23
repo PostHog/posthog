@@ -1,49 +1,44 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { BreakdownAttributionType, EditorFilterProps, StepOrderValue } from '~/types'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 
-export function Attribution({ filters, insightProps }: EditorFilterProps): JSX.Element {
-    const { setFilters } = useActions(trendsLogic(insightProps))
-    const { breakdownAttributionStepOptions } = useValues(funnelLogic(insightProps))
+export function Attribution({ insightProps }: EditorFilterProps): JSX.Element {
+    const { setFilters } = useActions(funnelLogic(insightProps))
+    const { filters, breakdownAttributionStepOptions } = useValues(funnelLogic(insightProps))
 
     return (
         <LemonSelect
             value={filters.breakdown_attribution_type || BreakdownAttributionType.FirstTouch}
             placeholder="Attribution"
-            options={{
-                [BreakdownAttributionType.FirstTouch]: { label: 'First touchpoint' },
-                [BreakdownAttributionType.LastTouch]: { label: 'Last touchpoint' },
-                [BreakdownAttributionType.AllSteps]: { label: 'All Steps' },
-                ...(filters.funnel_order_type === StepOrderValue.UNORDERED
-                    ? { [BreakdownAttributionType.Step]: { label: 'Any step' } }
+            options={[
+                { value: BreakdownAttributionType.FirstTouch, label: 'First touchpoint' },
+                { value: BreakdownAttributionType.LastTouch, label: 'Last touchpoint' },
+                { value: BreakdownAttributionType.AllSteps, label: 'All steps' },
+                filters.funnel_order_type === StepOrderValue.UNORDERED
+                    ? { value: BreakdownAttributionType.Step, label: 'Any step' }
                     : {
-                          [BreakdownAttributionType.Step]: {
-                              label: 'Specific step',
-                              element: (
-                                  <LemonSelect
-                                      className="ml-2"
-                                      onChange={(value) => {
-                                          if (value) {
-                                              setFilters({
-                                                  breakdown_attribution_type: BreakdownAttributionType.Step,
-                                                  breakdown_attribution_value: parseInt(value),
-                                              })
-                                          }
-                                      }}
-                                      placeholder={`Step ${
-                                          filters.breakdown_attribution_value
-                                              ? filters.breakdown_attribution_value + 1
-                                              : 1
-                                      }`}
-                                      options={breakdownAttributionStepOptions}
-                                  />
-                              ),
-                          },
-                      }),
-            }}
+                          value: BreakdownAttributionType.Step,
+                          label: 'Specific step',
+                          element: (
+                              <LemonSelect
+                                  className="ml-2"
+                                  onChange={(value) => {
+                                      if (value !== null) {
+                                          setFilters({
+                                              breakdown_attribution_type: BreakdownAttributionType.Step,
+                                              breakdown_attribution_value: value,
+                                          })
+                                      }
+                                  }}
+                                  placeholder={`Step ${
+                                      filters.breakdown_attribution_value ? filters.breakdown_attribution_value + 1 : 1
+                                  }`}
+                                  options={breakdownAttributionStepOptions}
+                              />
+                          ),
+                      },
+            ]}
             onChange={(value) => {
                 if (value) {
                     setFilters({

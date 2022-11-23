@@ -1,8 +1,6 @@
 import { kea } from 'kea'
-import { actionsModel } from '~/models/actionsModel'
 import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter, AnyPropertyFilter } from '~/types'
 import type { entityFilterLogicType } from './entityFilterLogicType'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
 import { convertPropertyGroupToProperties } from 'lib/utils'
 
@@ -56,7 +54,6 @@ export const entityFilterLogic = kea<entityFilterLogicType>({
     path: (key) => ['scenes', 'insights', 'ActionFilter', 'entityFilterLogic', key],
     connect: {
         logic: [eventUsageLogic],
-        values: [actionsModel, ['actions']],
     },
     actions: () => ({
         selectFilter: (filter: EntityFilter | ActionFilter | null) => ({ filter }),
@@ -142,18 +139,6 @@ export const entityFilterLogic = kea<entityFilterLogicType>({
     }),
 
     selectors: {
-        entities: [
-            (s) => [eventDefinitionsModel.selectors.eventNames, s.actions],
-            (
-                events,
-                actions
-            ): {
-                [x: string]: ActionFilter[] | BareEntity[]
-            } => ({
-                [EntityTypes.ACTIONS]: actions.map((action) => ({ ...action, name: action.name || '' })),
-                [EntityTypes.EVENTS]: events.map((event) => ({ id: event, name: event })),
-            }),
-        ],
         filters: [(s) => [s.localFilters], (localFilters): FilterType => toFilters(localFilters)],
     },
 

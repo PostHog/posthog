@@ -38,7 +38,9 @@ def forwards_func(apps, schema_editor):
                 annotation.save()
         # migrated users become admins (level 8)
         OrganizationMembership.objects.create(
-            organization=user.current_organization, user=user, level=8,
+            organization=user.current_organization,
+            user=user,
+            level=8,
         )
         user.current_team = user.current_organization.teams.get()
         user.save()
@@ -61,14 +63,19 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False,
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("name", models.CharField(max_length=64)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
             ],
-            options={"abstract": False,},
+            options={
+                "abstract": False,
+            },
         ),
         migrations.AddField(
             model_name="annotation",
@@ -93,11 +100,19 @@ class Migration(migrations.Migration):
                 to="posthog.Team",
             ),
         ),
-        migrations.AlterField(model_name="annotation", name="apply_all", field=models.BooleanField(null=True),),
+        migrations.AlterField(
+            model_name="annotation",
+            name="apply_all",
+            field=models.BooleanField(null=True),
+        ),
         migrations.AlterField(
             model_name="annotation",
             name="creation_type",
-            field=models.CharField(choices=[("USR", "user"), ("GIT", "GitHub")], default="USR", max_length=3,),
+            field=models.CharField(
+                choices=[("USR", "user"), ("GIT", "GitHub")],
+                default="USR",
+                max_length=3,
+            ),
         ),
         migrations.AlterField(
             model_name="personalapikey",
@@ -113,10 +128,16 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name="team",
             name="api_token",
-            field=models.CharField(default=posthog.models.utils.generate_random_token, max_length=200, null=True,),
+            field=models.CharField(
+                default=posthog.models.utils.generate_random_token,
+                max_length=200,
+                null=True,
+            ),
         ),
         migrations.AlterField(
-            model_name="team", name="name", field=models.CharField(default="Default", max_length=200, null=True),
+            model_name="team",
+            name="name",
+            field=models.CharField(default="Default", max_length=200, null=True),
         ),
         migrations.AlterField(
             model_name="team",
@@ -139,10 +160,16 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False,
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
-                ("level", models.PositiveSmallIntegerField(choices=[(1, "member"), (8, "administrator")], default=1),),
+                (
+                    "level",
+                    models.PositiveSmallIntegerField(choices=[(1, "member"), (8, "administrator")], default=1),
+                ),
                 ("joined_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
@@ -171,14 +198,26 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False,
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("uses", models.PositiveIntegerField(default=0)),
-                ("max_uses", models.PositiveIntegerField(blank=True, default=None, null=True),),
+                (
+                    "max_uses",
+                    models.PositiveIntegerField(blank=True, default=None, null=True),
+                ),
                 (
                     "target_email",
-                    models.EmailField(blank=True, db_index=True, default=None, max_length=254, null=True,),
+                    models.EmailField(
+                        blank=True,
+                        db_index=True,
+                        default=None,
+                        max_length=254,
+                        null=True,
+                    ),
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
@@ -225,7 +264,11 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="annotation",
             name="organization",
-            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.Organization",),
+            field=models.ForeignKey(
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                to="posthog.Organization",
+            ),
         ),
         migrations.AddField(
             model_name="team",
@@ -251,13 +294,15 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="organizationmembership",
             constraint=models.UniqueConstraint(
-                fields=("organization_id", "user_id"), name="unique_organization_membership",
+                fields=("organization_id", "user_id"),
+                name="unique_organization_membership",
             ),
         ),
         migrations.AddConstraint(
             model_name="organizationinvite",
             constraint=models.CheckConstraint(
-                check=models.Q(uses__lte=django.db.models.expressions.F("max_uses")), name="max_uses_respected",
+                check=models.Q(uses__lte=django.db.models.expressions.F("max_uses")),
+                name="max_uses_respected",
             ),
         ),
         migrations.RunPython(forwards_func, reverse_func),

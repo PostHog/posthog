@@ -12,6 +12,19 @@ on:
             - 'posthog/plugins/**'
             - 'docker*.yml'
             - '*Dockerfile'
+    push:
+        branches:
+            - master
+        paths:
+            - .github/workflows/ci-plugin-server.yml
+            - 'plugin-server/**'
+            - 'ee/clickhouse/migrations/**'
+            - 'ee/migrations/**'
+            - 'ee/management/commands/setup_test_environment.py'
+            - 'posthog/migrations/**'
+            - 'posthog/plugins/**'
+            - 'docker*.yml'
+            - '*Dockerfile'
 
 env:
     OBJECT_STORAGE_ENABLED: true
@@ -34,12 +47,12 @@ jobs:
                 working-directory: 'plugin-server'
 
         steps:
-            - uses: actions/checkout@v1
+            - uses: actions/checkout@v3
 
-            - name: Set up Node 16
-              uses: actions/setup-node@v1
+            - name: Set up Node 18
+              uses: actions/setup-node@v3
               with:
-                  node-version: 16
+                  node-version: 18
 
             - name: Install package.json dependencies with Yarn
               run: yarn
@@ -67,7 +80,7 @@ jobs:
 
         steps:
             - name: Code check out
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
 
             - name: Stop/Start stack with Docker Compose
               run: |
@@ -78,11 +91,11 @@ jobs:
               run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
             - name: Set up Python
-              uses: actions/setup-python@v2
+              uses: actions/setup-python@v4
               with:
-                  python-version: 3.8.12
+                  python-version: 3.8.14
 
-            - uses: syphar/restore-virtualenv@v1.2
+            - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
                   custom_cache_key_element: v1-
@@ -96,16 +109,16 @@ jobs:
                   python -m pip install -r requirements-dev.txt
                   python -m pip install -r requirements.txt
 
-            - name: Set up Node 16
-              uses: actions/setup-node@v2
+            - name: Set up Node 18
+              uses: actions/setup-node@v3
               with:
-                  node-version: 16
+                  node-version: 18
 
             - name: Get yarn cache directory path
               id: yarn-cache-dir-path
-              run: echo "::set-output name=dir::$(yarn config get cacheFolder)"
+              run: echo "dir=$(yarn config get cacheFolder)" >> $GITHUB_OUTPUT
 
-            - uses: actions/cache@v2
+            - uses: actions/cache@v3
               id: yarn-cache
               with:
                   path: |
@@ -134,4 +147,97 @@ jobs:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
-              run: cd plugin-server && yarn test --shard=${{matrix.shard}}
+              run: cd plugin-server && yarn test --runInBand --forceExit tests/ --shard=${{matrix.shard}}
+
+    functional-tests:
+        name: Functional tests
+        runs-on: ubuntu-20.04
+
+        env:
+            REDIS_URL: 'redis://localhost'
+            CLICKHOUSE_HOST: 'localhost'
+            CLICKHOUSE_DATABASE: 'posthog_test'
+            KAFKA_HOSTS: 'kafka:9092'
+            DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+
+        steps:
+            - name: Code check out
+              uses: actions/checkout@v3
+
+            - name: Stop/Start stack with Docker Compose
+              run: |
+                  docker-compose -f docker-compose.dev.yml down
+                  docker-compose -f docker-compose.dev.yml up -d
+
+            - name: Add Kafka to /etc/hosts
+              run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+
+            - name: Set up Python
+              uses: actions/setup-python@v4
+              with:
+                  python-version: 3.8.14
+
+            - uses: syphar/restore-virtualenv@v1
+              id: cache-backend-tests
+              with:
+                  custom_cache_key_element: v1-
+
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
+            - name: Install python dependencies
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+              run: |
+                  python -m pip install -r requirements-dev.txt
+                  python -m pip install -r requirements.txt
+
+            - name: Set up Node 18
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 18
+
+            - name: Get yarn cache directory path
+              id: yarn-cache-dir-path
+              run: echo "dir=$(yarn config get cacheFolder)" >> $GITHUB_OUTPUT
+
+            - uses: actions/cache@v3
+              id: yarn-cache
+              with:
+                  path: |
+                      ${{ steps.yarn-cache-dir-path.outputs.dir }}
+                      plugin-server/node_modules
+                  key: plugin-server-yarn-${{ runner.os }}-${{ hashFiles('plugin-server/yarn.lock') }}
+                  restore-keys: |
+                      plugin-server-yarn-${{ runner.os }}
+
+            - name: Install package.json dependencies with Yarn
+              if: steps.yarn-cache.cache-hit != 'true'
+              run: |
+                  cd plugin-server
+                  yarn install --frozen-lockfile
+                  yarn build
+
+            - name: Wait for Clickhouse & Kafka
+              run: bin/check_kafka_clickhouse_up
+
+            - name: Set up databases
+              env:
+                  DEBUG: 'true'
+                  SECRET_KEY: 'abcdef' # unsafe - for testing only
+              run: |
+                  ./manage.py migrate
+                  ./manage.py migrate_clickhouse
+
+            - name: Run functional tests
+              run: |
+                  cd plugin-server
+                  ./bin/ci_functional_tests.sh
+
+            - name: Upload coverage report
+              uses: actions/upload-artifact@v3
+              if: always()
+              with:
+                  name: functional-coverage
+                  if-no-files-found: warn
+                  retention-days: 1
+                  path: 'plugin-server/coverage'

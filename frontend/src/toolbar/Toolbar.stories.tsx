@@ -1,8 +1,7 @@
-import 'react-toastify/dist/ReactToastify.css'
 import '~/styles'
 import '~/toolbar/styles.scss'
 
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
 
 import { ToolbarApp } from '~/toolbar/ToolbarApp'

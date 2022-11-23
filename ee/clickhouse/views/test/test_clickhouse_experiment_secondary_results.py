@@ -13,19 +13,23 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
             {
                 # For a trend pageview metric
                 "person1": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"},},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}}
                 ],
                 "person2": [
                     {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
                     {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
                 ],
                 "person3": [
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}}
                 ],
                 # doesn't have feature set
-                "person_out_of_control": [{"event": "$pageview", "timestamp": "2020-01-03",},],
+                "person_out_of_control": [{"event": "$pageview", "timestamp": "2020-01-03"}],
                 "person_out_of_end_date": [
-                    {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}},
+                    {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}}
+                ],
+                # wrong feature set somehow
+                "person_out_of_feature_control": [
+                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "ablahebf"}}
                 ],
                 # for a funnel conversion metric
                 "person1_funnel": [
@@ -66,8 +70,8 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                 ],
                 # doesn't have feature set
                 "person_out_of_control_funnel": [
-                    {"event": "$pageview_funnel", "timestamp": "2020-01-03",},
-                    {"event": "$pageleave_funnel", "timestamp": "2020-01-05",},
+                    {"event": "$pageview_funnel", "timestamp": "2020-01-03"},
+                    {"event": "$pageleave_funnel", "timestamp": "2020-01-05"},
                 ],
                 "person_out_of_end_date_funnel": [
                     {
@@ -87,14 +91,14 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                         "event": "$pageview_funnel",
                         "timestamp": "2020-01-03",
                         "properties": {"$feature/a-b-test": "test"},
-                    },
+                    }
                 ],
                 "person5_funnel": [
                     {
                         "event": "$pageview_funnel",
                         "timestamp": "2020-01-04",
                         "properties": {"$feature/a-b-test": "test"},
-                    },
+                    }
                 ],
             },
             self.team,
@@ -146,7 +150,7 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                     },
                 ],
                 # target metric insignificant since we're testing secondaries right now
-                "filters": {"insight": "trends", "events": [{"order": 0, "id": "whatever"}],},
+                "filters": {"insight": "trends", "events": [{"order": 0, "id": "whatever"}]},
             },
         )
 
@@ -181,68 +185,68 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                         "event": "$pageview_trend",
                         "timestamp": "2020-01-02",
                         "properties": {"$feature/a-b-test": "test_2"},
-                    },
+                    }
                 ],
                 "person1_1_trend": [
                     {
                         "event": "$pageview_trend",
                         "timestamp": "2020-01-02",
                         "properties": {"$feature/a-b-test": "test_1"},
-                    },
+                    }
                 ],
                 "person2_1_trend": [
                     {
                         "event": "$pageview_trend",
                         "timestamp": "2020-01-02",
                         "properties": {"$feature/a-b-test": "test_1"},
-                    },
+                    }
                 ],
                 "person2_trend": [
                     {
                         "event": "$pageview_trend",
                         "timestamp": "2020-01-03",
                         "properties": {"$feature/a-b-test": "control"},
-                    },
+                    }
                 ],
                 "person3_trend": [
                     {
                         "event": "$pageview_trend",
                         "timestamp": "2020-01-04",
                         "properties": {"$feature/a-b-test": "control"},
-                    },
+                    }
                 ],
                 "person4_trend": [
                     {
                         "event": "$pageview_trend",
                         "timestamp": "2020-01-04",
                         "properties": {"$feature/a-b-test": "control"},
-                    },
+                    }
                 ],
                 # doesn't have feature set
-                "person_out_of_control": [{"event": "$pageview_trend", "timestamp": "2020-01-03",},],
+                "person_out_of_control": [{"event": "$pageview_trend", "timestamp": "2020-01-03"}],
                 "person_out_of_end_date": [
                     {
                         "event": "$pageview_trend",
                         "timestamp": "2020-08-03",
                         "properties": {"$feature/a-b-test": "control"},
-                    },
+                    }
                 ],
                 # funnel metric second
                 "person1_2": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_2"},},
-                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test_2"},},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_2"}},
+                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test_2"}},
                 ],
                 "person1_1": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"},},
-                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test_1"},},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"}},
+                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test_1"}},
                 ],
                 "person2_1": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"},},
-                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test_1"},},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"}},
+                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test_1"}},
                 ],
                 "person1": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"},},
-                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test"},},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test"}},
                 ],
                 "person2": [
                     {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
@@ -254,8 +258,8 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                 ],
                 # doesn't have feature set
                 "person_out_of_control": [
-                    {"event": "$pageview", "timestamp": "2020-01-03",},
-                    {"event": "$pageleave", "timestamp": "2020-01-05",},
+                    {"event": "$pageview", "timestamp": "2020-01-03"},
+                    {"event": "$pageleave", "timestamp": "2020-01-05"},
                 ],
                 "person_out_of_end_date": [
                     {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}},
@@ -263,13 +267,13 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                 ],
                 # non-converters with FF
                 "person4": [
-                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "test"},},
+                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "test"}}
                 ],
                 "person5": [
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test"},},
+                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test"}}
                 ],
                 "person6_1": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"},},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"}}
                 ],
             },
             self.team,
@@ -291,7 +295,7 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                         {"key": "test_1", "name": "Test Variant 1", "rollout_percentage": 25},
                         {"key": "test_2", "name": "Test Variant 2", "rollout_percentage": 25},
                         {"key": "test", "name": "Test Variant 3", "rollout_percentage": 25},
-                    ],
+                    ]
                 },
                 "secondary_metrics": [
                     {
@@ -307,7 +311,7 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                     },
                 ],
                 # target metric insignificant since we're testing secondaries right now
-                "filters": {"insight": "trends", "events": [{"order": 0, "id": "whatever"}],},
+                "filters": {"insight": "trends", "events": [{"order": 0, "id": "whatever"}]},
             },
         )
 
@@ -337,3 +341,141 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
         self.assertAlmostEqual(response_data["result"]["test"], round(1 / 3, 3))
         self.assertAlmostEqual(response_data["result"]["test_1"], round(2 / 3, 3))
         self.assertAlmostEqual(response_data["result"]["test_2"], 1)
+
+    def test_metrics_without_full_flag_information_are_valid(self):
+        journeys_for(
+            {
+                # doesn't have feature set
+                "person_out_of_control": [{"event": "$pageview_funnel", "timestamp": "2020-01-03"}],
+                "person_out_of_end_date": [
+                    {
+                        "event": "$pageview_funnel",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    }
+                ],
+                # has invalid feature set
+                "person_out_of_all_controls": [
+                    {
+                        "event": "$pageview_funnel",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "XYZABC"},
+                    }
+                ],
+                # for a funnel conversion metric
+                "person1_funnel": [
+                    {
+                        "event": "$pageview_funnel",
+                        "timestamp": "2020-01-02",
+                        # "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageleave_funnel",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                ],
+                "person2_funnel": [
+                    {
+                        "event": "$pageview_funnel",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageleave_funnel",
+                        "timestamp": "2020-01-05",
+                        # "properties": {"$feature/a-b-test": "control"},
+                    },
+                ],
+                "person3_funnel": [
+                    {
+                        "event": "$pageview_funnel",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageleave_funnel",
+                        "timestamp": "2020-01-05",
+                        # "properties": {"$feature/a-b-test": "control"},
+                    },
+                ],
+                # doesn't have feature set
+                "person_out_of_control_funnel": [
+                    {"event": "$pageview_funnel", "timestamp": "2020-01-03"},
+                    {"event": "$pageleave_funnel", "timestamp": "2020-01-05"},
+                ],
+                "person_out_of_end_date_funnel": [
+                    {
+                        "event": "$pageview_funnel",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageleave_funnel",
+                        "timestamp": "2020-08-05",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                ],
+                # non-converters with FF
+                "person4_funnel": [
+                    {
+                        "event": "$pageview_funnel",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "test"},
+                    }
+                ],
+                "person5_funnel": [
+                    {
+                        "event": "$pageview_funnel",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "test"},
+                    }
+                ],
+            },
+            self.team,
+        )
+
+        ff_key = "a-b-test"
+        # generates the FF which should result in the above events^
+        creation_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2020-01-01T00:00",
+                "end_date": "2020-01-06T00:00",
+                "feature_flag_key": ff_key,
+                "parameters": {},
+                "secondary_metrics": [
+                    {
+                        "name": "funnels whatever",
+                        "filters": {
+                            "insight": "funnels",
+                            "events": [{"order": 0, "id": "$pageview_funnel"}, {"order": 1, "id": "$pageleave_funnel"}],
+                            "properties": [
+                                {
+                                    "key": "$geoip_country_name",
+                                    "type": "person",
+                                    "value": ["france"],
+                                    "operator": "exact",
+                                }
+                                # properties superceded by FF breakdown
+                            ],
+                        },
+                    },
+                ],
+                # target metric insignificant since we're testing secondaries right now
+                "filters": {"insight": "trends", "events": [{"order": 0, "id": "whatever"}]},
+            },
+        )
+
+        id = creation_response.json()["id"]
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/secondary_results?id=0")
+        self.assertEqual(200, response.status_code)
+
+        response_data = response.json()
+
+        self.assertEqual(len(response_data["result"].items()), 2)
+
+        self.assertAlmostEqual(response_data["result"]["control"], 1)
+        self.assertEqual(response_data["result"]["test"], round(1 / 3, 3))

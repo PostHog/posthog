@@ -26,6 +26,8 @@ class Migration(migrations.Migration):
                 ("sent_at", models.DateTimeField(null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
             ],
-            options={"unique_together": {("email_hash", "campaign_key")},},
+            options={
+                "unique_together": {("email_hash", "campaign_key")},
+            },
         ),
     ]

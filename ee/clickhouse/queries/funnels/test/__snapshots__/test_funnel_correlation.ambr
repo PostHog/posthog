@@ -63,8 +63,8 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up', 'user signed up', 'paid']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -73,8 +73,8 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['paid', 'user signed up'] as funnel_step_names
   SELECT event.event AS name,
@@ -89,11 +89,11 @@
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON pdi.distinct_id = events.distinct_id
   JOIN funnel_actors AS actors ON pdi.person_id = actors.actor_id
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event NOT IN []
   GROUP BY name
@@ -166,8 +166,8 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -266,13 +266,18 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
+                            AND id IN
+                              (SELECT id
+                               FROM person
+                               WHERE team_id = 2
+                                 AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                          AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -355,13 +360,18 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
+                            AND id IN
+                              (SELECT id
+                               FROM person
+                               WHERE team_id = 2
+                                 AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                          AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -444,13 +454,18 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
+                            AND id IN
+                              (SELECT id
+                               FROM person
+                               WHERE team_id = 2
+                                 AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                          AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -533,13 +548,18 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
+                            AND id IN
+                              (SELECT id
+                               FROM person
+                               WHERE team_id = 2
+                                 AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                          AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -620,8 +640,8 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -720,13 +740,18 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
+                            AND id IN
+                              (SELECT id
+                               FROM person
+                               WHERE team_id = 2
+                                 AND (has(['Positive'], person."pmat_$browser")) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['Positive'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id
+                          AND (has(['Positive'], argMax(person."pmat_$browser", version)))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -809,13 +834,18 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
+                            AND id IN
+                              (SELECT id
+                               FROM person
+                               WHERE team_id = 2
+                                 AND (has(['Positive'], person."pmat_$browser")) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['Positive'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id
+                          AND (has(['Positive'], argMax(person."pmat_$browser", version)))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -898,13 +928,18 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
+                            AND id IN
+                              (SELECT id
+                               FROM person
+                               WHERE team_id = 2
+                                 AND (has(['Negative'], person."pmat_$browser")) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['Negative'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id
+                          AND (has(['Negative'], argMax(person."pmat_$browser", version)))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -987,13 +1022,18 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
+                            AND id IN
+                              (SELECT id
+                               FROM person
+                               WHERE team_id = 2
+                                 AND (has(['Negative'], person."pmat_$browser")) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['Negative'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id
+                          AND (has(['Negative'], argMax(person."pmat_$browser", version)))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -1066,8 +1106,8 @@
                        FROM events e
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -1076,8 +1116,8 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['paid', 'user signed up'] as funnel_step_names
   SELECT concat(event_name, '::', prop.1, '::', prop.2) as name,
@@ -1092,11 +1132,11 @@
             arrayJoin(arrayZip(prop_keys, prop_values)) as prop
      FROM events AS event
      JOIN funnel_actors AS actors ON actors.actor_id = events.$group_1
-     WHERE event.timestamp >= date_from
-       AND event.timestamp < date_to
+     WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+       AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
        AND event.team_id = 2
-       AND event.timestamp > actors.first_timestamp
-       AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+       AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+       AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
        AND event.event NOT IN funnel_step_names
        AND event.event IN ['positively_related', 'negatively_related'] )
   GROUP BY name
@@ -1163,8 +1203,8 @@
                        FROM events e
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -1173,8 +1213,8 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['paid', 'user signed up'] as funnel_step_names
   SELECT concat(event_name, '::', prop.1, '::', prop.2) as name,
@@ -1189,11 +1229,11 @@
             arrayJoin(arrayZip(prop_keys, prop_values)) as prop
      FROM events AS event
      JOIN funnel_actors AS actors ON actors.actor_id = events.$group_1
-     WHERE event.timestamp >= date_from
-       AND event.timestamp < date_to
+     WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+       AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
        AND event.team_id = 2
-       AND event.timestamp > actors.first_timestamp
-       AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+       AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+       AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
        AND event.event NOT IN funnel_step_names
        AND event.event IN ['positively_related', 'negatively_related'] )
   GROUP BY name
@@ -1260,8 +1300,8 @@
                        FROM events e
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -1270,8 +1310,8 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['paid', 'user signed up'] as funnel_step_names
   SELECT event.event AS name,
@@ -1279,11 +1319,11 @@
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event NOT IN []
   GROUP BY name
@@ -1348,8 +1388,8 @@
                        FROM events e
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -1358,18 +1398,18 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event = 'positively_related'
     AND actors.steps = target_step
@@ -1433,8 +1473,8 @@
                        FROM events e
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -1443,18 +1483,18 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event = 'positively_related'
     AND actors.steps <> target_step
@@ -1518,8 +1558,8 @@
                        FROM events e
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -1528,18 +1568,18 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event = 'negatively_related'
     AND actors.steps = target_step
@@ -1603,8 +1643,8 @@
                        FROM events e
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -1613,18 +1653,18 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event = 'negatively_related'
     AND actors.steps <> target_step
@@ -1696,8 +1736,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                          AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
@@ -1707,8 +1747,8 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['paid', 'user signed up'] as funnel_step_names
   SELECT event.event AS name,
@@ -1716,11 +1756,11 @@
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event NOT IN []
   GROUP BY name
@@ -1793,8 +1833,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                          AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
@@ -1804,18 +1844,18 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event = 'negatively_related'
     AND actors.steps = target_step
@@ -1887,8 +1927,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                          AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
@@ -1898,18 +1938,18 @@
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE steps IN [1, 2]
      ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2020-01-14 23:59:59') AS date_to,
-       toDateTime('2020-01-01 00:00:00') AS date_from,
+       toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
+       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
   FROM events AS event
   JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event = 'negatively_related'
     AND actors.steps <> target_step
@@ -1973,8 +2013,8 @@
                        FROM events e
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -2071,8 +2111,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                          AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
@@ -2154,8 +2194,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                          AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
@@ -2237,8 +2277,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                          AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
@@ -2320,8 +2360,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                          AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
@@ -2395,8 +2435,8 @@
                        FROM events e
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -2486,8 +2526,8 @@
                        FROM events e
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -2584,8 +2624,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                          AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
@@ -2667,8 +2707,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                          AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
@@ -2750,8 +2790,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                          AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
@@ -2833,8 +2873,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                          AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
@@ -2908,8 +2948,1034 @@
                        FROM events e
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) ))
+              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     WHERE steps IN [1, 2]
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+       2 AS target_step
+  SELECT concat(prop.1, '::', prop.2) as name,
+         countDistinctIf(actor_id, steps = target_step) AS success_count,
+         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  FROM
+    (SELECT actor_id,
+            funnel_actors.steps as steps,
+            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(groups_0.group_properties_0)) as person_prop_keys,
+            arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, x), '^"|"$', ''), person_prop_keys))) as prop
+     FROM funnel_actors
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
+  GROUP BY prop.1,
+               prop.2
+  HAVING prop.1 NOT IN []
+  UNION ALL
+  SELECT 'Total_Values_In_Query' as name,
+         countDistinctIf(actor_id, steps = target_step) AS success_count,
+         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  FROM funnel_actors
+  '
+---
+# name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events
+  '
+  WITH funnel_actors as
+    (SELECT aggregation_target AS actor_id,
+            timestamp,
+            steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               argMax(latest_0, steps) as timestamp,
+               argMax(latest_1, steps) as final_timestamp,
+               argMax(latest_0, steps) as first_timestamp
+        FROM
+          (SELECT aggregation_target,
+                  steps,
+                  max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                                  step_1_conversion_time ,
+                                  latest_0,
+                                  latest_1,
+                                  latest_0
+           FROM
+             (SELECT *,
+                     if(latest_0 <= latest_1
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                     if(isNotNull(latest_1)
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        step_1,
+                        min(latest_1) over (PARTITION by aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'user signed up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'paid', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              e."$group_0" as aggregation_target
+                       FROM events e
+                       WHERE team_id = 2
+                         AND event IN ['paid', 'user signed up']
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) ))
+              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     WHERE steps IN [1, 2]
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+       2 AS target_step
+  SELECT concat(prop.1, '::', prop.2) as name,
+         countDistinctIf(actor_id, steps = target_step) AS success_count,
+         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  FROM
+    (SELECT actor_id,
+            funnel_actors.steps as steps,
+            arrayJoin(arrayZip(['industry'], [replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, 'industry'), '^"|"$', '')])) as prop
+     FROM funnel_actors
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
+  GROUP BY prop.1,
+               prop.2
+  HAVING prop.1 NOT IN []
+  UNION ALL
+  SELECT 'Total_Values_In_Query' as name,
+         countDistinctIf(actor_id, steps = target_step) AS success_count,
+         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  FROM funnel_actors
+  '
+---
+# name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.1
+  '
+  WITH funnel_actors AS
+    (SELECT aggregation_target AS actor_id,
+            timestamp,
+            steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               argMax(latest_0, steps) as timestamp,
+               argMax(latest_1, steps) as final_timestamp,
+               argMax(latest_0, steps) as first_timestamp
+        FROM
+          (SELECT aggregation_target,
+                  steps,
+                  max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                                  step_1_conversion_time ,
+                                  latest_0,
+                                  latest_1,
+                                  latest_0
+           FROM
+             (SELECT *,
+                     if(latest_0 <= latest_1
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                     if(isNotNull(latest_1)
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        step_1,
+                        min(latest_1) over (PARTITION by aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'user signed up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'paid', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              e."$group_0" as aggregation_target,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                       WHERE team_id = 2
+                         AND event IN ['paid', 'user signed up']
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) ))
+              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     WHERE steps IN [1, 2]
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+       2 AS target_step
+  SELECT funnel_actors.actor_id AS actor_id
+  FROM funnel_actors
+  WHERE funnel_actors.steps = target_step
+  GROUP BY funnel_actors.actor_id
+  ORDER BY actor_id
+  LIMIT 100
+  OFFSET 0
+  '
+---
+# name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.2
+  '
+  WITH funnel_actors AS
+    (SELECT aggregation_target AS actor_id,
+            timestamp,
+            steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               argMax(latest_0, steps) as timestamp,
+               argMax(latest_1, steps) as final_timestamp,
+               argMax(latest_0, steps) as first_timestamp
+        FROM
+          (SELECT aggregation_target,
+                  steps,
+                  max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                                  step_1_conversion_time ,
+                                  latest_0,
+                                  latest_1,
+                                  latest_0
+           FROM
+             (SELECT *,
+                     if(latest_0 <= latest_1
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                     if(isNotNull(latest_1)
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        step_1,
+                        min(latest_1) over (PARTITION by aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'user signed up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'paid', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              e."$group_0" as aggregation_target,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                       WHERE team_id = 2
+                         AND event IN ['paid', 'user signed up']
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) ))
+              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     WHERE steps IN [1, 2]
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+       2 AS target_step
+  SELECT funnel_actors.actor_id AS actor_id
+  FROM funnel_actors
+  WHERE funnel_actors.steps <> target_step
+  GROUP BY funnel_actors.actor_id
+  ORDER BY actor_id
+  LIMIT 100
+  OFFSET 0
+  '
+---
+# name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.3
+  '
+  WITH funnel_actors AS
+    (SELECT aggregation_target AS actor_id,
+            timestamp,
+            steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               argMax(latest_0, steps) as timestamp,
+               argMax(latest_1, steps) as final_timestamp,
+               argMax(latest_0, steps) as first_timestamp
+        FROM
+          (SELECT aggregation_target,
+                  steps,
+                  max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                                  step_1_conversion_time ,
+                                  latest_0,
+                                  latest_1,
+                                  latest_0
+           FROM
+             (SELECT *,
+                     if(latest_0 <= latest_1
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                     if(isNotNull(latest_1)
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        step_1,
+                        min(latest_1) over (PARTITION by aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'user signed up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'paid', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              e."$group_0" as aggregation_target,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                       WHERE team_id = 2
+                         AND event IN ['paid', 'user signed up']
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) ))
+              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     WHERE steps IN [1, 2]
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+       2 AS target_step
+  SELECT funnel_actors.actor_id AS actor_id
+  FROM funnel_actors
+  WHERE funnel_actors.steps = target_step
+  GROUP BY funnel_actors.actor_id
+  ORDER BY actor_id
+  LIMIT 100
+  OFFSET 0
+  '
+---
+# name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.4
+  '
+  WITH funnel_actors AS
+    (SELECT aggregation_target AS actor_id,
+            timestamp,
+            steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               argMax(latest_0, steps) as timestamp,
+               argMax(latest_1, steps) as final_timestamp,
+               argMax(latest_0, steps) as first_timestamp
+        FROM
+          (SELECT aggregation_target,
+                  steps,
+                  max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                                  step_1_conversion_time ,
+                                  latest_0,
+                                  latest_1,
+                                  latest_0
+           FROM
+             (SELECT *,
+                     if(latest_0 <= latest_1
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                     if(isNotNull(latest_1)
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        step_1,
+                        min(latest_1) over (PARTITION by aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'user signed up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'paid', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              e."$group_0" as aggregation_target,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                       WHERE team_id = 2
+                         AND event IN ['paid', 'user signed up']
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) ))
+              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     WHERE steps IN [1, 2]
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+       2 AS target_step
+  SELECT funnel_actors.actor_id AS actor_id
+  FROM funnel_actors
+  WHERE funnel_actors.steps <> target_step
+  GROUP BY funnel_actors.actor_id
+  ORDER BY actor_id
+  LIMIT 100
+  OFFSET 0
+  '
+---
+# name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.5
+  '
+  WITH funnel_actors as
+    (SELECT aggregation_target AS actor_id,
+            timestamp,
+            steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               argMax(latest_0, steps) as timestamp,
+               argMax(latest_1, steps) as final_timestamp,
+               argMax(latest_0, steps) as first_timestamp
+        FROM
+          (SELECT aggregation_target,
+                  steps,
+                  max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                                  step_1_conversion_time ,
+                                  latest_0,
+                                  latest_1,
+                                  latest_0
+           FROM
+             (SELECT *,
+                     if(latest_0 <= latest_1
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                     if(isNotNull(latest_1)
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        step_1,
+                        min(latest_1) over (PARTITION by aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'user signed up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'paid', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              e."$group_0" as aggregation_target
+                       FROM events e
+                       WHERE team_id = 2
+                         AND event IN ['paid', 'user signed up']
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) ))
+              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     WHERE steps IN [1, 2]
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+       2 AS target_step
+  SELECT concat(prop.1, '::', prop.2) as name,
+         countDistinctIf(actor_id, steps = target_step) AS success_count,
+         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  FROM
+    (SELECT actor_id,
+            funnel_actors.steps as steps,
+            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(groups_0.group_properties_0)) as person_prop_keys,
+            arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, x), '^"|"$', ''), person_prop_keys))) as prop
+     FROM funnel_actors
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
+  GROUP BY prop.1,
+               prop.2
+  HAVING prop.1 NOT IN []
+  UNION ALL
+  SELECT 'Total_Values_In_Query' as name,
+         countDistinctIf(actor_id, steps = target_step) AS success_count,
+         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  FROM funnel_actors
+  '
+---
+# name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized
+  '
+  WITH funnel_actors as
+    (SELECT aggregation_target AS actor_id,
+            timestamp,
+            steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               argMax(latest_0, steps) as timestamp,
+               argMax(latest_1, steps) as final_timestamp,
+               argMax(latest_0, steps) as first_timestamp
+        FROM
+          (SELECT aggregation_target,
+                  steps,
+                  max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                                  step_1_conversion_time ,
+                                  latest_0,
+                                  latest_1,
+                                  latest_0
+           FROM
+             (SELECT *,
+                     if(latest_0 <= latest_1
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                     if(isNotNull(latest_1)
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        step_1,
+                        min(latest_1) over (PARTITION by aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'user signed up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'paid', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              e."$group_0" as aggregation_target
+                       FROM events e
+                       WHERE team_id = 2
+                         AND event IN ['paid', 'user signed up']
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) ))
+              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     WHERE steps IN [1, 2]
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+       2 AS target_step
+  SELECT concat(prop.1, '::', prop.2) as name,
+         countDistinctIf(actor_id, steps = target_step) AS success_count,
+         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  FROM
+    (SELECT actor_id,
+            funnel_actors.steps as steps,
+            arrayJoin(arrayZip(['industry'], [replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, 'industry'), '^"|"$', '')])) as prop
+     FROM funnel_actors
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
+  GROUP BY prop.1,
+               prop.2
+  HAVING prop.1 NOT IN []
+  UNION ALL
+  SELECT 'Total_Values_In_Query' as name,
+         countDistinctIf(actor_id, steps = target_step) AS success_count,
+         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  FROM funnel_actors
+  '
+---
+# name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.1
+  '
+  WITH funnel_actors AS
+    (SELECT aggregation_target AS actor_id,
+            timestamp,
+            steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               argMax(latest_0, steps) as timestamp,
+               argMax(latest_1, steps) as final_timestamp,
+               argMax(latest_0, steps) as first_timestamp
+        FROM
+          (SELECT aggregation_target,
+                  steps,
+                  max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                                  step_1_conversion_time ,
+                                  latest_0,
+                                  latest_1,
+                                  latest_0
+           FROM
+             (SELECT *,
+                     if(latest_0 <= latest_1
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                     if(isNotNull(latest_1)
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        step_1,
+                        min(latest_1) over (PARTITION by aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'user signed up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'paid', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              e."$group_0" as aggregation_target,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                       WHERE team_id = 2
+                         AND event IN ['paid', 'user signed up']
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) ))
+              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     WHERE steps IN [1, 2]
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+       2 AS target_step
+  SELECT funnel_actors.actor_id AS actor_id
+  FROM funnel_actors
+  WHERE funnel_actors.steps = target_step
+  GROUP BY funnel_actors.actor_id
+  ORDER BY actor_id
+  LIMIT 100
+  OFFSET 0
+  '
+---
+# name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.2
+  '
+  WITH funnel_actors AS
+    (SELECT aggregation_target AS actor_id,
+            timestamp,
+            steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               argMax(latest_0, steps) as timestamp,
+               argMax(latest_1, steps) as final_timestamp,
+               argMax(latest_0, steps) as first_timestamp
+        FROM
+          (SELECT aggregation_target,
+                  steps,
+                  max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                                  step_1_conversion_time ,
+                                  latest_0,
+                                  latest_1,
+                                  latest_0
+           FROM
+             (SELECT *,
+                     if(latest_0 <= latest_1
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                     if(isNotNull(latest_1)
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        step_1,
+                        min(latest_1) over (PARTITION by aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'user signed up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'paid', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              e."$group_0" as aggregation_target,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                       WHERE team_id = 2
+                         AND event IN ['paid', 'user signed up']
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) ))
+              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     WHERE steps IN [1, 2]
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+       2 AS target_step
+  SELECT funnel_actors.actor_id AS actor_id
+  FROM funnel_actors
+  WHERE funnel_actors.steps <> target_step
+  GROUP BY funnel_actors.actor_id
+  ORDER BY actor_id
+  LIMIT 100
+  OFFSET 0
+  '
+---
+# name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.3
+  '
+  WITH funnel_actors AS
+    (SELECT aggregation_target AS actor_id,
+            timestamp,
+            steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               argMax(latest_0, steps) as timestamp,
+               argMax(latest_1, steps) as final_timestamp,
+               argMax(latest_0, steps) as first_timestamp
+        FROM
+          (SELECT aggregation_target,
+                  steps,
+                  max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                                  step_1_conversion_time ,
+                                  latest_0,
+                                  latest_1,
+                                  latest_0
+           FROM
+             (SELECT *,
+                     if(latest_0 <= latest_1
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                     if(isNotNull(latest_1)
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        step_1,
+                        min(latest_1) over (PARTITION by aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'user signed up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'paid', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              e."$group_0" as aggregation_target,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                       WHERE team_id = 2
+                         AND event IN ['paid', 'user signed up']
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) ))
+              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     WHERE steps IN [1, 2]
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+       2 AS target_step
+  SELECT funnel_actors.actor_id AS actor_id
+  FROM funnel_actors
+  WHERE funnel_actors.steps = target_step
+  GROUP BY funnel_actors.actor_id
+  ORDER BY actor_id
+  LIMIT 100
+  OFFSET 0
+  '
+---
+# name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.4
+  '
+  WITH funnel_actors AS
+    (SELECT aggregation_target AS actor_id,
+            timestamp,
+            steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               argMax(latest_0, steps) as timestamp,
+               argMax(latest_1, steps) as final_timestamp,
+               argMax(latest_0, steps) as first_timestamp
+        FROM
+          (SELECT aggregation_target,
+                  steps,
+                  max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                                  step_1_conversion_time ,
+                                  latest_0,
+                                  latest_1,
+                                  latest_0
+           FROM
+             (SELECT *,
+                     if(latest_0 <= latest_1
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                     if(isNotNull(latest_1)
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        step_1,
+                        min(latest_1) over (PARTITION by aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'user signed up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'paid', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              e."$group_0" as aggregation_target,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                       WHERE team_id = 2
+                         AND event IN ['paid', 'user signed up']
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) ))
+              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     WHERE steps IN [1, 2]
+     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+       2 AS target_step
+  SELECT funnel_actors.actor_id AS actor_id
+  FROM funnel_actors
+  WHERE funnel_actors.steps <> target_step
+  GROUP BY funnel_actors.actor_id
+  ORDER BY actor_id
+  LIMIT 100
+  OFFSET 0
+  '
+---
+# name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.5
+  '
+  WITH funnel_actors as
+    (SELECT aggregation_target AS actor_id,
+            timestamp,
+            steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               argMax(latest_0, steps) as timestamp,
+               argMax(latest_1, steps) as final_timestamp,
+               argMax(latest_0, steps) as first_timestamp
+        FROM
+          (SELECT aggregation_target,
+                  steps,
+                  max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                                  step_1_conversion_time ,
+                                  latest_0,
+                                  latest_1,
+                                  latest_0
+           FROM
+             (SELECT *,
+                     if(latest_0 <= latest_1
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                     if(isNotNull(latest_1)
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        step_1,
+                        min(latest_1) over (PARTITION by aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'user signed up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'paid', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              e."$group_0" as aggregation_target
+                       FROM events e
+                       WHERE team_id = 2
+                         AND event IN ['paid', 'user signed up']
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))

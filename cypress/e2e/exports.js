@@ -31,6 +31,10 @@ describe('Exporting Insights', () => {
         cy.get('.Popup [data-attr=export-button]').click()
         cy.get('[data-attr=export-button-png]').click()
 
+        // Ensure that no popups are showin
+        cy.wait(500)
+        cy.get('.Popup').should('not.exist')
+
         const expectedFileName = 'export-pageview-count.png'
         cy.task('compareToReferenceImage', {
             source: expectedFileName,

@@ -137,10 +137,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         self._fields.append(full_condition)
 
-        return (
-            column_name,
-            {f"{date_param}": date_value, f"{seq_date_param}": seq_date_value, **entity_params},
-        )
+        return (column_name, {f"{date_param}": date_value, f"{seq_date_param}": seq_date_value, **entity_params})
 
     def get_restarted_performing_event(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
@@ -172,10 +169,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         self._fields.append(full_condition)
 
-        return (
-            column_name,
-            {f"{date_param}": date_value, f"{seq_date_param}": seq_date_value, **entity_params},
-        )
+        return (column_name, {f"{date_param}": date_value, f"{seq_date_param}": seq_date_value, **entity_params})
 
     def get_performed_event_first_time(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)

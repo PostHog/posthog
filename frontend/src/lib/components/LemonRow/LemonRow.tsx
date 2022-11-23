@@ -1,8 +1,8 @@
-import React from 'react'
 import clsx from 'clsx'
 import './LemonRow.scss'
 import { Tooltip } from '../Tooltip'
 import { Spinner } from '../Spinner/Spinner'
+import React from 'react'
 
 // Implement function type inference for forwardRef,
 // so that function components wrapped with forwardRef (i.e. LemonRow) can be generic.
@@ -38,7 +38,6 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
      * */
     size?: 'small' | 'medium' | 'tall' | 'large'
     'data-attr'?: string
-    'data-tooltip'?: string
 }
 
 export interface LemonRowProps<T extends keyof JSX.IntrinsicElements = 'div'> extends LemonRowPropsBase<T> {
@@ -70,9 +69,9 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
     }: LemonRowProps<T>,
     ref: React.Ref<HTMLElement>
 ): JSX.Element {
-    const symbolic = children == null || children === false
+    const symbolic = children === null || children === undefined || children === false
     if (loading) {
-        icon = <Spinner size="sm" />
+        icon = <Spinner />
     }
     const element = React.createElement(
         tag || 'div',

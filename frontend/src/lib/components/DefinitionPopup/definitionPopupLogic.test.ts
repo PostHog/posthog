@@ -15,7 +15,6 @@ import { expectLogic } from 'kea-test-utils'
 import { urls } from 'scenes/urls'
 import { actionsModel } from '~/models/actionsModel'
 import { ActionType, CohortType, PersonProperty, PropertyDefinition } from '~/types'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { useMocks } from '~/mocks/jest'
@@ -52,7 +51,6 @@ describe('definitionPopupLogic', () => {
 
         initKeaTests()
         actionsModel.mount()
-        eventDefinitionsModel.mount()
         propertyDefinitionsModel.mount()
         cohortsModel.mount()
     })
@@ -130,13 +128,13 @@ describe('definitionPopupLogic', () => {
                     type: TaxonomicFilterGroupType.CustomEvents,
                     definition: mockEventDefinitions[0],
                     url: `api/projects/@current/event_definitions/${mockEventDefinitions[0].id}`,
-                    dispatchActions: [eventDefinitionsModel, ['updateEventDefinition']],
+                    dispatchActions: [],
                 },
                 {
                     type: TaxonomicFilterGroupType.Events,
                     definition: mockEventDefinitions[1],
                     url: `api/projects/@current/event_definitions/${mockEventDefinitions[1].id}`,
-                    dispatchActions: [eventDefinitionsModel, ['updateEventDefinition']],
+                    dispatchActions: [],
                 },
                 {
                     type: TaxonomicFilterGroupType.PersonProperties,
@@ -147,7 +145,7 @@ describe('definitionPopupLogic', () => {
                     type: TaxonomicFilterGroupType.EventProperties,
                     definition: mockEventPropertyDefinition as PropertyDefinition,
                     url: `api/projects/@current/property_definitions/${mockEventPropertyDefinition.id}`,
-                    dispatchActions: [propertyDefinitionsModel, ['updatePropertyDefinition']],
+                    dispatchActions: [propertyDefinitionsModel, ['updatePropertyDefinitions']],
                 },
                 {
                     type: TaxonomicFilterGroupType.NumericalEventProperties,

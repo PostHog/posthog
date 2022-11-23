@@ -8,8 +8,8 @@ pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 
 class TaggedItemsUniquenessTest(NonAtomicTestMigrations):
 
-    migrate_from = "0217_team_primary_dashboard"  # type: ignore
-    migrate_to = "0218_uniqueness_constraint_tagged_items"  # type: ignore
+    migrate_from = "0217_team_primary_dashboard"
+    migrate_to = "0218_uniqueness_constraint_tagged_items"
 
     def setUpBeforeMigration(self, apps):
         Dashboard = apps.get_model("posthog", "Dashboard")

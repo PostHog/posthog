@@ -21,6 +21,8 @@ class Migration(migrations.Migration):
             field=models.CharField(blank=True, max_length=512, null=True),
         ),
         migrations.AddField(
-            model_name="organizationdomain", name="saml_x509_cert", field=models.TextField(blank=True, null=True),
+            model_name="organizationdomain",
+            name="saml_x509_cert",
+            field=models.TextField(blank=True, null=True),
         ),
     ]

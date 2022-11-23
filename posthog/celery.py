@@ -8,9 +8,12 @@ from celery.schedules import crontab
 from celery.signals import setup_logging, task_postrun, task_prerun, worker_process_init
 from django.conf import settings
 from django.db import connection
+from django.dispatch import receiver
 from django.utils import timezone
+from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
 
+from posthog.cloud_utils import is_cloud
 from posthog.redis import get_client
 from posthog.utils import get_crontab
 
@@ -46,6 +49,14 @@ def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> Non
     logging.config.dictConfig(logs.LOGGING)  # type: ignore
 
 
+@receiver(signals.bind_extra_task_metadata)
+def receiver_bind_extra_request_metadata(sender, signal, task=None, logger=None):
+    import structlog
+
+    if task:
+        structlog.contextvars.bind_contextvars(task_name=task.name)
+
+
 @worker_process_init.connect
 def on_worker_start(**kwargs) -> None:
     from posthog.settings import sentry_init
@@ -65,29 +76,38 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     # Update events table partitions twice a week
     sender.add_periodic_task(
-        crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s(),  # check twice a week
+        crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s()  # check twice a week
     )
 
-    # Send weekly status report on self-hosted instances
-    if not getattr(settings, "MULTI_TENANCY", False):
-        sender.add_periodic_task(crontab(day_of_week="mon", hour=0, minute=0), status_report.s())
+    # Send all instance usage to the Billing service
+    sender.add_periodic_task(crontab(hour=0, minute=0), send_org_usage_reports.s(), name="send instance usage report")
 
-    # Cloud (posthog-cloud) cron jobs
-    if getattr(settings, "MULTI_TENANCY", False):
-        sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())  # every day midnight UTC
+    # PostHog Cloud cron jobs
+    if is_cloud():
+        # TODO EC this should be triggered only for instances that haven't been migrated to the new billing
+        # Calculate billing usage for the day every day at midnight UTC
+        sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())
+        # Verify that persons data is in sync every day at 4 AM UTC
         sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
+
+    # PostHog Demo cron jobs
+    if settings.DEMO:
+        # Reset master project data every day at 5 AM UTC
+        sender.add_periodic_task(crontab(hour=5, minute=0), demo_reset_master_team.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
-    # Send the emails at 3PM UTC every day
+    # Send the emails at 3 PM UTC every day
     sender.add_periodic_task(crontab(hour=15, minute=0), send_first_ingestion_reminder_emails.s())
     sender.add_periodic_task(crontab(hour=15, minute=0), send_second_ingestion_reminder_emails.s())
 
-    # sync all Organization.available_features every hour
+    # Sync all Organization.available_features every hour
     sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
     sender.add_periodic_task(
-        settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
+        settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS,
+        check_cached_items.s(),
+        name="check dashboard items",
     )
 
     sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
@@ -103,6 +123,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(
         crontab(minute=0, hour="*"), pg_plugin_server_query_timing.s(), name="PG plugin server query timing"
     )
+    sender.add_periodic_task(120, graphile_worker_queue_size.s(), name="Graphile Worker queue size")
 
     sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_cohort_ids_in_feature_flags_task.s())
 
@@ -110,10 +131,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     if settings.ASYNC_EVENT_PROPERTY_USAGE:
         sender.add_periodic_task(
-            settings.EVENT_PROPERTY_USAGE_INTERVAL_SECONDS,
+            get_crontab(settings.EVENT_PROPERTY_USAGE_INTERVAL_CRON),
             calculate_event_property_usage.s(),
             name="calculate event property usage",
         )
+
+        sender.add_periodic_task(get_crontab("0 6 * * *"), count_teams_with_no_property_query_count.s())
 
     clear_clickhouse_crontab = get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON)
     if clear_clickhouse_crontab:
@@ -123,22 +146,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     if settings.EE_AVAILABLE:
         sender.add_periodic_task(
-            crontab(
-                hour=0, minute=randrange(0, 40)
-            ),  # every day at a random minute past midnight. Sends data from the preceding whole day.
-            send_org_usage_report.s(),
-            name="send event usage report",
-        )
-
-        sender.add_periodic_task(
             crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
         )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
+        sender.add_periodic_task(
+            crontab(hour=4, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
+        )  # again a few hours later just to make sure
 
         materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
 
         if materialize_columns_crontab:
             sender.add_periodic_task(
-                materialize_columns_crontab, clickhouse_materialize_columns.s(), name="clickhouse materialize columns",
+                materialize_columns_crontab, clickhouse_materialize_columns.s(), name="clickhouse materialize columns"
             )
 
             sender.add_periodic_task(
@@ -156,20 +174,24 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             name="count tiles with no filters_hash",
         )
 
+        sender.add_periodic_task(
+            crontab(hour="*"), check_flags_to_rollback.s(), name="check feature flags that should be rolled back"
+        )
+
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect
 def set_up_instrumentation(task_id, task, **kwargs):
-    from posthog import client
+    from posthog.clickhouse.query_tagging import tag_queries
 
-    client._request_information = {"kind": "celery", "id": task.name}
+    tag_queries(kind="celery", id=task.name)
 
 
 @task_postrun.connect
 def teardown_instrumentation(task_id, task, **kwargs):
-    from posthog import client
+    from posthog.clickhouse.query_tagging import reset_query_tags
 
-    client._request_information = None
+    reset_query_tags()
 
 
 @app.task(ignore_result=True)
@@ -261,18 +283,10 @@ def pg_plugin_server_query_timing():
             pass
 
 
-CLICKHOUSE_TABLES = [
-    "events",
-    "person",
-    "person_distinct_id",
-    "person_distinct_id2",
-    "session_recording_events",
-]
+CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id", "person_distinct_id2", "session_recording_events"]
 
 if settings.CLICKHOUSE_REPLICATION:
-    CLICKHOUSE_TABLES.extend(
-        ["sharded_events", "sharded_session_recording_events",]
-    )
+    CLICKHOUSE_TABLES.extend(["sharded_events", "sharded_session_recording_events"])
 
 
 @app.task(ignore_result=True)
@@ -313,6 +327,41 @@ def ingestion_lag():
             gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
         except:
             pass
+
+
+@app.task(ignore_result=True)
+def graphile_worker_queue_size():
+    from django.db import connections
+
+    from posthog.internal_metrics import gauge
+
+    connection = connections["graphile"] if "graphile" in connections else connections["default"]
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+        SELECT count(*)
+        FROM graphile_worker.jobs
+        WHERE (jobs.locked_at is null or jobs.locked_at < (now() - INTERVAL '4 hours'))
+        AND run_at <= now()
+        AND attempts < max_attempts
+        """
+        )
+
+        queue_size = cursor.fetchone()[0]
+        gauge("graphile_worker_queue_size", queue_size)
+
+        # Track the number of jobs that will still be run at least once or are currently running based on job type (i.e. task_identifier)
+        # Completed jobs are deleted and "permanently failed" jobs have attempts == max_attempts
+        cursor.execute(
+            """
+        SELECT task_identifier, count(*) as c FROM graphile_worker.jobs
+        WHERE attempts < max_attempts
+        GROUP BY task_identifier
+        """
+        )
+
+        for (task_identifier, count) in cursor.fetchall():
+            gauge("graphile_waiting_jobs", count, tags={"task_identifier": task_identifier})
 
 
 @app.task(ignore_result=True)
@@ -367,9 +416,10 @@ def clickhouse_mutation_count():
 
 @app.task(ignore_result=True)
 def clickhouse_clear_removed_data():
-    from posthog.models.team.util import delete_clickhouse_data_for_deleted_teams
+    from posthog.models.async_deletion.delete import mark_deletions_done, run_event_table_deletions
 
-    delete_clickhouse_data_for_deleted_teams()
+    mark_deletions_done()
+    run_event_table_deletions()
 
 
 @app.task(ignore_result=True)
@@ -399,13 +449,6 @@ def clean_stale_partials():
     from social_django.models import Partial
 
     Partial.objects.filter(timestamp__lt=timezone.now() - timezone.timedelta(7)).delete()
-
-
-@app.task(ignore_result=True)
-def status_report():
-    from posthog.tasks.status_report import status_report
-
-    status_report()
 
 
 @app.task(ignore_result=True)
@@ -452,11 +495,46 @@ def debug_task(self):
     print(f"Request: {self.request!r}")
 
 
-@app.task(ignore_result=True)
+@app.task(ignore_result=False)
 def calculate_event_property_usage():
     from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage
 
-    calculate_event_property_usage()
+    return calculate_event_property_usage()
+
+
+@app.task(ignore_result=True)
+def count_teams_with_no_property_query_count():
+    import structlog
+
+    from posthog.internal_metrics import gauge
+
+    logger = structlog.get_logger(__name__)
+
+    with connection.cursor() as cursor:
+        try:
+            cursor.execute(
+                """
+                WITH team_has_recent_dashboards AS (
+                    SELECT distinct team_id FROM posthog_dashboarditem WHERE created_at > NOW() - INTERVAL '30 days'
+                )
+                SELECT count(*) AS team_count FROM
+                    (
+                    SELECT team_id, sum(query_usage_30_day) AS total
+                    FROM posthog_propertydefinition
+                    WHERE team_id IN (SELECT team_id FROM team_has_recent_dashboards)
+                    GROUP BY team_id
+                    ) as counted
+                WHERE counted.total = 0
+                """
+            )
+
+            count = cursor.fetchone()
+            gauge(
+                f"calculate_event_property_usage.teams_with_no_property_query_count",
+                count[0],
+            )
+        except Exception as exc:
+            logger.error("calculate_event_property_usage.count_teams_failed", exc=exc, exc_info=True)
 
 
 @app.task(ignore_result=True)
@@ -481,6 +559,13 @@ def send_second_ingestion_reminder_emails():
     from posthog.tasks.email import send_second_ingestion_reminder_emails
 
     send_second_ingestion_reminder_emails()
+
+
+@app.task(ignore_result=True)
+def demo_reset_master_team():
+    from posthog.tasks.demo_reset_master_team import demo_reset_master_team
+
+    demo_reset_master_team()
 
 
 @app.task(ignore_result=True)
@@ -537,24 +622,10 @@ def clickhouse_mark_all_materialized():
 
 
 @app.task(ignore_result=True)
-def clickhouse_send_license_usage():
-    try:
-        if not settings.MULTI_TENANCY:
-            from ee.tasks.send_license_usage import send_license_usage
+def send_org_usage_reports():
+    from posthog.tasks.usage_report import send_all_org_usage_reports
 
-            send_license_usage()
-    except ImportError:
-        pass
-
-
-@app.task(ignore_result=True)
-def send_org_usage_report():
-    try:
-        from ee.tasks.org_usage_report import send_all_org_usage_reports
-    except ImportError:
-        pass
-    else:
-        send_all_org_usage_reports()
+    send_all_org_usage_reports()
 
 
 @app.task(ignore_result=True)
@@ -565,3 +636,24 @@ def schedule_all_subscriptions():
         pass
     else:
         _schedule_all_subscriptions()
+
+
+@app.task(ignore_result=True, retries=3)
+def clickhouse_send_license_usage():
+    try:
+        if not is_cloud():
+            from ee.tasks.send_license_usage import send_license_usage
+
+            send_license_usage()
+    except ImportError:
+        pass
+
+
+@app.task(ignore_result=True)
+def check_flags_to_rollback():
+    try:
+        from ee.tasks.auto_rollback_feature_flag import check_flags_to_rollback
+
+        check_flags_to_rollback()
+    except ImportError:
+        pass

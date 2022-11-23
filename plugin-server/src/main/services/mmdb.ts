@@ -1,5 +1,5 @@
 import { Reader, ReaderModel } from '@maxmind/geoip2-node'
-import { captureException } from '@sentry/minimal'
+import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import net from 'net'
 import { AddressInfo } from 'net'

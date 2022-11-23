@@ -1,13 +1,12 @@
-import React, { useState } from 'react'
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { useState } from 'react'
+import { ComponentMeta, ComponentStory, Story } from '@storybook/react'
 
-import { LemonTextArea, LemonTextAreaProps } from './LemonTextArea'
-import { IconArrowDropDown, IconMagnifier } from 'lib/components/icons'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonTextArea, LemonTextAreaProps, LemonTextMarkdown as _LemonTextMarkdown } from './LemonTextArea'
 
 export default {
     title: 'Lemon UI/Lemon Text Area',
     component: LemonTextArea,
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         value: {
             defaultValue:
@@ -24,17 +23,10 @@ const Template: ComponentStory<typeof LemonTextArea> = (props: LemonTextAreaProp
 export const Basic = Template.bind({})
 Basic.args = {}
 
-export const Icons = Template.bind({})
-Icons.args = {
-    icon: <IconMagnifier style={{ fontSize: 18, color: 'var(--muted)' }} />,
-    sideIcon: <LemonButton type="tertiary" icon={<IconArrowDropDown style={{ color: 'var(--muted)' }} />} />,
-}
-
 export const Disabled = Template.bind({})
 Disabled.args = { disabled: true }
 
-export const Embedded = Template.bind({})
-Embedded.args = { embedded: true }
-
-export const Clearable = Template.bind({})
-Clearable.args = { allowClear: true }
+export const LemonTextMarkdown: Story = () => {
+    const [value, setValue] = useState('# Title\n\n**bold** _italic_')
+    return <_LemonTextMarkdown value={value} onChange={(newValue) => setValue(newValue)} />
+}

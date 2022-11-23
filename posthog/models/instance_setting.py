@@ -9,7 +9,7 @@ from posthog.settings import CONSTANCE_CONFIG, CONSTANCE_DATABASE_PREFIX
 
 class InstanceSetting(models.Model):
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["key"], name="unique key",)]
+        constraints = [models.UniqueConstraint(fields=["key"], name="unique key")]
 
     key: models.CharField = models.CharField(max_length=128, null=False, blank=False)
     raw_value: models.CharField = models.CharField(max_length=1024, null=False, blank=True)
@@ -45,7 +45,7 @@ def get_instance_settings(keys: List[str]) -> Any:
 
 def set_instance_setting(key: str, value: Any):
     InstanceSetting.objects.update_or_create(
-        key=CONSTANCE_DATABASE_PREFIX + key, defaults={"raw_value": json.dumps(value)},
+        key=CONSTANCE_DATABASE_PREFIX + key, defaults={"raw_value": json.dumps(value)}
     )
 
 

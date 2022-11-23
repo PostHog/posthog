@@ -32,6 +32,10 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
-        migrations.AddField(model_name="plugin", name="source", field=models.TextField(blank=True, null=True),),
+        migrations.AddField(
+            model_name="plugin",
+            name="source",
+            field=models.TextField(blank=True, null=True),
+        ),
         migrations.RunPython(add_plugin_types, backwards),
     ]

@@ -17,7 +17,10 @@ export enum Scene {
     EventDefinition = 'EventDefinition',
     EventPropertyDefinitions = 'EventPropertyDefinitionsTable',
     EventPropertyDefinition = 'EventPropertyDefinition',
+    IngestionWarnings = 'IngestionWarnings',
     SessionRecordings = 'SessionsRecordings',
+    SessionRecording = 'SessionRecording',
+    SessionRecordingPlaylist = 'SessionRecordingPlaylist',
     Person = 'Person',
     Persons = 'Persons',
     Groups = 'Groups',
@@ -44,6 +47,7 @@ export enum Scene {
     BillingLocked = 'BillingLocked',
     Plugins = 'Plugins',
     FrontendAppScene = 'FrontendAppScene',
+    AppMetrics = 'AppMetrics',
     SavedInsights = 'SavedInsights',
     ToolbarLaunch = 'ToolbarLaunch',
     WebPerformance = 'WebPerformance',
@@ -58,6 +62,7 @@ export enum Scene {
     Ingestion = 'IngestionWizard',
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     Unsubscribe = 'Unsubscribe',
+    Query = 'Query',
 }
 
 export type SceneProps = Record<string, any>
@@ -99,8 +104,8 @@ export interface SceneConfig {
     allowUnauthenticated?: boolean
     /** Hides most navigation UI, like the sidebar and breadcrumbs. */
     plain?: boolean
-    /** Hides demo project warnings (DemoWarning.tsx) */
-    hideDemoWarnings?: boolean
+    /** Hides project notice (ProjectNotice.tsx). */
+    hideProjectNotice?: boolean
     /** Personal account management (used e.g. by breadcrumbs) */
     personal?: boolean
     /** Instance management (used e.g. by breadcrumbs) */

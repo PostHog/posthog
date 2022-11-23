@@ -1,7 +1,7 @@
 import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
-import { Hub, PreIngestionEvent } from '../../../src/types'
+import { Hub, ISOTimestamp, PreIngestionEvent } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { LazyPersonContainer } from '../../../src/worker/ingestion/lazy-person-container'
@@ -30,7 +30,6 @@ beforeEach(async () => {
     await redis.flushdb()
 
     eventsProcessor = new EventsProcessor(hub)
-    eventsProcessor.db.personAndGroupsCachingEnabledTeams = new Set([2])
 })
 
 afterEach(async () => {
@@ -43,14 +42,14 @@ describe('EventsProcessor#createEvent()', () => {
 
     const eventUuid = new UUIDT().toString()
     const personUuid = new UUIDT().toString()
-    const timestamp = '2020-02-23T02:15:00.000Z'
+    const timestamp = '2020-02-23T02:15:00.000Z' as ISOTimestamp
 
     const preIngestionEvent: PreIngestionEvent = {
         eventUuid,
+        timestamp,
         distinctId: 'my_id',
         ip: '127.0.0.1',
         teamId: 2,
-        timestamp: timestamp,
         event: '$pageview',
         properties: { event: 'property' },
         elementsList: [],
@@ -80,18 +79,18 @@ describe('EventsProcessor#createEvent()', () => {
                 uuid: eventUuid,
                 event: '$pageview',
                 properties: { event: 'property' },
-                timestamp: timestamp,
+                timestamp: expect.any(DateTime),
                 team_id: 2,
                 distinct_id: 'my_id',
-                elements_chain: '',
-                created_at: expect.any(String),
+                elements_chain: null,
+                created_at: expect.any(DateTime),
                 person_id: personUuid,
                 person_properties: { foo: 'bar' },
-                group0_properties: '',
-                group1_properties: '',
-                group2_properties: '',
-                group3_properties: '',
-                group4_properties: '',
+                group0_properties: {},
+                group1_properties: {},
+                group2_properties: {},
+                group3_properties: {},
+                group4_properties: {},
                 $group_0: '',
                 $group_1: '',
                 $group_2: '',
@@ -132,10 +131,10 @@ describe('EventsProcessor#createEvent()', () => {
                 group0_properties: {
                     group_prop: 'value',
                 },
-                group1_properties: '',
-                group2_properties: '',
-                group3_properties: '',
-                group4_properties: '',
+                group1_properties: {},
+                group2_properties: {},
+                group3_properties: {},
+                group4_properties: {},
             })
         )
     })
@@ -188,7 +187,7 @@ describe('EventsProcessor#createEvent()', () => {
                 uuid: eventUuid,
                 distinct_id: 'my_id',
                 person_id: '00000000-0000-0000-0000-000000000000',
-                person_properties: '',
+                person_properties: {},
             })
         )
     })

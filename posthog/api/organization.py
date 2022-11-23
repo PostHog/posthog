@@ -1,15 +1,16 @@
 from typing import Any, Dict, List, Optional, cast
 
-from django.conf import settings
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 
 from posthog.api.shared import TeamBasicSerializer
+from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_organization_deleted
 from posthog.models import Organization, User
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_bulky_postgres_data
@@ -19,7 +20,6 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     extract_organization,
 )
-from posthog.tasks.delete_clickhouse_data import delete_clickhouse_data
 
 
 class PremiumMultiorganizationPermissions(permissions.BasePermission):
@@ -31,7 +31,7 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
         user = cast(User, request.user)
         if (
             # Make multiple orgs only premium on self-hosted, since enforcement of this wouldn't make sense on Cloud
-            not settings.MULTI_TENANCY
+            not is_cloud()
             and request.method in CREATE_METHODS
             and (
                 user.organization is None
@@ -77,12 +77,19 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "available_features",
             "is_member_join_email_enabled",
             "metadata",
+            "customer_id",
         ]
         read_only_fields = [
             "id",
             "slug",
             "created_at",
             "updated_at",
+            "membership_level",
+            "plugins_access_level",
+            "teams",
+            "available_features",
+            "metadata",
+            "customer_id",
         ]
         extra_kwargs = {
             "slug": {
@@ -97,7 +104,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
         membership = OrganizationMembership.objects.filter(
-            organization=organization, user=self.context["request"].user,
+            organization=organization,
+            user=self.context["request"].user,
         ).first()
         return membership.level if membership is not None else None
 
@@ -167,7 +175,14 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         user = cast(User, self.request.user)
         report_organization_deleted(user, organization)
         team_ids = [team.pk for team in organization.teams.all()]
-        delete_clickhouse_data.delay(team_ids=team_ids)
         delete_bulky_postgres_data(team_ids=team_ids)
         with mute_selected_signals():
             super().perform_destroy(organization)
+        # Once the organization is deleted, queue deletion of associated data
+        AsyncDeletion.objects.bulk_create(
+            [
+                AsyncDeletion(deletion_type=DeletionType.Team, team_id=team_id, key=str(team_id), created_by=user)
+                for team_id in team_ids
+            ],
+            ignore_conflicts=True,
+        )

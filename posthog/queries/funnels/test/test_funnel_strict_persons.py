@@ -1,13 +1,13 @@
 from datetime import datetime, timedelta
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
-from posthog.models.session_recording_event.util import create_session_recording_event
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
+from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -18,18 +18,6 @@ from posthog.test.base import (
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
-
-
-def _create_session_recording_event(team_id, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True):
-    create_session_recording_event(
-        uuid=uuid4(),
-        team_id=team_id,
-        distinct_id=distinct_id,
-        timestamp=timestamp,
-        session_id=session_id,
-        window_id=window_id,
-        snapshot_data={"timestamp": timestamp.timestamp(), "has_full_snapshot": has_full_snapshot,},
-    )
 
 
 class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
@@ -70,7 +58,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        _, serialized_results = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
+        _, serialized_results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(35, len(serialized_results))
 
     def test_second_step(self):
@@ -89,7 +77,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        _, serialized_results = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
+        _, serialized_results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(10, len(serialized_results))
 
     def test_second_step_dropoff(self):
@@ -108,7 +96,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        _, serialized_results = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
+        _, serialized_results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(25, len(serialized_results))
 
     def test_third_step(self):
@@ -127,7 +115,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        _, serialized_results = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
+        _, serialized_results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(0, len(serialized_results))
 
     @snapshot_clickhouse_queries
@@ -166,7 +154,12 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": "s2", "$window_id": "w2"},
             event_uuid="21111111-1111-1111-1111-111111111111",
         )
-        _create_session_recording_event(self.team.pk, "user_1", "s2", datetime(2021, 1, 3, 0, 0, 0))
+        create_session_recording_events(
+            self.team.pk,
+            datetime(2021, 1, 3, 0, 0, 0),
+            "user_1",
+            "s2",
+        )
 
         # First event, but no recording
         filter = Filter(
@@ -185,7 +178,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
                 "include_recordings": "true",
             }
         )
-        _, results = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
+        _, results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(results[0]["matched_recordings"], [])
 
@@ -206,7 +199,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
                 "include_recordings": "true",
             }
         )
-        _, results = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
+        _, results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(
             results[0]["matched_recordings"],
@@ -241,7 +234,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
                 "include_recordings": "true",
             }
         )
-        _, results = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
+        _, results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(
             results[0]["matched_recordings"],

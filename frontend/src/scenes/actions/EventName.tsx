@@ -1,4 +1,3 @@
-import React from 'react'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { LemonTaxonomicStringPopup, TaxonomicStringPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -31,6 +30,7 @@ export function LemonEventName({ value, onChange }: EventNameInterface): JSX.Ele
             onChange={onChange}
             value={value}
             type="secondary"
+            status="stealth"
             placeholder="Select an event"
             dataAttr="event-name-box"
             renderValue={(v) => <PropertyKeyInfo value={v} disablePopover />}

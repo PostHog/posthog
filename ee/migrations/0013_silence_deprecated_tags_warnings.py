@@ -11,9 +11,15 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RenameField(model_name="enterpriseeventdefinition", old_name="tags", new_name="deprecated_tags_v2",),
         migrations.RenameField(
-            model_name="enterprisepropertydefinition", old_name="tags", new_name="deprecated_tags_v2",
+            model_name="enterpriseeventdefinition",
+            old_name="tags",
+            new_name="deprecated_tags_v2",
+        ),
+        migrations.RenameField(
+            model_name="enterprisepropertydefinition",
+            old_name="tags",
+            new_name="deprecated_tags_v2",
         ),
         migrations.AlterField(
             model_name="enterpriseeventdefinition",

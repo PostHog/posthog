@@ -16,11 +16,13 @@ from posthog.constants import (
     BREAKDOWN_GROUP_TYPE_INDEX,
     BREAKDOWN_HISTOGRAM_BIN_COUNT,
     BREAKDOWN_LIMIT,
+    BREAKDOWN_NORMALIZE_URL,
     BREAKDOWN_TYPE,
     BREAKDOWN_VALUE,
     BREAKDOWN_VALUES_LIMIT,
     BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES,
     BREAKDOWNS,
+    CLIENT_QUERY_ID,
     COMPARE,
     DATE_FROM,
     DATE_TO,
@@ -28,6 +30,7 @@ from posthog.constants import (
     DISPLAY_TYPES,
     EVENTS,
     EXCLUSIONS,
+    EXPLICIT_DATE,
     FILTER_TEST_ACCOUNTS,
     FORMULA,
     INSIGHT,
@@ -43,11 +46,11 @@ from posthog.constants import (
     TRENDS_WORLD_MAP,
     BreakdownAttributionType,
 )
-from posthog.models.entity import MATH_TYPE, Entity, ExclusionEntity
+from posthog.models.entity import Entity, ExclusionEntity, MathType
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
-from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
+from posthog.models.filters.mixins.utils import cached_property, include_dict, include_query_tags, process_bool
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
-from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse
+from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse_with_delta_mapping
 
 # When updating this regex, remember to update the regex with the same name in TrendsFormula.tsx
 ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)\.]+)"
@@ -90,6 +93,16 @@ class ShownAsMixin(BaseParamMixin):
     @include_dict
     def shown_as_to_dict(self):
         return {"shown_as": self.shown_as} if self.shown_as else {}
+
+
+class ClientQueryIdMixin(BaseParamMixin):
+    @cached_property
+    def client_query_id(self) -> Optional[str]:
+        return self._data.get(CLIENT_QUERY_ID, None)
+
+    @include_query_tags
+    def client_query_tags(self):
+        return {"client_query_id": self.client_query_id} if self.client_query_id else {}
 
 
 class FilterTestAccountsMixin(BaseParamMixin):
@@ -208,6 +221,8 @@ class BreakdownMixin(BaseParamMixin):
             result[BREAKDOWN_ATTRIBUTION_VALUE] = self.breakdown_attribution_value
         if self.breakdown_histogram_bin_count is not None:
             result[BREAKDOWN_HISTOGRAM_BIN_COUNT] = self.breakdown_histogram_bin_count
+        if self.breakdown_normalize_url is not None:
+            result[BREAKDOWN_NORMALIZE_URL] = self.breakdown_normalize_url
         return result
 
     @cached_property
@@ -227,6 +242,21 @@ class BreakdownMixin(BaseParamMixin):
             return {BREAKDOWN_TYPE: self.breakdown_type}
         else:
             return {}
+
+    @cached_property
+    def breakdown_normalize_url(self) -> bool:
+        """
+        When breaking down by $current_url or $pathname, we ignore trailing slashes, question marks, and hashes.
+        """
+        bool_to_test = self._data.get("breakdown_normalize_url", False)
+        return process_bool(bool_to_test)
+
+    @include_query_tags
+    def breakdown_query_tags(self):
+        if self.breakdown_type:
+            return {"breakdown_by": [self.breakdown_type]}
+
+        return {}
 
 
 class BreakdownValueMixin(BaseParamMixin):
@@ -251,7 +281,7 @@ class InsightMixin(BaseParamMixin):
 
 class DisplayDerivedMixin(InsightMixin):
     @cached_property
-    def display(self,) -> Literal[DISPLAY_TYPES]:
+    def display(self) -> Literal[DISPLAY_TYPES]:
         return self._data.get(DISPLAY, INSIGHT_TO_DISPLAY[self.insight])
 
     @include_dict
@@ -293,6 +323,9 @@ class CompareMixin(BaseParamMixin):
 
 
 class DateMixin(BaseParamMixin):
+    date_from_delta_mapping: Optional[Dict[str, int]]
+    date_to_delta_mapping: Optional[Dict[str, int]]
+
     @cached_property
     def _date_from(self) -> Optional[Union[str, datetime.datetime]]:
         return self._data.get(DATE_FROM, None)
@@ -301,31 +334,16 @@ class DateMixin(BaseParamMixin):
     def _date_to(self) -> Optional[Union[str, datetime.datetime]]:
         return self._data.get(DATE_TO, None)
 
-    @property
-    def date_from_has_explicit_time(self) -> bool:
-        """
-        Whether date_from has an explicit time set that we want to filter on
-        """
-        if not self._date_from:
-            return False
-        return isinstance(self._date_from, datetime.datetime) or "T" in self._date_from
-
-    @property
-    def date_to_has_explicit_time(self) -> bool:
-        """
-        Whether date_to has an explicit time set that we want to filter on
-        """
-        if not self._date_to:
-            return False
-        return isinstance(self._date_to, datetime.datetime) or "T" in self._date_to
-
     @cached_property
     def date_from(self) -> Optional[datetime.datetime]:
+        self.date_from_delta_mapping = None
         if self._date_from:
             if self._date_from == "all":
                 return None
             elif isinstance(self._date_from, str):
-                return relative_date_parse(self._date_from)
+                date, delta_mapping = relative_date_parse_with_delta_mapping(self._date_from)
+                self.date_from_delta_mapping = delta_mapping
+                return date
             else:
                 return self._date_from
         return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
@@ -334,23 +352,28 @@ class DateMixin(BaseParamMixin):
 
     @cached_property
     def date_to(self) -> datetime.datetime:
+        self.date_to_delta_mapping = None
         if not self._date_to:
-            if self.interval == "hour":  # type: ignore
-                return timezone.now() + relativedelta(minutes=1)
-            date = timezone.now()
+            return timezone.now()
         else:
             if isinstance(self._date_to, str):
                 try:
-                    date = datetime.datetime.strptime(self._date_to, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
+                    return datetime.datetime.strptime(self._date_to, "%Y-%m-%d").replace(
+                        hour=23, minute=59, second=59, microsecond=999999, tzinfo=pytz.UTC
+                    )
                 except ValueError:
                     try:
                         return datetime.datetime.strptime(self._date_to, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
                     except ValueError:
-                        date = relative_date_parse(self._date_to)
+                        date, delta_mapping = relative_date_parse_with_delta_mapping(self._date_to)
+                        self.date_to_delta_mapping = delta_mapping
+                        return date
             else:
                 return self._date_to
 
-        return date.replace(hour=23, minute=59, second=59, microsecond=99999)
+    @cached_property
+    def use_explicit_dates(self) -> bool:
+        return process_bool(self._data.get(EXPLICIT_DATE))
 
     @include_dict
     def date_to_dict(self) -> Dict:
@@ -375,7 +398,17 @@ class DateMixin(BaseParamMixin):
                 }
             )
 
+        if self.use_explicit_dates:
+            result_dict.update({EXPLICIT_DATE: "true"})
+
         return result_dict
+
+    @include_query_tags
+    def query_tags_dates(self):
+        if self.date_from and self.date_to:
+            delta = self.date_to - self.date_from
+            return {"query_time_range_days": delta.days}
+        return {}
 
 
 class EntitiesMixin(BaseParamMixin):
@@ -427,6 +460,10 @@ class EntitiesMixin(BaseParamMixin):
             **({"exclusions": [entity.to_dict() for entity in self.exclusions]} if len(self.exclusions) > 0 else {}),
         }
 
+    @include_query_tags
+    def entities_query_tags(self):
+        return {"entity_math": list(set(entity.math for entity in self.entities if entity.math))}
+
 
 # These arguments are used to specify the target entity for insight actor retrieval on trend graphs
 class EntityIdMixin(BaseParamMixin):
@@ -451,7 +488,7 @@ class EntityTypeMixin(BaseParamMixin):
 
 class EntityMathMixin(BaseParamMixin):
     @cached_property
-    def target_entity_math(self) -> Optional[MATH_TYPE]:
+    def target_entity_math(self) -> Optional[MathType]:
         return self._data.get("entity_math", None)
 
     @include_dict
@@ -485,6 +522,10 @@ class SearchMixin(BaseParamMixin):
     def search(self) -> Optional[str]:
         search = self._data.get("search", None)
         return search
+
+    @include_dict
+    def search_to_dict(self):
+        return {"search": self.search} if self.search else {}
 
 
 class DistinctIdMixin(BaseParamMixin):

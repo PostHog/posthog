@@ -18,6 +18,7 @@ from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 
 class FunnelCorrelationActors(ActorBaseQuery):
     _filter: Filter
+    QUERY_TYPE = "funnel_correlation_actors"
 
     def __init__(self, filter: Filter, team: Team, base_uri: str = "/", **kwargs) -> None:
         self._base_uri = base_uri
@@ -43,7 +44,7 @@ class FunnelCorrelationActors(ActorBaseQuery):
 
     def get_actors(
         self,
-    ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]]]:
+    ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]], int]:
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
             return _FunnelPropertyCorrelationActors(self._filter, self._team, self._base_uri).get_actors()
         else:
@@ -52,6 +53,7 @@ class FunnelCorrelationActors(ActorBaseQuery):
 
 class _FunnelEventsCorrelationActors(ActorBaseQuery):
     _filter: Filter
+    QUERY_TYPE = "funnel_events_correlation_actors"
 
     def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
         self._funnel_correlation = FunnelCorrelation(filter, team, base_uri=base_uri)
@@ -102,8 +104,8 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
         query = f"""
             WITH
                 funnel_actors as ({funnel_persons_query}),
-                toDateTime(%(date_to)s) AS date_to,
-                toDateTime(%(date_from)s) AS date_from,
+                toDateTime(%(date_to)s, %(timezone)s) AS date_to,
+                toDateTime(%(date_from)s, %(timezone)s) AS date_from,
                 %(target_step)s AS target_step,
                 %(funnel_step_names)s as funnel_step_names
             SELECT
@@ -135,6 +137,7 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
 
 class _FunnelPropertyCorrelationActors(ActorBaseQuery):
     _filter: Filter
+    QUERY_TYPE = "funnel_property_correlation_actors"
 
     def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
         # Filtering on persons / groups properties can be pushed down to funnel_actors CTE

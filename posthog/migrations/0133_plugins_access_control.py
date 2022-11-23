@@ -20,9 +20,15 @@ class Migration(migrations.Migration):
                 default=0 if settings.MULTI_TENANCY else 9,
             ),
         ),
-        migrations.AddField(model_name="plugin", name="is_global", field=models.BooleanField(default=False),),
+        migrations.AddField(
+            model_name="plugin",
+            name="is_global",
+            field=models.BooleanField(default=False),
+        ),
         migrations.AlterField(
-            model_name="organization", name="personalization", field=fields.jsonb.JSONField(blank=True, default=dict),
+            model_name="organization",
+            name="personalization",
+            field=fields.jsonb.JSONField(blank=True, default=dict),
         ),
         migrations.AlterField(
             model_name="team",

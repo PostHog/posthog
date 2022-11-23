@@ -15,5 +15,9 @@ class Migration(migrations.Migration):
             name="description",
             field=models.CharField(blank=True, max_length=400, null=True),
         ),
-        migrations.AddField(model_name="dashboarditem", name="is_sample", field=models.BooleanField(default=False),),
+        migrations.AddField(
+            model_name="dashboarditem",
+            name="is_sample",
+            field=models.BooleanField(default=False),
+        ),
     ]

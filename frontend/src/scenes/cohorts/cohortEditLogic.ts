@@ -40,6 +40,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         setCohort: (cohort: CohortType) => ({ cohort }),
         deleteCohort: true,
         fetchCohort: (id: CohortType['id']) => ({ id }),
+        setCohortMissing: true,
         onCriteriaChange: (newGroup: Partial<CohortGroupType>, id: string) => ({ newGroup, id }),
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
         checkIfFinishedCalculating: (cohort: CohortType) => ({ cohort }),
@@ -136,6 +137,12 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     ),
             },
         ],
+        cohortMissing: [
+            false,
+            {
+                setCohortMissing: () => true,
+            },
+        ],
         pollTimeout: [
             null as number | null,
             {
@@ -176,6 +183,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         return processCohort(cohort)
                     } catch (error: any) {
                         lemonToast.error(error.detail || 'Failed to fetch cohort')
+
+                        actions.setCohortMissing()
                         return values.cohort
                     }
                 },

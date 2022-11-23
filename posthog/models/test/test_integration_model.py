@@ -3,7 +3,7 @@ from posthog.models.integration import SlackIntegration
 from posthog.test.base import BaseTest
 
 
-class TestIntgerationModel(BaseTest):
+class TestIntegrationModel(BaseTest):
     def test_slack_integration_config(self):
         set_instance_setting("SLACK_APP_CLIENT_ID", None)
         set_instance_setting("SLACK_APP_CLIENT_SECRET", None)

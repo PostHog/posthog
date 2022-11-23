@@ -4,6 +4,7 @@ from functools import lru_cache
 from math import exp, lgamma, log
 from typing import List, Optional, Tuple, Type
 
+import pytz
 from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
 
@@ -59,11 +60,21 @@ class ClickhouseTrendExperimentResult:
         breakdown_key = f"$feature/{feature_flag.key}"
         variants = [variant["key"] for variant in feature_flag.variants]
 
+        # our filters assume that the given time ranges are in the project timezone.
+        # while start and end date are in UTC.
+        # so we need to convert them to the project timezone
+        if team.timezone:
+            start_date_in_project_timezone = experiment_start_date.astimezone(pytz.timezone(team.timezone))
+            end_date_in_project_timezone = (
+                experiment_end_date.astimezone(pytz.timezone(team.timezone)) if experiment_end_date else None
+            )
+
         query_filter = filter.with_data(
             {
                 "display": TRENDS_CUMULATIVE,
-                "date_from": experiment_start_date,
-                "date_to": experiment_end_date,
+                "date_from": start_date_in_project_timezone,
+                "date_to": end_date_in_project_timezone,
+                "explicit_date": True,
                 "breakdown": breakdown_key,
                 "breakdown_type": "event",
                 "properties": [{"key": breakdown_key, "value": variants, "operator": "exact", "type": "event"}],
@@ -73,9 +84,10 @@ class ClickhouseTrendExperimentResult:
 
         exposure_filter = filter.with_data(
             {
+                "display": TRENDS_CUMULATIVE,
                 "date_from": experiment_start_date,
                 "date_to": experiment_end_date,
-                "display": TRENDS_CUMULATIVE,
+                "explicit_date": True,
                 ACTIONS: [],
                 EVENTS: [
                     {
@@ -102,7 +114,7 @@ class ClickhouseTrendExperimentResult:
 
     def get_results(self):
         insight_results = self.insight.run(self.query_filter, self.team)
-        exposure_results = self.insight.run(self.exposure_filter, self.team,)
+        exposure_results = self.insight.run(self.exposure_filter, self.team)
         control_variant, test_variants = self.get_variants(insight_results, exposure_results)
 
         probabilities = self.calculate_results(control_variant, test_variants)
@@ -178,8 +190,8 @@ class ClickhouseTrendExperimentResult:
         if not control_variant:
             raise ValidationError("No control variant data found", code="no_data")
 
-        if len(test_variants) > 2:
-            raise ValidationError("Can't calculate A/B test results for more than 3 variants", code="too_much_data")
+        if len(test_variants) > 3:
+            raise ValidationError("Can't calculate A/B test results for more than 4 variants", code="too_much_data")
 
         if len(test_variants) < 1:
             raise ValidationError("Can't calculate A/B test results for less than 2 variants", code="no_data")

@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER '{cluster}'
 Order By (team_id, cohort_id, person_id, version)
 {storage_policy}
 """.format(
-    cluster=CLICKHOUSE_CLUSTER, engine=COHORTPEOPLE_TABLE_ENGINE(), storage_policy="",
+    cluster=CLICKHOUSE_CLUSTER, engine=COHORTPEOPLE_TABLE_ENGINE(), storage_policy=""
 )
 
 TRUNCATE_COHORTPEOPLE_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS cohortpeople ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
@@ -40,10 +40,8 @@ RECALCULATE_COHORT_BY_ID = """
 INSERT INTO cohortpeople
 SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, 1 AS sign, %(new_version)s AS version
 FROM (
-    SELECT id, argMax(properties, person.version) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
+    {cohort_filter}
 ) as person
-WHERE person.is_deleted = 0
-AND id IN ({cohort_filter})
 UNION ALL
 SELECT person_id, cohort_id, team_id, -1, version
 FROM cohortpeople

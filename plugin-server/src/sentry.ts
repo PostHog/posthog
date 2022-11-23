@@ -36,6 +36,12 @@ export function runInTransaction<T>(
     callback: () => Promise<T>,
     sampleRateByDuration?: (durationInSeconds: number) => number
 ): Promise<T> {
+    const currentSpan = getSpan()
+    if (currentSpan) {
+        // In an existing transaction, just start a new span!
+        return runInSpan(transactionContext, callback, currentSpan)
+    }
+
     const transaction = Sentry.startTransaction(transactionContext)
     return asyncLocalStorage.run(transaction, async () => {
         try {
@@ -53,8 +59,14 @@ export function runInTransaction<T>(
     })
 }
 
-export function runInSpan<T>(spanContext: SpanContext, callback: (span?: Span) => Promise<T>): Promise<T> {
-    const parentSpan = getSpan()
+export function runInSpan<T>(
+    spanContext: SpanContext,
+    callback: (span?: Span) => Promise<T>,
+    parentSpan?: Span
+): Promise<T> {
+    if (!parentSpan) {
+        parentSpan = getSpan()
+    }
     if (parentSpan) {
         const span = parentSpan.startChild(spanContext)
         return asyncLocalStorage.run(span, async () => {

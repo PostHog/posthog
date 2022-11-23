@@ -3,9 +3,10 @@ import json
 import os
 import re
 import tarfile
+from tarfile import ReadError
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import parse_qs, quote
-from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
+from zipfile import ZIP_DEFLATED, BadZipFile, Path, ZipFile
 
 import requests
 from django.conf import settings
@@ -14,49 +15,61 @@ from django.conf import settings
 def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Optional[str]]]:
     url, private_token = split_url_and_private_token(url)
     match = re.search(
-        r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)((/commit|/tree|/releases/tag)/([A-Za-z0-9_.\-/]+))?$",
+        r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)(/(commit|tree|releases/tag)/([A-Za-z0-9_.\-]+)/?([A-Za-z0-9_.\-/]+)?)?$",
         url,
     )
     if not match:
+        # we include an empty group () to default the path to '' while keeping the number of groups the same
         match = re.search(
-            r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)((/archive)/([A-Za-z0-9_.\-/]+)(\.zip|\.tar\.gz))?$",
+            r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)(/(archive)/([A-Za-z0-9_.\-/]+)(?:\.zip|\.tar\.gz)())?$",
             url,
         )
     if not match:
         return None
+
     parsed: Dict[str, Optional[str]] = {
         "type": "github",
+        "root_url": f"https://github.com/{match.group(1)}/{match.group(2)}",
         "user": match.group(1),
         "repo": match.group(2),
+        "ref_type": match.group(4),
         "tag": match.group(5),
+        "path": match.group(6) or None,
         "private_token": private_token,
     }
 
-    parsed["root_url"] = "https://github.com/{}/{}{}".format(
-        parsed["user"], parsed["repo"], "?private_token={}".format(private_token) if private_token else ""
-    )
+    if get_latest_if_none and parsed["ref_type"] not in ("commit", "archive"):
+        token = private_token or settings.GITHUB_TOKEN
+        headers = {"Authorization": "Bearer {}".format(token)} if token else {}
 
-    if get_latest_if_none and not parsed["tag"]:
         try:
-            token = private_token or settings.GITHUB_TOKEN
-            headers = {"Authorization": "token {}".format(token)} if token else {}
-            commits_url = "https://api.github.com/repos/{}/{}/commits".format(parsed["user"], parsed["repo"])
-            commits = requests.get(commits_url, headers=headers).json()
-            if isinstance(commits, dict):
-                raise Exception(commits.get("message"))
-            if len(commits) > 0 and commits[0].get("sha", None):
-                parsed["tag"] = commits[0]["sha"]
-            else:
-                raise Exception(f"Could not find a commit with a hash in {commits}")
+            if parsed["ref_type"] == "releases/tag":
+                parsed["tag"] = "refs/tags/{}".format(parsed["tag"])
+            elif not re.match(r"^[a-f0-9]{40}$", parsed["tag"] or ""):
+                commits_url = "https://api.github.com/repos/{}/{}/commits?sha={}&path={}".format(
+                    parsed["user"], parsed["repo"], parsed["tag"] or "", parsed["path"] or ""
+                )
+                commits = requests.get(commits_url, headers=headers).json()
+
+                if isinstance(commits, dict):
+                    raise Exception(commits.get("message"))
+                if len(commits) > 0 and commits[0].get("sha", None):
+                    parsed["tag"] = commits[0]["sha"]
+                else:
+                    raise Exception(f"Could not find a commit with a hash in {commits}")
+
         except Exception as e:
             raise Exception(f"Could not get latest commit for {parsed['root_url']}. Reason: {e}")
+
     if parsed["tag"]:
-        parsed["tagged_url"] = "https://github.com/{}/{}/tree/{}{}".format(
+        parsed["tagged_url"] = "https://github.com/{}/{}/tree/{}{}{}".format(
             parsed["user"],
             parsed["repo"],
             parsed["tag"],
+            "/" + parsed["path"] if parsed["path"] else "",
             "?private_token={}".format(private_token) if private_token else "",
         )
+
     return parsed
 
 
@@ -132,7 +145,7 @@ def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Opti
             details = requests.get("https://registry.npmjs.org/{}/latest".format(parsed["pkg"]), headers=headers).json()
             parsed["tag"] = details["version"]
         except Exception:
-            raise Exception("Could not get latest version for: {}".format(parsed["url"]))
+            raise Exception("Could not get latest version for: {}".format(url))
     if parsed["tag"]:
         parsed["tagged_url"] = "https://www.npmjs.com/package/{}/v/{}{}".format(
             parsed["pkg"], parsed["tag"], "?private_token={}".format(private_token) if private_token else ""
@@ -163,7 +176,7 @@ def split_url_and_private_token(url: str) -> Tuple[str, Optional[str]]:
 
 
 # passing `tag` overrides whatever is in the URL
-def download_plugin_archive(url: str, tag: Optional[str] = None):
+def download_plugin_archive(url: str, tag: Optional[str] = None) -> bytes:
     parsed_url = parse_url(url)
     headers = {}
 
@@ -205,24 +218,50 @@ def download_plugin_archive(url: str, tag: Optional[str] = None):
     response = requests.get(url, headers=headers)
     if not response.ok:
         raise Exception("Could not download archive from {}".format(parsed_url["type"]))
+
+    if parsed_url["type"] == "github" and parsed_url["path"]:
+        return rezip_subdirectory(response.content, parsed_url["path"])
+
     return response.content
 
 
 def load_json_file(filename: str):
     try:
-        with open(filename, "r") as reader:
+        with open(filename, "r", encoding="utf_8") as reader:
             return json.loads(reader.read())
     except FileNotFoundError:
         return None
 
 
+def rezip_subdirectory(archive: bytes, path: str):
+    zip_file = ZipFile(io.BytesIO(archive), "r")
+    root_folder = zip_file.namelist()[0]
+    zip_path = Path(zip_file) / root_folder / path
+    zip_archive = io.BytesIO()
+
+    with ZipFile(zip_archive, "w") as new_archive:
+        new_archive.writestr(root_folder, root_folder)
+        for file in zip_path.iterdir():
+            new_archive.writestr(os.path.join(root_folder, file.name), file.read_bytes())
+
+    return zip_archive.getvalue()
+
+
 def get_file_from_zip_archive(archive: bytes, filename: str, *, json_parse: bool) -> Any:
     zip_file = ZipFile(io.BytesIO(archive), "r")
     root_folder = zip_file.namelist()[0]
-    file_path = os.path.join(root_folder, filename)
-    with zip_file.open(file_path) as reader:
+    file_path = Path(zip_file)
+    if file_path.joinpath(root_folder).is_dir():
+        file_path = file_path / root_folder / filename
+    else:
+        file_path = file_path / filename
+    with file_path.open() as reader:
         file_bytes = reader.read()
-        return json.loads(file_bytes) if json_parse else file_bytes.decode("utf-8")
+        if json_parse:
+            return json.loads(file_bytes)
+        if type(file_bytes) == bytes:
+            return file_bytes.decode("utf-8")
+        return str(file_bytes)
 
 
 def get_file_from_tgz_archive(archive: bytes, filename, *, json_parse: bool) -> Any:
@@ -243,9 +282,9 @@ def get_file_from_archive(archive: bytes, filename: str, *, json_parse: bool = T
     try:
         try:
             return get_file_from_zip_archive(archive, filename, json_parse=json_parse)
-        except BadZipFile:
+        except (BadZipFile, FileNotFoundError):
             return get_file_from_tgz_archive(archive, filename, json_parse=json_parse)
-    except KeyError:
+    except (KeyError, ReadError):
         return None
 
 
@@ -260,10 +299,10 @@ def find_index_ts_in_archive(archive: bytes, main_filename: Optional[str] = None
 
 def extract_plugin_code(
     archive: bytes, plugin_json_parsed: Optional[Dict[str, Any]] = None
-) -> Tuple[str, Optional[str], Optional[str]]:
+) -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
     """Extract plugin.json, index.ts (which can be aliased) and frontend.tsx out of an archive.
 
-        If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
+    If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
     if archive is None:
         raise ValueError(f"There is no archive to extract code from")
     # Extract plugin.json - required, might be provided already
@@ -280,14 +319,16 @@ def extract_plugin_code(
     assert plugin_json_parsed is not None  # Just to let mypy know this must be loaded at this point
     # Extract frontend.tsx - optional
     frontend_tsx: Optional[str] = get_file_from_archive(archive, "frontend.tsx", json_parse=False)
+    # Extract site.ts - optional
+    site_ts: Optional[str] = get_file_from_archive(archive, "site.ts", json_parse=False)
     # Extract index.ts - optional if frontend.tsx is present, otherwise required
     index_ts: Optional[str] = None
     try:
         index_ts = find_index_ts_in_archive(archive, plugin_json_parsed.get("main"))
     except ValueError as e:
-        if frontend_tsx is None:
+        if frontend_tsx is None and site_ts is None:
             raise e
-    return plugin_json, index_ts, frontend_tsx
+    return plugin_json, index_ts, frontend_tsx, site_ts
 
 
 def put_json_into_zip_archive(archive: bytes, json_data: dict, filename: str):

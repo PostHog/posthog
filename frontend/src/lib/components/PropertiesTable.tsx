@@ -1,17 +1,18 @@
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { keyMappingKeys, PropertyKeyInfo } from './PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import { isURL } from 'lib/utils'
 import { IconDeleteForever, IconOpenInNew } from 'lib/components/icons'
 import './PropertiesTable.scss'
-import { LemonTable, LemonTableColumns } from './LemonTable'
+import { LemonTable, LemonTableColumns, LemonTableProps } from './LemonTable'
 import { CopyToClipboardInline } from './CopyToClipboard'
 import { useValues } from 'kea'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { LemonButton } from './LemonButton'
 import { NewPropertyComponent } from 'scenes/persons/NewPropertyComponent'
 import { LemonInput } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -77,7 +78,10 @@ function ValueDisplay({
 
     const valueComponent = (
         <span
-            className={canEdit ? 'editable ph-no-capture' : 'ph-no-capture'}
+            className={clsx(
+                'relative inline-flex items-center flex flex-row flex-nowrap w-fit break-all',
+                canEdit ? 'editable ph-no-capture' : 'ph-no-capture'
+            )}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
         >
             {!isURL(value) ? (
@@ -120,14 +124,7 @@ function ValueDisplay({
                             {valueComponent}
                         </Dropdown>
                     ) : (
-                        <CopyToClipboardInline
-                            description="property value"
-                            explicitValue={valueString}
-                            selectable
-                            isValueSensitive
-                        >
-                            {valueComponent}
-                        </CopyToClipboardInline>
+                        valueComponent
                     )}
                     <div className="property-value-type">{propertyType || valueType}</div>
                 </>
@@ -147,6 +144,7 @@ interface PropertiesTableType extends BasePropertyType {
     className?: string
     /* only event types are detected and so describe-able. see https://github.com/PostHog/posthog/issues/9245 */
     useDetectedPropertyType?: boolean
+    tableProps?: Partial<LemonTableProps<Record<string, any>>>
 }
 
 export function PropertiesTable({
@@ -160,6 +158,7 @@ export function PropertiesTable({
     onDelete,
     className,
     useDetectedPropertyType,
+    tableProps,
 }: PropertiesTableType): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
 
@@ -217,6 +216,25 @@ export function PropertiesTable({
             },
         ]
 
+        columns.push({
+            key: 'copy',
+            title: '',
+            width: 0,
+            render: function Copy(_, item: any): JSX.Element | false {
+                if (Array.isArray(item[1]) || item[1] instanceof Object) {
+                    return false
+                }
+                return (
+                    <CopyToClipboardInline
+                        description="property value"
+                        explicitValue={item[1]}
+                        selectable
+                        isValueSensitive
+                    />
+                )
+            },
+        })
+
         if (onDelete && nestingLevel === 0) {
             columns.push({
                 key: 'delete',
@@ -272,7 +290,7 @@ export function PropertiesTable({
             return entries
         }, [properties, sortProperties, searchTerm])
 
-        return Object.keys(properties).length > 0 ? (
+        return (
             <>
                 {searchable && (
                     <div className="flex justify-between items-center gap-4 mb-4">
@@ -295,10 +313,10 @@ export function PropertiesTable({
                     embedded={embedded}
                     dataSource={objectProperties}
                     className={className}
+                    emptyState="This person doesn't have any properties"
+                    {...tableProps}
                 />
             </>
-        ) : (
-            <div className="property-value-type">OBJECT (EMPTY)</div>
         )
     }
     // if none of above, it's a value

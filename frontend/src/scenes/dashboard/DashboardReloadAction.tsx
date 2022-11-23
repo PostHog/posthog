@@ -1,4 +1,5 @@
-import React, { useState } from 'react'
+import React from 'react'
+import { useState } from 'react'
 import { Checkbox, Dropdown, Menu, Radio, Space } from 'antd'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DownOutlined, LoadingOutlined, ReloadOutlined } from '@ant-design/icons'
@@ -33,7 +34,6 @@ export function DashboardReloadAction(): JSX.Element {
     return (
         <>
             <Dropdown.Button
-                data-tooltip="experiment-dashboard-product-tour-1"
                 overlay={
                     <Menu data-attr="auto-refresh-picker" id="auto-refresh-picker">
                         <div
@@ -97,10 +97,12 @@ export function DashboardReloadAction(): JSX.Element {
                 <span className="dashboard-items-action-icon">
                     {itemsLoading ? <LoadingOutlined /> : <ReloadOutlined />}
                 </span>
-                <span className={clsx('dashboard-items-action-refresh-text', { hidden: itemsLoading })}>
+                <span className={clsx('dashboard-items-action-refresh-text', itemsLoading && 'invisible')}>
                     <LastRefreshText />
                 </span>
-                <span className={clsx('dashboard-items-action-refresh-text', 'completed', { hidden: !itemsLoading })}>
+                <span
+                    className={clsx('dashboard-items-action-refresh-text', 'completed', !itemsLoading && 'invisible')}
+                >
                     Refreshed {refreshMetrics.completed} out of {refreshMetrics.total}
                 </span>
             </Dropdown.Button>

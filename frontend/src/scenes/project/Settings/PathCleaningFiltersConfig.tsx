@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
@@ -17,7 +16,7 @@ export function PathCleaningFiltersConfig(): JSX.Element {
     }
 
     return (
-        <div style={{ marginBottom: 16 }}>
+        <div>
             {currentTeam && (
                 <PathCleanFilters
                     pageKey="pathcleanfilters"

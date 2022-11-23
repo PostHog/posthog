@@ -54,6 +54,7 @@ class Migration(AsyncMigrationDefinition):
 
     depends_on = "0003_fill_person_distinct_id2"
 
+    posthog_min_version = "1.36.1"
     posthog_max_version = "1.36.99"
 
     def is_required(self):

@@ -124,7 +124,7 @@ export function shouldUpdateProperty(
 export function calculateUpdateSingleProperty(
     result: PropertiesUpdate,
     key: string,
-    value: any, // eslint-disable-line @typescript-eslint/explicit-module-boundary-types
+    value: any,
     operation: PropertyUpdateOperation,
     timestamp: DateTime,
     currentPropertiesLastOperation: PropertiesLastOperation,

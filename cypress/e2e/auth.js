@@ -1,6 +1,4 @@
 import { urls } from 'scenes/urls'
-import { combineUrl } from 'kea-router'
-import { InsightType } from '../../frontend/src/types'
 
 describe('Auth', () => {
     beforeEach(() => {
@@ -15,23 +13,30 @@ describe('Auth', () => {
     it('Logout and login', () => {
         cy.get('[data-attr=top-menu-item-logout]').click()
 
-        cy.get('[data-attr=login-email]').type('fake@posthog.com').should('have.value', 'fake@posthog.com').blur()
+        cy.get('[data-attr=login-email]').type('test@posthog.com').should('have.value', 'test@posthog.com').blur()
         cy.get('[data-attr=password]', { timeout: 5000 }).should('be.visible') // Wait for login precheck (note blur above)
 
         cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
 
         cy.get('[type=submit]').click()
+        // Login should have succeeded
+        cy.location('pathname').should('eq', '/home')
     })
 
-    it('Try logging in improperly', () => {
+    it('Try logging in improperly and then properly', () => {
         cy.get('[data-attr=top-menu-item-logout]').click()
 
-        cy.get('[data-attr=login-email]').type('fake@posthog.com').should('have.value', 'fake@posthog.com').blur()
+        cy.get('[data-attr=login-email]').type('test@posthog.com').should('have.value', 'test@posthog.com').blur()
         cy.get('[data-attr=password]', { timeout: 5000 }).should('be.visible') // Wait for login precheck (note blur above)
         cy.get('[data-attr=password]').type('wrong password').should('have.value', 'wrong password')
         cy.get('[type=submit]').click()
-
-        cy.get('.inline-message.danger').should('contain', 'Invalid email or password.')
+        // There should be an error message now
+        cy.get('.AlertMessage').should('contain', 'Invalid email or password.')
+        // Now try with the right password
+        cy.get('[data-attr=password]').clear().type('12345678')
+        cy.get('[type=submit]').click()
+        // Login should have succeeded
+        cy.location('pathname').should('eq', '/home')
     })
 
     it('Redirect to appropriate place after login', () => {
@@ -94,28 +99,28 @@ describe('Password Reset', () => {
 
     it('Shows validation error if passwords do not match', () => {
         cy.visit('/reset/e2e_test_user/e2e_test_token')
-        cy.get('#password').type('12345678')
+        cy.get('[data-attr="password"]').type('12345678')
         cy.get('.ant-progress-bg').should('be.visible')
-        cy.get('#passwordConfirm').type('1234567A')
+        cy.get('[data-attr="password-confirm"]').type('1234567A')
         cy.get('button[type=submit]').click()
-        cy.get('.inline-message.danger').should('contain', 'Password confirmation does not match.')
+        cy.get('.text-danger').should('contain', 'Passwords do not match')
         cy.location('pathname').should('eq', '/reset/e2e_test_user/e2e_test_token') // not going anywhere
     })
 
     it('Shows validation error if password is too short', () => {
         cy.visit('/reset/e2e_test_user/e2e_test_token')
-        cy.get('#password').type('123')
-        cy.get('#passwordConfirm').type('123')
+        cy.get('[data-attr="password"]').type('123')
+        cy.get('[data-attr="password-confirm"]').type('123')
         cy.get('button[type=submit]').click()
-        cy.get('.ant-form-item-explain-error').should('be.visible')
-        cy.get('.ant-form-item-explain-error').should('contain', 'must be at least 8 characters')
+        cy.get('.text-danger').should('be.visible')
+        cy.get('.text-danger').should('contain', 'must be at least 8 characters')
         cy.location('pathname').should('eq', '/reset/e2e_test_user/e2e_test_token') // not going anywhere
     })
 
     it('Can reset password with valid token', () => {
         cy.visit('/reset/e2e_test_user/e2e_test_token')
-        cy.get('#password').type('NEW123456789')
-        cy.get('#passwordConfirm').type('NEW123456789')
+        cy.get('[data-attr="password"]').type('NEW123456789')
+        cy.get('[data-attr="password-confirm"]').type('NEW123456789')
         cy.get('button[type=submit]').click()
         cy.get('.Toastify__toast--success').should('be.visible')
 

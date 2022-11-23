@@ -1,4 +1,3 @@
-import React from 'react'
 export function HogLogoText({ style }: React.PropsWithoutRef<JSX.IntrinsicElements['svg']>): JSX.Element {
     return (
         <svg width="58" height="52" viewBox="0 0 58 52" fill="none" xmlns="http://www.w3.org/2000/svg" style={style}>

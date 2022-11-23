@@ -13,6 +13,8 @@ class Migration(AsyncMigrationDefinition):
 
     description = "Test migration"
 
+    posthog_max_version = "1.33.9"
+
     operations: List[AsyncMigrationOperation] = []
 
     def is_required(self):

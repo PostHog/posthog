@@ -12,7 +12,7 @@ from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property import GroupTypeIndex
 from posthog.models.utils import sane_repr
 
-MATH_TYPE = Literal[
+MathType = Literal[
     "total",
     "dau",
     "weekly_active",
@@ -26,6 +26,12 @@ MATH_TYPE = Literal[
     "p90",
     "p95",
     "p99",
+    "min_count_per_actor",
+    "max_count_per_actor",
+    "median_count_per_actor",
+    "p90_count_per_actor",
+    "p95_count_per_actor",
+    "p99_count_per_actor",
 ]
 
 
@@ -41,7 +47,7 @@ class Entity(PropertyMixin):
     order: Optional[int]
     name: Optional[str]
     custom_name: Optional[str]
-    math: Optional[MATH_TYPE]
+    math: Optional[MathType]
     math_property: Optional[str]
     math_group_type_index: Optional[GroupTypeIndex]
     # Index is not set at all by default (meaning: access = AttributeError) - it's populated in EntitiesMixin.entities
@@ -52,10 +58,7 @@ class Entity(PropertyMixin):
 
     def __init__(self, data: Dict[str, Any]) -> None:
         self.id = data["id"]
-        if not data.get("type") or data["type"] not in [
-            TREND_FILTER_TYPE_ACTIONS,
-            TREND_FILTER_TYPE_EVENTS,
-        ]:
+        if not data.get("type") or data["type"] not in [TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS]:
             raise TypeError("Type needs to be either TREND_FILTER_TYPE_ACTIONS or TREND_FILTER_TYPE_EVENTS")
         self.type = data["type"]
         order_provided = data.get("order")
@@ -93,7 +96,7 @@ class Entity(PropertyMixin):
         }
 
     def equals(self, other) -> bool:
-        """ Checks if two entities are semantically equal."""
+        """Checks if two entities are semantically equal."""
         # Not using __eq__ since that affects hashability
 
         if self.id != other.id:
@@ -112,7 +115,7 @@ class Entity(PropertyMixin):
         return True
 
     def is_superset(self, other) -> bool:
-        """ Checks if this entity is a superset version of other. The ids match and the properties of (this) is a subset of the properties of (other)"""
+        """Checks if this entity is a superset version of other. The ids match and the properties of (this) is a subset of the properties of (other)"""
 
         self_properties = Counter([str(prop) for prop in self.property_groups.flat])
         other_properties = Counter([str(prop) for prop in other.property_groups.flat])

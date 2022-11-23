@@ -42,7 +42,7 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
                     "event": "paid",
                     "timestamp": datetime(2020, 1, 3, 14),
                     "properties": {"$group_0": "org:5"},
-                },
+                }
             ],
         }
         journeys_for(events_by_person, self.team)
@@ -83,14 +83,14 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
                     "event": "paid",
                     "timestamp": datetime(2020, 1, 3, 14),
                     "properties": {"$group_0": "org:5"},
-                },
+                }
             ],
             "user_3": [
                 {  # different person, different group, so should be discarded from step 1 in funnel
                     "event": "user signed up",
                     "timestamp": datetime(2020, 1, 10, 14),
                     "properties": {"$group_0": "org:6"},
-                },
+                }
             ],
         }
         journeys_for(events_by_person, self.team)
@@ -142,7 +142,7 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
                     "timestamp": datetime(2020, 1, 3, 14),
                     "properties": {"$group_0": "org:6"},  # event belongs to different group, so shouldn't enter funnel
                 },
-            ],
+            ]
         }
         created_people = journeys_for(events_by_person, self.team)
 

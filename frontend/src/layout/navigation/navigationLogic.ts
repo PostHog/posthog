@@ -10,15 +10,15 @@ import { userLogic } from 'scenes/userLogic'
 import { VersionType } from '~/types'
 import type { navigationLogicType } from './navigationLogicType'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-export type WarningType = 'demo_project' | 'real_project_with_no_events' | 'invite_teammates' | null
+export type ProjectNoticeVariant = 'demo_project' | 'real_project_with_no_events' | 'invite_teammates'
 
 export const navigationLogic = kea<navigationLogicType>({
     path: ['layout', 'navigation', 'navigationLogic'],
     connect: {
         values: [sceneLogic, ['sceneConfig'], membersLogic, ['members', 'membersLoading']],
+        actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     },
     actions: {
         toggleSideBarBase: true,
@@ -36,6 +36,7 @@ export const navigationLogic = kea<navigationLogicType>({
         openAppSourceEditor: (id: number, pluginId: number) => ({ id, pluginId }),
         closeAppSourceEditor: true,
         setOpenAppMenu: (id: number | null) => ({ id }),
+        closeProjectNotice: (projectNoticeVariant: ProjectNoticeVariant) => ({ projectNoticeVariant }),
     },
     reducers: {
         // Non-mobile base
@@ -91,6 +92,13 @@ export const navigationLogic = kea<navigationLogicType>({
             },
         ],
         openAppMenu: [null as null | number, { setOpenAppMenu: (_, { id }) => id }],
+        projectNoticesAcknowledged: [
+            {} as Record<ProjectNoticeVariant, boolean>,
+            { persist: true },
+            {
+                closeProjectNotice: (state, { projectNoticeVariant }) => ({ ...state, [projectNoticeVariant]: true }),
+            },
+        ],
     },
     windowValues: () => ({
         fullscreen: (window) => !!window.document.fullscreenElement,
@@ -140,7 +148,7 @@ export const navigationLogic = kea<navigationLogicType>({
                 return systemStatusLoading || !asyncMigrations || asyncMigrations.value
             },
         ],
-        updateAvailable: [
+        anyUpdateAvailable: [
             (selectors) => [
                 selectors.latestVersion,
                 selectors.latestVersionLoading,
@@ -148,24 +156,49 @@ export const navigationLogic = kea<navigationLogicType>({
             ],
             (latestVersion, latestVersionLoading, preflight) => {
                 // Always latest version in multitenancy
-                return (
-                    !latestVersionLoading &&
-                    !preflight?.cloud &&
-                    latestVersion &&
-                    latestVersion !== preflight?.posthog_version
-                )
+                if (latestVersionLoading || preflight?.cloud || !latestVersion || !preflight?.posthog_version) {
+                    return false
+                }
+                const [latestMajor, latestMinor, latestPatch] = latestVersion.split('.').map((n) => parseInt(n))
+                const [currentMajor, currentMinor, currentPatch] = preflight.posthog_version
+                    .split('.')
+                    .map((n) => parseInt(n))
+                return latestMajor > currentMajor || latestMinor > currentMinor || latestPatch > currentPatch
             },
         ],
-        demoWarning: [
+        minorUpdateAvailable: [
+            (selectors) => [
+                selectors.latestVersion,
+                selectors.latestVersionLoading,
+                preflightLogic.selectors.preflight,
+            ],
+            (latestVersion, latestVersionLoading, preflight): boolean => {
+                // Always latest version in multitenancy
+                if (latestVersionLoading || preflight?.cloud || !latestVersion || !preflight?.posthog_version) {
+                    return false
+                }
+                const [latestMajor, latestMinor] = latestVersion.split('.').map((n) => parseInt(n))
+                const [currentMajor, currentMinor] = preflight.posthog_version.split('.').map((n) => parseInt(n))
+                return latestMajor > currentMajor || latestMinor > currentMinor
+            },
+        ],
+        projectNoticeVariantWithClosability: [
             (s) => [
                 organizationLogic.selectors.currentOrganization,
                 teamLogic.selectors.currentTeam,
                 preflightLogic.selectors.preflight,
                 s.members,
                 s.membersLoading,
-                featureFlagLogic.selectors.featureFlags,
+                s.projectNoticesAcknowledged,
             ],
-            (organization, currentTeam, preflight, members, membersLoading, featureFlags): WarningType => {
+            (
+                organization,
+                currentTeam,
+                preflight,
+                members,
+                membersLoading,
+                projectNoticesAcknowledged
+            ): [ProjectNoticeVariant, boolean] | null => {
                 if (!organization) {
                     return null
                 }
@@ -174,15 +207,15 @@ export const navigationLogic = kea<navigationLogicType>({
                     // If the project is a demo one, show a project-level warning
                     // Don't show this project-level warning in the PostHog demo environemnt though,
                     // as then Announcement is shown instance-wide
-                    return 'demo_project'
-                } else if (currentTeam && !currentTeam.ingested_event) {
-                    return 'real_project_with_no_events'
+                    return ['demo_project', false]
                 } else if (
-                    featureFlags[FEATURE_FLAGS.INVITE_TEAMMATES_BANNER] == 'test' &&
-                    !membersLoading &&
-                    members.length <= 1
+                    !projectNoticesAcknowledged['real_project_with_no_events'] &&
+                    currentTeam &&
+                    !currentTeam.ingested_event
                 ) {
-                    return 'invite_teammates'
+                    return ['real_project_with_no_events', true]
+                } else if (!projectNoticesAcknowledged['invite_teammates'] && !membersLoading && members.length <= 1) {
+                    return ['invite_teammates', true]
                 }
 
                 return null
@@ -215,6 +248,11 @@ export const navigationLogic = kea<navigationLogicType>({
             },
         ],
     },
+    listeners: ({ actions }) => ({
+        closeProjectNotice: ({ projectNoticeVariant }) => {
+            actions.reportProjectNoticeDismissed(projectNoticeVariant)
+        },
+    }),
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadLatestVersion()

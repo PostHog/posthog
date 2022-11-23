@@ -25,6 +25,8 @@ class PathsActors(Paths, ActorBaseQuery):  # type: ignore
         other path item between start and end key.
     """
 
+    QUERY_TYPE = "paths"
+
     def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         paths_per_person_query = self.get_paths_per_person_query()
         person_path_filter = self.get_person_path_filter()
@@ -38,7 +40,7 @@ class PathsActors(Paths, ActorBaseQuery):  # type: ignore
         if self._filter.include_recordings:
             select_statement = """
                 person_id AS actor_id
-                , groupUniqArray(10)((timestamp, uuid, $session_id, $window_id)) as matching_events
+                , groupUniqArray(100)((timestamp, uuid, $session_id, $window_id)) as matching_events
             """
             group_statement = "GROUP BY person_id"
 

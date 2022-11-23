@@ -2,7 +2,6 @@ import { RetryError } from '@posthog/plugin-scaffold'
 import equal from 'fast-deep-equal'
 import { VM } from 'vm2'
 
-import { runInSpan } from '../../sentry'
 import {
     Hub,
     PluginConfig,
@@ -15,9 +14,10 @@ import {
 } from '../../types'
 import { clearError, processError } from '../../utils/db/error'
 import { disablePlugin, setPluginCapabilities } from '../../utils/db/sql'
+import { instrument } from '../../utils/metrics'
+import { getNextRetryMs } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { pluginDigest } from '../../utils/utils'
-import { getNextRetryMs } from '../retries'
 import { getVMPluginCapabilities, shouldSetupPluginInServer } from '../vm/capabilities'
 import { createPluginConfigVM } from './vm'
 
@@ -158,7 +158,10 @@ export class LazyPluginVM {
                         this.ready = true
                     }
                     status.info('🔌', `Loaded ${logInfo}.`)
-                    await this.createLogEntry(`Plugin loaded (instance ID ${this.hub.instanceId}).`)
+                    await this.createLogEntry(
+                        `Plugin loaded (instance ID ${this.hub.instanceId}).`,
+                        PluginLogEntryType.Debug
+                    )
                     resolve(vm)
                 } catch (error) {
                     status.warn('⚠️', `Failed to load ${logInfo}. ${error}`)
@@ -182,10 +185,12 @@ export class LazyPluginVM {
         if (!this.ready) {
             const vm = (await this.resolveInternalVm)?.vm
             try {
-                await runInSpan(
+                await instrument(
+                    this.hub.statsd,
                     {
-                        op: 'vm.setup',
-                        description: this.pluginConfig.plugin?.name || '?',
+                        metricName: 'vm.setup',
+                        key: 'plugin',
+                        tag: this.pluginConfig.plugin?.name || '?',
                     },
                     () => this._setupPlugin(vm)
                 )
@@ -204,18 +209,25 @@ export class LazyPluginVM {
         this.totalInitAttemptsCounter++
         const timer = new Date()
         try {
-            await runInSpan(
+            await instrument(
+                this.hub.statsd,
                 {
-                    op: 'plugin.setupPlugin',
-                    description: this.pluginConfig.plugin?.name || '?',
+                    metricName: 'plugin.setupPlugin',
+                    key: 'plugin',
+                    tag: this.pluginConfig.plugin?.name || '?',
                 },
                 () => vm?.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
             )
             this.hub.statsd?.increment('plugin.setup.success', { plugin: this.pluginConfig.plugin?.name ?? '?' })
             this.hub.statsd?.timing('plugin.setup.timing', timer, { plugin: this.pluginConfig.plugin?.name ?? '?' })
             this.ready = true
+
             status.info('🔌', `setupPlugin succeeded for ${logInfo}.`)
-            await this.createLogEntry(`setupPlugin succeeded (instance ID ${this.hub.instanceId}).`)
+            await this.createLogEntry(
+                `setupPlugin succeeded (instance ID ${this.hub.instanceId}).`,
+                PluginLogEntryType.Debug
+            )
+
             void clearError(this.hub, this.pluginConfig)
         } catch (error) {
             this.hub.statsd?.increment('plugin.setup.fail', { plugin: this.pluginConfig.plugin?.name ?? '?' })

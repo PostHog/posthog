@@ -8,4 +8,4 @@ from posthog.models import User
 def identify_task(user_id: int) -> None:
 
     user = User.objects.get(id=user_id)
-    posthoganalytics.identify(user.distinct_id, user.get_analytics_metadata())
+    posthoganalytics.capture(user.distinct_id, "update user properties", {"$set": user.get_analytics_metadata()})

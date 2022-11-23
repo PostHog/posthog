@@ -26,7 +26,7 @@ class TestChangesBetweenFeatureFlags(unittest.TestCase):
             previous=self._a_feature_flag_with(key="the-key"),
             current=self._a_feature_flag_with(key="the-new-key"),
         )
-        expected = [Change(type="FeatureFlag", field="key", action="changed", before="the-key", after="the-new-key",)]
+        expected = [Change(type="FeatureFlag", field="key", action="changed", before="the-key", after="the-new-key")]
         assert actual == expected
 
     def test_a_change_of_flag_active_status_can_be_logged(self) -> None:
@@ -35,14 +35,14 @@ class TestChangesBetweenFeatureFlags(unittest.TestCase):
             previous=self._a_feature_flag_with(active=False),
             current=self._a_feature_flag_with(active=True),
         )
-        expected = [Change(type="FeatureFlag", field="active", action="changed", before=False, after=True,)]
+        expected = [Change(type="FeatureFlag", field="active", action="changed", before=False, after=True)]
         assert actual == expected
 
     def test_adding_a_rollout_percentage_can_be_logged(self) -> None:
         actual = changes_between(
             model_type="FeatureFlag",
             previous=self._a_feature_flag_with(),
-            current=self._a_feature_flag_with(rollout_percentage=23,),
+            current=self._a_feature_flag_with(rollout_percentage=23),
         )
         expected = [Change(type="FeatureFlag", field="rollout_percentage", action="created", after=23)]
         assert actual == expected
@@ -50,8 +50,8 @@ class TestChangesBetweenFeatureFlags(unittest.TestCase):
     def test_a_change_of_rollout_percentage_can_be_logged(self) -> None:
         actual = changes_between(
             model_type="FeatureFlag",
-            previous=self._a_feature_flag_with(rollout_percentage=12,),
-            current=self._a_feature_flag_with(rollout_percentage=23,),
+            previous=self._a_feature_flag_with(rollout_percentage=12),
+            current=self._a_feature_flag_with(rollout_percentage=23),
         )
         expected = [Change(type="FeatureFlag", field="rollout_percentage", action="changed", before=12, after=23)]
         assert actual == expected
@@ -59,17 +59,17 @@ class TestChangesBetweenFeatureFlags(unittest.TestCase):
     def test_a_change_of_soft_delete_can_be_logged(self) -> None:
         actual = changes_between(
             model_type="FeatureFlag",
-            previous=self._a_feature_flag_with(deleted=False,),
-            current=self._a_feature_flag_with(deleted=True,),
+            previous=self._a_feature_flag_with(deleted=False),
+            current=self._a_feature_flag_with(deleted=True),
         )
-        expected = [Change(type="FeatureFlag", field="deleted", action="changed", before=False, after=True,)]
+        expected = [Change(type="FeatureFlag", field="deleted", action="changed", before=False, after=True)]
         assert actual == expected
 
     def test_a_change_of_filters_can_be_logged(self) -> None:
         actual = changes_between(
             model_type="FeatureFlag",
-            previous=self._a_feature_flag_with(filters={"some": "value"},),
-            current=self._a_feature_flag_with(filters={"new": "content"},),
+            previous=self._a_feature_flag_with(filters={"some": "value"}),
+            current=self._a_feature_flag_with(filters={"new": "content"}),
         )
         expected = [
             Change(

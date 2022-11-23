@@ -40,18 +40,18 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-[[ -n $DEBUG ]] && cmd=start:dev || cmd=start:dist
+[[ -n $DEBUG ]] && cmd="yarn start:dev" || cmd="node dist/index.js"
 
 if [[ -n $NO_RESTART_LOOP ]]; then
   echo "▶️ Starting plugin server..."
   trap 'kill -TERM $child 2>/dev/null; while kill -0 $child 2>/dev/null; do sleep 1; done' EXIT
-  yarn $cmd &
+  $cmd &
   child=$!
   wait $child
 else
   echo "🔁 Starting plugin server in a resiliency loop..."
   while true; do
-    yarn $cmd
+    $cmd
     echo "💥 Plugin server crashed!"
     echo "⌛️ Waiting 2 seconds before restarting..."
     sleep 2

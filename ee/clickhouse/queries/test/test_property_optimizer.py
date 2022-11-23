@@ -42,15 +42,15 @@ class TestPersonPropertySelector(unittest.TestCase):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "event_prop2", "value": ["foo2", "bar2"], "type": "event",},
-                                {"key": "person_prop2", "value": "efg2", "type": "person",},
+                                {"key": "event_prop2", "value": ["foo2", "bar2"], "type": "event"},
+                                {"key": "person_prop2", "value": "efg2", "type": "person"},
                             ],
                         },
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "event_prop", "value": ["foo", "bar"], "type": "event",},
-                                {"key": "person_prop", "value": "efg", "type": "person",},
+                                {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
+                                {"key": "person_prop", "value": "efg", "type": "person"},
                             ],
                         },
                     ],
@@ -70,15 +70,15 @@ class TestPersonPropertySelector(unittest.TestCase):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "event_prop2", "value": ["foo2", "bar2"], "type": "person",},
-                                {"key": "person_prop2", "value": "efg2", "type": "person",},
+                                {"key": "event_prop2", "value": ["foo2", "bar2"], "type": "person"},
+                                {"key": "person_prop2", "value": "efg2", "type": "person"},
                             ],
                         },
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "event_prop", "value": ["foo", "bar"], "type": "person",},
-                                {"key": "person_prop", "value": "efg", "type": "person",},
+                                {"key": "event_prop", "value": ["foo", "bar"], "type": "person"},
+                                {"key": "person_prop", "value": "efg", "type": "person"},
                             ],
                         },
                     ],
@@ -102,7 +102,7 @@ class TestPersonPushdown(unittest.TestCase):
         assert outer is not None
 
         self.assertEqual(
-            inner.to_dict(), {"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person"},]},
+            inner.to_dict(), {"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}
         )
 
         self.assertEqual(
@@ -160,7 +160,7 @@ class TestPersonPushdown(unittest.TestCase):
             inner.to_dict(),
             {
                 "type": "AND",
-                "values": [{"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person",},],}],
+                "values": [{"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}],
             },
         )
 
@@ -172,14 +172,14 @@ class TestPersonPushdown(unittest.TestCase):
                     {
                         "type": "OR",
                         "values": [
-                            {"key": "event_prop2", "value": ["foo2", "bar2"], "type": "event",},
-                            {"key": "person_prop2", "value": "efg2", "type": "person",},
+                            {"key": "event_prop2", "value": ["foo2", "bar2"], "type": "event"},
+                            {"key": "person_prop2", "value": "efg2", "type": "person"},
                         ],
                     },
                     {
                         "type": "AND",
                         "values": [
-                            {"key": "event_prop", "value": ["foo", "bar"], "type": "event",},
+                            {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
                             # {"key": "person_prop", "value": "efg", "type": "person", }, # this was pushed down
                         ],
                     },
@@ -196,15 +196,15 @@ class TestPersonPushdown(unittest.TestCase):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "person_prop2", "value": ["foo2", "bar2"], "type": "person",},
-                                {"key": "person_prop2", "value": "efg2", "type": "person",},
+                                {"key": "person_prop2", "value": ["foo2", "bar2"], "type": "person"},
+                                {"key": "person_prop2", "value": "efg2", "type": "person"},
                             ],
                         },
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "event_prop", "value": ["foo", "bar"], "type": "event",},
-                                {"key": "person_prop", "value": "efg", "type": "person",},
+                                {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
+                                {"key": "person_prop", "value": "efg", "type": "person"},
                             ],
                         },
                     ],
@@ -227,11 +227,11 @@ class TestPersonPushdown(unittest.TestCase):
                     {
                         "type": "OR",
                         "values": [
-                            {"key": "person_prop2", "value": ["foo2", "bar2"], "type": "person",},
-                            {"key": "person_prop2", "value": "efg2", "type": "person",},
+                            {"key": "person_prop2", "value": ["foo2", "bar2"], "type": "person"},
+                            {"key": "person_prop2", "value": "efg2", "type": "person"},
                         ],
                     },
-                    {"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person",},],},
+                    {"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]},
                 ],
             },
         )
@@ -245,7 +245,7 @@ class TestPersonPushdown(unittest.TestCase):
                     {
                         "type": "AND",
                         "values": [
-                            {"key": "event_prop", "value": ["foo", "bar"], "type": "event",},
+                            {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
                             # {"key": "person_prop", "value": "efg", "type": "person", }, # this was pushed down
                         ],
                     }
@@ -277,12 +277,12 @@ class TestPersonPushdown(unittest.TestCase):
                                                             "type": "event",
                                                         }
                                                     ],
-                                                },
+                                                }
                                             ],
                                         },
                                         {
                                             "type": "AND",
-                                            "values": [{"key": "person_prop2", "value": "efg2", "type": "person"},],
+                                            "values": [{"key": "person_prop2", "value": "efg2", "type": "person"}],
                                         },
                                     ],
                                 }
@@ -296,9 +296,7 @@ class TestPersonPushdown(unittest.TestCase):
                                     "values": [
                                         {
                                             "type": "AND",
-                                            "values": [
-                                                {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
-                                            ],
+                                            "values": [{"key": "event_prop", "value": ["foo", "bar"], "type": "event"}],
                                         }
                                     ],
                                 },
@@ -379,12 +377,12 @@ class TestPersonPushdown(unittest.TestCase):
                                                 "values": [
                                                     {"key": "event_prop2", "value": ["foo2", "bar2"], "type": "event"}
                                                 ],
-                                            },
+                                            }
                                         ],
                                     },
                                     {
                                         "type": "AND",
-                                        "values": [{"key": "person_prop2", "value": "efg2", "type": "person"},],
+                                        "values": [{"key": "person_prop2", "value": "efg2", "type": "person"}],
                                     },
                                 ],
                             }
@@ -398,7 +396,7 @@ class TestPersonPushdown(unittest.TestCase):
                                 "values": [
                                     {
                                         "type": "AND",
-                                        "values": [{"key": "event_prop", "value": ["foo", "bar"], "type": "event"},],
+                                        "values": [{"key": "event_prop", "value": ["foo", "bar"], "type": "event"}],
                                     }
                                 ],
                             },

@@ -63,4 +63,5 @@ export const scene = {
         null,
         4
     ),
+    'site.ts': "export function inject({ config, posthog }) {\n    console.log('Hello from PostHog-JS')\n}\n",
 })

@@ -86,21 +86,6 @@
                     color: var(--success);
                 }
             }
-
-            // Override property key inside popup
-            .property-key-info {
-                display: flex;
-                white-space: unset;
-                align-items: center;
-                font-size: 20px;
-                line-height: 24px;
-
-                .property-key-info-logo {
-                    width: 26px;
-                    height: 24px;
-                    margin-right: 8px;
-                }
-            }
         }
     }
 

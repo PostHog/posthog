@@ -61,15 +61,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["results"][0]["elements"][1]["order"], 1)
 
     def test_filter_events_by_event_name(self):
-        _create_person(
-            properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
-        )
-        _create_event(
-            event="event_name", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
-        )
-        _create_event(
-            event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
-        )
+        _create_person(properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"])
+        _create_event(event="event_name", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"})
+        _create_event(event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"})
         flush_persons_and_events()
 
         expected_queries = (
@@ -81,14 +75,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["results"][0]["event"], "event_name")
 
     def test_filter_events_by_properties(self):
-        _create_person(
-            properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
-        )
-        _create_event(
-            event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Chrome"},
-        )
+        _create_person(properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"])
+        _create_event(event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Chrome"})
         event2_uuid = _create_event(
-            event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
+            event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"}
         )
         flush_persons_and_events()
 
@@ -114,19 +104,13 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
     def test_filter_events_by_precalculated_cohort(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-02T12:00:00Z",
-        )
+        _create_event(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-02T12:00:00Z")
 
         Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"key": "value"})
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-02T12:00:00Z",
-        )
+        _create_event(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-02T12:00:00Z")
 
         Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"})
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-02T12:00:00Z",
-        )
+        _create_event(team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-02T12:00:00Z")
 
         cohort1 = Cohort.objects.create(
             team=self.team,
@@ -218,7 +202,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             )
             _create_event(distinct_id="bla", event="random event", team=self.team, properties={"random_prop": 565})
             _create_event(
-                distinct_id="bla", event="random event", team=self.team, properties={"random_prop": ["item1", "item2"]},
+                distinct_id="bla", event="random event", team=self.team, properties={"random_prop": ["item1", "item2"]}
             )
             _create_event(
                 distinct_id="bla", event="random event", team=self.team, properties={"random_prop": ["item3"]}
@@ -257,9 +241,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
     def test_before_and_after(self):
         user = self._create_user("tim")
         self.client.force_login(user)
-        _create_person(
-            properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"],
-        )
+        _create_person(properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"])
 
         with freeze_time("2020-01-10"):
             event1_uuid = _create_event(team=self.team, event="sign up", distinct_id="2")
@@ -357,12 +339,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("before=", unquote(response["next"]))
             self.assertIn(f"after={after}", unquote(response["next"]))
 
-            params = {
-                "distinct_id": "1",
-                "after": after,
-                "before": before,
-                "limit": 10,
-            }
+            params = {"distinct_id": "1", "after": after, "before": before, "limit": 10}
             params_string = urlencode(params)
 
             response = self.client.get(f"/api/projects/{self.team.id}/events/?{params_string}").json()
@@ -467,27 +444,27 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_event_by_id(self):
         _create_person(
-            properties={"email": "someone@posthog.com"}, team=self.team, distinct_ids=["1"], is_identified=True,
+            properties={"email": "someone@posthog.com"}, team=self.team, distinct_ids=["1"], is_identified=True
         )
         event_id = _create_event(team=self.team, event="event", distinct_id="1", timestamp=timezone.now())
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}",)
+        response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
         self.assertEqual(response_json["event"], "event")
         self.assertIsNone(response_json["person"])
 
-        with_person_response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}?include_person=true",)
+        with_person_response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}?include_person=true")
         self.assertEqual(with_person_response.status_code, status.HTTP_200_OK)
         with_person_response_json = with_person_response.json()
         self.assertEqual(with_person_response_json["event"], "event")
         self.assertIsNotNone(with_person_response_json["person"])
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/123456",)
+        response = self.client.get(f"/api/projects/{self.team.id}/events/123456")
         # EE will inform the user the ID passed is not a valid UUID
         self.assertIn(response.status_code, [status.HTTP_404_NOT_FOUND, status.HTTP_400_BAD_REQUEST])
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/im_a_string_not_an_integer",)
+        response = self.client.get(f"/api/projects/{self.team.id}/events/im_a_string_not_an_integer")
         self.assertIn(response.status_code, [status.HTTP_404_NOT_FOUND, status.HTTP_400_BAD_REQUEST])
 
     def test_limit(self):

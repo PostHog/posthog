@@ -1,7 +1,7 @@
 // PasswordReset.stories.tsx
 import { Meta } from '@storybook/react'
 import { PasswordReset } from './PasswordReset'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { passwordResetLogic } from 'scenes/authentication/passwordResetLogic'
@@ -60,7 +60,8 @@ export const Success = (): JSX.Element => {
         },
     })
     useEffect(() => {
-        passwordResetLogic.actions.reset({ email: 'test@posthog.com' })
+        passwordResetLogic.actions.setRequestPasswordResetValues({ email: 'test@posthog.com' })
+        passwordResetLogic.actions.submitRequestPasswordResetSuccess({ email: 'test@posthog.com' })
     }, [])
     return <PasswordReset />
 }

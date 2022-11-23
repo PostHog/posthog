@@ -1,4 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
 import fetch from 'node-fetch'
 
 import { Hook, Hub } from '../../../../src/types'
@@ -16,7 +17,12 @@ describe('Event Pipeline integration test', () => {
     let hub: Hub
     let closeServer: () => Promise<void>
 
-    const ingestEvent = (event: PluginEvent) => new EventPipelineRunner(hub, event).runEventPipeline(event)
+    const ingestEvent = async (event: PluginEvent) => {
+        const runner = new EventPipelineRunner(hub, event)
+        const result = await runner.runEventPipeline(event)
+        const resultEvent = result.args[0]
+        return runner.runAsyncHandlersEventPipeline(resultEvent)
+    }
 
     beforeEach(async () => {
         await resetTestDatabase()
@@ -71,7 +77,7 @@ describe('Event Pipeline integration test', () => {
                 uuid: event.uuid,
                 event: 'xyz',
                 team_id: 2,
-                timestamp: event.timestamp,
+                timestamp: DateTime.fromISO(event.timestamp!, { zone: 'utc' }),
                 // :KLUDGE: Ignore properties like $plugins_succeeded, etc
                 properties: expect.objectContaining({
                     foo: 'bar',
@@ -131,6 +137,8 @@ describe('Event Pipeline integration test', () => {
     })
 
     it('fires a REST hook', async () => {
+        const timestamp = new Date().toISOString()
+
         await hub.db.postgresQuery(`UPDATE posthog_organization SET available_features = '{"zapier"}'`, [], 'testTag')
         await insertRow(hub.db.postgres, 'ee_hook', {
             id: 'abc',
@@ -139,15 +147,15 @@ describe('Event Pipeline integration test', () => {
             resource_id: 69,
             event: 'action_performed',
             target: 'https://rest-hooks.example.com/',
-            created: new Date().toISOString(),
-            updated: new Date().toISOString(),
+            created: timestamp,
+            updated: timestamp,
         } as Hook)
 
         const event: PluginEvent = {
             event: 'xyz',
             properties: { foo: 'bar' },
-            timestamp: new Date().toISOString(),
-            now: new Date().toISOString(),
+            timestamp: timestamp,
+            now: timestamp,
             team_id: 2,
             distinct_id: 'abc',
             ip: null,
@@ -170,7 +178,7 @@ describe('Event Pipeline integration test', () => {
                     foo: 'bar',
                 },
                 eventUuid: expect.any(String),
-                timestamp: expect.any(String),
+                timestamp,
                 teamId: 2,
                 distinctId: 'abc',
                 ip: null,
@@ -208,7 +216,7 @@ describe('Event Pipeline integration test', () => {
             uuid: new UUIDT().toString(),
         }
 
-        await ingestEvent(event)
+        await new EventPipelineRunner(hub, event).runEventPipeline(event)
 
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
     })

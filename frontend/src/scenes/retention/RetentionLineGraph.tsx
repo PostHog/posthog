@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { retentionTableLogic } from './retentionTableLogic'
 import { LineGraph } from '../insights/views/LineGraph/LineGraph'
 import { useActions, useValues } from 'kea'
@@ -14,7 +14,7 @@ interface RetentionLineGraphProps {
 }
 
 export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphProps): JSX.Element | null {
-    const { insightProps, insight } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const logic = retentionTableLogic(insightProps)
     const {
         results: _results,
@@ -44,11 +44,10 @@ export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphP
                 datasets={trendSeries as GraphDataset[]}
                 labels={(trendSeries[0] && trendSeries[0].labels) || []}
                 isInProgress={incompletenessOffsetFromEnd < 0}
-                insightNumericId={insight.id}
                 inSharedMode={!!inSharedMode}
                 showPersonsModal={false}
                 labelGroupType={filters.aggregation_group_type_index ?? 'people'}
-                aggregationAxisFormat="percentage"
+                filters={{ aggregation_axis_format: 'percentage' }}
                 tooltip={{
                     rowCutoff: 11, // 11 time units is hardcoded into retention insights
                     renderSeries: function _renderCohortPrefix(value) {

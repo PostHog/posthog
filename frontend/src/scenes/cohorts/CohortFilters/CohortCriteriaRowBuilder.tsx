@@ -1,5 +1,4 @@
 import './CohortCriteriaRowBuilder.scss'
-import React from 'react'
 import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
 import { renderField, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { Col, Divider, Row } from 'antd'
@@ -54,11 +53,7 @@ export function CohortCriteriaRowBuilder({
 
     return (
         <div className="CohortCriteriaRow">
-            {index !== 0 && (
-                <Divider className="CohortCriteriaRow__logical-divider" orientation="left">
-                    {logicalOperator}
-                </Divider>
-            )}
+            {index !== 0 && <LogicalRowDivider logicalOperator={logicalOperator} />}
             <KeaField
                 name="id"
                 template={({ error, kids }) => {
@@ -72,11 +67,9 @@ export function CohortCriteriaRowBuilder({
                             >
                                 {kids}
                                 {error && (
-                                    <Row className="CohortCriteriaRow__Criteria__error-row">
-                                        <AlertMessage type="error" style={{ width: '100%' }}>
-                                            <>{error}</>
-                                        </AlertMessage>
-                                    </Row>
+                                    <AlertMessage className="my-2" type="error">
+                                        {error}
+                                    </AlertMessage>
                                 )}
                             </div>
                         </>
@@ -172,5 +165,17 @@ export function CohortCriteriaRowBuilder({
                 </>
             </KeaField>
         </div>
+    )
+}
+
+export interface LogicalRowDividerProps {
+    logicalOperator: FilterLogicalOperator
+}
+
+export function LogicalRowDivider({ logicalOperator }: LogicalRowDividerProps): JSX.Element {
+    return (
+        <Divider className="logical-row-divider" orientation="left">
+            {logicalOperator}
+        </Divider>
     )
 }

@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { LockOutlined } from '@ant-design/icons'
 import Select from 'rc-select'
@@ -26,7 +25,7 @@ export function GroupsIntroductionOption({ value }: { value: any }): JSX.Element
                 width: '100%',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
-                backgroundColor: 'var(--bg-side)',
+                backgroundColor: 'var(--side)',
                 color: 'var(--muted)',
             }}
         >
@@ -36,7 +35,7 @@ export function GroupsIntroductionOption({ value }: { value: any }): JSX.Element
                 to="https://posthog.com/docs/user-guides/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-learn-more"
                 target="_blank"
                 data-attr="group-analytics-learn-more"
-                style={{ fontWeight: 600 }}
+                className="font-semibold"
             >
                 Learn more
             </Link>

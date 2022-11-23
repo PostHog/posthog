@@ -1,23 +1,27 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { AvailableFeature } from '~/types'
 import { userLogic } from 'scenes/userLogic'
-import { IconEmojiPeople, IconLock } from '../icons'
+import { IconEmojiPeople, IconLock, IconPremium } from '../icons'
 import { LemonButton } from '../LemonButton'
 import './PayGateMini.scss'
 import { FEATURE_MINIMUM_PLAN, POSTHOG_CLOUD_STANDARD_PLAN } from 'lib/constants'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 export interface PayGateMiniProps {
-    feature: AvailableFeature.DASHBOARD_PERMISSIONING | AvailableFeature.SSO_ENFORCEMENT // TODO: Add support for other features as we go
+    feature:
+        | AvailableFeature.DASHBOARD_PERMISSIONING
+        | AvailableFeature.SSO_ENFORCEMENT
+        | AvailableFeature.DASHBOARD_COLLABORATION
     style?: React.CSSProperties
     children: React.ReactNode
     overrideShouldShowGate?: boolean
 }
 
 const FEATURE_SUMMARIES: Record<
-    AvailableFeature.DASHBOARD_PERMISSIONING | AvailableFeature.SSO_ENFORCEMENT,
+    | AvailableFeature.DASHBOARD_PERMISSIONING
+    | AvailableFeature.SSO_ENFORCEMENT
+    | AvailableFeature.DASHBOARD_COLLABORATION,
     {
         icon: React.ReactElement
         description: string
@@ -35,6 +39,11 @@ const FEATURE_SUMMARIES: Record<
         description:
             'Enable SAML single sign-on, enforce login with SSO, automatic user provisioning, and advanced authentication controls.',
         umbrella: 'advanced authentication',
+    },
+    [AvailableFeature.DASHBOARD_COLLABORATION]: {
+        icon: <IconPremium />,
+        description: 'Make sense of insights your team has learned, using tags, descriptions, and text cards.',
+        umbrella: 'advanced collaboration',
     },
 }
 
@@ -71,9 +80,10 @@ export function PayGateMini({ feature, style, children, overrideShouldShowGate }
                 plan to gain {featureSummary.umbrella}.
             </div>
             <LemonButton
-                to={gateVariant === 'add-card' ? '/organization/billing' : undefined}
-                href={
-                    gateVariant === 'contact-sales'
+                to={
+                    gateVariant === 'add-card'
+                        ? '/organization/billing'
+                        : gateVariant === 'contact-sales'
                         ? `mailto:sales@posthog.com?subject=Inquiring about ${featureSummary.umbrella}`
                         : gateVariant === 'check-licensing'
                         ? 'https://posthog.com/pricing'

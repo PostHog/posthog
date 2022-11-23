@@ -1,5 +1,4 @@
 import { GoogleOutlined, GithubOutlined, GitlabOutlined, KeyOutlined } from '@ant-design/icons'
-import React from 'react'
 import { SSOProviders } from '~/types'
 
 export const SocialLoginIcon = (provider: SSOProviders): JSX.Element | undefined => {

@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { Field } from 'lib/forms/Field'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -11,10 +10,30 @@ import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { LemonModal } from 'lib/components/LemonModal'
 import { Form } from 'kea-forms'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function NewDashboardModal(): JSX.Element {
     const { hideNewDashboardModal, createAndGoToDashboard } = useActions(newDashboardLogic)
     const { isNewDashboardSubmitting, newDashboardModalVisible } = useValues(newDashboardLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const websiteAnalyticsTemplate = !!featureFlags[FEATURE_FLAGS.WEBSITE_ANALYTICS_TEMPLATE]
+
+    const templates = [
+        {
+            value: 'DEFAULT_APP',
+            label: 'Product analytics',
+            'data-attr': 'dashboard-select-default-app',
+        },
+    ]
+    if (websiteAnalyticsTemplate) {
+        templates.push({
+            value: 'WEBSITE_TRAFFIC',
+            label: 'Website traffic',
+            'data-attr': 'dashboard-select-wesbite-template',
+        })
+    }
 
     return (
         <LemonModal
@@ -28,7 +47,7 @@ export function NewDashboardModal(): JSX.Element {
                         form="new-dashboard-form"
                         type="secondary"
                         data-attr="dashboard-cancel"
-                        loading={isNewDashboardSubmitting}
+                        disabled={isNewDashboardSubmitting}
                         onClick={hideNewDashboardModal}
                     >
                         Cancel
@@ -37,7 +56,6 @@ export function NewDashboardModal(): JSX.Element {
                         form="new-dashboard-form"
                         type="secondary"
                         data-attr="dashboard-submit-and-go"
-                        loading={isNewDashboardSubmitting}
                         disabled={isNewDashboardSubmitting}
                         onClick={createAndGoToDashboard}
                     >
@@ -63,7 +81,6 @@ export function NewDashboardModal(): JSX.Element {
                 enableFormOnSubmit
                 className="space-y-2"
             >
-                <p>Use dashboards to compose multiple insights into a single view.</p>
                 <Field name="name" label="Name">
                     <LemonInput autoFocus={true} data-attr="dashboard-name-input" className="ph-ignore-input" />
                 </Field>
@@ -74,12 +91,7 @@ export function NewDashboardModal(): JSX.Element {
                     <LemonSelect
                         placeholder="Optionally start from template"
                         allowClear
-                        options={{
-                            DEFAULT_APP: {
-                                label: 'Website',
-                                'data-attr': 'dashboard-select-default-app',
-                            },
-                        }}
+                        options={templates}
                         fullWidth
                         data-attr="copy-from-template"
                     />
@@ -91,7 +103,6 @@ export function NewDashboardModal(): JSX.Element {
                                 value={value}
                                 onChange={onChange}
                                 options={DASHBOARD_RESTRICTION_OPTIONS}
-                                loading={isNewDashboardSubmitting}
                                 fullWidth
                             />
                         </PayGateMini>

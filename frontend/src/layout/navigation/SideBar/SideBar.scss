@@ -14,7 +14,7 @@
     flex-shrink: 0;
     height: 100%;
     width: 15.5rem;
-    background: var(--bg-side);
+    background: var(--side);
     border-right: 1px solid var(--border);
 
     .SideBar--hidden & {
@@ -52,15 +52,16 @@
     position: sticky;
     top: 3.5rem;
     width: 100%;
-    max-height: calc(100vh - 3.5rem);
-    overflow: auto;
-    padding: 1rem 0.5rem;
+    height: calc(100vh - 3.5rem);
+
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    justify-content: space-between;
 
     > ul {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-
+        overflow: auto;
+        padding: 1rem 0.5rem;
         li {
             margin-top: 1px;
         }

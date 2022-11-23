@@ -29,12 +29,12 @@ function TableRowRaw<T extends Record<string, any>>({
 }: TableRowProps<T>): JSX.Element {
     const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
-        !!expandable && (!expandable.rowExpandable || expandable.rowExpandable(record))
+        !!expandable && (!expandable.rowExpandable || expandable.rowExpandable(record, recordIndex))
     )
     const isRowExpanded =
-        !expandable?.isRowExpanded || expandable?.isRowExpanded?.(record) === -1
+        !expandable?.isRowExpanded || expandable?.isRowExpanded?.(record, recordIndex) === -1
             ? isRowExpandedLocal
-            : !!expandable?.isRowExpanded?.(record)
+            : !!expandable?.isRowExpanded?.(record, recordIndex)
 
     return (
         <>
@@ -62,9 +62,9 @@ function TableRowRaw<T extends Record<string, any>>({
                                 onClick={() => {
                                     setIsRowExpanded(!isRowExpanded)
                                     if (isRowExpanded) {
-                                        expandable?.onRowCollapse?.(record)
+                                        expandable?.onRowCollapse?.(record, recordIndex)
                                     } else {
-                                        expandable?.onRowExpand?.(record)
+                                        expandable?.onRowExpand?.(record, recordIndex)
                                     }
                                 }}
                                 icon={isRowExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
@@ -77,6 +77,7 @@ function TableRowRaw<T extends Record<string, any>>({
                     columnGroup.children.map((column, columnIndex) => {
                         const columnKeyRaw = column.key || column.dataIndex
                         const columnKeyOrIndex = columnKeyRaw ? String(columnKeyRaw) : columnIndex
+                        // != is intentional to catch undefined too
                         const value = column.dataIndex != null ? record[column.dataIndex] : undefined
                         const contents = column.render ? column.render(value as T[keyof T], record, recordIndex) : value
                         const areContentsCellRepresentations: boolean =

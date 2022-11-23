@@ -9,10 +9,9 @@ import {
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
-import React from 'react'
-import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { pluralize } from 'lib/utils'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
+import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 
 const nameOrLinkToFlag = (id: string | undefined, name: string | null | undefined): string | JSX.Element => {
     // detail.name
@@ -72,21 +71,28 @@ const featureFlagActionsMapping: Record<
                         const { properties, rollout_percentage = null } = groupAfter
 
                         if (properties?.length > 0) {
-                            groupAdditions.push(
+                            const newButtons = properties.map((property, idx) => {
+                                return (
+                                    <>
+                                        {' '}
+                                        {idx === 0 && (
+                                            <span>
+                                                <strong>{rollout_percentage ?? 100}%</strong> of{' '}
+                                            </span>
+                                        )}
+                                        <PropertyFilterButton key={property.key} item={property} />
+                                    </>
+                                )
+                            })
+                            newButtons[0] = (
                                 <>
                                     <span>
-                                        <strong>{rollout_percentage ?? 100}%</strong> of
+                                        <strong>{rollout_percentage ?? 100}%</strong> of{' '}
                                     </span>
-                                    <PropertyFiltersDisplay
-                                        filters={properties}
-                                        style={{
-                                            display: 'inline-block',
-                                            marginLeft: '0.3rem',
-                                            marginBottom: 0,
-                                        }}
-                                    />
+                                    <PropertyFilterButton key={properties[0].key} item={properties[0]} />
                                 </>
                             )
+                            groupAdditions.push(...newButtons)
                         } else {
                             groupAdditions.push(
                                 <>
@@ -179,35 +185,55 @@ const featureFlagActionsMapping: Record<
     created_by: () => null,
     is_simple_flag: () => null,
     experiment_set: () => null,
+    // TODO: handle activity
+    rollback_conditions: () => null,
+    performed_rollback: () => null,
 }
 
-export function flagActivityDescriber(logItem: ActivityLogItem): HumanizedChange {
+export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'FeatureFlag') {
         console.error('feature flag describer received a non-feature flag activity')
         return { description: null }
     }
 
     if (logItem.activity == 'created') {
-        return { description: <>created {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</> }
+        return {
+            description: <> created {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
+        }
     }
     if (logItem.activity == 'deleted') {
-        return { description: <>deleted {logItem.detail.name}</> }
+        return {
+            description: (
+                <>
+                    deleted {asNotification && ' your flag '}
+                    {logItem.detail.name}
+                </>
+            ),
+        }
     }
     if (logItem.activity == 'updated') {
         let changes: Description[] = []
-        let changeSuffix: Description = <>on {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>
+        let changeSuffix: Description = (
+            <>
+                on {asNotification && ' your flag '}
+                {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
+            </>
+        )
 
         for (const change of logItem.detail.changes || []) {
             if (!change?.field) {
                 continue // feature flag updates have to have a "field" to be described
             }
 
-            const { description, suffix } = featureFlagActionsMapping[change.field](change, logItem)
-            if (description) {
-                changes = changes.concat(description)
-            }
-            if (suffix) {
-                changeSuffix = suffix
+            const possibleLogItem = featureFlagActionsMapping[change.field](change, logItem)
+            if (possibleLogItem) {
+                const { description, suffix } = possibleLogItem
+                if (description) {
+                    changes = changes.concat(description)
+                }
+                if (suffix) {
+                    changeSuffix = suffix
+                }
             }
         }
 

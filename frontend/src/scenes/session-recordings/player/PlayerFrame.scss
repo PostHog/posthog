@@ -1,0 +1,21 @@
+@import '../../../styles/mixins';
+
+.PlayerFrame {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    background-color: var(--bg-depth);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    border: 1px solid var(--bg-depth);
+
+    .PlayerFrame__content {
+        position: absolute;
+    }
+    iframe {
+        border: 0px;
+        background-color: white;
+    }
+}

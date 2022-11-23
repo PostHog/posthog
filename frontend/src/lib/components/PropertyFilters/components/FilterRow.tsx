@@ -7,9 +7,8 @@ import { Popup } from 'lib/components/Popup/Popup'
 import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
 import clsx from 'clsx'
-import { IconDelete, IconPlus } from 'lib/components/icons'
+import { IconClose, IconDelete, IconPlus } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
-import { CloseButton } from 'lib/components/CloseButton'
 
 interface FilterRowProps {
     item: Record<string, any>
@@ -70,16 +69,15 @@ export const FilterRow = React.memo(function FilterRow({
                                 status="primary-alt"
                                 onClick={() => onRemove(index)}
                                 size="small"
+                                className="ml-2"
                             />
                         ) : (
-                            <CloseButton
+                            <LemonButton
+                                icon={<IconClose />}
+                                status="primary-alt"
                                 onClick={() => onRemove(index)}
-                                style={{
-                                    cursor: 'pointer',
-                                    float: 'none',
-                                    paddingLeft: 8,
-                                    paddingTop: 4,
-                                }}
+                                size="small"
+                                className="ml-2"
                             />
                         ))}
                 </>

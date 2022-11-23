@@ -9,7 +9,7 @@ from django.forms.models import model_to_dict
 
 def hash_elements(elements) -> str:
     elements_list = []
-    for index, element in enumerate(elements):
+    for _index, element in enumerate(elements):
         el_dict = model_to_dict(element)
         [el_dict.pop(key) for key in ["event", "id", "group"]]
         elements_list.append(el_dict)
@@ -25,7 +25,11 @@ def forwards(apps, schema_editor):
     while Event.objects.filter(element__isnull=False, elements_hash__isnull=True, event="$autocapture").exists():
         with transaction.atomic():
             events = (
-                Event.objects.filter(element__isnull=False, elements_hash__isnull=True, event="$autocapture",)
+                Event.objects.filter(
+                    element__isnull=False,
+                    elements_hash__isnull=True,
+                    event="$autocapture",
+                )
                 .prefetch_related(models.Prefetch("element_set", to_attr="elements_cache"))
                 .distinct("pk")[:1000]
             )

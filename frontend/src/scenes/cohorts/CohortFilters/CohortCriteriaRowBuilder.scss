@@ -29,7 +29,7 @@
         }
     }
 
-    .CohortCriteriaRow__logical-divider {
+    .logical-row-divider {
         color: var(--primary-alt);
         font-weight: 600;
         font-size: 12px;
@@ -39,6 +39,7 @@
         &::after {
             border-top: 1px solid var(--border);
         }
+
         &::before {
             width: 1.5%;
         }

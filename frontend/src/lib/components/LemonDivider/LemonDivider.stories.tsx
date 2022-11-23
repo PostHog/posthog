@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonDivider, LemonDividerProps } from './LemonDivider'
 import { LemonRow } from '../LemonRow'
@@ -9,6 +8,7 @@ import { ProfileBubbles } from '../ProfilePicture'
 export default {
     title: 'Lemon UI/Lemon Divider',
     component: LemonDivider,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof LemonDivider>
 
 const HorizontalTemplate: ComponentStory<typeof LemonDivider> = (props: LemonDividerProps) => {

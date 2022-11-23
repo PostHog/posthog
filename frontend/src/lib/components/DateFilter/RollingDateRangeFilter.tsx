@@ -1,4 +1,3 @@
-import React from 'react'
 import { Input } from 'antd'
 import { rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
 import { useActions, useValues } from 'kea'
@@ -8,20 +7,12 @@ import { dayjs } from 'lib/dayjs'
 import clsx from 'clsx'
 import './RollingDateRangeFilter.scss'
 
-const dateOptions: LemonSelectOptions = {
-    days: {
-        label: 'days',
-    },
-    weeks: {
-        label: 'weeks',
-    },
-    months: {
-        label: 'months',
-    },
-    quarter: {
-        label: 'quarters',
-    },
-}
+const dateOptions: LemonSelectOptions<'days' | 'weeks' | 'months' | 'quarter'> = [
+    { value: 'days', label: 'days' },
+    { value: 'weeks', label: 'weeks' },
+    { value: 'months', label: 'months' },
+    { value: 'quarter', label: 'quarters' },
+]
 
 type RollingDateRangeFilterProps = {
     selected?: boolean

@@ -82,10 +82,10 @@ class Test0005PersonCollapsedByVersion(AsyncMigrationBaseTest, ClickhouseTestMix
     def test_migration_data_copying(self):
         # Set up some persons both in clickhouse and postgres
         p1 = Person.objects.create(
-            team=self.team, properties={"prop": 1}, version=1, is_identified=False, created_at="2022-01-04T12:00:00Z",
+            team=self.team, properties={"prop": 1}, version=1, is_identified=False, created_at="2022-01-04T12:00:00Z"
         )
         p2 = Person.objects.create(
-            team=self.team, properties={"prop": 2}, version=2, is_identified=True, created_at="2022-02-04T12:00:00Z",
+            team=self.team, properties={"prop": 2}, version=2, is_identified=True, created_at="2022-02-04T12:00:00Z"
         )
 
         # Set up some persons out of sync in clickhouse
@@ -98,11 +98,7 @@ class Test0005PersonCollapsedByVersion(AsyncMigrationBaseTest, ClickhouseTestMix
                 created_at="2022-03-04T12:00:00Z",
             )
             p4 = Person.objects.create(
-                team=self.team,
-                properties={"prop": 4},
-                version=4,
-                is_identified=True,
-                created_at="2022-04-04T12:00:00Z",
+                team=self.team, properties={"prop": 4}, version=4, is_identified=True, created_at="2022-04-04T12:00:00Z"
             )
 
         self.assertEqual(len(self.get_clickhouse_persons()), 2)
@@ -143,7 +139,7 @@ class Test0005PersonCollapsedByVersion(AsyncMigrationBaseTest, ClickhouseTestMix
         table_results = [row[0] for row in table_results]
 
         self.assertEqual(
-            table_results, ["kafka_person", "person", "person_backup_0005_person_replacing_by_version", "person_mv"],
+            table_results, ["kafka_person", "person", "person_backup_0005_person_replacing_by_version", "person_mv"]
         )
         for name in table_results:
             create_table_query = sync_execute(f"SHOW CREATE TABLE {name}")[0][0]

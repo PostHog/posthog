@@ -21,7 +21,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 {
                     "target_email": f"test+{random.randint(1000000, 9999999)}@posthog.com",
                     "first_name": NAME_SEEDS[i % len(NAME_SEEDS)],
-                },
+                }
             )
 
         return payload
@@ -157,7 +157,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         payload = self.helper_generate_bulk_invite_payload(7)
 
         with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
-            response = self.client.post("/api/organizations/@current/invites/bulk/", payload, format="json",)
+            response = self.client.post("/api/organizations/@current/invites/bulk/", payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
 
@@ -187,7 +187,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "current_member_count": 1,
                 "email_available": True,
             },
-            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid),},
+            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
         )
 
         # Assert capture call for invitee
@@ -209,7 +209,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         payload = self.helper_generate_bulk_invite_payload(21)
 
         with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
-            response = self.client.post("/api/organizations/@current/invites/bulk/", payload, format="json",)
+            response = self.client.post("/api/organizations/@current/invites/bulk/", payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -234,7 +234,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         payload[4]["target_email"] = None
 
         with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
-            response = self.client.post("/api/organizations/@current/invites/bulk/", payload, format="json",)
+            response = self.client.post("/api/organizations/@current/invites/bulk/", payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -251,7 +251,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         payload = self.helper_generate_bulk_invite_payload(3)
 
         with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
-            response = self.client.post(f"/api/organizations/{another_org.id}/invites/bulk/", payload, format="json",)
+            response = self.client.post(f"/api/organizations/{another_org.id}/invites/bulk/", payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json(), self.permission_denied_response())

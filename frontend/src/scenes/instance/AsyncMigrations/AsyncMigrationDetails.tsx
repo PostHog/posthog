@@ -1,4 +1,3 @@
-import React from 'react'
 import { AsyncMigration, AsyncMigrationError, asyncMigrationsLogic } from './asyncMigrationsLogic'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { useActions, useValues } from 'kea'
@@ -19,7 +18,7 @@ export function AsyncMigrationDetails({ asyncMigration }: { asyncMigration: Asyn
         {
             title: (
                 <LemonButton
-                    icon={asyncMigrationErrorsLoading[asyncMigration.id] ? <Spinner size="sm" /> : <IconRefresh />}
+                    icon={asyncMigrationErrorsLoading[asyncMigration.id] ? <Spinner /> : <IconRefresh />}
                     onClick={() => loadAsyncMigrationErrors(asyncMigration.id)}
                     type="secondary"
                     size="small"

@@ -4,7 +4,6 @@ import { initKeaTests } from '~/test/init'
 import filtersJson from './__mocks__/filters.json'
 import eventDefinitionsJson from './__mocks__/event_definitions.json'
 import { FilterType } from '~/types'
-import { actionsModel } from '~/models/actionsModel'
 import { useMocks } from '~/mocks/jest'
 
 describe('entityFilterLogic', () => {
@@ -29,10 +28,6 @@ describe('entityFilterLogic', () => {
     })
 
     describe('core assumptions', () => {
-        it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([actionsModel])
-        })
-
         it('localFilters', async () => {
             await expectLogic(logic).toMatchValues({
                 localFilters: toLocalFilters(filtersJson as FilterType),

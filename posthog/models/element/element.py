@@ -20,7 +20,7 @@ class Element(models.Model):
     group: models.ForeignKey = models.ForeignKey("ElementGroup", on_delete=models.CASCADE, null=True, blank=True)
 
 
-parse_attributes_regex = re.compile(r"(?P<attribute>(?P<key>.*?)\=\"(?P<value>.*?[^\\])\")", re.MULTILINE,)
+parse_attributes_regex = re.compile(r"(?P<attribute>(?P<key>.*?)\=\"(?P<value>.*?[^\\])\")", re.MULTILINE)
 
 # Below splits all elements by ;, while ignoring escaped quotes and semicolons within quotes
 split_chain_regex = re.compile(r'(?:[^\s;"]|"(?:\\.|[^"])*")+')
@@ -34,7 +34,7 @@ def _escape(input: str) -> str:
     return input.replace('"', r"\"")
 
 
-def elements_to_string(elements: List[Element],) -> str:
+def elements_to_string(elements: List[Element]) -> str:
     ret = []
     for element in elements:
         el_string = ""

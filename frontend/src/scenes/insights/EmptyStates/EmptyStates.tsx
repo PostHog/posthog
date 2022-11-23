@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import React from 'react'
 import { PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
 import { IconErrorOutline, IconOpenInNew, IconPlus, IconTrendUp } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -252,7 +251,7 @@ export function SavedInsightsEmptyState(): JSX.Element {
 
     // show the search string that was used to make the results, not what it currently is
     const searchString = insights.filters?.search || null
-    const { title, description } = SAVED_INSIGHTS_COPY[tab]
+    const { title, description } = SAVED_INSIGHTS_COPY[tab] ?? {}
 
     return (
         <div className="saved-insight-empty-state">

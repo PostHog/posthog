@@ -1,5 +1,4 @@
 import './CohortCriteriaGroups.scss'
-import React from 'react'
 import { criteriaToBehavioralFilterType, isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
 import { Group } from 'kea-forms'
 import { Field as KeaField } from 'kea-forms/lib/components'
@@ -66,11 +65,9 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                         </Row>
                                         <LemonDivider className="my-4" />
                                         {error && (
-                                            <Row className="CohortCriteriaGroups__matching-group__error-row">
-                                                <AlertMessage type="error" style={{ width: '100%' }}>
-                                                    <>{error}</>
-                                                </AlertMessage>
-                                            </Row>
+                                            <AlertMessage className="m-2" type="error">
+                                                {error}
+                                            </AlertMessage>
                                         )}
                                         {kids}
                                     </div>

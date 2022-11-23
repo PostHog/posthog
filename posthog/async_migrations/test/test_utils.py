@@ -7,6 +7,7 @@ from posthog.async_migrations.definition import AsyncMigrationOperationSQL
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest, create_async_migration
 from posthog.async_migrations.utils import (
     complete_migration,
+    execute_on_each_shard,
     execute_op,
     force_stop_migration,
     process_error,
@@ -70,7 +71,6 @@ class TestUtils(AsyncMigrationBaseTest):
         self.assertEqual(errors[0].description, "Force stopped by user")
 
     def test_complete_migration(self):
-
         sm = create_async_migration()
         complete_migration(sm)
 
@@ -82,3 +82,8 @@ class TestUtils(AsyncMigrationBaseTest):
         self.assertEqual(sm.progress, 100)
         errors = AsyncMigrationError.objects.filter(async_migration=sm)
         self.assertEqual(errors.count(), 0)
+
+    def test_execute_on_each_shard(self):
+        execute_on_each_shard("SELECT 1")
+        with self.assertRaises(Exception):
+            execute_on_each_shard("SELECT fail")

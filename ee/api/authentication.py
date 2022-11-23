@@ -32,7 +32,7 @@ def saml_metadata_view(request, *args, **kwargs):
         raise PermissionDenied("You need to be an administrator or owner to access this resource.")
 
     complete_url = reverse("social:complete", args=("saml",))
-    saml_backend = load_backend(load_strategy(request), "saml", redirect_uri=complete_url,)
+    saml_backend = load_backend(load_strategy(request), "saml", redirect_uri=complete_url)
     metadata, errors = saml_backend.generate_metadata_xml()
 
     if not errors:
@@ -117,10 +117,31 @@ class MultitenantSAMLAuth(SAMLAuth):
                 attributes, ["full_name", "FULL_NAME", "fullName", OID_COMMON_NAME], optional=True
             ),
             "first_name": self._get_attr(
-                attributes, ["first_name", "FIRST_NAME", "firstName", OID_GIVEN_NAME], optional=True
+                attributes,
+                [
+                    "first_name",
+                    "FIRST_NAME",
+                    "firstName",
+                    "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname",
+                    OID_GIVEN_NAME,
+                ],
+                optional=True,
             ),
-            "last_name": self._get_attr(attributes, ["last_name", "LAST_NAME", "lastName", OID_SURNAME], optional=True),
-            "email": self._get_attr(attributes, ["email", "EMAIL", OID_MAIL]),
+            "last_name": self._get_attr(
+                attributes,
+                [
+                    "last_name",
+                    "LAST_NAME",
+                    "lastName",
+                    "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/surname",
+                    OID_SURNAME,
+                ],
+                optional=True,
+            ),
+            "email": self._get_attr(
+                attributes,
+                ["email", "EMAIL", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress", OID_MAIL],
+            ),
         }
 
     def get_user_id(self, details, response):

@@ -34,6 +34,7 @@ module.exports = {
     rules: {
         'no-only-tests/no-only-tests': 'error',
         'react/prop-types': [0],
+        'react/react-in-jsx-scope': [0],
         'react/no-unescaped-entities': [0],
         'react/jsx-no-target-blank': [0],
         'react/self-closing-comp': [
@@ -97,6 +98,22 @@ module.exports = {
                     {
                         element: 'Button',
                         message: 'use <LemonButton> instead',
+                    },
+                    {
+                        element: 'Input.TextArea',
+                        message: 'use <LemonTextArea> instead',
+                    },
+                    {
+                        element: 'Input',
+                        message: 'use <LemonInput> instead',
+                    },
+                    {
+                        element: 'Skeleton',
+                        message: 'use <LemonSkeleton> instead',
+                    },
+                    {
+                        element: 'a',
+                        message: 'use <Link> instead',
                     },
                 ],
             },

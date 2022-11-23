@@ -50,8 +50,9 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             response.json(),
         )
 
+    @patch("posthog.api.organization.delete_bulky_postgres_data")
     @patch("posthoganalytics.capture")
-    def test_delete_second_managed_organization(self, mock_capture):
+    def test_delete_second_managed_organization(self, mock_capture, mock_delete_bulky_postgres_data):
         organization, _, team = Organization.objects.bootstrap(self.user, name="X")
         organization_props = organization.get_analytics_metadata()
         self.assertTrue(Organization.objects.filter(id=organization.id).exists())
@@ -67,6 +68,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             organization_props,
             groups={"instance": ANY, "organization": str(organization.id)},
         )
+        mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.id])
 
     @patch("posthoganalytics.capture")
     def test_delete_last_organization(self, mock_capture):
@@ -161,14 +163,10 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             }
             if level < OrganizationMembership.Level.ADMIN:
                 potential_err_message = f"Somehow managed to update the org as a level {level} (which is below admin)"
-                self.assertEqual(
-                    response_rename.json(), expected_response, potential_err_message,
-                )
+                self.assertEqual(response_rename.json(), expected_response, potential_err_message)
                 self.assertEqual(response_rename.status_code, 403, potential_err_message)
                 self.assertTrue(self.organization.name, self.CONFIG_ORGANIZATION_NAME)
-                self.assertEqual(
-                    response_email.json(), expected_response, potential_err_message,
-                )
+                self.assertEqual(response_email.json(), expected_response, potential_err_message)
                 self.assertEqual(response_email.status_code, 403, potential_err_message)
             else:
                 potential_err_message = f"Somehow did not update the org as a level {level} (which is at least admin)"
@@ -194,7 +192,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
     @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
     def test_feature_available_self_hosted_has_license(self):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             License.objects.create(key="key", plan="enterprise", valid_until=dt.datetime.now() + dt.timedelta(days=1))
 
             # Still only old, empty available_features field value known

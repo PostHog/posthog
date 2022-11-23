@@ -1,28 +1,55 @@
 import { IconErrorOutline } from 'lib/components/icons'
-import React from 'react'
 import { LemonLabel } from '../components/LemonLabel/LemonLabel'
 import { Field as KeaField, FieldProps as KeaFieldProps } from 'kea-forms/lib/components'
+import clsx from 'clsx'
 
 export type PureFieldProps = {
     /** The label name to be displayed */
     label?: React.ReactNode
     /** Will show a muted (optional) next to the label */
     showOptional?: boolean
+    /** Will show a clickable (what is this?) next to the label, useful if we want to toggle explanation modals on click */
+    onExplanationClick?: () => void
     /** Info tooltip to be displayed next to the label */
     info?: React.ReactNode
     /** Help text to be shown directly beneath the input */
     help?: React.ReactNode
     /** Error message to be displayed */
     error?: React.ReactNode
+    className?: string
     children?: React.ReactNode
+    onClick?: () => void
+    /** Flex the field as a row rather than columns */
+    inline?: boolean
 }
 
 /** A "Pure" field - used when you want the Field styles without the Kea form functionality */
-export const PureField = ({ label, info, error, help, showOptional, children }: PureFieldProps): JSX.Element => {
+export const PureField = ({
+    label,
+    info,
+    error,
+    help,
+    showOptional,
+    onExplanationClick,
+    className,
+    children,
+    inline,
+    onClick,
+}: PureFieldProps): JSX.Element => {
     return (
-        <div className="flex flex-col gap-2">
+        <div
+            onClick={onClick}
+            className={clsx('Field flex gap-2', className, error && 'Field--error', inline ? 'flex-row' : 'flex-col')}
+        >
             {label ? (
-                <LemonLabel info={info} showOptional={showOptional}>
+                <LemonLabel
+                    info={info}
+                    showOptional={showOptional}
+                    onExplanationClick={onExplanationClick}
+                    className={clsx({
+                        'cursor-pointer': !!onClick,
+                    })}
+                >
                     {label}
                 </LemonLabel>
             ) : null}
@@ -39,11 +66,27 @@ export const PureField = ({ label, info, error, help, showOptional, children }: 
 
 export type FieldProps = Omit<PureFieldProps, 'children' | 'error'> & Pick<KeaFieldProps, 'children' | 'name'>
 
-export const Field = ({ name, help, ...keaFieldProps }: FieldProps): JSX.Element => {
+export const Field = ({
+    name,
+    help,
+    className,
+    showOptional,
+    inline,
+    info,
+    ...keaFieldProps
+}: FieldProps): JSX.Element => {
     /** Drop-in replacement antd template for kea forms */
     const template: KeaFieldProps['template'] = ({ label, kids, error }) => {
         return (
-            <PureField label={label} error={error} help={help}>
+            <PureField
+                label={label}
+                error={error}
+                help={help}
+                className={className}
+                showOptional={showOptional}
+                inline={inline}
+                info={info}
+            >
                 {kids}
             </PureField>
         )

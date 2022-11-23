@@ -1,4 +1,3 @@
-import { LemonSelectOptions } from 'lib/components/LemonSelect'
 import {
     AnyCohortCriteriaType,
     BehavioralCohortType,
@@ -45,9 +44,13 @@ export enum FieldOptionsType {
     EventsAndActionsMathOperators = 'eventsAndActionsMathOperators',
 }
 
+export interface CohortSelectOption {
+    label: string
+}
+
 export interface FieldValues {
     label: string
-    values: LemonSelectOptions
+    values: Record<string | number, CohortSelectOption>
     type: FieldOptionsType
 }
 

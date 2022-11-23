@@ -16,14 +16,7 @@ Relative_Date = Tuple[int, OperatorInterval]
 Event = Tuple[str, Union[str, int]]
 
 
-INTERVAL_TO_SECONDS = {
-    "minute": 60,
-    "hour": 3600,
-    "day": 86400,
-    "week": 604800,
-    "month": 2592000,
-    "year": 31536000,
-}
+INTERVAL_TO_SECONDS = {"minute": 60, "hour": 3600, "day": 86400, "week": 604800, "month": 2592000, "year": 31536000}
 
 
 def relative_date_to_seconds(date: Tuple[Optional[int], Union[OperatorInterval, None]]):
@@ -78,14 +71,10 @@ def convert_to_entity_params(events: List[Event]) -> Tuple[List, List]:
         event_val = event[1]
 
         if event_type == "events":
-            res_events.append(
-                {"id": event_val, "name": event_val, "order": idx, "type": event_type,}
-            )
+            res_events.append({"id": event_val, "name": event_val, "order": idx, "type": event_type})
         elif event_type == "actions":
             action = Action.objects.get(id=event_val)
-            res_actions.append(
-                {"id": event_val, "name": action.name, "order": idx, "type": event_type,}
-            )
+            res_actions.append({"id": event_val, "name": action.name, "order": idx, "type": event_type})
 
     return res_events, res_actions
 
@@ -432,7 +421,8 @@ class FOSSCohortQuery(EventQuery):
         # If we reach this stage, it means there are no cyclic dependencies
         # They should've been caught by API update validation
         # and if not there, `simplifyFilter` would've failed
-        return format_static_cohort_query(cast(int, prop.value), idx, prepend, "id", negate=prop.negation or False)
+        query, params = format_static_cohort_query(cast(int, prop.value), idx, prepend)
+        return f"id {'NOT' if prop.negation else ''} IN ({query})", params
 
     def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
@@ -482,7 +472,7 @@ class FOSSCohortQuery(EventQuery):
         # event subqueries
         self._should_join_persons = (
             self._column_optimizer.is_using_person_properties
-            or len(self._column_optimizer._used_properties_with_type("static-cohort")) > 0
+            or len(self._column_optimizer.used_properties_with_type("static-cohort")) > 0
         )
 
     @cached_property

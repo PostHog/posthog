@@ -1,12 +1,12 @@
 import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { Hub, IngestionEvent, WorkerMethods } from '../../types'
+import { Hub, PostIngestionEvent, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
-import { KafkaQueue } from './kafka-queue'
+import { IngestionConsumer } from './kafka-queue'
 
 interface Queues {
-    ingestion: KafkaQueue | null
+    ingestion: IngestionConsumer | null
 }
 
 export function pauseQueueIfWorkerFull(
@@ -25,7 +25,7 @@ export async function startQueues(
     workerMethods: Partial<WorkerMethods> = {}
 ): Promise<Queues> {
     const mergedWorkerMethods = {
-        runAsyncHandlersEventPipeline: (event: IngestionEvent) => {
+        runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => {
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'runAsyncHandlersEventPipeline'
             return piscina.run({ task: 'runAsyncHandlersEventPipeline', args: { event } })
@@ -49,13 +49,13 @@ export async function startQueues(
     }
 }
 
-async function startQueueKafka(server: Hub, workerMethods: WorkerMethods): Promise<KafkaQueue | null> {
+async function startQueueKafka(server: Hub, workerMethods: WorkerMethods): Promise<IngestionConsumer | null> {
     if (!server.capabilities.ingestion && !server.capabilities.processAsyncHandlers) {
         return null
     }
 
-    const kafkaQueue = new KafkaQueue(server, workerMethods)
-    await kafkaQueue.start()
+    const ingestionConsumer = new IngestionConsumer(server, workerMethods)
+    await ingestionConsumer.start()
 
-    return kafkaQueue
+    return ingestionConsumer
 }

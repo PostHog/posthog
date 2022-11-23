@@ -9,13 +9,14 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.api.test.test_exports import TestExportMixin
 from posthog.models import Person
 from posthog.models.cohort import Cohort
 from posthog.models.team.team import Team
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
 
-class TestCohort(ClickhouseTestMixin, APIBaseTest):
+class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_creating_update_and_calculating(self, patch_calculate_cohort, patch_capture):
@@ -198,7 +199,7 @@ email@example.org,
         Person.objects.create(team=self.team, properties={"prop": 6})
 
         self.client.post(
-            f"/api/projects/{self.team.id}/cohorts", data={"name": "whatever", "groups": [{"properties": {"prop": 5}}]},
+            f"/api/projects/{self.team.id}/cohorts", data={"name": "whatever", "groups": [{"properties": {"prop": 5}}]}
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()
@@ -206,10 +207,19 @@ email@example.org,
         self.assertEqual(response["results"][0]["name"], "whatever")
         self.assertEqual(response["results"][0]["created_by"]["id"], self.user.id)
 
-    def test_csv_export(self):
-        Person.objects.create(distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"})
+    def test_csv_export_new(self):
+        # Test 100s of distinct_ids, we only want ~10
+        Person.objects.create(
+            distinct_ids=["person3"] + [f"person_{i}" for i in range(4, 100)],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
+        Person.objects.create(
+            distinct_ids=["person1"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something", "email": "test@test.com"},
+        )
         Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
-        Person.objects.create(distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"})
         cohort = Cohort.objects.create(
             team=self.team,
             groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
@@ -217,17 +227,16 @@ email@example.org,
         )
         cohort.calculate_people_ch(pending_version=0)
 
-        response = self.client.get(f"/api/cohort/{cohort.pk}/persons.csv")
-        self.assertEqual(len(response.content.splitlines()), 3, response.content)
+        lines = self._get_export_output(f"/api/cohort/{cohort.pk}/persons")
+        headers = lines[0].split(",")
+        self.assertEqual(len(lines), 3)
+        self.assertEqual(lines[1].split(",")[headers.index("email")], "test@test.com")
+        self.assertEqual(lines[0].count("distinct_id"), 10)
 
     def test_filter_by_cohort(self):
-        _create_person(
-            team=self.team, distinct_ids=[f"fake"], properties={},
-        )
+        _create_person(team=self.team, distinct_ids=[f"fake"], properties={})
         for i in range(150):
-            _create_person(
-                team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"},
-            )
+            _create_person(team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"})
 
         flush_persons_and_events()
         cohort = Cohort.objects.create(
@@ -243,13 +252,9 @@ email@example.org,
 
     def test_filter_by_cohort_prop(self):
         for i in range(5):
-            _create_person(
-                team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"},
-            )
+            _create_person(team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"})
 
-        _create_person(
-            team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"},
-        )
+        _create_person(team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"})
 
         cohort = Cohort.objects.create(
             team=self.team, groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}]
@@ -258,19 +263,15 @@ email@example.org,
 
         response = self.client.get(
             f"/api/cohort/{cohort.pk}/persons?properties=%s"
-            % (json.dumps([{"key": "$browser", "value": "Safari", "type": "person",}]))
+            % (json.dumps([{"key": "$browser", "value": "Safari", "type": "person"}]))
         )
         self.assertEqual(len(response.json()["results"]), 1, response)
 
     def test_filter_by_cohort_search(self):
         for i in range(5):
-            _create_person(
-                team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"},
-            )
+            _create_person(team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"})
 
-        _create_person(
-            team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"},
-        )
+        _create_person(team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"})
         flush_persons_and_events()
 
         cohort = Cohort.objects.create(
@@ -289,7 +290,7 @@ email@example.org,
         team2 = Team.objects.create(organization=self.organization)
         Person.objects.create(team=team2, distinct_ids=["1"])
 
-        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now(),)
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now())
         cohort.insert_users_by_list(["1", "123"])
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
@@ -498,7 +499,7 @@ email@example.org,
             data={"name": "cohort A", "groups": [{"properties": {"team_id": 5}}]},
         )
 
-        response = self.client.delete(f"/api/projects/{self.team.id}/cohorts/{response_a.json()['id']}",)
+        response = self.client.delete(f"/api/projects/{self.team.id}/cohorts/{response_a.json()['id']}")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
 

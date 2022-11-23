@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { mswDecorator } from '~/mocks/browser'
 import eventList from './__mocks__/eventList.json'
 import { router } from 'kea-router'

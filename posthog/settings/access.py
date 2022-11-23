@@ -2,8 +2,12 @@
 import os
 import sys
 
+import structlog
+
 from posthog.settings.base_variables import DEBUG, TEST
-from posthog.settings.utils import get_from_env, get_list, print_warning, str_to_bool
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
+
+logger = structlog.get_logger(__name__)
 
 # SSL & cookie defaults
 if os.getenv("SECURE_COOKIES", None) is None:
@@ -34,12 +38,12 @@ if IS_BEHIND_PROXY:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
     if not TRUST_ALL_PROXIES and not TRUSTED_PROXIES:
-        print_warning(
-            (
-                "️You indicated your instance is behind a proxy (IS_BEHIND_PROXY env var),",
-                " but you haven't configured any trusted proxies. See",
-                " https://posthog.com/docs/configuring-posthog/running-behind-proxy for details.",
-            )
+        logger.warning(
+            """
+                You indicated your instance is behind a proxy (IS_BEHIND_PROXY env var),
+                but you haven't configured any trusted proxies. See
+                https://posthog.com/docs/configuring-posthog/running-behind-proxy for details.
+            """
         )
 
 # IP Block settings
@@ -56,12 +60,13 @@ SECRET_KEY = os.getenv("SECRET_KEY", DEFAULT_SECRET_KEY)
 
 
 if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
-    print_warning(
-        (
-            "You are using the default SECRET_KEY in a production environment!",
-            "For the safety of your instance, you must generate and set a unique key.",
-            "More information on https://posthog.com/docs/self-host/configure/securing-posthog",
-        )
+    logger.critical(
+        """
+            You are using the default SECRET_KEY in a production environment!
+            For the safety of your instance, you must generate and set a unique key.,
+            More information on
+            https://posthog.com/docs/self-host/configure/securing-posthog,
+        """
     )
     sys.exit("[ERROR] Default SECRET_KEY in production. Stopping Django server…\n")
 

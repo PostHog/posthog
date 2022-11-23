@@ -1,6 +1,6 @@
 import './CohortField.scss'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { useActions, useValues } from 'kea'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'

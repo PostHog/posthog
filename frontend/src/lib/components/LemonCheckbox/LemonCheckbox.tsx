@@ -1,12 +1,12 @@
 import clsx from 'clsx'
-import React, { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './LemonCheckbox.scss'
 
 export interface LemonCheckboxProps {
     checked?: boolean | 'indeterminate'
     defaultChecked?: boolean
     disabled?: boolean
-    onChange?: (event: React.ChangeEvent<HTMLInputElement>) => void
+    onChange?: (value: boolean) => void
     label?: string | JSX.Element
     id?: string
     className?: string
@@ -80,7 +80,7 @@ export function LemonCheckbox({
                 onChange={(e) => {
                     // NOTE: We only want to setLocalChecked if the component is not controlled externally
                     checked === undefined && setLocalChecked(e.target.checked)
-                    onChange?.(e)
+                    onChange?.(e.target.checked)
                 }}
                 id={id}
                 disabled={disabled}

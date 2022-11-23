@@ -274,6 +274,85 @@
                 },
                 "timestamp": 1639078787000
             }
+        ],
+        "182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841": [
+            {
+                "type": 3,
+                "data": {
+                    "source": 1,
+                    "positions": [
+                        {
+                            "x": 128,
+                            "y": 692,
+                            "id": -1,
+                            "timeOffset": -245
+                        },
+                        {
+                            "x": 76,
+                            "y": 531,
+                            "id": -1,
+                            "timeOffset": -189
+                        }
+                    ]
+                },
+                "timestamp": 1639102187000
+            },
+            {
+                "type": 6,
+                "data": {
+                    "plugin": "rrweb/console@1",
+                    "payload": {}
+                },
+                "timestamp": 1639078787000
+            },
+            {
+                "type": 6,
+                "data": {
+                    "plugin": "rrweb/console@1",
+                    "payload": {
+                        "trace": [],
+                        "payload": [],
+                        "level": "log"
+                    }
+                },
+                "timestamp": 1639078787000
+            },
+            {
+                "type": 6,
+                "data": {
+                    "plugin": "rrweb/console@1",
+                    "payload": {
+                        "trace": ["Login (https://example.com/path/to/file.js:123:456)"],
+                        "payload": [null],
+                        "level": "log"
+                    }
+                },
+                "timestamp": 1639078787000
+            },
+            {
+                "type": 6,
+                "data": {
+                    "plugin": "rrweb/console@1",
+                    "payload": {
+                        "trace": ["Login (https://example.com/path/to/file.js:123:456)"],
+                        "payload": ["A big deal", "And a huge deal"],
+                        "level": "warn"
+                    }
+                },
+                "timestamp": 1639078787000
+            },
+            {
+                "type": 6,
+                "data": {
+                    "plugin": "rrweb/console@1",
+                    "payload": {
+                        "trace": ["adcfvertyu$rf3423"],
+                        "payload": "dcvrtbye",
+                        "level": "error"
+                    }
+                },
+                "timestamp": 1639078787000
+            }
         ]
     }
 }

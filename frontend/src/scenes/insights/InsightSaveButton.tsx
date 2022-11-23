@@ -1,5 +1,4 @@
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
-import React from 'react'
 
 export function InsightSaveButton({
     saveAs,
@@ -10,7 +9,7 @@ export function InsightSaveButton({
     addingToDashboard,
 }: {
     saveAs: () => void
-    saveInsight: (redirect: boolean) => void
+    saveInsight: (redirectToViewMode?: boolean) => void
     isSaved: boolean | undefined
     insightSaving: boolean
     insightChanged: boolean
@@ -26,7 +25,6 @@ export function InsightSaveButton({
             data-attr="insight-save-button"
             disabled={disabled}
             loading={!disabled && insightSaving}
-            data-tooltip="insight-save-button"
             sideAction={{
                 popup: {
                     placement: 'bottom-end',

@@ -9,7 +9,7 @@ class TestTaggedItem(BaseTest):
     def test_exactly_one_object_constraint(self):
         # Setup
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
-        insight = Insight.objects.create(filters={"events": [{"id": "$pageview"}]}, team_id=self.team.id,)
+        insight = Insight.objects.create(filters={"events": [{"id": "$pageview"}]}, team_id=self.team.id)
         DashboardTile.objects.create(insight=insight, dashboard=dashboard)
         tag = Tag.objects.create(name="tag", team_id=self.team.id)
 
@@ -33,7 +33,7 @@ class TestTaggedItem(BaseTest):
 
     def test_uniqueness_constraint_insight(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
-        insight = Insight.objects.create(filters={"events": [{"id": "$pageview"}]}, team_id=self.team.id,)
+        insight = Insight.objects.create(filters={"events": [{"id": "$pageview"}]}, team_id=self.team.id)
         DashboardTile.objects.create(insight=insight, dashboard=dashboard)
         tag = Tag.objects.create(name="tag", team_id=self.team.id)
 

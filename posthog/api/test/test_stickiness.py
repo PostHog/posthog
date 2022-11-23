@@ -9,7 +9,7 @@ from freezegun import freeze_time
 
 from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models.team import Team
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, snapshot_clickhouse_queries
 from posthog.utils import encode_get_request_params
 
 
@@ -64,7 +64,9 @@ class NormalizedTrendResult:
 # parameterize tests to reuse in EE
 def stickiness_test_factory(stickiness, event_factory, person_factory, action_factory, get_earliest_timestamp):
     class TestStickiness(APIBaseTest):
-        def _create_multiple_people(self, period=timedelta(days=1), event_properties=lambda index: {}):
+        def _create_multiple_people(self, period=None, event_properties=lambda index: {}):
+            if period is None:
+                period = timedelta(days=1)
             base_time = datetime.fromisoformat("2020-01-01T12:00:00.000000")
             p1 = person_factory(team_id=self.team.id, distinct_ids=["person1"], properties={"name": "person1"})
             event_factory(
@@ -163,6 +165,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(response[0]["labels"][6], "7 days")
             self.assertEqual(response[0]["data"][6], 0)
 
+        @snapshot_clickhouse_queries
         def test_stickiness_all_time(self):
             self._create_multiple_people()
 
@@ -184,6 +187,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(response[0]["labels"][6], "7 days")
             self.assertEqual(response[0]["data"][6], 0)
 
+        @snapshot_clickhouse_queries
         def test_stickiness_hours(self):
             self._create_multiple_people(period=timedelta(hours=1))
 
@@ -318,6 +322,44 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(response[0]["labels"][6], "7 days")
             self.assertEqual(response[0]["data"][6], 0)
 
+        def test_stickiness_entity_person_filter(self):
+            self._create_multiple_people()
+
+            with freeze_time("2020-01-08T13:01:01Z"):
+                stickiness_response = get_stickiness_ok(
+                    client=self.client,
+                    team=self.team,
+                    request={
+                        "shown_as": "Stickiness",
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-08",
+                        "events": [
+                            {
+                                "id": "watched movie",
+                                "properties": [
+                                    {
+                                        "key": "name",
+                                        "value": ["person1"],
+                                        "operator": "exact",
+                                        "type": "person",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                )
+                response = stickiness_response["result"]
+
+            self.assertEqual(response[0]["count"], 1)
+            self.assertEqual(response[0]["labels"][0], "1 day")
+            self.assertEqual(response[0]["data"][0], 1)
+            self.assertEqual(response[0]["labels"][1], "2 days")
+            self.assertEqual(response[0]["data"][1], 0)
+            self.assertEqual(response[0]["labels"][2], "3 days")
+            self.assertEqual(response[0]["data"][2], 0)
+            self.assertEqual(response[0]["labels"][6], "7 days")
+            self.assertEqual(response[0]["data"][6], 0)
+
         def test_stickiness_action(self):
             self._create_multiple_people()
             watched_movie = action_factory(team=self.team, name="watch movie action", event_name="watched movie")
@@ -339,6 +381,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(response[0]["count"], 4)
             self.assertEqual(response[0]["labels"][0], "1 day")
 
+        @snapshot_clickhouse_queries
         def test_stickiness_people_endpoint(self):
             person1, _, _, person4 = self._create_multiple_people()
 
@@ -388,6 +431,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(len(people), 1)
             self.assertEqual(str(people[0]["id"]), str(person1.uuid))
 
+        @snapshot_clickhouse_queries
         def test_stickiness_people_paginated(self):
             for i in range(150):
                 person_name = f"person{i}"
@@ -419,6 +463,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             second_result = self.client.get(result["next"]).json()
             self.assertEqual(len(second_result["results"][0]["people"]), 50)
 
+        @snapshot_clickhouse_queries
         def test_compare(self):
             self._create_multiple_people()
 
@@ -440,7 +485,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             )
             response = stickiness_response["result"]
             self.assertEqual(response[0]["data"], [2, 1, 1, 0, 0, 0, 0, 0])
-            self.assertEqual(response[1]["data"], [3, 0, 0, 0, 0, 0, 0, 0])
+            self.assertEqual(response[1]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
 
             self.assertEqual(response[0]["compare_label"], "current")
             self.assertEqual(response[1]["compare_label"], "previous")

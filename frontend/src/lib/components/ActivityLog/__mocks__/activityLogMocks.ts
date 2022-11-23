@@ -21,6 +21,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                 },
             ],
             merge: null,
+            trigger: null,
             name: 'cohort-filters',
             short_id: null,
         },
@@ -33,6 +34,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         item_id: '984',
         detail: {
             merge: null,
+            trigger: null,
             changes: [{ type: 'FeatureFlag', action: 'changed', field: 'active', before: false, after: true }],
             name: 'cloud-announcement',
         },
@@ -45,6 +47,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         item_id: '984',
         detail: {
             merge: null,
+            trigger: null,
             changes: [{ type: 'FeatureFlag', action: 'changed', field: 'active', before: true, after: false }],
             name: 'cloud-announcement',
         },
@@ -57,6 +60,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         item_id: '1353',
         detail: {
             merge: null,
+            trigger: null,
             changes: [
                 {
                     type: 'FeatureFlag',
@@ -151,6 +155,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         item_id: '984',
         detail: {
             merge: null,
+            trigger: null,
             changes: [
                 {
                     type: 'FeatureFlag',
@@ -203,6 +208,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         item_id: '1474',
         detail: {
             merge: null,
+            trigger: null,
             changes: [
                 {
                     type: 'FeatureFlag',
@@ -243,6 +249,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         item_id: '1474',
         detail: {
             merge: null,
+            trigger: null,
             changes: [
                 {
                     type: 'FeatureFlag',
@@ -297,6 +304,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         item_id: '1846',
         detail: {
             merge: null,
+            trigger: null,
             changes: [{ type: 'FeatureFlag', action: 'changed', field: 'deleted', before: false, after: true }],
             name: 'test-ff',
         },
@@ -309,6 +317,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         item_id: '1846',
         detail: {
             merge: null,
+            trigger: null,
             changes: [{ type: 'FeatureFlag', action: 'changed', field: 'deleted', before: true, after: false }],
             name: 'test-ff',
         },
@@ -321,6 +330,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         item_id: '1846',
         detail: {
             merge: null,
+            trigger: null,
             changes: [
                 {
                     type: 'FeatureFlag',
@@ -341,6 +351,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         item_id: '1846',
         detail: {
             merge: null,
+            trigger: null,
             changes: [
                 {
                     type: 'FeatureFlag',
@@ -361,6 +372,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         item_id: '1846',
         detail: {
             merge: null,
+            trigger: null,
             changes: [
                 {
                     type: 'FeatureFlag',
@@ -381,6 +393,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         item_id: '1825',
         detail: {
             merge: null,
+            trigger: null,
             changes: null,
             name: 'feature_that_will_dazzle',
         },
@@ -397,6 +410,7 @@ export const personActivityResponseJson: ActivityLogItem[] = [
         detail: {
             changes: [{ type: 'Person', action: 'changed', field: 'properties', before: undefined, after: undefined }],
             merge: null,
+            trigger: null,
             name: null,
             short_id: null,
         },
@@ -423,7 +437,6 @@ export const personActivityResponseJson: ActivityLogItem[] = [
                             $geoip_longitude: -0.6718,
                             $geoip_time_zone: 'Europe/London',
                             $initial_pathname: '/',
-                            $initial_referrer: '$direct',
                             $geoip_postal_code: 'SL1',
                             $geoip_country_code: 'GB',
                             $geoip_country_name: 'United Kingdom',
@@ -438,7 +451,6 @@ export const personActivityResponseJson: ActivityLogItem[] = [
                             $initial_geoip_time_zone: 'Europe/London',
                             $geoip_subdivision_1_code: 'ENG',
                             $geoip_subdivision_1_name: 'England',
-                            $initial_referring_domain: '$direct',
                             $initial_geoip_postal_code: 'SL1',
                             $initial_geoip_country_code: 'GB',
                             $initial_geoip_country_name: 'United Kingdom',
@@ -460,7 +472,6 @@ export const personActivityResponseJson: ActivityLogItem[] = [
                             $geoip_longitude: -0.6718,
                             $geoip_time_zone: 'Europe/London',
                             $initial_pathname: '/',
-                            $initial_referrer: '$direct',
                             $geoip_postal_code: 'SL1',
                             $geoip_country_code: 'GB',
                             $geoip_country_name: 'United Kingdom',
@@ -475,7 +486,6 @@ export const personActivityResponseJson: ActivityLogItem[] = [
                             $initial_geoip_time_zone: 'Europe/London',
                             $geoip_subdivision_1_code: 'ENG',
                             $geoip_subdivision_1_name: 'England',
-                            $initial_referring_domain: '$direct',
                             $initial_geoip_postal_code: 'SL1',
                             $initial_geoip_country_code: 'GB',
                             $initial_geoip_country_name: 'United Kingdom',
@@ -497,7 +507,6 @@ export const personActivityResponseJson: ActivityLogItem[] = [
                             $geoip_longitude: -0.6718,
                             $geoip_time_zone: 'Europe/London',
                             $initial_pathname: '/',
-                            $initial_referrer: '$direct',
                             $geoip_postal_code: 'SL1',
                             $geoip_country_code: 'GB',
                             $geoip_country_name: 'United Kingdom',
@@ -512,7 +521,6 @@ export const personActivityResponseJson: ActivityLogItem[] = [
                             $initial_geoip_time_zone: 'Europe/London',
                             $geoip_subdivision_1_code: 'ENG',
                             $geoip_subdivision_1_name: 'England',
-                            $initial_referring_domain: '$direct',
                             $initial_geoip_postal_code: 'SL1',
                             $initial_geoip_country_code: 'GB',
                             $initial_geoip_country_name: 'United Kingdom',
@@ -534,7 +542,6 @@ export const personActivityResponseJson: ActivityLogItem[] = [
                             $geoip_longitude: -0.6718,
                             $geoip_time_zone: 'Europe/London',
                             $initial_pathname: '/',
-                            $initial_referrer: '$direct',
                             $geoip_postal_code: 'SL1',
                             $geoip_country_code: 'GB',
                             $geoip_country_name: 'United Kingdom',
@@ -549,7 +556,6 @@ export const personActivityResponseJson: ActivityLogItem[] = [
                             $initial_geoip_time_zone: 'Europe/London',
                             $geoip_subdivision_1_code: 'ENG',
                             $geoip_subdivision_1_name: 'England',
-                            $initial_referring_domain: '$direct',
                             $initial_geoip_postal_code: 'SL1',
                             $initial_geoip_country_code: 'GB',
                             $initial_geoip_country_name: 'United Kingdom',
@@ -574,6 +580,7 @@ export const personActivityResponseJson: ActivityLogItem[] = [
                     ],
                 },
             },
+            trigger: null,
             name: null,
             short_id: null,
         },
@@ -603,6 +610,7 @@ export const personActivityResponseJson: ActivityLogItem[] = [
                 },
             ],
             merge: null,
+            trigger: null,
             name: null,
             short_id: null,
         },
@@ -619,6 +627,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
         detail: {
             changes: null,
             merge: null,
+            trigger: null,
             name: 'an amazing discovery awaits',
             short_id: 'kUUjoSL9' as InsightShortId,
         },
@@ -632,6 +641,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
         detail: {
             changes: [{ type: 'Insight', action: 'changed', field: 'deleted', before: false, after: true }],
             merge: null,
+            trigger: null,
             name: 'Pageview count',
             short_id: 'iVXqSrre' as InsightShortId,
         },
@@ -645,6 +655,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
         detail: {
             changes: [{ type: 'Insight', action: 'changed', field: 'deleted', before: true, after: false }],
             merge: null,
+            trigger: null,
             name: 'Pageview count',
             short_id: 'iVXqSrre' as InsightShortId,
         },
@@ -660,6 +671,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
                 { type: 'Insight', action: 'changed', field: 'name', before: 'original name', after: 'cool insight' },
             ],
             merge: null,
+            trigger: null,
             name: 'cool insight',
             short_id: 'iVXqSrre' as InsightShortId,
         },
@@ -673,6 +685,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
         detail: {
             changes: [{ type: 'Insight', action: 'changed', field: 'short_id', before: 'wr34th', after: 'iVXqSrre' }],
             merge: null,
+            trigger: null,
             name: 'Pageview count',
             short_id: 'iVXqSrre' as InsightShortId,
         },
@@ -694,6 +707,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
                 },
             ],
             merge: null,
+            trigger: null,
             name: 'Pageview count',
             short_id: 'iVXqSrre' as InsightShortId,
         },
@@ -715,6 +729,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
                 },
             ],
             merge: null,
+            trigger: null,
             name: 'Pageview count',
             short_id: 'iVXqSrre' as InsightShortId,
         },
@@ -736,6 +751,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
                 },
             ],
             merge: null,
+            trigger: null,
             name: 'Pageview count',
             short_id: 'iVXqSrre' as InsightShortId,
         },
@@ -760,6 +776,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
                 },
             ],
             merge: null,
+            trigger: null,
             name: 'Super B.I.',
             short_id: 'KQhbLk2R' as InsightShortId,
         },
@@ -784,6 +801,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
                 },
             ],
             merge: null,
+            trigger: null,
             name: 'Super B.I.',
             short_id: 'KQhbLk2R' as InsightShortId,
         },
@@ -797,6 +815,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
         detail: {
             name: 'DAU',
             merge: null,
+            trigger: null,
             changes: [
                 {
                     type: 'Insight',
@@ -924,6 +943,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
                 },
             ],
             merge: null,
+            trigger: null,
             name: 'Super B.I.',
             short_id: 'KQhbLk2R' as InsightShortId,
         },

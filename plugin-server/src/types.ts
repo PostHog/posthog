@@ -9,12 +9,10 @@ import {
     Properties,
 } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
-import { TaskList } from 'graphile-worker'
 import { StatsD } from 'hot-shots'
 import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { JobQueueManager } from 'main/job-queues/job-queue-manager'
 import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
@@ -26,6 +24,7 @@ import { InternalMetrics } from './utils/internal-metrics'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
+import { AppMetrics } from './worker/ingestion/app-metrics'
 import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { PersonManager } from './worker/ingestion/person-manager'
@@ -36,6 +35,11 @@ import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-man
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { LazyPluginVM } from './worker/vm/lazy'
 import { PromiseManager } from './worker/vm/promise-manager'
+
+/** Re-export Element from scaffolding, for backwards compat. */
+export { Element } from '@posthog/plugin-scaffold'
+
+type Brand<K, T> = K & { __brand: T }
 
 export enum LogLevel {
     None = 'none',
@@ -72,7 +76,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     WORKER_CONCURRENCY: number
     TASKS_PER_WORKER: number
     TASK_TIMEOUT: number
-    DATABASE_URL: string | null
+    DATABASE_URL: string
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
     POSTHOG_DB_PASSWORD: string
@@ -96,6 +100,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
+    APP_METRICS_FLUSH_FREQUENCY_MS: number
     REDIS_URL: string
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
@@ -138,19 +143,23 @@ export interface PluginsServerConfig extends Record<string, any> {
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CONVERSION_BUFFER_ENABLED: boolean
     CONVERSION_BUFFER_ENABLED_TEAMS: string
+    CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: string
     BUFFER_CONVERSION_SECONDS: number
-    PERSON_INFO_TO_REDIS_TEAMS: string
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
-    HISTORICAL_EXPORTS_ENABLED: boolean
     OBJECT_STORAGE_ENABLED: boolean
     OBJECT_STORAGE_ENDPOINT: string
     OBJECT_STORAGE_ACCESS_KEY_ID: string
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
     OBJECT_STORAGE_BUCKET: string
-    PLUGIN_SERVER_MODE: 'ingestion' | 'async' | null
+    PLUGIN_SERVER_MODE: 'ingestion' | 'async' | 'exports' | 'jobs' | 'scheduler' | null
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
+    HISTORICAL_EXPORTS_ENABLED: boolean
+    HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
+    HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: number
+    HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: number
+    APP_METRICS_GATHERED_FOR_ALL: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -174,7 +183,6 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigs: Map<PluginConfigId, PluginConfig>
     pluginConfigsPerTeam: Map<TeamId, PluginConfig[]>
     pluginSchedule: Record<string, PluginConfigId[]> | null
-    pluginSchedulePromises: Record<string, Record<PluginConfigId, Promise<any> | null>>
     // unique hash for each plugin config; used to verify IDs caught on stack traces for unhandled promise rejections
     pluginConfigSecrets: Map<PluginConfigId, string>
     pluginConfigSecretLookup: Map<string, PluginConfigId>
@@ -189,8 +197,8 @@ export interface Hub extends PluginsServerConfig {
     hookCannon: HookCommander
     eventsProcessor: EventsProcessor
     personManager: PersonManager
-    jobQueueManager: JobQueueManager
     siteUrlManager: SiteUrlManager
+    appMetrics: AppMetrics
     // diagnostics
     lastActivity: number
     lastActivityType: string
@@ -206,53 +214,24 @@ export interface PluginServerCapabilities {
     http?: boolean
 }
 
-export type EnqueuedJob = EnqueuedPluginJob | EnqueuedBufferJob
+export type EnqueuedJob = EnqueuedPluginJob | GraphileWorkerCronScheduleJob
 export interface EnqueuedPluginJob {
     type: string
     payload: Record<string, any>
     timestamp: number
     pluginConfigId: number
     pluginConfigTeam: number
+    jobKey?: string
 }
 
-export interface EnqueuedBufferJob {
-    eventPayload: PluginEvent
-    timestamp: number
+export interface GraphileWorkerCronScheduleJob {
+    timestamp?: number
+    jobKey?: string
 }
 
 export enum JobName {
     PLUGIN_JOB = 'pluginJob',
     BUFFER_JOB = 'bufferJob',
-}
-
-export interface JobQueue {
-    startConsumer: (jobHandlers: TaskList) => Promise<void> | void
-    stopConsumer: () => Promise<void> | void
-    pauseConsumer: () => Promise<void> | void
-    resumeConsumer: () => Promise<void> | void
-    isConsumerPaused: () => boolean
-
-    connectProducer: () => Promise<void> | void
-    enqueue: (jobName: string, job: EnqueuedJob) => Promise<void> | void
-    disconnectProducer: () => Promise<void> | void
-}
-
-export enum JobQueueType {
-    FS = 'fs',
-    Graphile = 'graphile',
-}
-
-export enum JobQueuePersistence {
-    /** Job queues that store jobs on the local server */
-    Local = 'local',
-    /** Remote persistent job queues that can be read from concurrently */
-    Concurrent = 'concurrent',
-}
-
-export type JobQueueExport = {
-    type: JobQueueType
-    persistence: JobQueuePersistence
-    getQueue: (serverConfig: PluginsServerConfig) => JobQueue
 }
 
 export type PluginId = Plugin['id']
@@ -268,7 +247,19 @@ export enum MetricMathOperations {
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
 export type StoredPluginMetrics = Record<string, StoredMetricMathOperations> | null
 export type PluginMetricsVmResponse = Record<string, string> | null
-export type PluginPublicJobPayload = Record<string, string>
+
+export interface JobPayloadFieldOptions {
+    type: 'string' | 'boolean' | 'json' | 'number' | 'date' | 'daterange'
+    title?: string
+    required?: boolean
+    default?: any
+    staff_only?: boolean
+}
+
+export interface JobSpec {
+    payload?: Record<string, JobPayloadFieldOptions>
+}
+
 export interface Plugin {
     id: number
     organization_id: string
@@ -286,6 +277,8 @@ export interface Plugin {
     source__index_ts?: string
     /** Cached source for frontend.tsx from a joined PluginSourceFile query */
     source__frontend_tsx?: string
+    /** Cached source for site.ts from a joined PluginSourceFile query */
+    source__site_ts?: string
     error?: PluginError
     from_json?: boolean
     from_web?: boolean
@@ -294,7 +287,7 @@ export interface Plugin {
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
     is_stateless?: boolean
-    public_jobs?: Record<string, PluginPublicJobPayload>
+    public_jobs?: Record<string, JobSpec>
     log_level?: PluginLogLevel
 }
 
@@ -395,10 +388,12 @@ export interface PluginTask {
     name: string
     type: PluginTaskType
     exec: (payload?: Record<string, any>) => Promise<any>
+
+    __ignoreForAppMetrics?: boolean
 }
 
 export type WorkerMethods = {
-    runAsyncHandlersEventPipeline: (event: IngestionEvent) => Promise<void>
+    runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
     runEventPipeline: (event: PluginEvent) => Promise<void>
 }
 
@@ -459,6 +454,28 @@ export interface PropertyUsage {
     volume: number | null
 }
 
+/** Raw Organization row from database. */
+export interface RawOrganization {
+    id: string
+    name: string
+    created_at: string
+    updated_at: string
+    available_features: string[]
+}
+
+/** Usable Team model. */
+export interface Team {
+    id: number
+    uuid: string
+    organization_id: string
+    name: string
+    anonymize_ips: boolean
+    api_token: string
+    slack_incoming_webhook: string
+    session_recording_opt_in: boolean
+    ingested_event: boolean
+}
+
 /** Properties shared by RawEventMessage and EventMessage. */
 export interface BaseEventMessage {
     distinct_id: string
@@ -487,67 +504,79 @@ export interface EventMessage extends BaseEventMessage {
     sent_at: DateTime | null
 }
 
-/** Raw Organization row from database. */
-export interface RawOrganization {
-    id: string
-    name: string
-    created_at: string
-    updated_at: string
-    available_features: string[]
-}
-
-/** Usable Team model. */
-export interface Team {
-    id: number
+/** Properties shared by RawClickHouseEvent and ClickHouseEvent. */
+interface BaseEvent {
     uuid: string
-    organization_id: string
-    name: string
-    anonymize_ips: boolean
-    api_token: string
-    slack_incoming_webhook: string
-    session_recording_opt_in: boolean
-    ingested_event: boolean
-}
-
-/** Re-export Element from scaffolding, for backwards compat. */
-export { Element } from '@posthog/plugin-scaffold'
-
-/** Usable Event model. */
-export interface Event {
-    id: number
-    event?: string
-    properties: Record<string, any>
-    elements?: Element[]
-    timestamp: string
+    event: string
     team_id: number
     distinct_id: string
-    elements_hash: string
-    created_at: string
+    /** Person UUID. */
+    person_id?: string
+}
+
+export type ISOTimestamp = Brand<string, 'ISOTimestamp'>
+export type ClickHouseTimestamp = Brand<string, 'ClickHouseTimestamp'>
+export type ClickHouseTimestampSecondPrecision = Brand<string, 'ClickHouseTimestamp'>
+
+/** Raw event row from ClickHouse. */
+export interface RawClickHouseEvent extends BaseEvent {
+    timestamp: ClickHouseTimestamp
+    created_at: ClickHouseTimestamp
+    properties?: string
+    elements_chain: string
+    person_created_at?: ClickHouseTimestamp
+    person_properties?: string
+    group0_properties?: string
+    group1_properties?: string
+    group2_properties?: string
+    group3_properties?: string
+    group4_properties?: string
+    group0_created_at?: ClickHouseTimestamp
+    group1_created_at?: ClickHouseTimestamp
+    group2_created_at?: ClickHouseTimestamp
+    group3_created_at?: ClickHouseTimestamp
+    group4_created_at?: ClickHouseTimestamp
+}
+
+/** Parsed event row from ClickHouse. */
+export interface ClickHouseEvent extends BaseEvent {
+    timestamp: DateTime
+    created_at: DateTime
+    properties: Record<string, any>
+    elements_chain: Element[] | null
+    person_created_at: DateTime | null
     person_properties: Record<string, any>
     group0_properties: Record<string, any>
     group1_properties: Record<string, any>
     group2_properties: Record<string, any>
     group3_properties: Record<string, any>
     group4_properties: Record<string, any>
+    group0_created_at?: DateTime | null
+    group1_created_at?: DateTime | null
+    group2_created_at?: DateTime | null
+    group3_created_at?: DateTime | null
+    group4_created_at?: DateTime | null
 }
 
-export interface ClickHouseEvent extends Omit<Event, 'id' | 'elements' | 'elements_hash'> {
-    uuid: string
-    elements_chain: string | undefined
-}
-
-// Clickhouse event as read from kafka
-export interface ClickhouseEventKafka {
+/** Event in a database-agnostic shape, AKA an ingestion event.
+ * This is what should be passed around most of the time in the plugin server.
+ */
+interface BaseIngestionEvent {
+    eventUuid: string
     event: string
-    timestamp: string
-    team_id: number
-    distinct_id: string
-    created_at: string
-    uuid: string
-    elements_chain: string
-    properties: string
-    person_properties: string | null
+    ip: string | null
+    teamId: TeamId
+    distinctId: string
+    properties: Properties
+    timestamp: ISOTimestamp
+    elementsList: Element[]
 }
+
+/** Ingestion event before saving, currently just an alias of BaseIngestionEvent. */
+export type PreIngestionEvent = BaseIngestionEvent
+
+/** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
+export type PostIngestionEvent = BaseIngestionEvent
 
 export interface DeadLetterQueueEvent {
     id: string
@@ -634,10 +663,11 @@ export interface Group extends BaseGroup {
     version: number
 }
 
+export type GroupKey = string
 /** Clickhouse Group model */
 export interface ClickhouseGroup {
     group_type_index: GroupTypeIndex
-    group_key: string
+    group_key: GroupKey
     created_at: string
     team_id: number
     group_properties: string
@@ -650,14 +680,6 @@ export interface PersonDistinctId {
     person_id: number
     distinct_id: string
     version: string | null
-}
-
-/** ClickHouse PersonDistinctId model. (person_distinct_id table) */
-export interface ClickHousePersonDistinctId {
-    team_id: number
-    person_id: string
-    distinct_id: string
-    is_deleted: 0 | 1
 }
 
 /** ClickHouse PersonDistinctId model. (person_distinct_id2 table) */
@@ -683,7 +705,7 @@ export interface Cohort {
     last_calculation: string
     errors_calculating: number
     is_static: boolean
-    version: number
+    version: number | null
     pending_version: number
 }
 
@@ -804,7 +826,8 @@ export interface Action extends RawAction {
     hooks: Hook[]
 }
 
-export interface SessionRecordingEvent {
+/** Raw session recording event row from ClickHouse. */
+export interface RawSessionRecordingEvent {
     uuid: string
     timestamp: string
     team_id: number
@@ -813,10 +836,6 @@ export interface SessionRecordingEvent {
     window_id: string
     snapshot_data: string
     created_at: string
-}
-
-export interface PostgresSessionRecordingEvent extends Omit<SessionRecordingEvent, 'uuid'> {
-    id: string
 }
 
 export enum TimestampFormat {
@@ -835,9 +854,9 @@ export interface PluginScheduleControl {
     reloadSchedule: () => Promise<void>
 }
 
-export interface JobQueueConsumerControl {
+export interface JobsConsumerControl {
     stop: () => Promise<void>
-    resume: () => Promise<void> | void
+    resume: () => Promise<void>
 }
 
 export type IngestEventResponse =
@@ -916,16 +935,3 @@ export enum OrganizationMembershipLevel {
     Admin = 8,
     Owner = 15,
 }
-
-export interface PreIngestionEvent {
-    eventUuid: string
-    event: string
-    ip: string | null
-    teamId: TeamId
-    distinctId: string
-    properties: Properties
-    timestamp: DateTime | string
-    elementsList: Element[]
-}
-
-export type IngestionEvent = PreIngestionEvent

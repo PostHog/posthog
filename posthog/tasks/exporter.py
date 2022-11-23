@@ -5,7 +5,7 @@ from posthog.models import ExportedAsset
 
 
 @app.task(autoretry_for=(Exception,), max_retries=5, retry_backoff=True, acks_late=True)
-def export_asset(exported_asset_id: int, limit: Optional[int] = None,) -> None:
+def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
     from statshog.defaults.django import statsd
 
     from posthog.tasks.exports import csv_exporter, image_exporter

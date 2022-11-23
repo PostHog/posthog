@@ -1,4 +1,4 @@
-import { PreIngestionEvent } from '../../../../src/types'
+import { ISOTimestamp, PreIngestionEvent } from '../../../../src/types'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/5-createEventStep'
 import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
 
@@ -9,7 +9,7 @@ const preIngestionEvent: PreIngestionEvent = {
     distinctId: 'my_id',
     ip: '127.0.0.1',
     teamId: 2,
-    timestamp: '2020-02-23T02:15:00Z',
+    timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
     event: '$pageview',
     properties: {},
     elementsList: [],
@@ -29,10 +29,10 @@ describe('createEventStep()', () => {
         }
     })
 
-    it('calls `createEvent` and forwards to `runAsyncHandlersStep`', async () => {
+    it("calls `createEvent` and doesn't advance to the async handlers step", async () => {
         const personContainer = new LazyPersonContainer(2, 'my_id', runner.hub)
         const response = await createEventStep(runner, preIngestionEvent, personContainer)
 
-        expect(response).toEqual(['runAsyncHandlersStep', preIngestionEvent, personContainer])
+        expect(response).toEqual(null) // async handlers are handled separately by reading from the clickhouse events topic
     })
 })

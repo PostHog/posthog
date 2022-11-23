@@ -1,16 +1,25 @@
-import React, { MutableRefObject, useEffect, useRef } from 'react'
+import React, { MutableRefObject, Ref, useEffect, useRef } from 'react'
 import { Handler, viewportResizeDimension } from 'rrweb/typings/types'
 import { useActions, useValues } from 'kea'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { SessionPlayerState } from '~/types'
-import { IconPlay } from 'scenes/session-recordings/player/icons'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import useSize from '@react-hook/size'
+import './PlayerFrame.scss'
 
-export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrameInner(_, ref): JSX.Element {
+export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
+    { sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps,
+    ref: Ref<HTMLDivElement>
+): JSX.Element {
     const replayDimensionRef = useRef<viewportResizeDimension>()
-    const { currentPlayerState, player } = useValues(sessionRecordingPlayerLogic)
-    const { togglePlayPause, setScale } = useActions(sessionRecordingPlayerLogic)
+    const { player } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+    const { setScale } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const frameRef = ref as MutableRefObject<HTMLDivElement>
+    const containerRef = useRef<HTMLDivElement | null>(null)
+    const containerDimensions = useSize(containerRef)
 
+    // Recalculate the player size when the recording changes dimensions
     useEffect(() => {
         if (!player) {
             return
@@ -22,50 +31,38 @@ export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrame
         return () => window.removeEventListener('resize', windowResize)
     }, [player?.replayer])
 
+    // Recalculate the player size when the player changes dimensions
+    useEffect(() => {
+        windowResize()
+    }, [containerDimensions])
+
     const windowResize = (): void => {
         updatePlayerDimensions(replayDimensionRef.current)
     }
 
-    // :TRICKY: Scale down the iframe and try to position it vertically
     const updatePlayerDimensions = (replayDimensions: viewportResizeDimension | undefined): void => {
         if (!replayDimensions || !frameRef?.current?.parentElement || !player?.replayer) {
             return
         }
 
         replayDimensionRef.current = replayDimensions
-        const { width, height } = frameRef.current.parentElement.getBoundingClientRect()
 
-        const scale = Math.min(width / replayDimensions.width, height / replayDimensions.height, 1)
+        const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
+
+        const scale = Math.min(
+            parentDimensions.width / replayDimensions.width,
+            parentDimensions.height / replayDimensions.height,
+            1
+        )
 
         player.replayer.wrapper.style.transform = `scale(${scale})`
-        frameRef.current.style.paddingLeft = `${(width - replayDimensions.width * scale) / 2}px`
-        frameRef.current.style.paddingTop = `${(height - replayDimensions.height * scale) / 2}px`
-        frameRef.current.style.marginBottom = `-${height - replayDimensions.height * scale}px`
 
         setScale(scale)
     }
 
-    const renderPlayerState = (): JSX.Element | null => {
-        if (currentPlayerState === SessionPlayerState.BUFFER) {
-            return <div className="rrweb-overlay">Buffering...</div>
-        }
-        if (currentPlayerState === SessionPlayerState.PAUSE) {
-            return (
-                <div className="rrweb-overlay">
-                    <IconPlay className="rrweb-overlay-play-icon" />
-                </div>
-            )
-        }
-        if (currentPlayerState === SessionPlayerState.SKIP) {
-            return <div className="rrweb-overlay">Skipping inactivity</div>
-        }
-        return null
-    }
-
     return (
-        <div className="rrweb-player" onClick={togglePlayPause}>
-            <div ref={ref} />
-            <div className="rrweb-overlay-container">{renderPlayerState()}</div>
+        <div ref={containerRef} className="PlayerFrame ph-no-capture">
+            <div className="PlayerFrame__content" ref={ref} />
         </div>
     )
 })

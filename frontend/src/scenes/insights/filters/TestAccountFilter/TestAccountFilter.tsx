@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import React from 'react'
 import { FilterType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
@@ -29,9 +28,10 @@ export function TestAccountFilter({
                 <div className="flex items-center">
                     <span>Filter out internal and test users</span>
                     <LemonButton
-                        icon={<IconSettings className="text-xs" />}
+                        icon={<IconSettings />}
                         to="/project/settings#internal-users-filtering"
                         status="stealth"
+                        size="small"
                         noPadding
                         className="ml-1"
                     />

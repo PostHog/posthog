@@ -1,10 +1,10 @@
-import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonTable, LemonTableProps } from './LemonTable'
 
 export default {
     title: 'Lemon UI/Lemon Table',
     component: LemonTable,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof LemonTable>
 
 interface MockPerson {
@@ -170,8 +170,14 @@ WithExpandableRows.args = {
 export const Small = BasicTemplate.bind({})
 Small.args = { size: 'small' }
 
+export const XSmall = BasicTemplate.bind({})
+XSmall.args = { size: 'xs' }
+
 export const Embedded = BasicTemplate.bind({})
 Embedded.args = { embedded: true }
+
+export const Borderless = BasicTemplate.bind({})
+Borderless.args = { bordered: false }
 
 export const Loading = BasicTemplate.bind({})
 Loading.args = { loading: true }
@@ -206,4 +212,4 @@ WithHighlightedRows.args = {
 }
 
 export const WithMandatorySorting = BasicTemplate.bind({})
-WithMandatorySorting.args = { defaultSorting: { columnKey: 'name', order: 1 }, disableSortingCancellation: true }
+WithMandatorySorting.args = { defaultSorting: { columnKey: 'name', order: 1 }, noSortingCancellation: true }

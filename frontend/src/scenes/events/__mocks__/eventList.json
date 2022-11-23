@@ -61,7 +61,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -73,8 +72,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [
             {
@@ -263,7 +261,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -275,8 +272,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$rageclick",
@@ -349,7 +345,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -361,8 +356,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -437,7 +431,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -449,8 +442,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [
             {
@@ -672,7 +664,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -684,8 +675,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [
             {
@@ -884,7 +874,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -900,7 +889,6 @@
             "is_first_component_load": false,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 0,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -987,7 +975,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -1003,7 +990,6 @@
             "is_first_component_load": false,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 0,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -1085,7 +1071,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -1097,8 +1082,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "insight loaded",
@@ -1171,7 +1155,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -1183,8 +1166,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -1257,7 +1239,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -1269,8 +1250,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -1343,7 +1323,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -1355,8 +1334,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -1431,7 +1409,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -1443,8 +1420,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [
             {
@@ -1699,7 +1675,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -1714,7 +1689,6 @@
             "is_first_component_load": false,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 0,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -1800,7 +1774,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -1815,7 +1788,6 @@
             "is_first_component_load": false,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 0,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -1896,7 +1868,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -1908,8 +1879,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "insight loaded",
@@ -1982,7 +1952,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -1994,8 +1963,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -2070,7 +2038,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -2082,8 +2049,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [
             {
@@ -2356,7 +2322,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -2372,7 +2337,6 @@
             "is_first_component_load": false,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 1,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -2453,7 +2417,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -2465,8 +2428,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "insight loaded",
@@ -2539,7 +2501,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -2551,8 +2512,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -2625,7 +2585,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -2637,8 +2596,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -2713,7 +2671,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -2725,8 +2682,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [
             {
@@ -3000,7 +2956,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -3016,7 +2971,6 @@
             "is_first_component_load": false,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 1,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -3102,7 +3056,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -3118,7 +3071,6 @@
             "is_first_component_load": false,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 1,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -3199,7 +3151,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -3211,8 +3162,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "insight loaded",
@@ -3285,7 +3235,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -3297,8 +3246,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -3373,7 +3321,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -3385,8 +3332,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [
             {
@@ -3672,7 +3618,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -3688,7 +3633,6 @@
             "is_first_component_load": false,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 1,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -3774,7 +3718,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -3790,7 +3733,6 @@
             "is_first_component_load": false,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 1,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -3871,7 +3813,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -3883,8 +3824,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "insight loaded",
@@ -3957,7 +3897,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -3969,8 +3908,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -4043,7 +3981,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -4055,8 +3992,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -4129,7 +4065,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -4141,8 +4076,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -4217,7 +4151,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -4229,8 +4162,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [
             {
@@ -4412,7 +4344,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -4424,8 +4355,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [
             {
@@ -4709,7 +4639,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -4725,7 +4654,6 @@
             "is_first_component_load": false,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 1,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -4811,7 +4739,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -4827,7 +4754,6 @@
             "is_first_component_load": true,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 1,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -4908,7 +4834,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -4920,8 +4845,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "insight loaded",
@@ -4994,7 +4918,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -5006,8 +4929,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -5081,7 +5003,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -5094,8 +5015,7 @@
             "$feature_flag_response": false,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -5169,7 +5089,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -5182,8 +5101,7 @@
             "$feature_flag_response": false,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -5257,7 +5175,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -5270,8 +5187,7 @@
             "$feature_flag_response": true,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -5345,7 +5261,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -5358,8 +5273,7 @@
             "$feature_flag_response": false,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -5433,7 +5347,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -5446,8 +5359,7 @@
             "$feature_flag_response": false,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -5521,7 +5433,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -5534,8 +5445,7 @@
             "$feature_flag_response": false,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -5609,7 +5519,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -5622,8 +5531,7 @@
             "$feature_flag_response": false,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -5650,15 +5558,13 @@
                 "$geoip_city_name": "Sydney",
                 "$geoip_longitude": 151.2002,
                 "$geoip_time_zone": "Australia/Sydney",
-                "$initial_referrer": "$direct",
                 "$geoip_postal_code": "2000",
                 "$geoip_country_code": "AU",
                 "$geoip_country_name": "Australia",
                 "$geoip_continent_code": "OC",
                 "$geoip_continent_name": "Oceania",
                 "$geoip_subdivision_1_code": "NSW",
-                "$geoip_subdivision_1_name": "New South Wales",
-                "$initial_referring_domain": "$direct"
+                "$geoip_subdivision_1_name": "New South Wales"
             },
             "$set_once": {
                 "$initial_geoip_latitude": -33.8591,
@@ -5759,7 +5665,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -5771,8 +5676,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -5847,7 +5751,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "phjs-batch-handle": 17,
@@ -5870,7 +5773,6 @@
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "phjs-batch-unload-requests": 1,
             "phjs-_send_request_inflight": 0,
             "phjs-batch-unload-requests-e/": 1
@@ -5946,7 +5848,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -5958,8 +5859,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageleave",
@@ -6041,7 +5941,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -6057,7 +5956,6 @@
             "is_first_component_load": false,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 1,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -6138,7 +6036,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -6150,8 +6047,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "insight loaded",
@@ -6225,7 +6121,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -6238,8 +6133,7 @@
             "$feature_flag_response": false,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -6312,7 +6206,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -6324,8 +6217,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -6398,7 +6290,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -6410,8 +6301,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -6486,7 +6376,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -6498,8 +6387,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [
             {
@@ -6767,7 +6655,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -6779,8 +6666,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "insight loaded",
@@ -6862,7 +6748,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -6878,7 +6763,6 @@
             "is_first_component_load": false,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 1,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -6955,7 +6839,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -6967,8 +6850,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -7041,7 +6923,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -7053,8 +6934,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -7129,7 +7009,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -7141,8 +7020,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [
             {
@@ -7428,7 +7306,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -7443,7 +7320,6 @@
             "is_first_component_load": false,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 0,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -7524,7 +7400,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -7536,8 +7411,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "insight loaded",
@@ -7619,7 +7493,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -7634,7 +7507,6 @@
             "is_first_component_load": true,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 0,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -7711,7 +7583,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -7723,8 +7594,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -7798,7 +7668,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -7811,8 +7680,7 @@
             "$feature_flag_response": false,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -7886,7 +7754,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -7899,8 +7766,7 @@
             "$feature_flag_response": true,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -7974,7 +7840,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -7987,8 +7852,7 @@
             "$feature_flag_response": false,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -8062,7 +7926,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -8075,8 +7938,7 @@
             "$feature_flag_response": false,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -8150,7 +8012,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -8163,8 +8024,7 @@
             "$feature_flag_response": false,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -8238,7 +8098,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -8251,8 +8110,7 @@
             "$feature_flag_response": false,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -8279,15 +8137,13 @@
                 "$geoip_city_name": "Sydney",
                 "$geoip_longitude": 151.2002,
                 "$geoip_time_zone": "Australia/Sydney",
-                "$initial_referrer": "$direct",
                 "$geoip_postal_code": "2000",
                 "$geoip_country_code": "AU",
                 "$geoip_country_name": "Australia",
                 "$geoip_continent_code": "OC",
                 "$geoip_continent_name": "Oceania",
                 "$geoip_subdivision_1_code": "NSW",
-                "$geoip_subdivision_1_name": "New South Wales",
-                "$initial_referring_domain": "$direct"
+                "$geoip_subdivision_1_name": "New South Wales"
             },
             "$set_once": {
                 "$initial_geoip_latitude": -33.8591,
@@ -8388,7 +8244,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -8400,8 +8255,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -8476,7 +8330,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "phjs-batch-handle": 23,
@@ -8499,7 +8352,6 @@
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "phjs-batch-unload-requests": 1,
             "phjs-_send_request_inflight": 0,
             "phjs-batch-unload-requests-e/": 1
@@ -8575,7 +8427,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -8587,8 +8438,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageleave",
@@ -8671,7 +8521,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -8686,7 +8535,6 @@
             "is_first_component_load": false,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 0,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -8772,7 +8620,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -8787,7 +8634,6 @@
             "is_first_component_load": false,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 0,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -8868,7 +8714,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -8880,8 +8725,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "insight loaded",
@@ -8954,7 +8798,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -8966,8 +8809,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -9042,7 +8884,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -9054,8 +8895,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [
             {
@@ -9343,7 +9183,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -9359,7 +9198,6 @@
             "is_first_component_load": false,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 3,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -9446,7 +9284,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -9462,7 +9299,6 @@
             "is_first_component_load": false,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 3,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -9544,7 +9380,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -9556,8 +9391,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "insight loaded",
@@ -9630,7 +9464,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -9642,8 +9475,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -9716,7 +9548,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -9728,8 +9559,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -9802,7 +9632,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -9814,8 +9643,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -9890,7 +9718,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -9902,8 +9729,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [
             {
@@ -10185,7 +10011,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -10197,8 +10022,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "insight loaded",
@@ -10280,7 +10104,6 @@
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
             "properties_local": [],
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "properties_global": [],
@@ -10296,7 +10119,6 @@
             "is_first_component_load": true,
             "$geoip_subdivision_1_code": "NSW",
             "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct",
             "total_event_actions_count": 3,
             "properties_local_custom_count": 0,
             "properties_global_custom_count": 0,
@@ -10373,7 +10195,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -10385,8 +10206,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -10460,7 +10280,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -10473,8 +10292,7 @@
             "$feature_flag_response": false,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -10548,7 +10366,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -10561,8 +10378,7 @@
             "$feature_flag_response": false,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -10636,7 +10452,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -10649,8 +10464,7 @@
             "$feature_flag_response": true,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -10724,7 +10538,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -10737,8 +10550,7 @@
             "$feature_flag_response": false,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -10812,7 +10624,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -10825,8 +10636,7 @@
             "$feature_flag_response": false,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -10900,7 +10710,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -10913,8 +10722,7 @@
             "$feature_flag_response": false,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -10988,7 +10796,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -11001,8 +10808,7 @@
             "$feature_flag_response": false,
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$feature_flag_called",
@@ -11075,7 +10881,6 @@
             "$geoip_longitude": 151.2002,
             "$geoip_time_zone": "Australia/Sydney",
             "$viewport_height": 780,
-            "$initial_referrer": "$direct",
             "$plugins_deferred": [],
             "$referring_domain": "localhost:8000",
             "$geoip_postal_code": "2000",
@@ -11087,8 +10892,7 @@
             "$geoip_continent_name": "Oceania",
             "email_service_available": false,
             "$geoip_subdivision_1_code": "NSW",
-            "$geoip_subdivision_1_name": "New South Wales",
-            "$initial_referring_domain": "$direct"
+            "$geoip_subdivision_1_name": "New South Wales"
         },
         "elements": [],
         "event": "$pageview",
@@ -11115,15 +10919,13 @@
                 "$geoip_city_name": "Sydney",
                 "$geoip_longitude": 151.2002,
                 "$geoip_time_zone": "Australia/Sydney",
-                "$initial_referrer": "$direct",
                 "$geoip_postal_code": "2000",
                 "$geoip_country_code": "AU",
                 "$geoip_country_name": "Australia",
                 "$geoip_continent_code": "OC",
                 "$geoip_continent_name": "Oceania",
                 "$geoip_subdivision_1_code": "NSW",
-                "$geoip_subdivision_1_name": "New South Wales",
-                "$initial_referring_domain": "$direct"
+                "$geoip_subdivision_1_name": "New South Wales"
             },
             "$set_once": {
                 "$initial_geoip_latitude": -33.8591,

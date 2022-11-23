@@ -1,9 +1,24 @@
+from enum import Enum
 from typing import Dict, List, Tuple
 
 import mimesis
 import mimesis.random
 
 WeightedPool = Tuple[List[str], List[int]]
+
+
+class Industry(str, Enum):
+    TECHNOLOGY = "technology"
+    FINANCE = "finance"
+    MEDIA = "media"
+    HEALTHCARE = "healthcare"
+    EDUCATION = "education"
+    ENTERTAINMENT = "entertainment"
+    RETAIL = "retail"
+    TRAVEL = "travel"
+    FOOD = "food"
+    REAL_ESTATE = "real estate"
+    OTHER = "other"
 
 
 class PropertiesProvider(mimesis.BaseProvider):
@@ -23,6 +38,22 @@ class PropertiesProvider(mimesis.BaseProvider):
         "Android": (["Chrome", "Android Mobile", "Samsung Internet", "Firefox"], [5, 3, 3, 1]),
     }
 
+    INDUSTRY_POOL = (
+        [
+            Industry.TECHNOLOGY,
+            Industry.HEALTHCARE,
+            Industry.FINANCE,
+            Industry.EDUCATION,
+            Industry.ENTERTAINMENT,
+            Industry.RETAIL,
+            Industry.TRAVEL,
+            Industry.FOOD,
+            Industry.REAL_ESTATE,
+            Industry.OTHER,
+        ],
+        [3, 1, 1, 2, 2, 1, 2, 2, 1, 3],
+    )
+
     random: mimesis.random.Random
 
     def device_type_os_browser(self) -> Tuple[str, str, str]:
@@ -33,3 +64,7 @@ class PropertiesProvider(mimesis.BaseProvider):
         browser_pool, browser_weights = self.BROWSER_WEIGHTED_POOLS[os]
         browser = self.random.choices(browser_pool, browser_weights)[0]
         return device_type, os, browser
+
+    def industry(self) -> Industry:
+        industry_pool, industry_weights = self.INDUSTRY_POOL
+        return self.random.choices(industry_pool, industry_weights)[0]

@@ -38,8 +38,6 @@
         "$time",
         "distinct_id",
         "$device_id",
-        "$initial_referrer",
-        "$initial_referring_domain",
         "$referrer",
         "$referring_domain",
         "$active_feature_flags",

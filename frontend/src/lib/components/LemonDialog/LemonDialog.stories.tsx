@@ -1,9 +1,8 @@
-import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonDialog, LemonDialogProps } from './LemonDialog'
 import { LemonButton } from '../LemonButton'
 import { Link } from '@posthog/lemon-ui'
-import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 export default {
     title: 'Lemon UI/Lemon Dialog',
@@ -41,6 +40,7 @@ Dialogs are opened imperatively (i.e. calling \`LemonDialog.open()\`) whereas Mo
             `,
             },
         },
+        chromatic: { disableSnapshot: false },
     },
 } as ComponentMeta<typeof LemonDialog>
 
@@ -82,7 +82,7 @@ Customised.args = {
         <>
             This action cannot be undone. If you opt to delete the organization and its corresponding events, the events
             will not be immediately removed. Instead these events will be deleted on a set schedule during non-peak
-            usage times. <Link href="https://posthog.com">Learn more</Link>
+            usage times. <Link to="https://posthog.com">Learn more</Link>
         </>
     ),
     primaryButton: {

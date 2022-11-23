@@ -47,9 +47,6 @@
             cursor: move;
         }
         .arrow {
-            &.hide {
-                visibility: hidden;
-            }
             color: #888;
             height: 19px;
         }
@@ -84,7 +81,6 @@
 
 .plugin-job-json-editor {
     border: 1px solid #efefef;
-    padding: 10px;
 }
 
 .plugin-run-job-button {

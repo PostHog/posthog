@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { BillingType, Realm } from '~/types'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
@@ -13,6 +13,7 @@ import { LemonSelect } from './LemonSelect'
 export default {
     title: 'Components/BillingAlerts',
     component: BillingAlerts,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof BillingAlerts>
 
 const Template = (): JSX.Element => {
@@ -82,14 +83,14 @@ const Template = (): JSX.Element => {
             <BillingAlerts />
 
             <LemonSelect
-                value={alertType}
+                value={alertType ?? undefined}
                 onChange={setAlertType}
-                options={{
-                    [BillingAlertType.SetupBilling]: { label: 'SetupBilling' },
-                    [BillingAlertType.FreeUsageNearLimit]: { label: 'FreeUsageNearLimit' },
-                    [BillingAlertType.UsageLimitExceeded]: { label: 'UsageLimitExceeded' },
-                    [BillingAlertType.UsageNearLimit]: { label: 'UsageNearLimit' },
-                }}
+                options={[
+                    { value: BillingAlertType.SetupBilling, label: 'SetupBilling' },
+                    { value: BillingAlertType.FreeUsageNearLimit, label: 'FreeUsageNearLimit' },
+                    { value: BillingAlertType.UsageLimitExceeded, label: 'UsageLimitExceeded' },
+                    { value: BillingAlertType.UsageNearLimit, label: 'UsageNearLimit' },
+                ]}
             />
         </div>
     )

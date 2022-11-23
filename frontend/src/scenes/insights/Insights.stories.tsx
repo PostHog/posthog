@@ -9,8 +9,8 @@ export default {
     decorators: [
         mswDecorator({
             get: {
-                '/api/person/retention': sampleRetentionPeopleResponse,
-                '/api/person/properties': samplePersonProperties,
+                '/api/projects/:team_id/persons/retention': sampleRetentionPeopleResponse,
+                '/api/projects/:team_id/persons/properties': samplePersonProperties,
             },
             post: {
                 '/api/projects/:projectId/cohorts/': { id: 1 },

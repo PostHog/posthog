@@ -1,14 +1,14 @@
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
-import { ClickhouseEventKafka } from '../../../types'
+import { RawClickHouseEvent } from '../../../types'
 import { convertToIngestionEvent } from '../../../utils/event'
 import { groupIntoBatches } from '../../../utils/utils'
 import { runInstrumentedFunction } from '../../utils'
-import { KafkaQueue } from '../kafka-queue'
+import { IngestionConsumer } from '../kafka-queue'
 import { eachBatch } from './each-batch'
 
-export async function eachMessageAsyncHandlers(message: KafkaMessage, queue: KafkaQueue): Promise<void> {
-    const clickHouseEvent = JSON.parse(message.value!.toString()) as ClickhouseEventKafka
+export async function eachMessageAsyncHandlers(message: KafkaMessage, queue: IngestionConsumer): Promise<void> {
+    const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
     const event = convertToIngestionEvent(clickHouseEvent)
 
     await runInstrumentedFunction({
@@ -20,6 +20,6 @@ export async function eachMessageAsyncHandlers(message: KafkaMessage, queue: Kaf
     })
 }
 
-export async function eachBatchAsyncHandlers(payload: EachBatchPayload, queue: KafkaQueue): Promise<void> {
+export async function eachBatchAsyncHandlers(payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> {
     await eachBatch(payload, queue, eachMessageAsyncHandlers, groupIntoBatches, 'async_handlers')
 }

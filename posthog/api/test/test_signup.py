@@ -1,6 +1,6 @@
 import datetime
 import uuid
-from typing import cast
+from typing import Dict, Optional, cast
 from unittest import mock
 from unittest.mock import ANY, patch
 
@@ -19,11 +19,7 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.test.base import APIBaseTest
 from posthog.utils import get_instance_realm
 
-MOCK_GITLAB_SSO_RESPONSE = {
-    "access_token": "123",
-    "email": "testemail@posthog.com",
-    "name": "John Doe",
-}
+MOCK_GITLAB_SSO_RESPONSE = {"access_token": "123", "email": "testemail@posthog.com", "name": "John Doe"}
 
 
 class TestSignupAPI(APIBaseTest):
@@ -46,6 +42,7 @@ class TestSignupAPI(APIBaseTest):
                 "email": "hedgehog@posthog.com",
                 "password": "notsecure",
                 "organization_name": "Hedgehogs United, LLC",
+                "role_at_organization": "product",
                 "email_opt_in": False,
             },
         )
@@ -70,7 +67,8 @@ class TestSignupAPI(APIBaseTest):
         # Assert that the user was properly created
         self.assertEqual(user.first_name, "John")
         self.assertEqual(user.email, "hedgehog@posthog.com")
-        self.assertEqual(user.email_opt_in, False)
+        self.assertFalse(user.email_opt_in)
+        self.assertTrue(user.is_staff)  # True because this is the first user in the instance
 
         # Assert that the team was properly created
         self.assertEqual(team.name, "Default Project")
@@ -100,14 +98,31 @@ class TestSignupAPI(APIBaseTest):
         self.assertTrue(user.check_password("notsecure"))
 
     @pytest.mark.skip_on_multitenancy
+    def test_signup_disallowed_on_email_collision(self):
+        # Create a user with the same email
+        User.objects.create(email="fake@posthog.com", first_name="Jane")
+
+        response = self.client.post(
+            "/api/signup/", {"first_name": "John", "email": "fake@posthog.com", "password": "notsecure"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                "There is already an account with this email address.", code="unique", attr="email"
+            ),
+        )
+        self.assertEqual(User.objects.count(), 1)
+
+    @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_self_hosted_by_default(self):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post(
-                "/api/signup/", {"first_name": "Jane", "email": "hedgehog2@posthog.com", "password": "notsecure"},
+                "/api/signup/", {"first_name": "Jane", "email": "hedgehog2@posthog.com", "password": "notsecure"}
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             response = self.client.post(
-                "/api/signup/", {"first_name": "Jane", "email": "hedgehog2@posthog.com", "password": "notsecure"},
+                "/api/signup/", {"first_name": "Jane", "email": "hedgehog2@posthog.com", "password": "notsecure"}
             )
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertEqual(
@@ -129,26 +144,27 @@ class TestSignupAPI(APIBaseTest):
             pass
         else:
             super(LicenseManager, cast(LicenseManager, License.objects)).create(
-                key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+                key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
             )
 
             Organization.objects.create(name="name")
             User.objects.create(first_name="name", email="email@posthog.com")
             count = Organization.objects.count()
-            with self.settings(MULTI_TENANCY=False, MULTI_ORG_ENABLED=True):
-                response = self.client.post(
-                    "/api/signup/", {"first_name": "Jane", "email": "hedgehog4@posthog.com", "password": "notsecure"},
-                )
+            with self.is_cloud(False):
+                with self.settings(MULTI_ORG_ENABLED=True):
+                    response = self.client.post(
+                        "/api/signup/",
+                        {"first_name": "Jane", "email": "hedgehog4@posthog.com", "password": "notsecure"},
+                    )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             self.assertEqual(response.json()["email"], "hedgehog4@posthog.com")
             self.assertEqual(Organization.objects.count(), count + 1)
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthoganalytics.capture")
-    @patch("posthoganalytics.identify")
-    def test_signup_minimum_attrs(self, mock_identify, mock_capture):
+    def test_signup_minimum_attrs(self, mock_capture):
         response = self.client.post(
-            "/api/signup/", {"first_name": "Jane", "email": "hedgehog2@posthog.com", "password": "notsecure"},
+            "/api/signup/", {"first_name": "Jane", "email": "hedgehog2@posthog.com", "password": "notsecure"}
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -169,11 +185,11 @@ class TestSignupAPI(APIBaseTest):
         # Assert that the user & org were properly created
         self.assertEqual(user.first_name, "Jane")
         self.assertEqual(user.email, "hedgehog2@posthog.com")
-        self.assertEqual(user.email_opt_in, True)  # Defaults to True
+        self.assertTrue(user.email_opt_in)  # Defaults to True
         self.assertEqual(organization.name, "Jane")
+        self.assertTrue(user.is_staff)  # True because this is the first user in the instance
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
-        mock_identify.assert_called_once()
         mock_capture.assert_called_once()
         self.assertEqual(user.distinct_id, mock_capture.call_args.args[0])
         self.assertEqual("user signed up", mock_capture.call_args.args[1])
@@ -199,23 +215,15 @@ class TestSignupAPI(APIBaseTest):
         team_count: int = Team.objects.count()
         org_count: int = Organization.objects.count()
 
-        required_attributes = [
-            "first_name",
-            "email",
-            "password",
-        ]
+        required_attributes = ["first_name", "email", "password"]
 
         for attribute in required_attributes:
-            body = {
-                "first_name": "Jane",
-                "email": "invalid@posthog.com",
-                "password": "notsecure",
-            }
+            body = {"first_name": "Jane", "email": "invalid@posthog.com", "password": "notsecure"}
             body.pop(attribute)
 
             # Make sure the endpoint works with and without the trailing slash
             response = self.client.post("/api/signup", body)
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, f"{attribute} is required")
             self.assertEqual(
                 response.json(),
                 {
@@ -224,6 +232,39 @@ class TestSignupAPI(APIBaseTest):
                     "detail": "This field is required.",
                     "attr": attribute,
                 },
+                f"{attribute} is required",
+            )
+
+        self.assertEqual(User.objects.count(), count)
+        self.assertEqual(Team.objects.count(), team_count)
+        self.assertEqual(Organization.objects.count(), org_count)
+
+    def test_cant_sign_up_with_required_attributes_null(self):
+        count: int = User.objects.count()
+        team_count: int = Team.objects.count()
+        org_count: int = Organization.objects.count()
+
+        required_attributes = ["first_name", "email"]
+
+        for attribute in required_attributes:
+            body: Dict[str, Optional[str]] = {
+                "first_name": "Jane",
+                "email": "invalid@posthog.com",
+                "password": "notsecure",
+            }
+            body[attribute] = None
+
+            response = self.client.post("/api/signup/", body)
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, f"{attribute} may not be null")
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "validation_error",
+                    "code": "null",
+                    "detail": "This field may not be null.",
+                    "attr": attribute,
+                },
+                f"{attribute} may not be null",
             )
 
         self.assertEqual(User.objects.count(), count)
@@ -235,7 +276,7 @@ class TestSignupAPI(APIBaseTest):
         team_count: int = Team.objects.count()
 
         response = self.client.post(
-            "/api/signup/", {"first_name": "Jane", "email": "failed@posthog.com", "password": "123"},
+            "/api/signup/", {"first_name": "Jane", "email": "failed@posthog.com", "password": "123"}
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -258,7 +299,7 @@ class TestSignupAPI(APIBaseTest):
         """
 
         response = self.client.post(
-            "/api/signup/", {"first_name": "Jane", "email": "hedgehog75@posthog.com", "password": "notsecure",},
+            "/api/signup/", {"first_name": "Jane", "email": "hedgehog75@posthog.com", "password": "notsecure"}
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -278,7 +319,7 @@ class TestSignupAPI(APIBaseTest):
 
         dashboard: Dashboard = Dashboard.objects.first()  # type: ignore
         self.assertEqual(dashboard.team, user.team)
-        self.assertEqual(dashboard.insights.count(), 6)
+        self.assertEqual(dashboard.tiles.count(), 6)
         self.assertEqual(dashboard.name, "My App Dashboard")
         self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 1)
 
@@ -293,7 +334,7 @@ class TestSignupAPI(APIBaseTest):
             pass
         else:
             super(LicenseManager, cast(LicenseManager, License.objects)).create(
-                key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+                key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
             )
 
             with self.settings(SOCIAL_AUTH_GITLAB_KEY="gitlab_123", SOCIAL_AUTH_GITLAB_SECRET="gitlab_secret"):
@@ -324,7 +365,7 @@ class TestSignupAPI(APIBaseTest):
             pass
         else:
             super(LicenseManager, cast(LicenseManager, License.objects)).create(
-                key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+                key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
             )
 
             with self.settings(SOCIAL_AUTH_GITLAB_KEY="gitlab_123", SOCIAL_AUTH_GITLAB_SECRET="gitlab_secret"):
@@ -383,7 +424,7 @@ class TestSignupAPI(APIBaseTest):
             response, "/login?error_code=no_new_organizations"
         )  # show the user an error; operation not permitted
 
-    def run_test_for_whitelisted_domain(self, mock_sso_providers, mock_request):
+    def run_test_for_whitelisted_domain(self, mock_sso_providers, mock_request, mock_capture):
         # Make sure Google Auth is valid for this test instance
         mock_sso_providers.return_value = {"google-oauth2": True}
 
@@ -401,10 +442,7 @@ class TestSignupAPI(APIBaseTest):
 
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
-        mock_request.return_value.json.return_value = {
-            "access_token": "123",
-            "email": "jane@hogflix.posthog.com",
-        }
+        mock_request.return_value.json.return_value = {"access_token": "123", "email": "jane@hogflix.posthog.com"}
 
         response = self.client.get(url, follow=True)
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
@@ -413,6 +451,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(User.objects.count(), user_count + 1)
         user = cast(User, User.objects.last())
         self.assertEqual(user.email, "jane@hogflix.posthog.com")
+        self.assertFalse(user.is_staff)  # Not first user in the instance
         self.assertEqual(user.organization, new_org)
         self.assertEqual(user.team, new_project)
         self.assertEqual(user.organization_memberships.count(), 1)
@@ -420,25 +459,34 @@ class TestSignupAPI(APIBaseTest):
             cast(OrganizationMembership, user.organization_memberships.first()).level,
             OrganizationMembership.Level.MEMBER,
         )
+        self.assertFalse(mock_capture.call_args.kwargs["properties"]["is_organization_first_user"])
 
+    @patch("posthoganalytics.capture")
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @mock.patch("posthog.tasks.user_identify.identify_task")
     @pytest.mark.ee
-    def test_social_signup_with_whitelisted_domain_on_self_hosted(self, mock_sso_providers, mock_request):
-        self.run_test_for_whitelisted_domain(mock_sso_providers, mock_request)
+    def test_social_signup_with_whitelisted_domain_on_self_hosted(
+        self, mock_identify, mock_sso_providers, mock_request, mock_capture
+    ):
+        self.run_test_for_whitelisted_domain(mock_sso_providers, mock_request, mock_capture)
 
+    @patch("posthoganalytics.capture")
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @mock.patch("posthog.tasks.user_identify.identify_task")
     @pytest.mark.ee
-    def test_social_signup_with_whitelisted_domain_on_cloud(self, mock_sso_providers, mock_request):
-        with self.settings(MULTI_TENANCY=True):
-            self.run_test_for_whitelisted_domain(mock_sso_providers, mock_request)
+    def test_social_signup_with_whitelisted_domain_on_cloud(
+        self, mock_identify, mock_sso_providers, mock_request, mock_capture
+    ):
+        with self.is_cloud(True):
+            self.run_test_for_whitelisted_domain(mock_sso_providers, mock_request, mock_capture)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
     def test_social_signup_with_whitelisted_domain_on_cloud_reverse(self, mock_sso_providers, mock_request):
-        with self.settings(MULTI_TENANCY=True):
+        with self.is_cloud(True):
             # user already exists
             User.objects.create(email="jane@hogflix.posthog.com", distinct_id=str(uuid.uuid4()))
 
@@ -459,10 +507,7 @@ class TestSignupAPI(APIBaseTest):
 
             url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
             url += f"?code=2&state={response.client.session['google-oauth2_state']}"
-            mock_request.return_value.json.return_value = {
-                "access_token": "123",
-                "email": "jane@hogflix.posthog.com",
-            }
+            mock_request.return_value.json.return_value = {"access_token": "123", "email": "jane@hogflix.posthog.com"}
 
             response = self.client.get(url, follow=True)
             self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
@@ -471,6 +516,7 @@ class TestSignupAPI(APIBaseTest):
             self.assertEqual(User.objects.count(), user_count)  # should remain the same
             user = cast(User, User.objects.last())
             self.assertEqual(user.email, "jane@hogflix.posthog.com")
+            self.assertFalse(user.is_staff)  # Not first user in the instance
             self.assertEqual(user.organization, new_org)
             self.assertEqual(user.team, new_project)
             self.assertEqual(user.organization_memberships.count(), 1)
@@ -488,7 +534,7 @@ class TestSignupAPI(APIBaseTest):
         mock_sso_providers.return_value = {"google-oauth2": True}
         new_org = Organization.objects.create(name="Test org")
         OrganizationDomain.objects.create(
-            domain="posthog.net", verified_at=timezone.now(), jit_provisioning_enabled=False, organization=new_org,
+            domain="posthog.net", verified_at=timezone.now(), jit_provisioning_enabled=False, organization=new_org
         )  # note `jit_provisioning_enabled=False`
 
         response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
@@ -511,7 +557,7 @@ class TestSignupAPI(APIBaseTest):
         mock_sso_providers.return_value = {"google-oauth2": True}
         new_org = Organization.objects.create(name="Test org")
         OrganizationDomain.objects.create(
-            domain="posthog.net", verified_at=None, jit_provisioning_enabled=True, organization=new_org,
+            domain="posthog.net", verified_at=None, jit_provisioning_enabled=True, organization=new_org
         )  # note `verified_at=None`
 
         response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
@@ -534,7 +580,7 @@ class TestSignupAPI(APIBaseTest):
         mock_sso_providers.return_value = {"google-oauth2": True}
         new_org = Organization.objects.create(name="Test org")
         OrganizationDomain.objects.create(
-            domain="good.com", verified_at=timezone.now(), jit_provisioning_enabled=True, organization=new_org,
+            domain="good.com", verified_at=timezone.now(), jit_provisioning_enabled=True, organization=new_org
         )
 
         response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
@@ -557,18 +603,17 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
     def test_social_signup_to_existing_org_without_whitelisted_domain_on_cloud(self, mock_sso_providers, mock_request):
-        mock_sso_providers.return_value = {"google-oauth2": True}
-        Organization.objects.create(name="Hogflix Movies")
-        user_count = User.objects.count()
-        org_count = Organization.objects.count()
-        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-        self.assertEqual(response.status_code, 302)
+        with self.is_cloud(True):
+            mock_sso_providers.return_value = {"google-oauth2": True}
+            Organization.objects.create(name="Hogflix Movies")
+            user_count = User.objects.count()
+            org_count = Organization.objects.count()
+            response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+            self.assertEqual(response.status_code, 302)
 
-        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
-        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
-        mock_request.return_value.json.return_value = {"access_token": "123", "email": "jane@hogflix.posthog.com"}
-
-        with self.settings(MULTI_TENANCY=True):
+            url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+            url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+            mock_request.return_value.json.return_value = {"access_token": "123", "email": "jane@hogflix.posthog.com"}
             response = self.client.get(url, follow=True)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
@@ -582,7 +627,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(Organization.objects.count(), org_count)
 
 
-class TestInviteSignup(APIBaseTest):
+class TestInviteSignupAPI(APIBaseTest):
     """
     Tests the sign up process for users with an invite (i.e. existing organization).
     """
@@ -593,7 +638,7 @@ class TestInviteSignup(APIBaseTest):
 
     def test_api_invite_sign_up_prevalidate(self):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+19@posthog.com", organization=self.organization,
+            target_email="test+19@posthog.com", organization=self.organization
         )
 
         response = self.client.get(f"/api/signup/{invite.id}/")
@@ -629,7 +674,7 @@ class TestInviteSignup(APIBaseTest):
         user = self._create_user("test+29@posthog.com", "test_password")
         new_org = Organization.objects.create(name="Test, Inc")
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+29@posthog.com", organization=new_org,
+            target_email="test+29@posthog.com", organization=new_org
         )
 
         self.client.force_login(user)
@@ -663,7 +708,7 @@ class TestInviteSignup(APIBaseTest):
     def test_existing_user_cant_claim_invite_if_it_doesnt_match_target_email(self):
         user = self._create_user("test+39@posthog.com", "test_password")
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+49@posthog.com", organization=self.organization,
+            target_email="test+49@posthog.com", organization=self.organization
         )
 
         self.client.force_login(user)
@@ -682,7 +727,7 @@ class TestInviteSignup(APIBaseTest):
 
     def test_api_invite_sign_up_prevalidate_expired_invite(self):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+59@posthog.com", organization=self.organization,
+            target_email="test+59@posthog.com", organization=self.organization
         )
         invite.created_at = datetime.datetime(2020, 12, 1, tzinfo=pytz.UTC)
         invite.save()
@@ -704,11 +749,11 @@ class TestInviteSignup(APIBaseTest):
     @patch("posthoganalytics.capture")
     def test_api_invite_sign_up(self, mock_capture):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+99@posthog.com", organization=self.organization,
+            target_email="test+99@posthog.com", organization=self.organization
         )
 
         response = self.client.post(
-            f"/api/signup/{invite.id}/", {"first_name": "Alice", "password": "test_password", "email_opt_in": True},
+            f"/api/signup/{invite.id}/", {"first_name": "Alice", "password": "test_password", "email_opt_in": True}
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         user = cast(User, User.objects.order_by("-pk")[0])
@@ -761,7 +806,7 @@ class TestInviteSignup(APIBaseTest):
     def test_api_invite_sign_up_where_there_are_no_default_non_private_projects(self):
         self.client.logout()
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+private@posthog.com", organization=self.organization,
+            target_email="test+private@posthog.com", organization=self.organization
         )
 
         self.organization.available_features = [AvailableFeature.PROJECT_BASED_PERMISSIONING]
@@ -770,7 +815,7 @@ class TestInviteSignup(APIBaseTest):
         self.team.save()
 
         response = self.client.post(
-            f"/api/signup/{invite.id}/", {"first_name": "Alice", "password": "test_password", "email_opt_in": True},
+            f"/api/signup/{invite.id}/", {"first_name": "Alice", "password": "test_password", "email_opt_in": True}
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         user = cast(User, User.objects.order_by("-pk")[0])
@@ -788,11 +833,9 @@ class TestInviteSignup(APIBaseTest):
         self.team.save()
         team = Team.objects.create(name="Public project", organization=self.organization, access_control=False)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+privatepublic@posthog.com", organization=self.organization,
+            target_email="test+privatepublic@posthog.com", organization=self.organization
         )
-        response = self.client.post(
-            f"/api/signup/{invite.id}/", {"first_name": "Charlie", "password": "test_password"},
-        )
+        response = self.client.post(f"/api/signup/{invite.id}/", {"first_name": "Charlie", "password": "test_password"})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         user = cast(User, User.objects.order_by("-pk")[0])
         self.assertEqual(user.organization_memberships.count(), 1)
@@ -802,12 +845,12 @@ class TestInviteSignup(APIBaseTest):
 
     def test_api_invite_sign_up_member_joined_email_is_not_sent_for_initial_member(self):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+100@posthog.com", organization=self.organization,
+            target_email="test+100@posthog.com", organization=self.organization
         )
 
         with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
             response = self.client.post(
-                f"/api/signup/{invite.id}/", {"first_name": "Alice", "password": "test_password", "email_opt_in": True},
+                f"/api/signup/{invite.id}/", {"first_name": "Alice", "password": "test_password", "email_opt_in": True}
             )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -819,7 +862,7 @@ class TestInviteSignup(APIBaseTest):
             initial_user = User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
 
             invite: OrganizationInvite = OrganizationInvite.objects.create(
-                target_email="test+100@posthog.com", organization=self.organization,
+                target_email="test+100@posthog.com", organization=self.organization
             )
 
             with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
@@ -840,33 +883,32 @@ class TestInviteSignup(APIBaseTest):
         User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
 
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+100@posthog.com", organization=self.organization,
+            target_email="test+100@posthog.com", organization=self.organization
         )
 
         with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
             response = self.client.post(
-                f"/api/signup/{invite.id}/", {"first_name": "Alice", "password": "test_password", "email_opt_in": True},
+                f"/api/signup/{invite.id}/", {"first_name": "Alice", "password": "test_password", "email_opt_in": True}
             )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         self.assertEqual(len(mail.outbox), 0)
 
-    @patch("posthoganalytics.identify")
     @patch("posthoganalytics.capture")
-    def test_existing_user_can_sign_up_to_a_new_organization(self, mock_capture, mock_identify):
+    def test_existing_user_can_sign_up_to_a_new_organization(self, mock_capture):
         user = self._create_user("test+159@posthog.com", "test_password")
         new_org = Organization.objects.create(name="TestCo")
         new_team = Team.objects.create(organization=new_org)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+159@posthog.com", organization=new_org,
+            target_email="test+159@posthog.com", organization=new_org
         )
 
         self.client.force_login(user)
 
         count = User.objects.count()
 
-        with self.settings(MULTI_TENANCY=True):
+        with self.is_cloud(True):
             response = self.client.post(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(
@@ -895,6 +937,7 @@ class TestInviteSignup(APIBaseTest):
         # User is not changed
         self.assertEqual(user.first_name, "")
         self.assertEqual(user.email, "test+159@posthog.com")
+        self.assertFalse(user.is_staff)  # Not first user in the instance
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(
@@ -906,10 +949,10 @@ class TestInviteSignup(APIBaseTest):
                 "org_current_invite_count": 0,
                 "org_current_project_count": 1,
                 "org_current_members_count": 1,
+                "$set": ANY,
             },
             groups={"instance": ANY, "organization": str(new_org.id)},
         )
-        mock_identify.assert_called_once()
 
         # Assert that the user remains logged in
         response = self.client.get("/api/users/@me/")
@@ -928,7 +971,7 @@ class TestInviteSignup(APIBaseTest):
 
         Team.objects.create(organization=new_org)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+189@posthog.com", organization=new_org,
+            target_email="test+189@posthog.com", organization=new_org
         )
 
         self.client.force_login(user)
@@ -964,6 +1007,7 @@ class TestInviteSignup(APIBaseTest):
                 "org_current_invite_count": 0,
                 "org_current_project_count": 1,
                 "org_current_members_count": 2,
+                "$set": ANY,
             },
             groups={"instance": ANY, "organization": str(new_org.id)},
         )
@@ -973,20 +1017,14 @@ class TestInviteSignup(APIBaseTest):
         team_count: int = Team.objects.count()
         org_count: int = Organization.objects.count()
 
-        required_attributes = [
-            "first_name",
-            "password",
-        ]
+        required_attributes = ["first_name", "password"]
 
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+799@posthog.com", organization=self.organization,
+            target_email="test+799@posthog.com", organization=self.organization
         )
 
         for attribute in required_attributes:
-            body = {
-                "first_name": "Charlie",
-                "password": "test_password",
-            }
+            body = {"first_name": "Charlie", "password": "test_password"}
             body.pop(attribute)
 
             response = self.client.post(f"/api/signup/{invite.id}/", body)
@@ -1011,7 +1049,7 @@ class TestInviteSignup(APIBaseTest):
         org_count: int = Organization.objects.count()
 
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+799@posthog.com", organization=self.organization,
+            target_email="test+799@posthog.com", organization=self.organization
         )
 
         response = self.client.post(f"/api/signup/{invite.id}/", {"first_name": "Charlie", "password": "123"})
@@ -1059,7 +1097,7 @@ class TestInviteSignup(APIBaseTest):
         org_count: int = Organization.objects.count()
 
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+799@posthog.com", organization=self.organization,
+            target_email="test+799@posthog.com", organization=self.organization
         )
         invite.created_at = datetime.datetime(2020, 3, 3, tzinfo=pytz.UTC)
         invite.save()
@@ -1084,7 +1122,7 @@ class TestInviteSignup(APIBaseTest):
 
     def test_api_social_invite_sign_up(self):
         Organization.objects.all().delete()  # Can only create organizations in fresh instances
-        # simulate SSO process started
+        # Simulate SSO process started
         session = self.client.session
         session.update({"backend": "google-oauth2", "email": "test_api_social_invite_sign_up@posthog.com"})
         session.save()

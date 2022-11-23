@@ -21,12 +21,10 @@ from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 from dataclasses_json import dataclass_json
 from django.conf import settings as app_settings
-from django.core.cache import cache
-from django.utils.timezone import now
-from sentry_sdk.api import capture_exception
 
 from posthog import redis
 from posthog.celery import enqueue_clickhouse_execute_with_progress
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.errors import wrap_query_error
 from posthog.internal_metrics import incr, timing
 from posthog.settings import (
@@ -42,7 +40,7 @@ from posthog.settings import (
     TEST,
 )
 from posthog.timer import get_timer_thread
-from posthog.utils import get_safe_cache
+from posthog.utils import generate_short_id
 
 InsertParams = Union[list, tuple, types.GeneratorType]
 NonInsertParams = Dict[str, Any]
@@ -51,8 +49,6 @@ QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
 CACHE_TTL = 60  # seconds
 SLOW_QUERY_THRESHOLD_MS = 15000
 QUERY_TIMEOUT_THREAD = get_timer_thread("posthog.client", SLOW_QUERY_THRESHOLD_MS)
-
-_request_information: Optional[Dict] = None
 
 
 # Optimize_move_to_prewhere setting is set because of this regression test
@@ -103,17 +99,6 @@ def make_ch_pool(**overrides) -> ChPool:
     return ChPool(**kwargs)
 
 
-ch_client = SyncClient(
-    host=CLICKHOUSE_HOST,
-    database=CLICKHOUSE_DATABASE,
-    secure=CLICKHOUSE_SECURE,
-    user=CLICKHOUSE_USER,
-    password=CLICKHOUSE_PASSWORD,
-    ca_certs=CLICKHOUSE_CA,
-    verify=CLICKHOUSE_VERIFY,
-    settings={"mutations_sync": "1"} if TEST else {},
-)
-
 ch_pool = make_ch_pool()
 
 
@@ -134,7 +119,24 @@ def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, setti
         return result
 
 
-def sync_execute(query, args=None, settings=None, with_column_types=False, flush=True):
+def validate_client_query_id(
+    client_query_id: Optional[str], client_query_team_id: Optional[int] = None
+) -> Optional[str]:
+    if client_query_id and not client_query_team_id:
+        raise Exception("Query needs to have a team_id arg if you've passed client_query_id")
+    random_id = generate_short_id()
+    return f"{client_query_team_id}_{client_query_id}_{random_id}"
+
+
+def sync_execute(
+    query,
+    args=None,
+    settings=None,
+    with_column_types=False,
+    flush=True,
+    client_query_id: Optional[str] = None,
+    client_query_team_id: Optional[int] = None,
+):
     if TEST and flush:
         try:
             from posthog.test.base import flush_persons_and_events
@@ -148,19 +150,21 @@ def sync_execute(query, args=None, settings=None, with_column_types=False, flush
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args)
 
-        timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
+        timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure)
 
-        settings = {**settings_override, **(settings or {})}
+        settings = {**settings_override, **(settings or {}), "log_comment": json.dumps(tags, separators=(",", ":"))}
 
         try:
             result = client.execute(
-                prepared_sql, params=prepared_args, settings=settings, with_column_types=with_column_types,
+                prepared_sql,
+                params=prepared_args,
+                settings=settings,
+                with_column_types=with_column_types,
+                query_id=validate_client_query_id(client_query_id, client_query_team_id),
             )
         except Exception as err:
             err = wrap_query_error(err)
-            tags["failed"] = True
-            tags["reason"] = type(err).__name__
-            incr("clickhouse_sync_execution_failure", tags=tags)
+            incr("clickhouse_sync_execution_failure", tags={"failed": True, "reason": type(err).__name__})
 
             raise err
         finally:
@@ -171,8 +175,6 @@ def sync_execute(query, args=None, settings=None, with_column_types=False, flush
 
             if app_settings.SHELL_PLUS_PRINT_SQL:
                 print("Execution time: %.6fs" % (execution_time,))
-            if _request_information is not None and _request_information.get("save", False):
-                save_query(prepared_sql, execution_time)
     return result
 
 
@@ -254,7 +256,7 @@ def execute_with_progress(
 
     prepared_sql, prepared_args, tags = _prepare_query(client=ch_client, query=query, args=args)
 
-    timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
+    timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure)
 
     query_status = QueryStatus(team_id, task_id=task_id)
 
@@ -262,7 +264,7 @@ def execute_with_progress(
 
     try:
         progress = ch_client.execute_with_progress(
-            prepared_sql, params=prepared_args, settings=settings, with_column_types=with_column_types,
+            prepared_sql, params=prepared_args, settings=settings, with_column_types=with_column_types
         )
         for num_rows, total_rows in progress:
             query_status = QueryStatus(
@@ -298,7 +300,7 @@ def execute_with_progress(
         err = wrap_query_error(err)
         tags["failed"] = True
         tags["reason"] = type(err).__name__
-        incr("clickhouse_sync_execution_failure", tags=tags)
+        incr("clickhouse_sync_execution_failure")
         query_status = QueryStatus(
             team_id=team_id,
             num_rows=query_status.num_rows,
@@ -315,15 +317,15 @@ def execute_with_progress(
 
         raise err
     finally:
+        ch_client.disconnect()
+
         execution_time = perf_counter() - start_time
 
         QUERY_TIMEOUT_THREAD.cancel(timeout_task)
-        timing("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
+        timing("clickhouse_sync_execution_time", execution_time * 1000.0)
 
         if app_settings.SHELL_PLUS_PRINT_SQL:
             print("Execution time: %.6fs" % (execution_time,))
-        if _request_information is not None and _request_information.get("save", False):
-            save_query(prepared_sql, execution_time)
 
 
 def enqueue_execute_with_progress(
@@ -404,6 +406,16 @@ def substitute_params(query, params):
     containing code is only responsible for it's parameters, and we can
     avoid any potential param collisions.
     """
+    ch_client = SyncClient(
+        host=CLICKHOUSE_HOST,
+        database=CLICKHOUSE_DATABASE,
+        secure=CLICKHOUSE_SECURE,
+        user=CLICKHOUSE_USER,
+        password=CLICKHOUSE_PASSWORD,
+        ca_certs=CLICKHOUSE_CA,
+        verify=CLICKHOUSE_VERIFY,
+        settings={"mutations_sync": "1"} if TEST else {},
+    )
     return cast(SyncClient, ch_client).substitute_params(query, params)
 
 
@@ -492,20 +504,17 @@ def _annotate_tagged_query(query, args):
     Adds in a /* */ so we can look in clickhouses `system.query_log`
     to easily marry up to the generating code.
     """
-    tags = {"kind": (_request_information or {}).get("kind"), "id": (_request_information or {}).get("id")}
-    if isinstance(args, dict) and "team_id" in args:
-        tags["team_id"] = args["team_id"]
+    tags = get_query_tags()
     # Annotate the query with information on the request/task
-    if _request_information is not None:
-        query = f"/* {_request_information['kind']}:{_request_information['id'].replace('/', '_')} */ {query}"
+    if "kind" in tags:
+        user_id = f" user_id:{tags['user_id']}" if "user_id" in tags else ""
+        query = f"/*{user_id} {tags.get('kind')}:{tags.get('id', '').replace('/', '_')} */ {query}"
 
     return query, tags
 
 
-def _notify_of_slow_query_failure(tags: Dict[str, Any]):
-    tags["failed"] = True
-    tags["reason"] = "timeout"
-    incr("clickhouse_sync_execution_failure", tags=tags)
+def _notify_of_slow_query_failure():
+    incr("clickhouse_sync_execution_failure", tags={"failed": True, "reason": "timeout"})
 
 
 def format_sql(rendered_sql, colorize=True):
@@ -522,27 +531,3 @@ def format_sql(rendered_sql, colorize=True):
             pass
 
     return formatted_sql
-
-
-def save_query(sql: str, execution_time: float) -> None:
-    """
-    Save query for debugging purposes
-    """
-    if _request_information is None:
-        return
-
-    try:
-        key = "save_query_{}".format(_request_information["user_id"])
-        queries = json.loads(get_safe_cache(key) or "[]")
-
-        queries.insert(
-            0,
-            {
-                "timestamp": now().isoformat(),
-                "query": format_sql(sql, colorize=False),
-                "execution_time": execution_time,
-            },
-        )
-        cache.set(key, json.dumps(queries), timeout=120)
-    except Exception as e:
-        capture_exception(e)

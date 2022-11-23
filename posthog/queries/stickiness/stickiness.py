@@ -2,13 +2,13 @@ import copy
 import urllib.parse
 from typing import Any, Dict, List
 
-from posthog.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
 from posthog.queries.base import handle_compare
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.stickiness.stickiness_actors import StickinessActors
 from posthog.queries.stickiness.stickiness_event_query import StickinessEventsQuery
 from posthog.utils import encode_get_request_params
@@ -42,11 +42,18 @@ class Stickiness:
         SETTINGS optimize_move_to_prewhere = 0
         """
 
-        counts = sync_execute(query, {**event_params, "num_intervals": filter.total_intervals})
+        counts = insight_sync_execute(
+            query,
+            {**event_params, "num_intervals": filter.total_intervals},
+            query_type="stickiness",
+            filter=filter,
+            client_query_id=filter.client_query_id,
+            client_query_team_id=team.pk,
+        )
         return self.process_result(counts, filter, entity)
 
     def people(self, target_entity: Entity, filter: StickinessFilter, team: Team, request, *args, **kwargs):
-        _, serialized_actors = self.actor_query_class(entity=target_entity, filter=filter, team=team).get_actors()
+        _, serialized_actors, _ = self.actor_query_class(entity=target_entity, filter=filter, team=team).get_actors()
         return serialized_actors
 
     def process_result(self, counts: List, filter: StickinessFilter, entity: Entity) -> Dict[str, Any]:
@@ -99,6 +106,6 @@ class Stickiness:
             }
             parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
             persons_url.append(
-                {"filter": extra_params, "url": f"api/person/stickiness/?{urllib.parse.urlencode(parsed_params)}",}
+                {"filter": extra_params, "url": f"api/person/stickiness/?{urllib.parse.urlencode(parsed_params)}"}
             )
         return persons_url

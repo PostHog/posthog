@@ -55,7 +55,7 @@
             "cwd": "${workspaceFolder}"
         },
         {
-            "name": "PostHog",
+            "name": "Backend",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/manage.py",
@@ -74,6 +74,13 @@
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "PostHog",
+            "configurations": ["Backend", "Celery", "Frontend", "Plugin Server"],
+            "stopAll": true
         }
     ]
 }

@@ -22,12 +22,12 @@ class TestEventDefinitionAPI(APIBaseTest):
     demo_team: Team = None  # type: ignore
 
     EXPECTED_EVENT_DEFINITIONS: List[Dict[str, Any]] = [
-        {"name": "installed_app", "volume_30_day": 1, "query_usage_30_day": 0},
-        {"name": "rated_app", "volume_30_day": 2, "query_usage_30_day": 0},
-        {"name": "purchase", "volume_30_day": 3, "query_usage_30_day": 0},
-        {"name": "entered_free_trial", "volume_30_day": 7, "query_usage_30_day": 0},
-        {"name": "watched_movie", "volume_30_day": 8, "query_usage_30_day": 0},
-        {"name": "$pageview", "volume_30_day": 9, "query_usage_30_day": 0},
+        {"name": "installed_app", "volume_30_day": 1, "query_usage_30_day": None},
+        {"name": "rated_app", "volume_30_day": 2, "query_usage_30_day": None},
+        {"name": "purchase", "volume_30_day": 3, "query_usage_30_day": None},
+        {"name": "entered_free_trial", "volume_30_day": 7, "query_usage_30_day": None},
+        {"name": "watched_movie", "volume_30_day": 8, "query_usage_30_day": None},
+        {"name": "$pageview", "volume_30_day": 9, "query_usage_30_day": None},
     ]
 
     @classmethod
@@ -66,7 +66,7 @@ class TestEventDefinitionAPI(APIBaseTest):
             self.assertEqual(response_item["volume_30_day"], item["volume_30_day"], item)
             self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"], item)
             self.assertEqual(
-                response_item["volume_30_day"], EventDefinition.objects.get(id=response_item["id"]).volume_30_day, item,
+                response_item["volume_30_day"], EventDefinition.objects.get(id=response_item["id"]).volume_30_day, item
             )
 
             self.assertAlmostEqual(
@@ -98,7 +98,7 @@ class TestEventDefinitionAPI(APIBaseTest):
 
             self.assertEqual(response.json()["count"], 306)
             self.assertEqual(
-                len(response.json()["results"]), 100 if i < 2 else 6,
+                len(response.json()["results"]), 100 if i < 2 else 6
             )  # Each page has 100 except the last one
             self.assertEqual(response.json()["results"][0]["name"], f"z_event_{event_checkpoints[i]}")
 
@@ -159,23 +159,16 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 2)
         self.assertNotEqual(response.json()["results"][0]["name"], action.name)
 
-    def test_event_type_action_event(self):
-        action = Action.objects.create(team=self.demo_team, name="action1_app")
+    def test_event_type_event_custom(self):
+        response = self.client.get("/api/projects/@current/event_definitions/?event_type=event_custom")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 5)
 
-        response = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=action_event")
+    def test_event_type_event_posthog(self):
+        response = self.client.get("/api/projects/@current/event_definitions/?event_type=event_posthog")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["action_id"], action.id)
-        self.assertEqual(response.json()["results"][0]["name"], action.name)
-
-    def test_event_type_all(self):
-        action = Action.objects.create(team=self.demo_team, name="action1_app")
-
-        response = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=all")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 3)
-        self.assertEqual(response.json()["results"][0]["action_id"], action.id)
-        self.assertEqual(response.json()["results"][0]["name"], action.name)
+        self.assertEqual(response.json()["results"][0]["name"], "$pageview")
 
 
 @dataclasses.dataclass

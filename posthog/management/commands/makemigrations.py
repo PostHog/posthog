@@ -13,7 +13,7 @@ class Command(MakeMigrationsCommand):
         apps = sorted(loader.migrated_apps)
         graph = loader.graph
 
-        with open("latest_migrations.manifest", "w") as f:
+        with open("latest_migrations.manifest", "w", encoding="utf_8") as f:
             for app_name in apps:
                 leaf_nodes = graph.leaf_nodes(app_name)
                 if len(leaf_nodes) != 1:

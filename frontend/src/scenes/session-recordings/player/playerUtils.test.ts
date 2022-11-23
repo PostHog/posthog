@@ -1,5 +1,5 @@
 import { RecordingSegment } from '~/types'
-import { parseMetadataResponse } from '../sessionRecordingLogic'
+import { parseMetadataResponse } from './sessionRecordingDataLogic'
 import recordingMetaJson from '../__mocks__/recording_meta.json'
 import {
     comparePlayerPositions,

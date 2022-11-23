@@ -1,8 +1,6 @@
-import 'react-toastify/dist/ReactToastify.css'
 import '~/styles'
 import './styles.scss'
 
-import React from 'react'
 import ReactDOM from 'react-dom'
 import Simmer from '@posthog/simmerjs'
 import { initKea } from '~/initKea'

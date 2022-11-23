@@ -17,9 +17,9 @@ import { dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
+import equal from 'fast-deep-equal'
 
 const DAYS_FIRST_FETCH = 5
-const DAYS_SECOND_FETCH = 365
 
 const POLL_TIMEOUT = 5000
 
@@ -99,7 +99,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
                     return { properties }
                 }
             } else {
-                return { properties: [properties] }
+                return { properties: [properties as AnyPropertyFilter] }
             }
         },
         fetchEvents: (
@@ -119,7 +119,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
         setEventFilter: (event: string) => ({ event }),
         toggleAutomaticLoad: (automaticLoadEnabled: boolean) => ({ automaticLoadEnabled }),
         noop: (s) => s,
-        startDownload: true,
+        startDownload: (columns?: string[]) => ({ columns }),
     },
 
     reducers: ({ props }) => ({
@@ -141,7 +141,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
         eventFilter: [
             props.fixedFilters?.event_filter ?? '',
             {
-                setEventFilter: (_, { event }) => event,
+                setEventFilter: (_, { event }) => props.fixedFilters?.event_filter || event,
             },
         ],
         isLoading: [
@@ -243,6 +243,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
                     })}`,
         ],
         months: [() => [(_, prop) => prop.fetchMonths], (months) => months || 12],
+        daysSecondFetch: [() => [selectors.months], (months) => now().diff(now().subtract(months, 'months'), 'day')],
         minimumExportDate: [() => [selectors.months], () => now().subtract(1, 'months').toISOString()],
         pollAfter: [
             () => [selectors.events],
@@ -276,27 +277,39 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
     }),
 
     urlToAction: ({ actions, values, props }) => ({
-        [props.sceneUrl]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
-            actions.setProperties(searchParams.properties || values.properties || {})
+        '*': (_: Record<string, any>, searchParams: Record<string, any>): void => {
+            if (router.values.location.pathname !== props.sceneUrl) {
+                return
+            }
+            const nextProperties = searchParams.properties || values.properties || {}
+            if (!equal(nextProperties, values.properties)) {
+                actions.setProperties(nextProperties)
+            }
 
-            if (searchParams.eventFilter) {
-                actions.setEventFilter(searchParams.eventFilter)
+            const nextEventFilter = searchParams.eventFilter || ''
+            if (!equal(nextEventFilter, values.eventFilter)) {
+                actions.setEventFilter(nextEventFilter)
             }
         },
     }),
 
-    events: ({ values }) => ({
+    events: ({ values, actions }) => ({
         beforeUnmount: () => clearTimeout(values.pollTimeout || undefined),
+        afterMount: () => actions.fetchEvents(),
     }),
 
     listeners: ({ actions, values, props }) => ({
-        startDownload: () => {
+        startDownload: ({ columns }) => {
+            const exportContext = {
+                path: values.eventsUrl(),
+                max_limit: 3500,
+            }
+            if (columns && columns.length > 0) {
+                exportContext['columns'] = columns
+            }
             triggerExport({
                 export_format: ExporterFormat.CSV,
-                export_context: {
-                    path: values.eventsUrl(),
-                    max_limit: 3500,
-                },
+                export_context: exportContext,
             })
         },
         setProperties: () => actions.fetchEvents(),
@@ -339,7 +352,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
                 apiResponse = await getAPIResponse(daysAgo(DAYS_FIRST_FETCH))
 
                 if (apiResponse.results.length === 0) {
-                    apiResponse = await getAPIResponse(daysAgo(DAYS_SECOND_FETCH))
+                    apiResponse = await getAPIResponse(daysAgo(values.daysSecondFetch))
                     usedSecondFetch = true
                 }
             } catch (error) {

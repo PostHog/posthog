@@ -4,11 +4,6 @@ from django.conf import settings
 
 STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 
-COPY_ROWS_BETWEEN_TEAMS_BASE_SQL = """
-INSERT INTO {table_name} (team_id, {columns_except_team_id}) SELECT %(target_team_id)s, {columns_except_team_id}
-FROM {table_name} WHERE team_id = %(source_team_id)s
-"""
-
 KAFKA_ENGINE = "Kafka('{kafka_host}', '{topic}', '{group}', '{serialization}')"
 
 KAFKA_PROTO_ENGINE = """
@@ -32,10 +27,15 @@ KAFKA_COLUMNS = """
 , _offset UInt64
 """
 
+# Use this with new tables, old one didn't include partition
+KAFKA_COLUMNS_WITH_PARTITION = """
+, _timestamp DateTime
+, _offset UInt64
+, _partition UInt64
+"""
 
-def kafka_engine(
-    topic: str, kafka_host=None, group="group1",
-):
+
+def kafka_engine(topic: str, kafka_host=None, group="group1"):
     if kafka_host is None:
         kafka_host = settings.KAFKA_HOSTS_FOR_CLICKHOUSE
     return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization="JSONEachRow")

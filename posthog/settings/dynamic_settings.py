@@ -1,3 +1,4 @@
+from posthog.settings.base_variables import E2E_TESTING, TEST
 from posthog.settings.utils import get_from_env, str_to_bool
 
 CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
@@ -26,15 +27,15 @@ CONSTANCE_CONFIG = {
         "Whether unique users should be counted by distinct IDs. Speeds up queries at the cost of accuracy.",
         str,
     ),
-    "ENABLE_ACTOR_ON_EVENTS_TEAMS": (
-        get_from_env("ENABLE_ACTOR_ON_EVENTS_TEAMS", ""),
-        "Whether to use query path using person_id, person_properties, and group_properties on events or the old query",
-        str,
+    "PERSON_ON_EVENTS_ENABLED": (
+        get_from_env("PERSON_ON_EVENTS_ENABLED", not TEST and not E2E_TESTING, type_cast=str_to_bool),
+        "Whether to use query path using person_id and person_properties on events or the old query",
+        bool,
     ),
-    "GEOIP_PROPERTY_OVERRIDES_TEAMS": (
-        get_from_env("GEOIP_PROPERTY_OVERRIDES_TEAMS", ""),
-        "Whether to use GeoIP to override person properties when calling the `/decide` endpoint for feature flags",
-        str,
+    "GROUPS_ON_EVENTS_ENABLED": (
+        get_from_env("GROUPS_ON_EVENTS_ENABLED", False, type_cast=str_to_bool),
+        "Whether to use query path using group_properties on events or the old query",
+        bool,
     ),
     "AUTO_START_ASYNC_MIGRATIONS": (
         get_from_env("AUTO_START_ASYNC_MIGRATIONS", False, type_cast=str_to_bool),
@@ -61,9 +62,9 @@ CONSTANCE_CONFIG = {
         "(Advanced) Whether having an async migration running, errored or required should prevent upgrades.",
         bool,
     ),
-    "ASYNC_MIGRATIONS_SHOW_PERSON_ON_EVENTS_MIGRATION": (
-        get_from_env("ASYNC_MIGRATIONS_SHOW_PERSON_ON_EVENTS_MIGRATION", False, type_cast=str_to_bool),
-        "(Advanced) Whether to show the experimental 0006 async migration.",
+    "ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION": (
+        get_from_env("ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION", False, type_cast=str_to_bool),
+        "(Advanced) Whether to ignore async migrations posthog version restrictions",
         bool,
     ),
     "STRICT_CACHING_TEAMS": (
@@ -144,6 +145,21 @@ CONSTANCE_CONFIG = {
         "user to determine how many insight cache updates to run at a time",
         int,
     ),
+    "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS": (
+        get_from_env("ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS", default=False),
+        "Used to enable the running of experimental async migrations",
+        bool,
+    ),
+    "SENTRY_AUTH_TOKEN": (
+        get_from_env("SENTRY_AUTH_TOKEN", default=""),
+        "Used to enable Sentry error tracking in PostHog",
+        str,
+    ),
+    "SENTRY_ORGANIZATION": (
+        get_from_env("SENTRY_ORGANIZATION", default=""),
+        "Used to enable Sentry error tracking in PostHog",
+        str,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -154,7 +170,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
     "ASYNC_MIGRATIONS_AUTO_CONTINUE",
     "ASYNC_MIGRATIONS_BLOCK_UPGRADE",
-    "ASYNC_MIGRATIONS_SHOW_PERSON_ON_EVENTS_MIGRATION",
+    "ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION",
     "EMAIL_ENABLED",
     "EMAIL_HOST",
     "EMAIL_PORT",
@@ -165,15 +181,18 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "EMAIL_DEFAULT_FROM",
     "EMAIL_REPLY_TO",
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
-    "ENABLE_ACTOR_ON_EVENTS_TEAMS",
-    "GEOIP_PROPERTY_OVERRIDES_TEAMS",
+    "PERSON_ON_EVENTS_ENABLED",
+    "GROUPS_ON_EVENTS_ENABLED",
     "STRICT_CACHING_TEAMS",
     "SLACK_APP_CLIENT_ID",
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
+    "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
+    "SENTRY_AUTH_TOKEN",
+    "SENTRY_ORGANIZATION",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
 # On the frontend UI will clearly show which configuration elements are secret and whether they have a set value or not.
-SECRET_SETTINGS = ["EMAIL_HOST_PASSWORD", "SLACK_APP_CLIENT_SECRET", "SLACK_APP_SIGNING_SECRET"]
+SECRET_SETTINGS = ["EMAIL_HOST_PASSWORD", "SLACK_APP_CLIENT_SECRET", "SLACK_APP_SIGNING_SECRET", "SENTRY_AUTH_TOKEN"]

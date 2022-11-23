@@ -28,7 +28,7 @@ def traces_sampler(sampling_context: dict) -> float:
         path = sampling_context.get("wsgi_environ", {}).get("PATH_INFO")
 
         # Ingestion endpoints (high volume)
-        if path.startswith(("/batch")):
+        if path.startswith("/batch"):
             return 0.00000001  # 0.000001%
         # Ingestion endpoints (high volume)
         elif path.startswith(("/capture", "/decide", "/track", "/s", "/e")):
@@ -37,9 +37,13 @@ def traces_sampler(sampling_context: dict) -> float:
         elif path.startswith(("/_health", "/_readyz", "/_livez")):
             return 0.0001  # 0.01%
         # API endpoints
-        elif path.startswith(("/api/feature_flag")):
+        elif path.startswith("/api/projects") and path.endswith("/persons/"):
             return 0.0001  # 0.01%
-        elif path.startswith(("/api")):
+        elif path.startswith("/api/persons/"):
+            return 0.0001  # 0.01%
+        elif path.startswith("/api/feature_flag"):
+            return 0.0001  # 0.01%
+        elif path.startswith("/api"):
             return 0.01  # 1%
         else:
             # Default sample rate for HTTP requests
@@ -48,7 +52,9 @@ def traces_sampler(sampling_context: dict) -> float:
     elif op == "celery.task":
         task = sampling_context.get("celery_job", {}).get("task")
         if task == "posthog.celery.redis_heartbeat":
-            return 0.001  # 0.1%
+            return 0.0001  # 0.01%
+        if task == "posthog.celery.redis_celery_queue_depth":
+            return 0.0001  # 0.01%
         else:
             # Default sample rate for Celery tasks
             return 0.001  # 0.1%

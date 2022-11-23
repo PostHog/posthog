@@ -5,15 +5,18 @@ import { DateTime } from 'luxon'
 import { KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import {
     Element,
+    GroupTypeIndex,
     Hub,
-    IngestionEvent,
     IngestionPersonData,
+    ISOTimestamp,
+    PostIngestionEvent,
     PreIngestionEvent,
-    SessionRecordingEvent,
+    RawClickHouseEvent,
+    RawSessionRecordingEvent,
     Team,
     TimestampFormat,
 } from '../../types'
-import { DB, GroupIdentifier } from '../../utils/db/db'
+import { DB, GroupId } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
@@ -23,6 +26,7 @@ import { addGroupProperties } from './groups'
 import { LazyPersonContainer } from './lazy-person-container'
 import { upsertGroup } from './properties-updater'
 import { TeamManager } from './team-manager'
+import { captureIngestionWarning } from './utils'
 
 export class EventsProcessor {
     pluginsServer: Hub
@@ -50,6 +54,9 @@ export class EventsProcessor {
         eventUuid: string
     ): Promise<PreIngestionEvent | null> {
         if (!UUID.validateString(eventUuid, false)) {
+            captureIngestionWarning(this.db, teamId, 'skipping_event_invalid_uuid', {
+                eventUuid: JSON.stringify(eventUuid),
+            })
             throw new Error(`Not a valid UUID: "${eventUuid}"`)
         }
         const singleSaveTimer = new Date()
@@ -124,8 +131,8 @@ export class EventsProcessor {
         let elementsList: Element[] = []
 
         if (elements && elements.length) {
-            delete properties['$elements']
             elementsList = extractElements(elements)
+            delete properties['$elements']
         }
 
         if (ip && !team.anonymize_ips && !('$ip' in properties)) {
@@ -145,18 +152,18 @@ export class EventsProcessor {
             ip,
             distinctId,
             properties,
-            timestamp,
+            timestamp: timestamp.toISO() as ISOTimestamp,
             elementsList,
             teamId: team.id,
         }
     }
 
-    getGroupIdentifiers(properties: Properties): GroupIdentifier[] {
-        const res: GroupIdentifier[] = []
-        for (let index = 0; index < this.db.MAX_GROUP_TYPES_PER_TEAM; index++) {
-            const key = `$group_${index}`
-            if (properties.hasOwnProperty(key)) {
-                res.push({ index: index, key: properties[key] })
+    getGroupIdentifiers(properties: Properties): GroupId[] {
+        const res: GroupId[] = []
+        for (let groupTypeIndex = 0; groupTypeIndex < this.db.MAX_GROUP_TYPES_PER_TEAM; ++groupTypeIndex) {
+            const key = `$group_${groupTypeIndex}`
+            if (key in properties) {
+                res.push([groupTypeIndex as GroupTypeIndex, properties[key]])
             }
         }
         return res
@@ -165,7 +172,7 @@ export class EventsProcessor {
     async createEvent(
         preIngestionEvent: PreIngestionEvent,
         personContainer: LazyPersonContainer
-    ): Promise<IngestionEvent> {
+    ): Promise<PostIngestionEvent> {
         const {
             eventUuid: uuid,
             event,
@@ -176,13 +183,10 @@ export class EventsProcessor {
             elementsList: elements,
         } = preIngestionEvent
 
-        const timestampFormat = this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
-        const timestampString = castTimestampOrNow(timestamp, timestampFormat)
-
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
         const groupIdentifiers = this.getGroupIdentifiers(properties)
-        const groupsColumns = await this.db.fetchGroupColumnsValues(teamId, groupIdentifiers)
+        const groupsColumns = await this.db.getGroupsColumns(teamId, groupIdentifiers)
 
         let eventPersonProperties: string | null = null
         let personInfo: IngestionPersonData | undefined = await personContainer.get()
@@ -205,33 +209,29 @@ export class EventsProcessor {
             }
         }
 
-        const eventPayload = {
+        const rawEvent: RawClickHouseEvent = {
             uuid,
             event: safeClickhouseString(event),
             properties: JSON.stringify(properties ?? {}),
-            timestamp: timestampString,
+            timestamp: castTimestampOrNow(timestamp, TimestampFormat.ClickHouse),
             team_id: teamId,
             distinct_id: safeClickhouseString(distinctId),
             elements_chain: safeClickhouseString(elementsChain),
-            created_at: castTimestampOrNow(null, timestampFormat),
-        }
-
-        const message = JSON.stringify({
-            ...eventPayload,
+            created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
             person_id: personInfo?.uuid,
-            person_properties: eventPersonProperties,
+            person_properties: eventPersonProperties ?? undefined,
             person_created_at: personInfo
                 ? castTimestampOrNow(personInfo?.created_at, TimestampFormat.ClickHouseSecondPrecision)
-                : null,
+                : undefined,
             ...groupsColumns,
-        })
+        }
 
         await this.kafkaProducer.queueMessage({
             topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
             messages: [
                 {
                     key: uuid,
-                    value: message,
+                    value: JSON.stringify(rawEvent),
                 },
             ],
         })
@@ -249,13 +249,10 @@ export class EventsProcessor {
         snapshot_data: Record<any, any>,
         properties: Properties,
         ip: string | null
-    ): Promise<PreIngestionEvent> {
-        const timestampString = castTimestampOrNow(
-            timestamp,
-            this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
-        )
+    ): Promise<PostIngestionEvent> {
+        const timestampString = castTimestampOrNow(timestamp, TimestampFormat.ClickHouse)
 
-        const data: SessionRecordingEvent = {
+        const data: RawSessionRecordingEvent = {
             uuid,
             team_id: team_id,
             distinct_id: distinct_id,
@@ -274,7 +271,7 @@ export class EventsProcessor {
             ip,
             distinctId: distinct_id,
             properties,
-            timestamp: timestampString,
+            timestamp: timestamp.toISO() as ISOTimestamp,
             elementsList: [],
             teamId: team_id,
         }

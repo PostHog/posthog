@@ -1,4 +1,5 @@
-import { Hub } from 'types'
+import { runInTransaction } from '../../../../sentry'
+import { Hub } from '../../../../types'
 
 export type BufferOptions = {
     limit: number
@@ -62,7 +63,16 @@ export class ExportEventsBuffer {
             this.timeout = null
         }
 
-        await this.options.onFlush?.(oldBuffer, oldPoints)
+        await runInTransaction(
+            {
+                name: 'export-events-buffer',
+                op: 'ExportEventsBuffer.flush',
+            },
+            async () => {
+                await this.options.onFlush?.(oldBuffer, oldPoints)
+            }
+        )
+
         this.hub.statsd?.timing(`buffer_promise_duration`, timer)
     }
 }

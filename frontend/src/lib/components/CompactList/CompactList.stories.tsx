@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 
 import { CompactList } from './CompactList'
@@ -9,6 +8,7 @@ import { PersonHeader } from 'scenes/persons/PersonHeader'
 export default {
     title: 'Components/Compact List',
     component: CompactList,
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         loading: {
             control: {
@@ -52,7 +52,7 @@ export function CompactList_({ loading }: { loading: boolean }): JSX.Element {
                         title: 'There are no recordings for this project',
                         description: 'Make sure you have the javascript snippet setup in your website.',
                         buttonText: 'Learn more',
-                        buttonHref: 'https://posthog.com/docs/user-guides/recordings',
+                        buttonTo: 'https://posthog.com/docs/user-guides/recordings',
                     }}
                     items={[]}
                     renderRow={(person, index) => (

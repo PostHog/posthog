@@ -28,7 +28,7 @@ class TestImageExporter(APIBaseTest):
     def setup_method(self, method):
         insight = Insight.objects.create(team=self.team)
         asset = ExportedAsset.objects.create(
-            team=self.team, export_format=ExportedAsset.ExportFormat.PNG, insight=insight,
+            team=self.team, export_format=ExportedAsset.ExportFormat.PNG, insight=insight
         )
         self.exported_asset = asset
 

@@ -72,7 +72,7 @@
                     "entity_type": "events",
                     "entity_math": null
                 },
-                "url": "api/projects/1/actions/people/?date_from=2022-03-08T00%3A00%3A00%2B00%3A00&date_to=2022-03-15T21%3A36%3A57.792495%2B00%3A00&display=ActionsPie&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
+                "url": "api/projects/1/persons/trends/?date_from=2022-03-08T00%3A00%3A00%2B00%3A00&date_to=2022-03-15T21%3A36%3A57.792495%2B00%3A00&display=ActionsPie&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
             }
         },
         {
@@ -116,7 +116,7 @@
                     "entity_type": "events",
                     "entity_math": null
                 },
-                "url": "api/projects/1/actions/people/?date_from=2022-03-08T00%3A00%3A00%2B00%3A00&date_to=2022-03-15T21%3A36%3A57.792495%2B00%3A00&display=ActionsPie&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
+                "url": "api/projects/1/persons/trends/?date_from=2022-03-08T00%3A00%3A00%2B00%3A00&date_to=2022-03-15T21%3A36%3A57.792495%2B00%3A00&display=ActionsPie&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
             }
         }
     ],

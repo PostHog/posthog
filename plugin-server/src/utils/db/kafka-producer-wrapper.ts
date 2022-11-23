@@ -6,7 +6,8 @@ import SnappyCodec from 'kafkajs-snappy'
 
 import { runInSpan } from '../../sentry'
 import { PluginsServerConfig } from '../../types'
-import { instrumentQuery } from '../metrics'
+import { instrument } from '../metrics'
+import { status } from '../status'
 import { timeoutGuard } from './utils'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
@@ -22,10 +23,11 @@ CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
  * We also flush the queue regularly to avoid dropping any messages as the program quits.
  */
 export class KafkaProducerWrapper {
-    /** Kafka producer used for syncing Postgres and ClickHouse person data. */
-    private producer: Producer
     /** StatsD instance used to do instrumentation */
     private statsd: StatsD | undefined
+
+    /** Kafka producer used for syncing Postgres and ClickHouse person data. */
+    producer: Producer
 
     lastFlushTime: number
     currentBatch: Array<ProducerRecord>
@@ -104,7 +106,7 @@ export class KafkaProducerWrapper {
             return Promise.resolve()
         }
 
-        return instrumentQuery(this.statsd, 'query.kafka_send', undefined, async () => {
+        return instrument(this.statsd, { metricName: 'query.kafka_send' }, async () => {
             const messages = this.currentBatch
             const batchSize = this.currentBatchSize
             this.lastFlushTime = Date.now()
@@ -122,7 +124,6 @@ export class KafkaProducerWrapper {
             } catch (err) {
                 Sentry.captureException(err, {
                     extra: {
-                        messages: messages,
                         batchCount: messages.length,
                         topics: messages.map((record) => record.topic),
                         messageCounts: messages.map((record) => record.messages.length),
@@ -130,7 +131,15 @@ export class KafkaProducerWrapper {
                     },
                 })
                 // :TODO: Implement some retrying, https://github.com/PostHog/plugin-server/issues/511
-                this.statsd?.increment('query.kafka_send.failure')
+                this.statsd?.increment('query.kafka_send.failure', {
+                    firstTopic: messages[0].topic,
+                })
+                status.warn('⚠️', 'Failed to flush kafka messages that were produced', {
+                    batchCount: messages.length,
+                    topics: messages.map((record) => record.topic),
+                    messageCounts: messages.map((record) => record.messages.length),
+                    estimatedSize: batchSize,
+                })
                 throw err
             } finally {
                 clearTimeout(timeout)

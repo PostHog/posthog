@@ -4,6 +4,7 @@ import { Meta } from '@storybook/react'
 import { LemonTable } from './LemonTable'
 import { IconGauge, IconWithCount } from './icons'
 import { LemonCheckbox } from './LemonCheckbox'
+import { LemonButton } from './LemonButton'
 
 interface IconDefinition {
     name: string
@@ -17,6 +18,7 @@ const allIcons: IconDefinition[] = Object.entries(icons)
 export default {
     title: 'Lemon UI/Icons',
     parameters: {
+        chromatic: { disableSnapshot: false },
         options: { showPanel: false },
         docs: {
             description: {
@@ -41,12 +43,7 @@ export function Library(): JSX.Element {
     const [showBorder, setShowBorder] = React.useState(true)
     return (
         <div className="space-y-2">
-            <LemonCheckbox
-                bordered
-                checked={showBorder}
-                onChange={(e) => setShowBorder(e.target.checked)}
-                label="Show border"
-            />
+            <LemonCheckbox bordered checked={showBorder} onChange={setShowBorder} label="Show border" />
             <LemonTable
                 dataSource={allIcons}
                 columns={[
@@ -71,6 +68,20 @@ export function Library(): JSX.Element {
                                         boxShadow: showBorder ? '0px 0px 1px 1px red' : null,
                                     }}
                                 />
+                            )
+                        },
+                    },
+
+                    {
+                        title: 'In Button',
+                        key: 'button-icon',
+                        dataIndex: 'icon',
+                        render: function RenderButton(Icon) {
+                            Icon = Icon as IconDefinition['icon']
+                            return (
+                                <LemonButton type="secondary" icon={<Icon />}>
+                                    Button
+                                </LemonButton>
                             )
                         },
                     },

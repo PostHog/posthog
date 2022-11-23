@@ -1,8 +1,10 @@
 import { MutableRefObject } from 'react'
 import { kea } from 'kea'
 import type { seekbarLogicType } from './seekbarLogicType'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { clamp } from 'lib/utils'
 import { PlayerPosition } from '~/types'
 
@@ -17,16 +19,19 @@ import {
     THUMB_SIZE,
 } from './playerUtils'
 export const seekbarLogic = kea<seekbarLogicType>({
-    path: ['scenes', 'session-recordings', 'player', 'seekbarLogic'],
-    connect: {
+    path: (key) => ['scenes', 'session-recordings', 'player', 'seekbarLogic', key],
+    props: {} as SessionRecordingPlayerLogicProps,
+    key: (props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`,
+    connect: ({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps) => ({
         values: [
-            sessionRecordingPlayerLogic,
+            sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
             ['sessionPlayerData', 'currentPlayerPosition'],
-            sessionRecordingLogic,
-            ['eventsToShow'],
         ],
-        actions: [sessionRecordingPlayerLogic, ['seek', 'startScrub', 'endScrub', 'setCurrentPlayerPosition']],
-    },
+        actions: [
+            sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
+            ['seek', 'startScrub', 'endScrub', 'setCurrentPlayerPosition'],
+        ],
+    }),
     actions: {
         setThumbLeftPos: (thumbLeftPos: number, shouldSeek: boolean) => ({ thumbLeftPos, shouldSeek }),
         setCursorDiff: (cursorDiff: number) => ({ cursorDiff }),

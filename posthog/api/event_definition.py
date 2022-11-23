@@ -7,7 +7,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import create_event_definitions_sql
-from posthog.constants import AvailableFeature, CombinedEventType
+from posthog.constants import AvailableFeature, EventDefinitionType
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventDefinition, TaggedItem
@@ -70,15 +70,12 @@ class EventDefinitionViewSet(
     def get_queryset(self):
         # `type` = 'all' | 'event' | 'action_event'
         # Allows this endpoint to return lists of event definitions, actions, or both.
-        event_type = CombinedEventType(self.request.GET.get("event_type", CombinedEventType.EVENT))
+        event_type = EventDefinitionType(self.request.GET.get("event_type", EventDefinitionType.EVENT))
 
         search = self.request.GET.get("search", None)
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
 
-        params = {
-            "team_id": self.team_id,
-            **search_kwargs,
-        }
+        params = {"team_id": self.team_id, "is_posthog_event": "$%", **search_kwargs}
 
         if EE_AVAILABLE and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             from ee.models.event_definition import EnterpriseEventDefinition

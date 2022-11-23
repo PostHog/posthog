@@ -7,9 +7,11 @@ from posthog.constants import INSIGHT_RETENTION
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import (
     BreakdownMixin,
+    ClientQueryIdMixin,
     DisplayDerivedMixin,
     FilterTestAccountsMixin,
     InsightMixin,
+    LimitMixin,
     OffsetMixin,
 )
 from posthog.models.filters.mixins.funnel import FunnelCorrelationMixin
@@ -32,9 +34,11 @@ class RetentionFilter(
     BreakdownMixin,
     InsightMixin,
     OffsetMixin,
+    LimitMixin,
     GroupsAggregationMixin,
     FunnelCorrelationMixin,  # Typing pain because ColumnOptimizer expects a uniform filter
     # TODO: proper fix for EventQuery abstraction, make filters uniform
+    ClientQueryIdMixin,
     SimplifyFilterMixin,
     BaseFilter,
 ):

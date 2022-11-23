@@ -90,7 +90,7 @@ CLICKHOUSE_DASHBOARD = {
                         "type": "event",
                         "order": 0,
                         "properties": [],
-                    },
+                    }
                 ],
                 "display": "ActionsLineGraph",
                 "insight": "TRENDS",
@@ -169,7 +169,7 @@ CLICKHOUSE_DASHBOARD = {
                         "order": 0,
                         "properties": [],
                         "math_property": "value",
-                    },
+                    }
                 ],
                 "display": "ActionsLineGraph",
                 "insight": "TRENDS",
@@ -345,7 +345,7 @@ CLICKHOUSE_DASHBOARD = {
             },
         },
     ],
-    "filters": {"interval": "hour", "date_from": "-24h",},
+    "filters": {"interval": "hour", "date_from": "-24h"},
 }
 
 

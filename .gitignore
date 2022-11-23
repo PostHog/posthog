@@ -43,3 +43,5 @@ object_storage/
 __emails__
 share/GeoLite2-City.mmdb
 a11y/
+# pyenv local config
+.python-version

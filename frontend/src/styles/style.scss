@@ -52,40 +52,8 @@ label.disabled {
     color: #888;
 }
 
-.ant-modal-mask {
-    z-index: var(--z-ant-modal-mask) !important;
-}
-.ant-modal-wrap {
-    z-index: var(--z-ant-modal-wrap) !important;
-}
-.ant-message {
-    z-index: var(--z-ant-message) !important;
-}
-.ant-select-dropdown {
-    z-index: var(--z-ant-select-dropdown) !important;
-}
-
 .ant-select-arrow .anticon {
     vertical-align: top !important;
-}
-
-.property-key-info {
-    display: inline-block;
-    white-space: nowrap;
-}
-
-.property-key-info-logo {
-    margin-right: 6px;
-    display: inline-block;
-    vertical-align: top;
-    height: 19px;
-    width: 19px;
-    background-image: url('../../public/posthog-icon.svg');
-    background-size: cover;
-}
-
-.ant-select-selection-item .property-key-info-logo {
-    vertical-align: text-bottom;
 }
 
 .button-border {

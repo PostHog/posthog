@@ -1,7 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { JobName, Person } from '../../../../src/types'
+import { KAFKA_BUFFER } from '../../../../src/config/kafka-topics'
+import { Person } from '../../../../src/types'
 import { UUIDT } from '../../../../src/utils/utils'
 import {
     emitToBufferStep,
@@ -44,25 +45,38 @@ beforeEach(() => {
         hub: {
             CONVERSION_BUFFER_ENABLED: true,
             BUFFER_CONVERSION_SECONDS: 60,
+            conversionBufferTopicEnabledTeams: new Set([2]),
             db: { fetchPerson: jest.fn().mockResolvedValue(existingPerson) },
             eventsProcessor: {},
-            jobQueueManager: {
+            graphileWorker: {
                 enqueue: jest.fn(),
+            },
+            kafkaProducer: {
+                queueMessage: jest.fn(),
             },
         },
     }
 })
 
 describe('emitToBufferStep()', () => {
-    it('enqueues graphile job if event should be buffered, stops processing', async () => {
+    it('produces to anonymous events buffer if event should be buffered, stops processing', async () => {
         const unixNow = 1657710000000
         Date.now = jest.fn(() => unixNow)
 
         const response = await emitToBufferStep(runner, pluginEvent, () => true)
 
-        expect(runner.hub.jobQueueManager.enqueue).toHaveBeenCalledWith(JobName.BUFFER_JOB, {
-            eventPayload: pluginEvent,
-            timestamp: unixNow + 60000, // runner.hub.BUFFER_CONVERSION_SECONDS * 1000
+        expect(runner.hub.kafkaProducer.queueMessage).toHaveBeenCalledWith({
+            topic: KAFKA_BUFFER,
+            messages: [
+                {
+                    key: 'my_id',
+                    value: JSON.stringify(pluginEvent),
+                    headers: {
+                        eventId: pluginEvent.uuid,
+                        processEventAt: (unixNow + 60000).toString(),
+                    },
+                },
+            ],
         })
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
         expect(response).toEqual(null)
@@ -73,7 +87,7 @@ describe('emitToBufferStep()', () => {
 
         expect(response).toEqual(['pluginsProcessEventStep', pluginEvent, expect.any(LazyPersonContainer)])
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
-        expect(runner.hub.jobQueueManager.enqueue).not.toHaveBeenCalled()
+        expect(runner.hub.graphileWorker.enqueue).not.toHaveBeenCalled()
     })
 
     it('calls `processPersonsStep` for $snapshot events', async () => {
@@ -83,7 +97,7 @@ describe('emitToBufferStep()', () => {
 
         expect(response).toEqual(['processPersonsStep', event, expect.any(LazyPersonContainer)])
         expect(runner.hub.db.fetchPerson).not.toHaveBeenCalled()
-        expect(runner.hub.jobQueueManager.enqueue).not.toHaveBeenCalled()
+        expect(runner.hub.graphileWorker.enqueue).not.toHaveBeenCalled()
     })
 })
 
@@ -139,20 +153,32 @@ describe('shouldSendEventToBuffer()', () => {
         expect(result).toEqual(true)
     })
 
-    it('returns false for $identify events for non-existing users', () => {
+    it('returns false for $groupidentify events', () => {
         const event = {
             ...pluginEvent,
-            event: '$identify',
+            event: '$groupidentify',
         }
 
         const result = shouldSendEventToBuffer(runner.hub, event, undefined, 2)
         expect(result).toEqual(false)
     })
 
-    it('returns false for $identify events for new users', () => {
+    it('returns false for merging $identify events for non-existing users', () => {
         const event = {
             ...pluginEvent,
             event: '$identify',
+            properties: { $anon_distinct_id: 'some-id' },
+        }
+
+        const result = shouldSendEventToBuffer(runner.hub, event, undefined, 2)
+        expect(result).toEqual(false)
+    })
+
+    it('returns false for merging $identify events for new users', () => {
+        const event = {
+            ...pluginEvent,
+            event: '$identify',
+            properties: { $anon_distinct_id: 'some-id' },
         }
         const person = {
             ...existingPerson,
@@ -160,6 +186,37 @@ describe('shouldSendEventToBuffer()', () => {
         }
 
         const result = shouldSendEventToBuffer(runner.hub, event, person, 2)
+        expect(result).toEqual(false)
+    })
+
+    it('returns true for non merging $identify events', () => {
+        const event = {
+            ...pluginEvent,
+            event: '$identify',
+        }
+
+        const result = shouldSendEventToBuffer(runner.hub, event, undefined, 2)
+        expect(result).toEqual(true)
+    })
+
+    it('returns true for non merging $create_alias events', () => {
+        const event = {
+            ...pluginEvent,
+            event: '$create_alias',
+        }
+
+        const result = shouldSendEventToBuffer(runner.hub, event, undefined, 2)
+        expect(result).toEqual(true)
+    })
+
+    it('returns false for merging $create_alias events', () => {
+        const event = {
+            ...pluginEvent,
+            event: '$create_alias',
+            properties: { alias: 'some-id' },
+        }
+
+        const result = shouldSendEventToBuffer(runner.hub, event, undefined, 2)
         expect(result).toEqual(false)
     })
 

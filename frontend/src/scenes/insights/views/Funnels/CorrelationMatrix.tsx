@@ -1,5 +1,4 @@
 import { Button, Modal } from 'antd'
-import React from 'react'
 import { CheckCircleFilled, InfoCircleOutlined, MinusCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
 import './CorrelationMatrix.scss'
 import { useActions, useValues } from 'kea'
@@ -70,7 +69,7 @@ export function CorrelationMatrix(): JSX.Element {
             <div className="correlation-table-wrapper">
                 {correlationsLoading ? (
                     <div className="mt-4 text-center">
-                        <Spinner size="lg" />
+                        <Spinner className="text-4xl" />
                     </div>
                 ) : funnelCorrelationDetails ? (
                     <>

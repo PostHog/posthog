@@ -10,5 +10,8 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(model_name="event", name="ip",),
+        migrations.RemoveField(
+            model_name="event",
+            name="ip",
+        ),
     ]

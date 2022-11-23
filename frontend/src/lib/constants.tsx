@@ -1,5 +1,5 @@
 import { urls } from 'scenes/urls'
-import { AnnotationScope, AvailableFeature, ChartDisplayType, LicensePlan, SSOProviders } from '../types'
+import { AvailableFeature, ChartDisplayType, LicensePlan, Region, SSOProviders } from '../types'
 
 /** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
 export const NON_TIME_SERIES_DISPLAY_TYPES = [
@@ -32,12 +32,6 @@ export enum PluginsAccessLevel {
     Install = 6,
     Root = 9,
 }
-
-export const annotationScopeToName = new Map<string, string>([
-    [AnnotationScope.Insight, 'insight'],
-    [AnnotationScope.Project, 'project'],
-    [AnnotationScope.Organization, 'organization'],
-])
 
 /** Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel. */
 export enum DashboardRestrictionLevel {
@@ -74,6 +68,17 @@ export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'UserName',
 ]
 
+// Feature Flags & Experiments
+export const INSTANTLY_AVAILABLE_PROPERTIES = [
+    '$geoip_city_name',
+    '$geoip_country_name',
+    '$geoip_country_code',
+    '$geoip_continent_name',
+    '$geoip_continent_code',
+    '$geoip_postal_code',
+    '$geoip_time_zone',
+]
+
 // Event constants
 export const ACTION_TYPE = 'action_type'
 export const EVENT_TYPE = 'event_type'
@@ -90,10 +95,6 @@ export enum ShownAsValue {
 export const RETENTION_RECURRING = 'retention_recurring'
 export const RETENTION_FIRST_TIME = 'retention_first_time'
 
-// Properties constants
-export const PROPERTY_MATH_TYPE = 'property'
-export const EVENT_MATH_TYPE = 'event'
-
 export const WEBHOOK_SERVICES: Record<string, string> = {
     Slack: 'slack.com',
     Discord: 'discord.com',
@@ -105,31 +106,34 @@ export const FEATURE_FLAGS = {
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
     NPS_PROMPT: '4562-nps', // owner: @marcushyett-ph
     // Experiments / beta features
-    NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
-    INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
-    RECORDINGS_IN_INSIGHTS: 'recordings-in-insights', // owner: @rcmarron
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
-    INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
-    DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
-    SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     INSIGHT_EDITOR_PANELS: '8929-insight-editor-panels', // owner: @mariusandra
-    FRONTEND_APPS: '9618-frontend-apps', // owner: @mariusandra
-    BREAKDOWN_ATTRIBUTION: 'breakdown-attribution', // owner: @neilkakkar
-    SIMPLIFY_ACTIONS: 'simplify-actions', // owner: @alexkim205,
-    TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,
-    FEATURE_FLAG_EXPERIENCE_CONTINUITY: 'feature-flag-experience-continuity', // owner: @neilkakkar
-    // Re-enable person modal CSV downloads when frontend can support new entity properties
-    PERSON_MODAL_EXPORTS: 'person-modal-exports', // hot potato see https://github.com/PostHog/posthog/pull/10824
     BILLING_LOCK_EVERYTHING: 'billing-lock-everything', // owner @timgl
-    IN_APP_PROMPTS_EXPERIMENT: 'IN_APP_PROMPTS_EXPERIMENT', // owner: @kappa90
-    SESSION_RECORDINGS_PLAYER_V3: 'session-recording-player-v3', // owner @alexkim205
+    CANCEL_RUNNING_QUERIES: 'cancel-running-queries', // owner @timgl
+    HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
+    ACTOR_ON_EVENTS_QUERYING: 'person-on-events-enabled', //owner: @EDsCODE
+    REGION_SELECT: 'region-select', //owner: @kappa90
+    INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @tiina303
+    HOG_BOOK: 'hog-book', // owner: @pauldambra
+    EVENT_COUNT_PER_ACTOR: 'event-count-per-actor', // owner: @Twixes
+    SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
+    FEEDBACK_BUTTON: 'feedback-button', // owner: @luke
+    RECORDINGS_ON_FEATURE_FLAGS: 'recordings-on-feature-flags', // owner: @EDsCODE
+    EXPOSURES_ON_FEATURE_FLAGS: 'exposures-on-feature-flags', // owner: @EDsCODE
+    AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE
+    WEBSITE_ANALYTICS_TEMPLATE: 'website-analytics-template', // owner: @pauldambra
+    VARIANT_OVERRIDES: 'variant-overrides', // owner: @neilkakkar
+    ONBOARDING_V2_EXPERIMENT: 'onboarding-v2-experiment', // owner: #team-growth
+    RECORDING_AUTOPLAY: 'recording-autoplay', // owner: #team-session-recordings
+    SIGNUP_FORM_EXPERIMENT: 'signup-form-experiment', // owner: #team-growth
+    SIGNUP_PRODUCT_BENEFITS_EXPERIMENT: 'signup-product-benefits-experiment', // owner: #team-growth
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -153,6 +157,8 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.SAML]: LicensePlan.Enterprise,
     [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
     [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
+    [AvailableFeature.APP_METRICS]: LicensePlan.Scale,
+    [AvailableFeature.RECORDINGS_PLAYLISTS]: LicensePlan.Scale,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
@@ -163,7 +169,7 @@ export enum FunnelLayout {
     vertical = 'vertical',
 }
 
-export const BIN_COUNT_AUTO = 'auto'
+export const BIN_COUNT_AUTO = 'auto' as const
 
 // Cohort types
 export enum CohortTypeEnum {
@@ -191,3 +197,13 @@ export const UPGRADE_LINK = (cloud?: boolean): { url: string; target?: '_blank' 
 
 export const DOMAIN_REGEX = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/
 export const SECURE_URL_REGEX = /^(?:http(s)?:\/\/)[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:\/?#[\]@!\$&'\(\)\*\+,;=.]+$/gi
+
+export const CLOUD_HOSTNAMES = {
+    [Region.US]: 'app.posthog.com',
+    [Region.EU]: 'eu.posthog.com',
+}
+
+export const SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
+
+// If _any_ item on a dashboard is older than this, dashboard is automatically reloaded
+export const AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS = 20

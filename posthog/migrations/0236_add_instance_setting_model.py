@@ -39,7 +39,8 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.AddConstraint(
-            model_name="instancesetting", constraint=models.UniqueConstraint(fields=("key",), name="unique key"),
+            model_name="instancesetting",
+            constraint=models.UniqueConstraint(fields=("key",), name="unique key"),
         ),
         migrations.RunPython(populate_instance_settings, migrations.RunPython.noop),
     ]

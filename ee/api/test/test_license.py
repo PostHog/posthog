@@ -24,7 +24,7 @@ class TestLicenseAPI(APILicensedTest):
         response_data = response.json()
         self.assertEqual(response_data["count"], 1)
         self.assertEqual(response_data["results"][0]["plan"], "enterprise")
-        self.assertEqual(response_data["results"][0]["key"], "enterprise")
+        self.assertEqual(response_data["results"][0]["key"], "12345::67890")
         self.assertEqual(
             response_data["results"][0]["valid_until"],
             timezone.datetime(2038, 1, 19, 3, 14, 7, tzinfo=pytz.UTC).isoformat().replace("+00:00", "Z"),
@@ -42,7 +42,6 @@ class TestLicenseAPI(APILicensedTest):
         mock.json.return_value = {
             "plan": "enterprise",
             "valid_until": valid_until.isoformat().replace("+00:00", "Z"),
-            "max_users": 10,
         }
         patch_post.return_value = mock
         count = License.objects.count()
@@ -52,7 +51,6 @@ class TestLicenseAPI(APILicensedTest):
         response_data = response.json()
         self.assertEqual(response_data["plan"], "enterprise")
         self.assertEqual(response_data["key"], "newer_license_1")
-        self.assertEqual(response_data["max_users"], 10)
 
         self.assertEqual(License.objects.count(), count + 1)
         license = License.objects.get(id=response_data["id"])
@@ -136,9 +134,7 @@ class TestLicenseAPI(APILicensedTest):
         response = self.client.delete(f"/api/license/{self.license.pk}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(Team.objects.count(), 2)  # deleted two teams
-        self.assertEqual(
-            sorted([team.id for team in Team.objects.all()]), sorted([self.team.pk, not_to_be_deleted.pk]),
-        )
+        self.assertEqual(sorted([team.id for team in Team.objects.all()]), sorted([self.team.pk, not_to_be_deleted.pk]))
         self.assertEqual(Organization.objects.count(), 1)
 
     @pytest.mark.skip_on_multitenancy

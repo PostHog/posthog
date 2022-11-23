@@ -1,20 +1,25 @@
 from dataclasses import asdict, dataclass
 from typing import List, Literal, Optional, TypedDict, Union
 
-from django.test import TestCase
 from django.test.client import Client
 
 from ee.clickhouse.views.test.funnel.util import EventPattern
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models.instance_setting import override_instance_config
-from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries, test_with_materialized_columns
+from posthog.models.instance_setting import get_instance_setting, override_instance_config
+from posthog.models.person import Person as PersonModel
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    snapshot_clickhouse_queries,
+    test_with_materialized_columns,
+)
 from posthog.test.test_journeys import create_all_events, update_or_create_person
 from posthog.utils import encode_get_request_params
 
 
-class RetentionTests(TestCase, ClickhouseTestMixin):
+class RetentionTests(APIBaseTest, ClickhouseTestMixin):
     @snapshot_clickhouse_queries
     def test_retention_test_account_filters(self):
 
@@ -59,10 +64,7 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
 
         retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
 
-        assert retention_by_cohort_by_period == {
-            "Day 0": {"1": ["person 2"], "2": [],},
-            "Day 1": {"1": ["person 3"]},
-        }
+        assert retention_by_cohort_by_period == {"Day 0": {"1": ["person 2"], "2": []}, "Day 1": {"1": ["person 3"]}}
 
     @snapshot_clickhouse_queries
     def test_retention_aggregation_by_distinct_id_and_retrieve_people(self):
@@ -77,9 +79,9 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
 
         setup_user_activity_by_day(
             daily_activity={
-                "2020-01-01": {"person 1": [{"event": "target event",}], "another one": [{"event": "target event",}],},
+                "2020-01-01": {"person 1": [{"event": "target event"}], "another one": [{"event": "target event"}]},
                 "2020-01-02": {"person 1": [{"event": "target event"}], "person 2": [{"event": "target event"}]},
-                "2020-01-03": {"another one": [{"event": "target event"}],},
+                "2020-01-03": {"another one": [{"event": "target event"}]},
             },
             team=team,
         )
@@ -114,7 +116,8 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
             people = people_response.json()["result"]
             # person1 and another one are the same person
             assert len(people) == 1
-            assert people[0]["id"] == str(p1.uuid)
+            assert people[0]["person"]["id"] == str(p1.uuid)
+            assert people[0]["appearances"] == [1, 1, 1]
 
             people_url = retention["result"][1]["values"][0]["people_url"]
             people_response = self.client.get(people_url)
@@ -122,10 +125,151 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
 
             people = people_response.json()["result"]
             assert len(people) == 1
-            assert people[0]["id"] == str(p2.uuid)
+            assert people[0]["person"]["id"] == str(p2.uuid)
+            assert people[0]["appearances"] == [1, 0, 0]
+
+    def test_people_stable_pagination(self):
+        organization = create_organization(name="test")
+        team = create_team(organization=organization)
+        user = create_user(email="test@posthog.com", password="1234", organization=organization)
+
+        self.client.force_login(user)
+
+        for i in range(15):
+            update_or_create_person(distinct_ids=[f"person {i}"], team_id=team.pk)
+
+        setup_user_activity_by_day(
+            daily_activity={
+                "2020-01-01": {f"person {i}": [{"event": "target event"}] for i in range(15)},
+                "2020-01-02": {f"person {i}": [{"event": "target event"}] for i in range(5)},
+                "2020-01-03": {f"person {i}": [{"event": "target event"}] for i in range(10, 15)},
+                "2020-01-04": {f"person {i}": [{"event": "target event"}] for i in range(5, 10)},
+                "2020-01-05": {f"person {i}": [{"event": "target event"}] for i in range(6)},
+            },
+            team=team,
+        )
+
+        retention = get_retention_ok(
+            client=self.client,
+            team_id=team.pk,
+            request=RetentionRequest(
+                target_entity={"id": "target event", "type": "events"},
+                returning_entity={"id": "target event", "type": "events"},
+                date_from="2020-01-01",
+                total_intervals=5,
+                date_to="2020-01-05",
+                period="Day",
+                retention_type="retention_first_time",
+                limit=10,
+            ),
+        )
+
+        assert retention["result"][0]["values"][0]["count"] == 15
+
+        people_url = retention["result"][0]["values"][0]["people_url"]
+        people_response = self.client.get(people_url)
+        assert people_response.status_code == 200
+
+        response_json = people_response.json()
+
+        assert response_json["missing_persons"] == 0
+        people = response_json["result"]
+        assert len(people) == 10
+        distinct_ids = [person["person"]["distinct_ids"][0] for person in people]
+        appearances_count = [sum(person["appearances"]) for person in people]
+        self.assertEqual(appearances_count, [3, 3, 3, 3, 3, 3, 2, 2, 2, 2])
+        # the actor IDs are random, so we can't assert their sequence
+        # but we can assert that all 3 count distinct IDs should be in this list.
+        self.assertTrue(
+            distinct_id in distinct_ids
+            for distinct_id in ["person 4", "person 3", "person 1", "person 2", "person 0", "person 5"]
+        )
+
+        people_url = response_json["next"]
+        people_response = self.client.get(people_url)
+        assert people_response.status_code == 200
+
+        response_json = people_response.json()
+
+        people = response_json["result"]
+        assert response_json["missing_persons"] == 0
+        assert response_json["next"] is None
+        assert len(people) == 5
+        distinct_ids = [person["person"]["distinct_ids"][0] for person in people]
+        appearances_count = [sum(person["appearances"]) for person in people]
+        self.assertEqual(appearances_count, [2, 2, 2, 2, 2])
+
+    def test_deleted_people_show_up_as_missing_persons(self):
+        if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+            return
+
+        organization = create_organization(name="test")
+        team = create_team(organization=organization)
+        user = create_user(email="test@posthog.com", password="1234", organization=organization)
+
+        self.client.force_login(user)
+
+        persons_to_delete = []
+        for i in range(15):
+            person = PersonModel.objects.create(distinct_ids=[f"person {i}"], team=team)
+            persons_to_delete.append(person)
+
+        setup_user_activity_by_day(
+            daily_activity={
+                "2020-01-01": {f"person {i}": [{"event": "target event"}] for i in range(15)},
+                "2020-01-02": {f"person {i}": [{"event": "target event"}] for i in range(5)},
+                "2020-01-03": {f"person {i}": [{"event": "target event"}] for i in range(10, 15)},
+                "2020-01-04": {f"person {i}": [{"event": "target event"}] for i in range(5, 10)},
+                "2020-01-05": {f"person {i}": [{"event": "target event"}] for i in range(6)},
+            },
+            team=team,
+        )
+
+        for person in persons_to_delete:
+            person.delete()
+
+        retention = get_retention_ok(
+            client=self.client,
+            team_id=team.pk,
+            request=RetentionRequest(
+                target_entity={"id": "target event", "type": "events"},
+                returning_entity={"id": "target event", "type": "events"},
+                date_from="2020-01-01",
+                total_intervals=5,
+                date_to="2020-01-05",
+                period="Day",
+                retention_type="retention_first_time",
+                limit=10,
+            ),
+        )
+
+        assert retention["result"][0]["values"][0]["count"] == 15
+
+        people_url = retention["result"][0]["values"][0]["people_url"]
+        people_response = self.client.get(people_url)
+        assert people_response.status_code == 200
+
+        response_json = people_response.json()
+
+        assert response_json["missing_persons"] == 10
+        people = response_json["result"]
+        assert len(people) == 0
+        appearances_count = [sum(person["appearances"]) for person in people]
+        self.assertEqual(appearances_count, [])
+
+        people_url = response_json["next"]
+        people_response = self.client.get(people_url)
+        assert people_response.status_code == 200
+
+        response_json = people_response.json()
+
+        people = response_json["result"]
+        assert response_json["missing_persons"] == 5
+        assert response_json["next"] is None
+        assert len(people) == 0
 
 
-class BreakdownTests(TestCase, ClickhouseTestMixin):
+class BreakdownTests(APIBaseTest, ClickhouseTestMixin):
     def test_can_get_retention_cohort_breakdown(self):
         organization = create_organization(name="test")
         team = create_team(organization=organization)
@@ -163,7 +307,7 @@ class BreakdownTests(TestCase, ClickhouseTestMixin):
         retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
 
         assert retention_by_cohort_by_period == {
-            "Day 0": {"1": ["person 1", "person 2"], "2": ["person 1"],},
+            "Day 0": {"1": ["person 1", "person 2"], "2": ["person 1"]},
             "Day 1": {"1": ["person 3"]},
         }
 
@@ -202,11 +346,13 @@ class BreakdownTests(TestCase, ClickhouseTestMixin):
         )
 
         retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
-
-        assert retention_by_cohort_by_period == {
-            "Day 0": {"1": ["person 1", "person 2"], "2": ["person 1"],},
-            "Day 1": {"1": ["person 3", "person 1"]},
-        }
+        self.assertDictEqual(
+            retention_by_cohort_by_period,
+            {
+                "Day 0": {"1": ["person 1", "person 2"], "2": ["person 1"]},
+                "Day 1": {"1": ["person 1", "person 3"]},
+            },
+        )
 
     @test_with_materialized_columns(person_properties=["os"])
     def test_can_specify_breakdown_person_property(self):
@@ -356,7 +502,7 @@ class BreakdownTests(TestCase, ClickhouseTestMixin):
                     "person 1": [{"event": "target event", "properties": {"os": "Chrome"}}],
                     "person 2": [{"event": "target event", "properties": {"os": "Safari"}}],
                 },
-                "2020-01-02": {"person 1": [{"event": "target event"}], "person 2": [{"event": "target event"}],},
+                "2020-01-02": {"person 1": [{"event": "target event"}], "person 2": [{"event": "target event"}]},
             },
             team=team,
         )
@@ -386,11 +532,10 @@ class BreakdownTests(TestCase, ClickhouseTestMixin):
         assert people_response.status_code == 200
 
         people = people_response.json()["result"]
+        assert [distinct_id for person in people for distinct_id in person["person"]["distinct_ids"]] == ["person 1"]
 
-        assert [distinct_id for person in people for distinct_id in person["distinct_ids"]] == ["person 1"]
 
-
-class IntervalTests(TestCase, ClickhouseTestMixin):
+class IntervalTests(APIBaseTest, ClickhouseTestMixin):
     def test_can_get_retention_week_interval(self):
         organization = create_organization(name="test")
         team = create_team(organization=organization)
@@ -425,13 +570,10 @@ class IntervalTests(TestCase, ClickhouseTestMixin):
 
         retention_by_cohort_by_period = get_by_cohort_by_period_for_response(client=self.client, response=retention)
 
-        assert retention_by_cohort_by_period == {
-            "Week 0": {"1": ["person 1"], "2": [],},
-            "Week 1": {"1": ["person 2"]},
-        }
+        assert retention_by_cohort_by_period == {"Week 0": {"1": ["person 1"], "2": []}, "Week 1": {"1": ["person 2"]}}
 
 
-class RegressionTests(TestCase, ClickhouseTestMixin):
+class RegressionTests(APIBaseTest, ClickhouseTestMixin):
     def test_can_get_actors_and_use_percent_char_filter(self):
         """
         References https://github.com/PostHog/posthog/issues/7747
@@ -506,6 +648,8 @@ class RetentionRequest:
 
     properties: Optional[List[PropertyFilter]] = None
     filter_test_accounts: Optional[str] = None
+
+    limit: Optional[int] = None
 
 
 class Value(TypedDict):
@@ -593,7 +737,7 @@ def get_by_cohort_by_period_for_response(client: Client, response: RetentionResp
         # pagination so this could be wrong for large counts
         assert value["count"] == len(people_in_period)
 
-        return people_in_period
+        return sorted(people_in_period)
 
     def create_cohort_response(cohort):
         people = get_retention_table_people_from_url_ok(client=client, people_url=cohort["people_url"])["result"]

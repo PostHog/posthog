@@ -2,10 +2,10 @@ from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
-class TestOrganizationMembersAPI(APIBaseTest):
+class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
     def test_list_organization_members(self):
         User.objects.create_and_join(self.organization, "1@posthog.com", None)
         User.objects.create_and_join(self.organization, "2@posthog.com", None, is_active=False)
@@ -19,6 +19,18 @@ class TestOrganizationMembersAPI(APIBaseTest):
         self.assertEqual(len(response_data), 2)
         self.assertEqual(response_data[0]["user"]["uuid"], str(instance.user.uuid))
         self.assertEqual(response_data[0]["user"]["first_name"], instance.user.first_name)
+
+    @snapshot_postgres_queries
+    def test_list_organization_members_is_not_nplus1(self):
+        with self.assertNumQueries(7):
+            response = self.client.get("/api/organizations/@current/members/")
+            assert len(response.json()["results"]) == 1
+
+        User.objects.create_and_join(self.organization, "1@posthog.com", None)
+
+        with self.assertNumQueries(7):
+            response = self.client.get("/api/organizations/@current/members/")
+            assert len(response.json()["results"]) == 2
 
     def test_cant_list_members_for_an_alien_organization(self):
         org = Organization.objects.create(name="Alien Org")
@@ -63,7 +75,7 @@ class TestOrganizationMembersAPI(APIBaseTest):
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
         response = self.client.patch(
-            f"/api/organizations/@current/members/{user.uuid}", {"level": OrganizationMembership.Level.ADMIN},
+            f"/api/organizations/@current/members/{user.uuid}", {"level": OrganizationMembership.Level.ADMIN}
         )
         self.assertEqual(response.status_code, 200)
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
@@ -93,7 +105,7 @@ class TestOrganizationMembersAPI(APIBaseTest):
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
         response = self.client.patch(
-            f"/api/organizations/@current/members/{user.uuid}", {"level": OrganizationMembership.Level.ADMIN},
+            f"/api/organizations/@current/members/{user.uuid}", {"level": OrganizationMembership.Level.ADMIN}
         )
         self.assertEqual(response.status_code, 200)
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
@@ -104,7 +116,7 @@ class TestOrganizationMembersAPI(APIBaseTest):
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
         response = self.client.patch(
-            f"/api/organizations/@current/members/{user.uuid}/", {"level": OrganizationMembership.Level.ADMIN},
+            f"/api/organizations/@current/members/{user.uuid}/", {"level": OrganizationMembership.Level.ADMIN}
         )
 
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
@@ -124,7 +136,7 @@ class TestOrganizationMembersAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         response = self.client.patch(
-            f"/api/organizations/@current/members/{self.user.uuid}", {"level": OrganizationMembership.Level.MEMBER},
+            f"/api/organizations/@current/members/{self.user.uuid}", {"level": OrganizationMembership.Level.MEMBER}
         )
         self.organization_membership.refresh_from_db()
         self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
@@ -142,12 +154,12 @@ class TestOrganizationMembersAPI(APIBaseTest):
     def test_pass_ownership(self):
         user = User.objects.create_user("test@x.com", None, "X")
         membership: OrganizationMembership = OrganizationMembership.objects.create(
-            user=user, organization=self.organization,
+            user=user, organization=self.organization
         )
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
         response = self.client.patch(
-            f"/api/organizations/@current/members/{user.uuid}/", {"level": OrganizationMembership.Level.OWNER},
+            f"/api/organizations/@current/members/{user.uuid}/", {"level": OrganizationMembership.Level.OWNER}
         )
         self.organization_membership.refresh_from_db()
         membership.refresh_from_db()
@@ -156,7 +168,7 @@ class TestOrganizationMembersAPI(APIBaseTest):
         self.assertEqual(membership.level, OrganizationMembership.Level.OWNER)
         self.assertEqual(
             OrganizationMembership.objects.filter(
-                organization=self.organization, level=OrganizationMembership.Level.OWNER,
+                organization=self.organization, level=OrganizationMembership.Level.OWNER
             ).count(),
             1,
         )
@@ -164,12 +176,12 @@ class TestOrganizationMembersAPI(APIBaseTest):
     def test_pass_ownership_only_if_owner(self):
         user = User.objects.create_user("test@x.com", None, "X")
         membership: OrganizationMembership = OrganizationMembership.objects.create(
-            user=user, organization=self.organization,
+            user=user, organization=self.organization
         )
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         response = self.client.patch(
-            f"/api/organizations/@current/members/{user.uuid}/", {"level": OrganizationMembership.Level.OWNER},
+            f"/api/organizations/@current/members/{user.uuid}/", {"level": OrganizationMembership.Level.OWNER}
         )
         self.organization_membership.refresh_from_db()
         membership.refresh_from_db()

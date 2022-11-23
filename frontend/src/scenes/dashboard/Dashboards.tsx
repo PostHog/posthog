@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Card, Tabs } from 'antd'
@@ -27,6 +26,10 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { LemonInput } from '@posthog/lemon-ui'
+import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
+import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
+import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
+import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -35,29 +38,33 @@ export const scene: SceneExport = {
 
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { deleteDashboard, unpinDashboard, pinDashboard, duplicateDashboard } = useActions(dashboardsModel)
+    const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { setSearchTerm, setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, searchTerm, currentTab } = useValues(dashboardsLogic)
     const { showNewDashboardModal, addDashboard } = useActions(newDashboardLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { closePrompts } = useActions(inAppPromptLogic)
+    const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
+    const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
         {
             width: 0,
             dataIndex: 'pinned',
             render: function Render(pinned, { id }) {
-                return pinned ? (
-                    <PushpinFilled
-                        onClick={() => unpinDashboard(id, DashboardEventSource.DashboardsList)}
-                        style={{ cursor: 'pointer' }}
-                    />
-                ) : (
-                    <PushpinOutlined
-                        onClick={() => pinDashboard(id, DashboardEventSource.DashboardsList)}
-                        style={{ cursor: 'pointer' }}
-                    />
+                return (
+                    <LemonButton
+                        size="small"
+                        status="primary-alt"
+                        onClick={
+                            pinned
+                                ? () => unpinDashboard(id, DashboardEventSource.DashboardsList)
+                                : () => pinDashboard(id, DashboardEventSource.DashboardsList)
+                        }
+                    >
+                        {pinned ? <PushpinFilled /> : <PushpinOutlined />}
+                    </LemonButton>
                 )
             },
         },
@@ -156,7 +163,9 @@ export function Dashboards(): JSX.Element {
                                 </LemonButton>
                                 <LemonButton
                                     status="stealth"
-                                    onClick={() => duplicateDashboard({ id, name })}
+                                    onClick={() => {
+                                        showDuplicateDashboardModal(id, name)
+                                    }}
                                     fullWidth
                                 >
                                     Duplicate
@@ -170,7 +179,9 @@ export function Dashboards(): JSX.Element {
                                 </LemonRow>
                                 <LemonDivider />
                                 <LemonButton
-                                    onClick={() => deleteDashboard({ id, redirect: false })}
+                                    onClick={() => {
+                                        showDeleteDashboardModal(id)
+                                    }}
                                     fullWidth
                                     status="danger"
                                 >
@@ -187,6 +198,8 @@ export function Dashboards(): JSX.Element {
     return (
         <div>
             <NewDashboardModal />
+            <DuplicateDashboardModal />
+            <DeleteDashboardModal />
             <PageHeader
                 title="Dashboards"
                 buttons={
@@ -208,6 +221,7 @@ export function Dashboards(): JSX.Element {
                 onChange={(tab) => setCurrentTab(tab as DashboardsTab)}
             >
                 <Tabs.TabPane tab="All Dashboards" key={DashboardsTab.All} />
+                <Tabs.TabPane tab="Your Dashboards" key={DashboardsTab.Yours} />
                 <Tabs.TabPane tab="Pinned" key={DashboardsTab.Pinned} />
                 <Tabs.TabPane tab="Shared" key={DashboardsTab.Shared} />
             </Tabs>
@@ -223,7 +237,7 @@ export function Dashboards(): JSX.Element {
             <LemonDivider className="my-4" />
             {dashboardsLoading || dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
                 <LemonTable
-                    data-tooltip="dashboards-table"
+                    data-attr="dashboards-table"
                     pagination={{ pageSize: 100 }}
                     dataSource={dashboards}
                     rowKey="id"

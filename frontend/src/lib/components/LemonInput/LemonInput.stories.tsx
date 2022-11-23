@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 
 import { LemonInput } from './LemonInput'
@@ -8,6 +8,7 @@ import { LemonButtonWithPopup } from 'lib/components/LemonButton'
 export default {
     title: 'Lemon UI/Lemon Input',
     component: LemonInput,
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         value: { defaultValue: 'Foo' },
     },
@@ -21,10 +22,10 @@ const Template: ComponentStory<typeof LemonInput> = (props) => {
 
 export const Basic = Template.bind({})
 
-export const WithIconAndSideAction = Template.bind({})
-WithIconAndSideAction.args = {
-    icon: <IconCalendar />,
-    sideIcon: (
+export const WithPrefixAndSuffixAction = Template.bind({})
+WithPrefixAndSuffixAction.args = {
+    prefix: <IconCalendar />,
+    suffix: (
         <LemonButtonWithPopup
             noPadding
             popup={{
@@ -38,6 +39,9 @@ WithIconAndSideAction.args = {
 
 export const Search = Template.bind({})
 Search.args = { type: 'search', placeholder: 'Search your soul' }
+
+export const Password = Template.bind({})
+Password.args = { type: 'password', placeholder: 'Enter your password' }
 
 export const Disabled = Template.bind({})
 Disabled.args = { disabled: true }

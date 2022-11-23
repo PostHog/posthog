@@ -1,3 +1,4 @@
+from datetime import datetime
 from unittest.mock import call, patch
 
 import pytest
@@ -18,6 +19,7 @@ from posthog.utils import (
     absolute_uri,
     format_query_params_absolute_url,
     get_available_timezones_with_offsets,
+    get_compare_period_dates,
     get_default_event_name,
     load_data_from_request,
     mask_email_address,
@@ -36,7 +38,7 @@ class TestAbsoluteUrls(TestCase):
             ("/api/path", "https://my-amazing.site/", "https://my-amazing.site/api/path"),
             ("api/path", "https://my-amazing.site/base_url/", "https://my-amazing.site/base_url/api/path"),
             ("/api/path", "https://my-amazing.site/base_url", "https://my-amazing.site/base_url/api/path"),
-            (regression_11204, "https://app.posthog.com", f"https://app.posthog.com/{regression_11204}",),
+            (regression_11204, "https://app.posthog.com", f"https://app.posthog.com/{regression_11204}"),
             ("https://app.posthog.com", "https://app.posthog.com", "https://app.posthog.com"),
             (
                 "https://app.posthog.com/some/path?=something",
@@ -44,9 +46,9 @@ class TestAbsoluteUrls(TestCase):
                 "https://app.posthog.com/some/path?=something",
             ),
             (
-                "an.attackers.domain.com/bitcoin-miner.exe",
+                "an.external.domain.com/something-outside-posthog",
                 "https://app.posthog.com",
-                "https://app.posthog.com/an.attackers.domain.com/bitcoin-miner.exe",
+                "https://app.posthog.com/an.external.domain.com/something-outside-posthog",
             ),
             ("/api/path", "", "/api/path"),  # current behavior whether correct or not
             (
@@ -67,17 +69,17 @@ class TestAbsoluteUrls(TestCase):
     def test_absolute_uri_can_not_escape_out_host(self) -> None:
         with self.settings(SITE_URL="https://app.posthog.com"):
             with pytest.raises(PotentialSecurityProblemException):
-                absolute_uri("https://an.attackers.domain.com/bitcoin-miner.exe"),
+                absolute_uri("https://an.external.domain.com/something-outside-posthog"),
 
     def test_absolute_uri_can_not_escape_out_host_on_different_scheme(self) -> None:
         with self.settings(SITE_URL="https://app.posthog.com"):
             with pytest.raises(PotentialSecurityProblemException):
-                absolute_uri("ftp://an.attackers.domain.com/bitcoin-miner.exe"),
+                absolute_uri("ftp://an.external.domain.com/something-outside-posthog"),
 
     def test_absolute_uri_can_not_escape_out_host_when_site_url_is_the_empty_string(self) -> None:
         with self.settings(SITE_URL=""):
             with pytest.raises(PotentialSecurityProblemException):
-                absolute_uri("https://an.attackers.domain.com/bitcoin-miner.exe"),
+                absolute_uri("https://an.external.domain.com/something-outside-posthog"),
 
 
 class TestFormatUrls(TestCase):
@@ -104,7 +106,7 @@ class TestFormatUrls(TestCase):
             ((None, None, "off2", "lim2"), "http://www.testserver"),
             ((50, None, "off2", "lim2"), "http://www.testserver?off2=50"),
             ((None, 50, "off2", "lim2"), "http://www.testserver?lim2=50"),
-            ((50, 50, "off2", "lim2"), "http://www.testserver?off2=50&lim2=50",),
+            ((50, 50, "off2", "lim2"), "http://www.testserver?off2=50&lim2=50"),
         ]
 
         for params, expected in test_to_expected:
@@ -327,3 +329,15 @@ class TestShouldRefresh(TestCase):
         drf_request = Request(HttpRequest())
         drf_request._full_data = {"refresh": False}  # type: ignore
         self.assertFalse(should_refresh(drf_request))
+
+    def test_can_get_period_to_compare_when_interval_is_day(self) -> None:
+        """
+        regression test see https://sentry.io/organizations/posthog/issues/3719740579/events/latest/?project=1899813&referrer=latest-event
+        """
+        assert get_compare_period_dates(
+            date_from=datetime(2022, 1, 1, 0, 0),
+            date_to=datetime(2022, 11, 4, 21, 20, 41, 730028),
+            date_from_delta_mapping={"day": 1, "month": 1},
+            date_to_delta_mapping=None,
+            interval="day",
+        ) == (datetime(2021, 2, 27, 0, 0), datetime(2021, 12, 31, 23, 59, 59, 999999))

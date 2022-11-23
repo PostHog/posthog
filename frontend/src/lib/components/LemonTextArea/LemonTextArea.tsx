@@ -1,113 +1,144 @@
 import './LemonTextArea.scss'
-import React, { useRef, useState } from 'react'
-import { LemonRow, LemonRowProps } from 'lib/components/LemonRow'
+import React, { createRef, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconClose } from 'lib/components/icons'
-import TextareaAutosize, { TextareaAutosizeProps } from 'react-textarea-autosize'
+import TextareaAutosize from 'react-textarea-autosize'
+import { Tabs } from 'antd'
+import { IconMarkdown, IconTools } from 'lib/components/icons'
+import { TextCardBody } from 'lib/components/Cards/TextCard/TextCard'
+import api from 'lib/api'
+import { lemonToast } from 'lib/components/lemonToast'
+import posthog from 'posthog-js'
+import { LemonFileInput } from 'lib/components/LemonFileInput/LemonFileInput'
+import { useValues } from 'kea'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { Link } from 'lib/components/Link'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export interface LemonTextAreaProps
-    extends Omit<
+    extends Pick<
         React.TextareaHTMLAttributes<HTMLTextAreaElement>,
-        'value' | 'defaultValue' | 'onChange' | 'prefix' | 'suffix'
+        'onFocus' | 'onBlur' | 'maxLength' | 'autoFocus' | 'onKeyDown'
     > {
-    ref?: React.Ref<HTMLTextAreaElement>
     id?: string
     value?: string
     defaultValue?: string
     placeholder?: string
-    onChange?: (newValue: string) => void
-    onPressEnter?: (newValue: string) => void
-    /** An embedded input has no border around it and no background. This way it blends better into other components. */
-    embedded?: boolean
-    /** Whether there should be a clear icon to the right allowing you to reset the input. The `suffix` prop will be ignored if clearing is allowed. */
-    allowClear?: boolean
-    /** Icon to prefix input field */
-    icon?: React.ReactElement | null
-    /** Icon to suffix input field */
-    sideIcon?: React.ReactElement | null
+    className?: string
     /** Whether input field is disabled */
     disabled?: boolean
+    ref?: React.Ref<HTMLTextAreaElement>
+    onChange?: (newValue: string) => void
+    /** Callback called when Cmd + Enter (or Ctrl + Enter) is pressed.
+     * This checks for Cmd/Ctrl, as opposed to LemonInput, to avoid blocking multi-line input. */
+    onPressCmdEnter?: (newValue: string) => void
     minRows?: number
+    maxRows?: number
+    rows?: number
 }
 
-/** A `LemonRow`-based `textarea` component for multi-line text. */
+/** A `textarea` component for multi-line text. */
 export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextAreaProps>(function _LemonTextArea(
-    {
-        className,
-        onChange,
-        onFocus,
-        onBlur,
-        onPressEnter,
-        embedded = false,
-        allowClear = false,
-        icon,
-        sideIcon,
-        minRows = 3,
-        ...textProps
-    },
+    { className, onChange, onFocus, onBlur, onPressCmdEnter: onPressEnter, minRows = 3, onKeyDown, ...textProps },
     ref
 ): JSX.Element {
     const _ref = useRef<HTMLTextAreaElement | null>(null)
     const textRef = ref || _ref
-    const [focused, setFocused] = useState<boolean>(Boolean(textProps.autoFocus))
-
-    const rowProps: LemonRowProps<'span'> = {
-        tag: 'span',
-        className: clsx(
-            'LemonTextArea',
-            textProps.disabled && 'LemonTextArea--disabled',
-            !textProps.disabled && focused && 'LemonTextArea--focused',
-            embedded && 'LemonTextArea--embedded',
-            className
-        ),
-        fullWidth: true,
-        icon,
-        sideIcon: allowClear ? (
-            <LemonButton
-                type="tertiary"
-                icon={<IconClose style={{ fontSize: '1rem' }} />}
-                tooltip="Clear input"
-                onClick={(e) => {
-                    e.stopPropagation()
-                    onChange?.('')
-                }}
-            />
-        ) : (
-            sideIcon
-        ),
-        onKeyDown: (event) => {
-            if (onPressEnter && event.key === 'Enter') {
-                onPressEnter(textProps.value?.toString() ?? '')
-            }
-        },
-        onClick: () => {
-            if (textRef && 'current' in textRef) {
-                textRef.current?.focus()
-            }
-            setFocused(true)
-        },
-        outlined: !embedded,
-    }
-    const props = {
-        className: 'LemonTextArea__textarea',
-        onChange: (event) => {
-            onChange?.(event.currentTarget.value ?? '')
-        },
-        onFocus: (event) => {
-            setFocused(true)
-            onFocus?.(event)
-        },
-        onBlur: (event) => {
-            setFocused(false)
-            onBlur?.(event)
-        },
-        ...textProps,
-    } as TextareaAutosizeProps
 
     return (
-        <LemonRow {...rowProps}>
-            <TextareaAutosize minRows={minRows} {...props} ref={textRef} />
-        </LemonRow>
+        <TextareaAutosize
+            minRows={minRows}
+            ref={textRef}
+            className={clsx('LemonTextArea', className)}
+            onKeyDown={(e) => {
+                if (onPressEnter && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                    onPressEnter(textProps.value?.toString() ?? '')
+                }
+
+                onKeyDown?.(e)
+            }}
+            onChange={(event) => onChange?.(event.currentTarget.value ?? '')}
+            {...textProps}
+        />
     )
 })
+
+interface LemonTextMarkdownProps {
+    'data-attr'?: string
+    value: string
+    onChange: (s: string) => void
+}
+
+export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTextMarkdownProps): JSX.Element {
+    const { objectStorageAvailable } = useValues(preflightLogic)
+
+    const [uploading, setUploading] = useState(false)
+    const [filesToUpload, setFilesToUpload] = useState<File[]>([])
+    const dropRef = createRef<HTMLDivElement>()
+
+    useEffect(() => {
+        const uploadFiles = async (): Promise<void> => {
+            if (filesToUpload.length === 0) {
+                setUploading(false)
+                return
+            }
+
+            try {
+                setUploading(true)
+                const formData = new FormData()
+                formData.append('image', filesToUpload[0])
+                const media = await api.media.upload(formData)
+                onChange(value + `\n\n![${media.name}](${media.image_location})`)
+                posthog.capture('markdown image uploaded', { name: media.name })
+            } catch (error) {
+                const errorDetail = (error as any).detail || 'unknown error'
+                posthog.capture('markdown image upload failed', { error: errorDetail })
+                lemonToast.error(`Error uploading image: ${errorDetail}`)
+            } finally {
+                setUploading(false)
+                setFilesToUpload([])
+            }
+        }
+        uploadFiles().catch(console.error)
+    }, [filesToUpload])
+
+    return (
+        <Tabs>
+            <Tabs.TabPane tab="Write" key="write-card" destroyInactiveTabPane={true}>
+                <div ref={dropRef} className={clsx('LemonTextMarkdown flex flex-col p-2 space-y-1 rounded')}>
+                    <LemonTextArea {...editAreaProps} autoFocus value={value} onChange={onChange} />
+                    <div className="text-muted inline-flex items-center space-x-1">
+                        <IconMarkdown className={'text-2xl'} />
+                        <span>Markdown formatting support</span>
+                    </div>
+                    {objectStorageAvailable ? (
+                        <LemonFileInput
+                            accept={'image/*'}
+                            multiple={false}
+                            alternativeDropTargetRef={dropRef}
+                            onChange={setFilesToUpload}
+                            loading={uploading}
+                            value={filesToUpload}
+                        />
+                    ) : (
+                        <div className="text-muted inline-flex items-center space-x-1">
+                            <Tooltip title={'Enable object storage to add images by dragging and dropping.'}>
+                                <IconTools className={'text-xl mr-1'} />
+                            </Tooltip>
+                            <span>
+                                Add external images using{' '}
+                                <Link to={'https://www.markdownguide.org/basic-syntax/#images-1'}>
+                                    {' '}
+                                    Markdown image links
+                                </Link>
+                                .
+                            </span>
+                        </div>
+                    )}
+                </div>
+            </Tabs.TabPane>
+            <Tabs.TabPane tab="Preview" key={'preview-card'}>
+                <TextCardBody text={value} />
+            </Tabs.TabPane>
+        </Tabs>
+    )
+}

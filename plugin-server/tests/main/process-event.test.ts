@@ -12,8 +12,8 @@ import { DateTime } from 'luxon'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import {
+    ClickHouseEvent,
     Database,
-    Event,
     Hub,
     LogLevel,
     Person,
@@ -70,7 +70,7 @@ export const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => 
 
             return [
                 distinctIds,
-                (events as Event[])
+                (events as ClickHouseEvent[])
                     .filter((event) => distinctIds.includes(event.distinct_id))
                     .sort((e1, e2) => new Date(e1.timestamp).getTime() - new Date(e2.timestamp).getTime())
                     .map((event) => event.event),
@@ -277,8 +277,8 @@ test('capture new person', async () => {
         $current_url: 'https://test.com',
         $os: 'Mac OS X',
         $browser_version: '95',
-        $initial_referring_domain: 'https://google.com',
-        $initial_referrer_url: 'https://google.com/?q=posthog',
+        $referring_domain: 'https://google.com',
+        $referrer: 'https://google.com/?q=posthog',
         utm_medium: 'twitter',
         gclid: 'GOOGLE ADS ID',
         $elements: [
@@ -312,6 +312,8 @@ test('capture new person', async () => {
         utm_medium: 'twitter',
         $initial_gclid: 'GOOGLE ADS ID',
         gclid: 'GOOGLE ADS ID',
+        $initial_referrer: 'https://google.com/?q=posthog',
+        $initial_referring_domain: 'https://google.com',
     }
     expect(persons[0].properties).toEqual(expectedProps)
 
@@ -336,14 +338,16 @@ test('capture new person', async () => {
             $initial_current_url: 'https://test.com',
             $initial_browser_version: '95',
             $initial_gclid: 'GOOGLE ADS ID',
+            $initial_referrer: 'https://google.com/?q=posthog',
+            $initial_referring_domain: 'https://google.com',
         },
         utm_medium: 'twitter',
         distinct_id: 2,
         $current_url: 'https://test.com',
         $browser_version: '95',
         gclid: 'GOOGLE ADS ID',
-        $initial_referrer_url: 'https://google.com/?q=posthog',
-        $initial_referring_domain: 'https://google.com',
+        $referrer: 'https://google.com/?q=posthog',
+        $referring_domain: 'https://google.com',
     })
 
     // capture a second time to verify e.g. event_names is not ['$autocapture', '$autocapture']
@@ -386,11 +390,16 @@ test('capture new person', async () => {
         utm_medium: 'instagram',
         $initial_gclid: 'GOOGLE ADS ID',
         gclid: 'GOOGLE ADS ID',
+        $initial_referrer: 'https://google.com/?q=posthog',
+        $initial_referring_domain: 'https://google.com',
     }
     expect(persons[0].properties).toEqual(expectedProps)
 
-    await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
-    const chPeople2 = await hub.db.fetchPersons(Database.ClickHouse)
+    const chPeople2 = await delayUntilEventIngested(async () =>
+        (
+            await hub.db.fetchPersons(Database.ClickHouse)
+        ).filter((p) => p && JSON.parse(p.properties).utm_medium == 'instagram')
+    )
     expect(chPeople2.length).toEqual(1)
     expect(JSON.parse(chPeople2[0].properties)).toEqual(expectedProps)
 
@@ -407,12 +416,12 @@ test('capture new person', async () => {
     const [person] = persons
     const distinctIds = await hub.db.fetchDistinctIdValues(person)
 
-    const [event] = events as Event[]
+    const [event] = events as ClickHouseEvent[]
     expect(event.distinct_id).toEqual('2')
     expect(distinctIds).toEqual(['2'])
     expect(event.event).toEqual('$autocapture')
 
-    const elements = await hub.db.fetchElements(event)
+    const elements = event.elements_chain!
     expect(elements[0].tag_name).toEqual('a')
     expect(elements[0].attr_class).toEqual(['btn', 'btn-sm'])
     expect(elements[1].order).toEqual(1)
@@ -543,7 +552,7 @@ test('capture new person', async () => {
         {
             id: expect.any(String),
             is_numerical: false,
-            name: '$initial_referring_domain',
+            name: '$referring_domain',
             property_type: 'String',
             property_type_format: null,
             query_usage_30_day: null,
@@ -553,7 +562,7 @@ test('capture new person', async () => {
         {
             id: expect.any(String),
             is_numerical: false,
-            name: '$initial_referrer_url',
+            name: '$referrer',
             property_type: 'String',
             property_type_format: null,
             query_usage_30_day: null,
@@ -909,8 +918,8 @@ test('long htext', async () => {
         new UUIDT().toString()
     )
 
-    const [event] = (await hub.db.fetchEvents()) as Event[]
-    const [element] = await hub.db.fetchElements(event)
+    const [event] = await hub.db.fetchEvents()
+    const [element] = event.elements_chain!
     expect(element.href?.length).toEqual(2048)
     expect(element.text?.length).toEqual(400)
 })
@@ -954,9 +963,9 @@ test('capture first team event', async () => {
     team = await getFirstTeam(hub)
     expect(team.ingested_event).toEqual(true)
 
-    const [event] = (await hub.db.fetchEvents()) as Event[]
+    const [event] = await hub.db.fetchEvents()
 
-    const elements = await hub.db.fetchElements(event)
+    const elements = event.elements_chain!
     expect(elements.length).toEqual(1)
 })
 
@@ -973,10 +982,22 @@ it('snapshot event not stored if session recording disabled', async () => {
         now,
         new UUIDT().toString()
     )
-    await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
-
-    const events = await hub.db.fetchEvents()
-    expect(events.length).toEqual(0)
+    // capture a different event to make sure we proccessed the snapshot event already
+    await processEvent(
+        'distinct_id1',
+        '',
+        '',
+        {
+            event: 'other-event',
+            properties: {
+                token: team.api_token,
+                distinct_id: 'distinct_id1',
+            },
+        } as any as PluginEvent,
+        team.id,
+        now,
+        new UUIDT().toString()
+    )
 
     const sessionRecordingEvents = await hub.db.fetchSessionRecordingEvents()
     expect(sessionRecordingEvents.length).toBe(0)
@@ -1009,18 +1030,21 @@ test('snapshot event stored as session_recording_event', async () => {
 })
 
 test('$snapshot event creates new person if needed', async () => {
-    await processEvent(
-        'some_new_id',
-        '',
-        '',
-        {
-            event: '$snapshot',
-            properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
+    const pluginEvent: PluginEvent = {
+        distinct_id: 'some_new_id',
+        site_url: '',
+        team_id: team.id,
+        timestamp: now.toUTC().toISO(),
+        now: now.toUTC().toISO(),
+        ip: '',
+        uuid: new UUIDT().toString(),
+        event: '$snapshot',
+        properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
+    } as any as PluginEvent
+
+    const runner = new EventPipelineRunner(hub, pluginEvent)
+    await runner.runEventPipeline(pluginEvent)
+
     await delayUntilEventIngested(() => hub.db.fetchPersons())
 
     const persons = await hub.db.fetchPersons()
@@ -1686,7 +1710,7 @@ describe('when handling $create_alias', () => {
 
         // Make sure there is one identified person
         const persons = await hub.db.fetchPersons()
-        expect(persons.map((person) => person.is_identified)).toEqual([false])
+        expect(persons.map((person) => person.is_identified)).toEqual([true])
     })
 
     test('we can alias two non-existent persons', async () => {
@@ -1703,9 +1727,8 @@ describe('when handling $create_alias', () => {
         // There should just be one person, to which all events are associated
         expect(eventsByPerson).toEqual([[[anonymous1, anonymous2], ['$create_alias']]])
 
-        // Make sure there is one non-identified person
         const persons = await hub.db.fetchPersons()
-        expect(persons.map((person) => person.is_identified)).toEqual([false])
+        expect(persons.map((person) => person.is_identified)).toEqual([true])
     })
 })
 
@@ -2119,8 +2142,6 @@ test('$groupidentify updating properties', async () => {
 })
 
 test('person and group properties on events', async () => {
-    // setup 2 groups with properties
-    hub.db.personAndGroupsCachingEnabledTeams.add(2)
     await createPerson(hub, team, ['distinct_id1'], { pineapple: 'on', pizza: 1 })
 
     await processEvent(
@@ -2187,8 +2208,6 @@ test('person and group properties on events', async () => {
     expect(event?.person_properties).toEqual({ pineapple: 'on', pizza: 1, new: 5 })
     expect(event?.group0_properties).toEqual({ foo: 'bar' })
     expect(event?.group1_properties).toEqual({ pineapple: 'yummy' })
-
-    hub.db.personAndGroupsCachingEnabledTeams.delete(2)
 })
 
 test('set and set_once on the same key', async () => {

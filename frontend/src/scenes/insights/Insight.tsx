@@ -1,13 +1,11 @@
 import './Insight.scss'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
 import { AvailableFeature, ExporterFormat, InsightModel, InsightShortId, InsightType, ItemMode } from '~/types'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
-import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
-import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { InsightsNav } from './InsightsNav'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
@@ -65,8 +63,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
-    const { cohortModalVisible } = useValues(personsModalLogic)
-    const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
@@ -75,7 +71,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         reportInsightViewedForRecentInsights()
     }, [insightId])
 
-    // const screens = useBreakpoint()
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
 
     // Show the skeleton if loading an insight for which we only know the id
@@ -110,6 +105,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         value={insight.name || ''}
                         placeholder={summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)}
                         onSave={(value) => setInsightMetadata({ name: value })}
+                        saveOnBlur={true}
                         maxLength={400} // Sync with Insight model
                         mode={!canEditInsight ? 'view' : undefined}
                         data-attr="insight-name"
@@ -135,6 +131,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                                 status="stealth"
                                                 onClick={() => duplicateInsight(insight as InsightModel, true)}
                                                 fullWidth
+                                                data-attr="duplicate-insight-from-insight-view"
                                             >
                                                 Duplicate
                                             </LemonButton>
@@ -245,6 +242,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 value={insight.description || ''}
                                 placeholder="Description (optional)"
                                 onSave={(value) => setInsightMetadata({ description: value })}
+                                saveOnBlur={true}
                                 maxLength={400} // Sync with Insight model
                                 mode={!canEditInsight ? 'view' : undefined}
                                 data-attr="insight-description"
@@ -288,8 +286,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 })}
             >
                 <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />
-                <div className="insights-container" data-tooltip="insight-view">
-                    {<InsightContainer />}
+                <div className="insights-container" data-attr="insight-view">
+                    {<InsightContainer insightMode={insightMode} />}
                 </div>
             </div>
 
@@ -299,15 +297,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     <FeedbackCallCTA />
                 </>
             ) : null}
-
-            <SaveCohortModal
-                visible={cohortModalVisible}
-                onOk={(title: string) => {
-                    saveCohortWithUrl(title)
-                    setCohortModalVisible(false)
-                }}
-                onCancel={() => setCohortModalVisible(false)}
-            />
         </div>
     )
 

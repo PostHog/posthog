@@ -1,4 +1,3 @@
-import React from 'react'
 import { Button, Col, Divider, Row, Statistic } from 'antd'
 import { useValues, useActions } from 'kea'
 import { deadLetterQueueLogic } from './deadLetterQueueLogic'
@@ -27,7 +26,7 @@ export function MetricsTab(): JSX.Element {
 
             <div className="mb-4 float-right">
                 <LemonButton
-                    icon={deadLetterQueueMetricsLoading ? <Spinner size="sm" /> : <IconRefresh />}
+                    icon={deadLetterQueueMetricsLoading ? <Spinner /> : <IconRefresh />}
                     onClick={loadDeadLetterQueueMetrics}
                     type="secondary"
                     size="small"

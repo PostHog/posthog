@@ -1,4 +1,3 @@
-import React from 'react'
 import { ExporterFormat } from '~/types'
 import { LemonButton, LemonButtonProps, LemonButtonWithPopup } from '../LemonButton'
 import { LemonDivider } from '../LemonDivider'
@@ -25,6 +24,7 @@ export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.
             popup={{
                 actionable: true,
                 placement: 'right-start',
+                closeParentPopupOnClickInside: true,
                 overlay: (
                     <>
                         <h5>File type</h5>

@@ -1,19 +1,14 @@
-import { clamp, delay } from 'lib/utils'
-import api from 'lib/api'
+import { clamp } from 'lib/utils'
 import {
-    FilterType,
     FunnelStepRangeEntityFilter,
     FunnelRequestParams,
-    FunnelResult,
     FunnelStep,
     FunnelStepWithNestedBreakdown,
     BreakdownKeyType,
-    FunnelsTimeConversionBins,
     FunnelAPIResponse,
     FunnelStepReference,
-    TeamType,
-    FlattenedFunnelStepByBreakdown,
     FunnelConversionWindow,
+    FunnelsFilterType,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { combineUrl } from 'kea-router'
@@ -146,38 +141,15 @@ export function isValidBreakdownParameter(
     )
 }
 
-export function getVisibilityIndex(step: FunnelStep, key?: BreakdownKeyType): string {
-    if (step.type === 'actions') {
-        return `${step.type}/${step.action_id}/${step.order}`
-    } else {
-        const breakdownValues = getBreakdownStepValues({ breakdown: key, breakdown_value: key }, -1).breakdown_value
-        return `${step.type}/${step.action_id}/${step.order}/${breakdownValues.join('_')}`
-    }
+export function getVisibilityKey(breakdownValue?: BreakdownKeyType): string {
+    const breakdownValues = getBreakdownStepValues(
+        { breakdown: breakdownValue, breakdown_value: breakdownValue },
+        -1
+    ).breakdown_value
+    return breakdownValues.join('::')
 }
 
 export const SECONDS_TO_POLL = 3 * 60
-
-export async function pollFunnel<T = FunnelStep[] | FunnelsTimeConversionBins>(
-    teamId: TeamType['id'],
-    apiParams: FunnelRequestParams
-): Promise<FunnelResult<T>> {
-    // Tricky: This API endpoint has wildly different return types depending on parameters.
-    const { refresh, ...bodyParams } = apiParams
-    let result = await api.create(
-        `api/projects/${teamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`,
-        bodyParams
-    )
-    const start = window.performance.now()
-    while (result.result?.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
-        await delay(1000)
-        result = await api.create(`api/projects/${teamId}/insights/funnel`, bodyParams)
-    }
-    // if endpoint is still loading after 3 minutes just return default
-    if (result.loading) {
-        throw { status: 0, statusText: 'Funnel timeout' }
-    }
-    return result
-}
 
 interface BreakdownStepValues {
     rowKey: string
@@ -187,7 +159,7 @@ interface BreakdownStepValues {
 }
 
 export const getBreakdownStepValues = (
-    breakdownStep: Pick<FlattenedFunnelStepByBreakdown, 'breakdown' | 'breakdown_value'>,
+    breakdownStep: Pick<FunnelStep, 'breakdown' | 'breakdown_value'>,
     index: number,
     isBaseline: boolean = false
 ): BreakdownStepValues => {
@@ -226,13 +198,15 @@ export const getBreakdownStepValues = (
     return EMPTY_BREAKDOWN_VALUES
 }
 
-export const isStepsEmpty = (filters: FilterType): boolean =>
+export const isStepsEmpty = (filters: FunnelsFilterType): boolean =>
     [...(filters.actions || []), ...(filters.events || [])].length === 0
 
-export const isStepsUndefined = (filters: FilterType): boolean =>
+export const isStepsUndefined = (filters: FunnelsFilterType): boolean =>
     typeof filters.events === 'undefined' && (typeof filters.actions === 'undefined' || filters.actions.length === 0)
 
-export const deepCleanFunnelExclusionEvents = (filters: FilterType): FunnelStepRangeEntityFilter[] | undefined => {
+export const deepCleanFunnelExclusionEvents = (
+    filters: FunnelsFilterType
+): FunnelStepRangeEntityFilter[] | undefined => {
     if (!filters.exclusions) {
         return undefined
     }
@@ -261,7 +235,7 @@ export const getClampedStepRangeFilter = ({
     filters,
 }: {
     stepRange?: FunnelStepRangeEntityFilter
-    filters: FilterType
+    filters: FunnelsFilterType
 }): FunnelStepRangeEntityFilter => {
     const maxStepIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
 

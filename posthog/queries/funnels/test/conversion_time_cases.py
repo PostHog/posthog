@@ -10,7 +10,7 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
     class TestFunnelConversionTime(APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
             person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-            _, serialized_result = FunnelPerson(person_filter, self.team).get_actors()
+            _, serialized_result, _ = FunnelPerson(person_filter, self.team).get_actors()
 
             return [val["id"] for val in serialized_result]
 
@@ -43,16 +43,13 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
                         # person1 completed part of funnel on 2021-05-04 and took 3 hours to convert
                         {"event": "user signed up", "timestamp": datetime(2021, 5, 4, 7)},
                         {"event": "$pageview", "timestamp": datetime(2021, 5, 4, 10)},
-                    ],
+                    ]
                 },
                 self.team,
             )
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[1]["name"], "$pageview")
-            self.assertEqual(result[2]["name"], "something else")
             self.assertEqual(result[0]["count"], 1)
             self.assertEqual(
                 result[1]["average_conversion_time"], 3600
@@ -60,13 +57,11 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             self.assertEqual(result[1]["median_conversion_time"], 3600)
 
             # check ordering of people in every step
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1), [people["person1"].uuid,],
-            )
+            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [people["person1"].uuid])
 
         def test_funnel_step_conversion_times(self):
             filters = {
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
@@ -129,7 +124,7 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
                         {"event": "user signed up", "timestamp": datetime(2020, 1, 2, 14)},
                         {"event": "pageview", "timestamp": datetime(2020, 1, 2, 14, 5)},
                     ],
-                    "stopped_after_signup2": [{"event": "user signed up", "timestamp": datetime(2020, 1, 2, 14, 3)},],
+                    "stopped_after_signup2": [{"event": "user signed up", "timestamp": datetime(2020, 1, 2, 14, 3)}],
                     "stopped_after_signup3": [
                         {"event": "user signed up", "timestamp": datetime(2020, 1, 2, 12)},
                         {"event": "pageview", "timestamp": datetime(2020, 1, 2, 12, 15)},
@@ -139,7 +134,6 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             )
 
             result = funnel.run()
-            self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 3)
             self.assertEqual(result[1]["count"], 2)
             self.assertEqual(result[1]["average_conversion_time"], 600)
@@ -164,7 +158,6 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             result4 = funnel.run()
 
             self.assertNotEqual(result, result4)
-            self.assertEqual(result4[0]["name"], "user signed up")
             self.assertEqual(result4[0]["count"], 3)
             self.assertEqual(result4[1]["count"], 1)
             self.assertEqual(result4[1]["average_conversion_time"], 300)
@@ -178,8 +171,6 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
                 ],
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2), [people["stopped_after_signup1"].uuid],
-            )
+            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [people["stopped_after_signup1"].uuid])
 
     return TestFunnelConversionTime

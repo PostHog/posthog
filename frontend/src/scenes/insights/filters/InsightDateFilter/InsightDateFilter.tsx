@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues, useActions } from 'kea'
 import { insightDateFilterLogic } from './insightDateFilterLogic'
 import { DateFilterProps, DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -14,7 +13,7 @@ export function InsightDateFilter(props: DateFilterProps): JSX.Element {
     return (
         <DateFilter
             {...props}
-            dateFrom={dateFrom ?? undefined}
+            dateFrom={dateFrom ?? '-7d' ?? undefined}
             dateTo={dateTo ?? undefined}
             onChange={(changedDateFrom, changedDateTo) => {
                 setDates(changedDateFrom, changedDateTo)

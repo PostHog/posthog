@@ -1,5 +1,45 @@
 [
     {
+        "version": "1.41.4",
+        "release_date": "2022-11-17"
+    },
+    {
+        "version": "1.41.3",
+        "release_date": "2022-11-09"
+    },
+    {
+        "version": "1.41.2",
+        "release_date": "2022-11-04"
+    },
+    {
+        "version": "1.41.1",
+        "release_date": "2022-11-02"
+    },
+    {
+        "version": "1.41.0",
+        "release_date": "2022-11-02"
+    },
+    {
+        "version": "1.40.1",
+        "release_date": "2022-10-27"
+    },
+    {
+        "version": "1.40.0",
+        "release_date": "2022-09-26"
+    },
+    {
+        "version": "1.39.1",
+        "release_date": "2022-09-01"
+    },
+    {
+        "version": "1.39.0",
+        "release_date": "2022-08-29"
+    },
+    {
+        "version": "1.38.1",
+        "release_date": "2022-08-16"
+    },
+    {
         "version": "1.38.0",
         "release_date": "2022-08-01"
     },
