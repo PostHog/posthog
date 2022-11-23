@@ -510,6 +510,19 @@ def prop_filter_json_extract(
             f" {property_operator} toFloat64OrNull({extract_property_expr}) {count_operator} %(v{prepend}_{idx})s",
             params,
         )
+    elif operator == "exact_insensitive":
+        clause = " {property_operator} has(%(v{prepend}_{idx})s, lower(replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', '')))"
+        values = [val.lower() for val in box_value(prop.value, remove_spaces=True)]
+        params = {
+            "k{}_{}".format(prepend, idx): prop.key,
+            "v{}_{}".format(prepend, idx): values,
+        }
+        return (
+            clause.format(
+                left=property_expr, idx=idx, prepend=prepend, prop_var=prop_var, property_operator=property_operator
+            ),
+            params,
+        )
     else:
         if is_json(prop.value) and not is_denormalized:
             clause = " {property_operator} has(%(v{prepend}_{idx})s, replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', ''))"

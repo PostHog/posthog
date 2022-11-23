@@ -276,6 +276,6 @@ class PersonQuery:
 
         if self._filter.email:
             return prop_filter_json_extract(
-                Property(key="email", value=self._filter.email, type="person"), 0, prepend="_email"
+                Property(key="email", value=self._filter.email, type="person", operator="exact_insensitive"), 0, prepend="_email", allow_denormalized_props=True
             )
         return "", {}

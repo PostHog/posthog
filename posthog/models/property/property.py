@@ -72,6 +72,7 @@ OperatorType = Literal[
     "is_date_exact",
     "is_date_after",
     "is_date_before",
+    "exact_insensitive"
 ]
 
 OperatorInterval = Literal["day", "week", "month", "year"]

@@ -155,7 +155,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["uuid"], str(person2.uuid))
 
     def test_filter_person_list(self):
-
         person1: Person = _create_person(
             team=self.team,
             distinct_ids=["distinct_id", "another_one"],
@@ -164,12 +163,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             immediate=True,
         )
         person2: Person = _create_person(
-            team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"}, immediate=True
+            team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "Another+test@gmail.com"}, immediate=True
         )
         flush_persons_and_events()
 
         # Filter by distinct ID
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(7):
             response = self.client.get("/api/person/?distinct_id=distinct_id")  # must be exact matches
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
@@ -180,8 +179,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["id"], str(person1.uuid))
 
-        # Filter by email
-        response = self.client.get("/api/person/?email=another@gmail.com")
+        # Filter by email, urlencoded
+        response = self.client.get("/api/person/?email=another%2Btest@gmail.com")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["id"], str(person2.uuid))
@@ -194,6 +193,30 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get("/api/person/?distinct_id=inexistent")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 0)
+
+    def test_filter_email_materialized(self):
+        try:
+            from ee.clickhouse.materialized_columns.columns import materialize
+        except:
+            return
+        person1: Person = _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id", "another_one"],
+            properties={"email": "someone@gmail.com"},
+            is_identified=True,
+            immediate=True,
+        )
+        person2: Person = _create_person(
+            team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "Another+test@gmail.com"}, immediate=True
+        )
+        flush_persons_and_events()
+
+        materialize("person", "email")
+
+        response = self.client.get("/api/person/?email=another%2Btest@gmail.com")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(person2.uuid))
 
     def test_cant_see_another_organization_pii_with_filters(self):
 
