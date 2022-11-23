@@ -65,7 +65,8 @@ export const groupLogic = kea<groupLogicType>({
         ],
     },
     urlToAction: ({ actions }) => ({
-        '/groups/:groupTypeIndex/:groupKey': ({ groupTypeIndex, groupKey }) => {
+        '/groups/:groupTypeIndex/*': ({ groupTypeIndex, _: groupKey }) => {
+            console.log(groupTypeIndex, groupKey)
             if (groupTypeIndex && groupKey) {
                 actions.setGroup(+groupTypeIndex, decodeURIComponent(groupKey))
                 actions.loadGroup()
