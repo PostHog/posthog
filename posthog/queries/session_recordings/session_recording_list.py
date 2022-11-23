@@ -70,9 +70,12 @@ class SessionRecordingList(EventQuery):
         SELECT
             session_id,
             any(window_id) as window_id,
-            MIN(timestamp) AS start_time,
-            MAX(timestamp) AS end_time,
-            dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
+            MIN(first_event_timestamp) as start_time,
+            MAX(last_event_timestamp) as end_time,
+            SUM(click_count) as click_count,
+            SUM(keypress_count) as keypress_count,
+            groupArrayArray(urls) as urls,
+            dateDiff('second', start_time, end_time) as duration,
             any(distinct_id) as distinct_id,
             SUM(has_full_snapshot) as full_snapshots
         FROM session_recording_events
@@ -91,6 +94,9 @@ class SessionRecordingList(EventQuery):
         session_recordings.session_id,
         any(session_recordings.start_time) as start_time,
         any(session_recordings.end_time) as end_time,
+        any(session_recordings.click_count) as click_count,
+        any(session_recordings.keypress_count) as keypress_count,
+        any(session_recordings.urls) as urls,
         any(session_recordings.duration) as duration,
         any(session_recordings.distinct_id) as distinct_id
         {event_filter_aggregate_select_clause}
@@ -118,6 +124,9 @@ class SessionRecordingList(EventQuery):
         session_recordings.session_id,
         any(session_recordings.start_time) as start_time,
         any(session_recordings.end_time) as end_time,
+        any(session_recordings.click_count) as click_count,
+        any(session_recordings.keypress_count) as keypress_count,
+        any(session_recordings.urls) as urls,
         any(session_recordings.duration) as duration,
         any(session_recordings.distinct_id) as distinct_id
     FROM (
@@ -368,7 +377,17 @@ class SessionRecordingList(EventQuery):
         return SessionRecordingQueryResult(session_recordings, more_recordings_available)
 
     def _data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
-        default_columns = ["session_id", "start_time", "end_time", "duration", "distinct_id"]
+        default_columns = [
+            "session_id",
+            "start_time",
+            "end_time",
+            "click_count",
+            "keypress_count",
+            "urls",
+            "duration",
+            "distinct_id",
+        ]
+
         return [
             {
                 **dict(zip(default_columns, row[: len(default_columns)])),

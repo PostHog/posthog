@@ -1155,6 +1155,13 @@ class TestCapture(BaseTest):
                         ],
                         "compression": "gzip-base64",
                         "has_full_snapshot": False,
+                        "events_summary": [
+                            {
+                                "type": snapshot_type,
+                                "data": {"source": snapshot_source},
+                                "timestamp": timestamp,
+                            }
+                        ],
                     },
                     "$session_id": session_id,
                     "$window_id": window_id,

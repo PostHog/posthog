@@ -841,6 +841,9 @@ export interface SessionRecordingType {
     person?: PersonType
     /** List of static playlists that this recording is referenced on */
     playlists?: SessionRecordingPlaylistType['id'][]
+    click_count?: number
+    keypress_count?: number
+    urls?: string[]
 }
 
 export interface SessionRecordingPropertiesType {
