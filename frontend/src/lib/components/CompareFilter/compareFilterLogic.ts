@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { objectsEqual } from 'lib/utils'
 import { ChartDisplayType, InsightLogicProps, InsightType, TrendsFilterType } from '~/types'
 import type { compareFilterLogicType } from './compareFilterLogicType'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { isStickinessFilter, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
@@ -24,9 +24,14 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
         filters: [
             (s) => [s.inflightFilters],
             (inflightFilters): Partial<TrendsFilterType> =>
-                inflightFilters && isTrendsFilter(inflightFilters) ? inflightFilters : {},
+                inflightFilters && (isTrendsFilter(inflightFilters) || isStickinessFilter(inflightFilters))
+                    ? inflightFilters
+                    : {},
         ],
-        compare: [(s) => [s.filters], (filters) => filters && isTrendsFilter(filters) && !!filters.compare],
+        compare: [
+            (s) => [s.filters],
+            (filters) => filters && (isTrendsFilter(filters) || isStickinessFilter(filters)) && !!filters.compare,
+        ],
         disabled: [
             (s) => [s.filters, s.canEditInsight],
             ({ insight, date_from, display }, canEditInsight) =>
