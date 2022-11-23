@@ -19,9 +19,8 @@ import { captureInternalMetric, captureTimeToSeeData } from 'lib/internalMetrics
 import { router } from 'kea-router'
 import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
-import { filterTrendsClientSideParams, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import {
+    filterTrendsClientSideParams,
     isFilterWithHiddenLegendKeys,
     isFunnelsFilter,
     isLifecycleFilter,
@@ -29,7 +28,9 @@ import {
     isRetentionFilter,
     isStickinessFilter,
     isTrendsFilter,
+    keyForInsightLogicProps,
 } from 'scenes/insights/sharedUtils'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import {
     extractObjectDiffKeys,
@@ -56,6 +57,7 @@ import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { insightsModel } from '~/models/insightsModel'
 import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { loaders } from 'kea-loaders'
+import { legacyInsightQuery } from '~/queries/query'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -299,7 +301,6 @@ export const insightLogic = kea<insightLogicType>([
                     const { filters } = values
 
                     const insight = (filters.insight as InsightType | undefined) || InsightType.TRENDS
-                    const params = { ...filters, ...(refresh ? { refresh: true } : {}), client_query_id: queryId }
 
                     const dashboardItemId = props.dashboardItemId
                     actions.startQuery(queryId)
@@ -327,27 +328,18 @@ export const insightLogic = kea<insightLogicType>([
                             // This makes sure we update the insight's cache key if we get new default filters.
                             apiUrl = `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`
                             fetchResponse = await api.getResponse(apiUrl, methodOptions)
-                        } else if (
-                            isTrendsFilter(filters) ||
-                            isStickinessFilter(filters) ||
-                            isLifecycleFilter(filters)
-                        ) {
-                            apiUrl = `api/projects/${currentTeamId}/insights/trend/?${toParams(
-                                filterTrendsClientSideParams(params)
-                            )}`
-                            fetchResponse = await api.getResponse(apiUrl, methodOptions)
-                        } else if (isRetentionFilter(filters)) {
-                            apiUrl = `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`
-                            fetchResponse = await api.getResponse(apiUrl, methodOptions)
-                        } else if (isFunnelsFilter(filters)) {
-                            const { refresh, ...bodyParams } = params
-                            apiUrl = `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`
-                            fetchResponse = await api.createResponse(apiUrl, bodyParams, methodOptions)
-                        } else if (isPathsFilter(filters)) {
-                            apiUrl = `api/projects/${currentTeamId}/insights/path`
-                            fetchResponse = await api.createResponse(apiUrl, params, methodOptions)
                         } else {
-                            throw new Error(`Cannot load insight of type ${insight}`)
+                            const params = {
+                                ...filters,
+                                ...(refresh ? { refresh: true } : {}),
+                                client_query_id: queryId,
+                            }
+                            ;[fetchResponse, apiUrl] = await legacyInsightQuery({
+                                filters: params,
+                                currentTeamId,
+                                methodOptions,
+                                refresh,
+                            })
                         }
                         response = await getJSONOrThrow(fetchResponse)
                     } catch (e: any) {

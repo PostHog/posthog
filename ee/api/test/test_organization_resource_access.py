@@ -1,11 +1,13 @@
+from django.db import IntegrityError
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.organization_resource_access import OrganizationResourceAccess
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.test.base import QueryMatchingTest, snapshot_postgres_queries
 
 
-class TestOrganizationResourceAccessAPI(APILicensedTest):
+class TestOrganizationResourceAccessAPI(APILicensedTest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
 
@@ -69,7 +71,18 @@ class TestOrganizationResourceAccessAPI(APILicensedTest):
                 "resource": OrganizationResourceAccess.Resources.EXPERIMENTS,
             },
         )
+
         self.assertEqual(create_exp_resource_access.status_code, status.HTTP_201_CREATED)
+        other_org = Organization.objects.create(name="other org")
+        OrganizationResourceAccess.objects.create(
+            resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS, organization=other_org
+        )
+        self.assertEqual(OrganizationResourceAccess.objects.count(), 3)
+        self.assertEqual(OrganizationResourceAccess.objects.filter(organization=other_org).exists(), True)
+        with self.assertRaises(IntegrityError):
+            OrganizationResourceAccess.objects.create(
+                resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS, organization=self.organization
+            )
 
     def test_can_change_access_levels_for_resources(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -142,3 +155,18 @@ class TestOrganizationResourceAccessAPI(APILicensedTest):
         results = res.json()
         self.assertEqual(results["count"], 2)
         self.assertNotContains(res, str(other_org.id))
+
+    @snapshot_postgres_queries
+    def test_list_organization_resource_access_is_not_nplus1(self):
+        OrganizationResourceAccess.objects.create(
+            resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS, organization=self.organization
+        )
+        with self.assertNumQueries(8):
+            response = self.client.get("/api/organizations/@current/resource_access")
+            assert len(response.json()["results"]) == 1
+        OrganizationResourceAccess.objects.create(
+            resource=OrganizationResourceAccess.Resources.EXPERIMENTS, organization=self.organization
+        )
+        with self.assertNumQueries(8):
+            response = self.client.get("/api/organizations/@current/resource_access")
+            assert len(response.json()["results"]) == 2

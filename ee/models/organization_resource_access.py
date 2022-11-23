@@ -9,7 +9,6 @@ class OrganizationResourceAccess(models.Model):
 
         CAN_ONLY_VIEW = 21, "Can only view"
         CAN_ALWAYS_EDIT = 37, "Can always edit"
-        DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE = 25, "Default view unless role grants access"
 
     class Resources(models.TextChoices):
         FEATURE_FLAGS = "feature flags", "feature flags"

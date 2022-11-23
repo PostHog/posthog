@@ -202,7 +202,7 @@ class TestCaptureAPI(APIBaseTest):
 
         # Setting up an override via EVENT_PARTITION_KEYS_TO_OVERRIDE should cause us to pass None
         # as the key when producing to Kafka, leading to random partitioning
-        with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=default_partition_key):
+        with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[default_partition_key]):
             response = self.client.post(
                 "/capture/",
                 {

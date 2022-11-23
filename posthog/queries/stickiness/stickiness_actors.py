@@ -13,6 +13,8 @@ class StickinessActors(ActorBaseQuery):
     entity: Entity
     _filter: StickinessFilter
 
+    QUERY_TYPE = "stickiness"
+
     def __init__(self, team: Team, entity: Entity, filter: StickinessFilter, **kwargs):
         super().__init__(team, filter, entity, **kwargs)
 

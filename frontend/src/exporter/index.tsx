@@ -10,7 +10,7 @@ import { ErrorBoundary } from '../layout/ErrorBoundary'
 // Disable tracking for all exports and embeds.
 // This is explicitly set as to not track our customers' customers data.
 // Without it, embeds of self-hosted iframes will log metrics to app.posthog.com.
-window.JS_POSTHOG_API_KEY = null
+window.JS_POSTHOG_API_KEY = undefined
 
 loadPostHogJS()
 initKea()

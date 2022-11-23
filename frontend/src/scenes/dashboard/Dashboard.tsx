@@ -100,12 +100,12 @@ function DashboardScene(): JSX.Element {
                 <EmptyDashboardComponent loading={itemsLoading} />
             ) : (
                 <div>
-                    {![
-                        DashboardPlacement.Public,
-                        DashboardPlacement.Export,
-                        DashboardPlacement.InternalMetrics,
-                    ].includes(placement) && (
-                        <>
+                    <div className="flex space-x-4 justify-between">
+                        {![
+                            DashboardPlacement.Public,
+                            DashboardPlacement.Export,
+                            DashboardPlacement.InternalMetrics,
+                        ].includes(placement) && (
                             <div className="flex space-x-4">
                                 <div className="flex items-center h-8">
                                     <DateFilter
@@ -128,23 +128,25 @@ function DashboardScene(): JSX.Element {
                                     propertyFilters={dashboard?.filters.properties}
                                 />
                             </div>
-                            <LemonDivider className="my-4" />
-                        </>
-                    )}
-                    {placement !== DashboardPlacement.Export && (
-                        <div className="flex pb-4 space-x-4 dashoard-items-actions">
-                            <div
-                                className="left-item"
-                                style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
-                            >
-                                {[DashboardPlacement.Public, DashboardPlacement.InternalMetrics].includes(placement) ? (
-                                    <LastRefreshText />
-                                ) : (
-                                    <DashboardReloadAction />
-                                )}
+                        )}
+                        {placement !== DashboardPlacement.Export && (
+                            <div className="flex space-x-4 dashoard-items-actions">
+                                <div
+                                    className="left-item"
+                                    style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
+                                >
+                                    {[DashboardPlacement.Public, DashboardPlacement.InternalMetrics].includes(
+                                        placement
+                                    ) ? (
+                                        <LastRefreshText />
+                                    ) : (
+                                        <DashboardReloadAction />
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                    )}
+                        )}
+                    </div>
+                    {placement !== DashboardPlacement.Export && <LemonDivider className="my-4" />}
                     <DashboardItems />
                 </div>
             )}

@@ -26,7 +26,7 @@ from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
 from posthog.models.utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
 from posthog.redis import get_client
-from posthog.utils import absolute_uri, mask_email_address
+from posthog.utils import absolute_uri
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -317,8 +317,7 @@ class OrganizationInvite(UUIDModel):
 
         if _email and _email != self.target_email:
             raise exceptions.ValidationError(
-                f"This invite is intended for another email address: {mask_email_address(self.target_email)}"
-                f". You tried to sign up with {_email}.",
+                "This invite is intended for another email address.",
                 code="invalid_recipient",
             )
 

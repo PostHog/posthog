@@ -186,11 +186,14 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         user = cast(User, self.request.user)
         report_organization_deleted(user, organization)
         team_ids = [team.pk for team in organization.teams.all()]
-        for team_id in team_ids:
-            AsyncDeletion.objects.create(
-                deletion_type=DeletionType.Team, team_id=team_id, key=str(team_id), created_by=user
-            )
-
         delete_bulky_postgres_data(team_ids=team_ids)
         with mute_selected_signals():
             super().perform_destroy(organization)
+        # Once the organization is deleted, queue deletion of associated data
+        AsyncDeletion.objects.bulk_create(
+            [
+                AsyncDeletion(deletion_type=DeletionType.Team, team_id=team_id, key=str(team_id), created_by=user)
+                for team_id in team_ids
+            ],
+            ignore_conflicts=True,
+        )

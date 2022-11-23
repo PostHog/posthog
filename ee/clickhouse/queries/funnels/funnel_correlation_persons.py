@@ -18,6 +18,7 @@ from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 
 class FunnelCorrelationActors(ActorBaseQuery):
     _filter: Filter
+    QUERY_TYPE = "funnel_correlation_actors"
 
     def __init__(self, filter: Filter, team: Team, base_uri: str = "/", **kwargs) -> None:
         self._base_uri = base_uri
@@ -52,6 +53,7 @@ class FunnelCorrelationActors(ActorBaseQuery):
 
 class _FunnelEventsCorrelationActors(ActorBaseQuery):
     _filter: Filter
+    QUERY_TYPE = "funnel_events_correlation_actors"
 
     def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
         self._funnel_correlation = FunnelCorrelation(filter, team, base_uri=base_uri)
@@ -135,6 +137,7 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
 
 class _FunnelPropertyCorrelationActors(ActorBaseQuery):
     _filter: Filter
+    QUERY_TYPE = "funnel_property_correlation_actors"
 
     def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
         # Filtering on persons / groups properties can be pushed down to funnel_actors CTE

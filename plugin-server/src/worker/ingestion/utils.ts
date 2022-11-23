@@ -2,7 +2,7 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 
-import { TeamId, TimestampFormat } from '../../types'
+import { PipelineEvent, TeamId, TimestampFormat } from '../../types'
 import { DB } from '../../utils/db/db'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { castTimestampOrNow, castTimestampToClickhouseFormat, UUIDT } from '../../utils/utils'
@@ -15,7 +15,7 @@ function getClickhouseTimestampOrNull(isoTimestamp?: string): string | null {
 }
 
 export function generateEventDeadLetterQueueMessage(
-    event: PluginEvent | ProcessedPluginEvent,
+    event: PipelineEvent | PluginEvent | ProcessedPluginEvent,
     error: unknown,
     errorLocation = 'plugin_server_ingest_event'
 ): ProducerRecord {

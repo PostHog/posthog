@@ -1,3 +1,4 @@
+from django.db import IntegrityError
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
@@ -77,6 +78,12 @@ class TestRoleAPI(APILicensedTest):
             },
         )
         self.assertEqual(Role.objects.count(), count)
+        other_org = Organization.objects.create(name="other org")
+        Role.objects.create(name="Marketing", organization=other_org)
+        self.assertEqual(Role.objects.count(), 2)
+        self.assertEqual(Role.objects.filter(organization=other_org).exists(), True)
+        with self.assertRaises(IntegrityError):
+            Role.objects.create(name="Marketing", organization=self.organization)
 
     def test_updating_feature_flags_access_level_for_a_role(self):
         role = Role.objects.create(organization=self.organization, name="Engineering")
@@ -93,13 +100,11 @@ class TestRoleAPI(APILicensedTest):
         )
         self.client.patch(
             f"/api/organizations/@current/roles/{role.id}",
-            {
-                "feature_flags_access_level": OrganizationResourceAccess.AccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE
-            },
+            {"feature_flags_access_level": OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT},
         )
         self.assertEqual(
             Role.objects.first().feature_flags_access_level,  # type: ignore
-            OrganizationResourceAccess.AccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE,
+            OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT,
         )
 
     def test_returns_correct_results_by_organization(self):

@@ -4,7 +4,11 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { router } from 'kea-router'
 import { clearDOMTextSelection, isUserLoggedIn, toParams, uuid } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardPrivilegeLevel, OrganizationMembershipLevel } from 'lib/constants'
+import {
+    AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS,
+    DashboardPrivilegeLevel,
+    OrganizationMembershipLevel,
+} from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     AnyPropertyFilter,
@@ -992,7 +996,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
             sharedListeners.reportLoadTiming(...args)
 
             // Initial load of actual data for dashboard items after general dashboard is fetched
-            if (values.lastRefreshed && values.lastRefreshed.isBefore(now().subtract(3, 'hours'))) {
+            if (
+                values.lastRefreshed &&
+                values.lastRefreshed.isBefore(now().subtract(AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS, 'hours'))
+            ) {
                 actions.refreshAllDashboardItems({ action: 'refresh_automatic' })
             } else {
                 const notYetLoadedItems = values.tiles?.filter(
