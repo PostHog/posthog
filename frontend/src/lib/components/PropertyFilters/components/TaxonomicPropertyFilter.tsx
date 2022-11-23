@@ -12,10 +12,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
-import {
-    isPropertyFilterWithOperator,
-    propertyFilterTypeToTaxonomicFilterType,
-} from 'lib/components/PropertyFilters/utils'
+import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import clsx from 'clsx'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -169,7 +166,7 @@ export function TaxonomicPropertyFilter({
                                 propertyDefinitions={propertyDefinitions}
                                 type={filter?.type}
                                 propkey={filter?.key}
-                                operator={isPropertyFilterWithOperator(filter) ? filter.operator : null}
+                                operator={filter?.operator}
                                 value={filter?.value}
                                 placeholder="Enter value..."
                                 endpoint={filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)}
