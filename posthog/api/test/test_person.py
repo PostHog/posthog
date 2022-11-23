@@ -264,7 +264,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual([(100, 1, "{}")], ch_persons)
         # No async deletion is scheduled
-        self.assertEqual(AsyncDeletion.objects.filter(team=self.team).count(), 0)
+        self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 0)
         ch_events = sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk})[
             0
         ][0]
@@ -291,7 +291,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([(100, 1, "{}")], ch_persons)
 
         # async deletion scheduled and executed
-        async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team=self.team).first())
+        async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
         self.assertEqual(async_deletion.deletion_type, DeletionType.Person)
         self.assertEqual(async_deletion.key, str(person.uuid))
         self.assertIsNone(async_deletion.delete_verified_at)
