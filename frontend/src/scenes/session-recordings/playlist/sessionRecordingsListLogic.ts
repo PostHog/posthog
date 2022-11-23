@@ -259,8 +259,10 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         },
     })),
     subscriptions(({ actions }) => ({
-        staticRecordings: () => {
-            actions.getSessionRecordings({})
+        staticRecordings: (staticRecording, oldStaticRecording) => {
+            if (!equal(staticRecording, oldStaticRecording)) {
+                actions.getSessionRecordings({})
+            }
         },
     })),
     selectors({
