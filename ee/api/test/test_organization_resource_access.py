@@ -77,7 +77,7 @@ class TestOrganizationResourceAccessAPI(APILicensedTest, QueryMatchingTest):
         OrganizationResourceAccess.objects.create(
             resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS, organization=other_org
         )
-        self.assertEqual(OrganizationResourceAccess.objects.count(), 2)
+        self.assertEqual(OrganizationResourceAccess.objects.count(), 3)
         self.assertEqual(OrganizationResourceAccess.objects.filter(organization=other_org).exists(), True)
         with self.assertRaises(IntegrityError):
             OrganizationResourceAccess.objects.create(

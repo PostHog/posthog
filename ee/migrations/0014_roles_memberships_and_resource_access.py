@@ -10,7 +10,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0279_recording_playlist_item_model"),
+        ("posthog", "0280_fix_async_deletion_team"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
         ("ee", "0013_silence_deprecated_tags_warnings"),
     ]
