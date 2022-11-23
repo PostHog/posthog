@@ -307,7 +307,7 @@ export function SessionRecordingsPlaylist({
                                 }
                             }}
                         >
-                            {showFilters ? 'Hide filters' : 'Filter recordings'}
+                            {showFilters ? 'Hide filters' : 'Filters'}
                         </LemonButton>
                     )}
                 </div>
@@ -354,7 +354,9 @@ export function SessionRecordingsPlaylist({
                     ) : null}
                     <div className="w-full overflow-hidden border rounded">
                         <div className="relative flex justify-between items-center bg-mid py-3 px-4 border-b">
-                            <span className="font-bold uppercase text-xs my-1 tracking-wide">Recent Recordings</span>
+                            <span className="font-bold uppercase text-xs my-1 tracking-wide">
+                                {logicKey === 'recents' ? 'Recent recordings' : 'Recordings'}
+                            </span>
                             {paginationControls}
 
                             <LemonTableLoader loading={sessionRecordingsResponseLoading} />
