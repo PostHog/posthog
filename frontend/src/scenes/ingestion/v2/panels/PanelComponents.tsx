@@ -92,7 +92,11 @@ export function DemoProjectButton({ text, subtext }: { text: string; subtext?: s
             sideIcon={<IconChevronRight />}
         >
             <div className="mt-4 mb-0">
-                <p className="mb-0">{text}</p>
+                <p className="mb-0">
+                    {currentOrganization?.teams && currentOrganization.teams.filter((team) => team.is_demo).length > 0
+                        ? 'Explore the demo project'
+                        : text}
+                </p>
                 {subtext ? <p className="font-normal text-xs mt-2">{subtext}</p> : null}
             </div>
         </LemonButton>
