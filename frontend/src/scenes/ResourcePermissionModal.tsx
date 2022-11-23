@@ -150,7 +150,7 @@ function OrganizationResourcePermissionRoles({ roles }: { roles: RoleType[] }): 
             <Row>
                 {roles.map((role) => (
                     <span key={role.id} className="simple-tag tag-light-blue text-primary-alt">
-                        {role.name}{' '}
+                        <b>{role.name}</b>{' '}
                     </span>
                 ))}
             </Row>

@@ -109,9 +109,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             title={isNewFeatureFlag ? 'New feature flag' : featureFlag.key || 'Untitled'}
                             buttons={
                                 <div className="flex items-center gap-2">
-                                    <LemonButton onClick={() => setModalOpen(true)}>
-                                        <LockOutlined />
-                                    </LemonButton>
                                     <LemonButton
                                         data-attr="cancel-feature-flag"
                                         type="secondary"
@@ -243,6 +240,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </Field>
                             </Col>
                             <Col span={12}>
+                                <LemonButton type="secondary" onClick={() => setModalOpen(true)} className="mb-4">
+                                    Set permissions
+                                </LemonButton>
                                 <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
                             </Col>
                         </Row>
@@ -383,6 +383,15 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
                                         </Tabs.TabPane>
                                     )}
+                                    <Tabs.TabPane tab="Permissions" key="permissions">
+                                        <LemonButton
+                                            type="secondary"
+                                            onClick={() => setModalOpen(true)}
+                                            className="mb-4"
+                                        >
+                                            Set permissions
+                                        </LemonButton>
+                                    </Tabs.TabPane>
                                 </Tabs>
                             </>
                         )}
