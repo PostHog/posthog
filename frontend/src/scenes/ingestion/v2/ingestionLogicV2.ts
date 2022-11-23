@@ -280,7 +280,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
             },
         ],
         generatingDemoData: [
-            false,
+            false as boolean | null,
             {
                 setState: (_, { generatingDemoData }) => generatingDemoData,
             },
