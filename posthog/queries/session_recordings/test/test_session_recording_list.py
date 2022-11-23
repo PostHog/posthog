@@ -41,7 +41,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
 
     @property
     def base_time(self):
-        return (now() - relativedelta(hours=1)).replace(microsecond=0)
+        return now() - relativedelta(hours=1)
 
     @test_with_materialized_columns(["$current_url"])
     @freeze_time("2021-01-21T20:00:00.000Z")
