@@ -11,7 +11,6 @@ const ResourceDisplayMapping: Record<Resource, string> = {
 export const ResourcePermissionMapping: Record<AccessLevel, string> = {
     [AccessLevel.WRITE]: 'View & Edit',
     [AccessLevel.READ]: 'View Only',
-    [AccessLevel.CUSTOM_ASSIGNED]: 'View & Assigned Edit',
 }
 
 export interface FormattedResourceLevel {

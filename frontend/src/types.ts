@@ -2337,7 +2337,6 @@ export enum Resource {
 export enum AccessLevel {
     READ = 21,
     WRITE = 37,
-    CUSTOM_ASSIGNED = 25,
 }
 
 export interface RoleType {

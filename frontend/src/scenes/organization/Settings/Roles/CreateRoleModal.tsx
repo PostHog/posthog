@@ -148,10 +148,6 @@ export function CreateRoleModal(): JSX.Element {
                             value: AccessLevel.READ,
                             label: 'View Only',
                         },
-                        {
-                            value: AccessLevel.CUSTOM_ASSIGNED,
-                            label: 'View & Assigned Edit',
-                        },
                     ]}
                 />
             </Row>

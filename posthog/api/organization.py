@@ -102,15 +102,6 @@ class OrganizationSerializer(serializers.ModelSerializer):
         user = self.context["request"].user
         organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
 
-        try:
-            from ee.models.organization_resource_access import OrganizationResourceAccess
-        except:
-            pass
-        else:
-            OrganizationResourceAccess.objects.create(
-                resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS, organization=organization, user=user
-            )
-
         return organization
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:

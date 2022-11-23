@@ -44,10 +44,6 @@ export function Permissions({ isRestricted }: RestrictedComponentProps): JSX.Ele
                                 value: AccessLevel.READ,
                                 label: ResourcePermissionMapping[AccessLevel.READ],
                             },
-                            {
-                                value: AccessLevel.CUSTOM_ASSIGNED,
-                                label: ResourcePermissionMapping[AccessLevel.CUSTOM_ASSIGNED],
-                            },
                         ]}
                     />
                 )
