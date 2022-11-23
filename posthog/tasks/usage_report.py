@@ -19,7 +19,7 @@ import requests
 import structlog
 from django.conf import settings
 from django.db import connection
-from django.db.models import Count
+from django.db.models import Count, Q
 from posthoganalytics.client import Client
 from psycopg2 import sql
 from sentry_sdk import capture_exception
@@ -424,7 +424,9 @@ def send_all_org_usage_reports(
     )
 
     teams: Sequence[Team] = list(
-        Team.objects.select_related("organization").exclude(organization__for_internal_metrics=True)
+        Team.objects.select_related("organization").exclude(
+            Q(organization__for_internal_metrics=True) | Q(is_demo=True)
+        )
     )
 
     org_reports: Dict[str, OrgReport] = {}
