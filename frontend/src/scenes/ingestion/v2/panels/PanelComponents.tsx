@@ -88,7 +88,7 @@ export function DemoProjectButton({ text, subtext }: { text: string; subtext?: s
             fullWidth
             size="large"
             className="ingestion-view-demo-data mb-4"
-            type="primary"
+            type="secondary"
             sideIcon={<IconChevronRight />}
         >
             <div className="mt-4 mb-0">
