@@ -5,8 +5,8 @@ import { AccessLevel, FeatureFlagAssociatedRoleType, RoleType } from '~/types'
 
 import type { featureFlagPermissionsLogicType } from './featureFlagPermissionsLogicType'
 
-export interface FeatureFlagPermissionsLogicProps {
-    flagId: number | 'new'
+export type FeatureFlagPermissionsLogicProps = {
+    flagId: number | null
 }
 
 export const featureFlagPermissionsLogic = kea<featureFlagPermissionsLogicType>([
