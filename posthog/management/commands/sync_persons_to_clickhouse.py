@@ -84,7 +84,7 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool):
                 create_person(
                     team_id=team_id,
                     version=person.version,
-                    uuid=person.uuid,
+                    uuid=str(person.uuid),
                     properties=person.properties,  # TODO: check that the format is correct
                     is_identified=person.is_identified,
                     created_at=person.created_at,  # TODO: check formatting
