@@ -67,6 +67,10 @@ class RoleViewSet(
     serializer_class = RoleSerializer
     queryset = Role.objects.all()
 
+    def get_queryset(self):
+        filters = self.request.GET.dict()
+        return super().get_queryset().filter(**filters)
+
 
 class RoleMembershipSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer(read_only=True)
@@ -75,7 +79,7 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = RoleMembership
-        fields = ["role_id", "user", "joined_at", "updated_at", "user_uuid"]
+        fields = ["id", "role_id", "user", "joined_at", "updated_at", "user_uuid"]
 
         read_only_fields = ["id", "role_id", "user"]
 

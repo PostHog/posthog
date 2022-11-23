@@ -29,6 +29,11 @@ import {
     SessionRecordingPropertiesType,
     EventsListQueryParams,
     SessionRecordingPlaylistType,
+    RoleType,
+    RoleMemberType,
+    OrganizationResourcePermissionType,
+    RolesListParams,
+    FeatureFlagAssociatedRoleType,
     SessionRecordingType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
@@ -140,6 +145,14 @@ class ApiRequest {
 
     public organizationsDetail(id: OrganizationType['id'] = getCurrentOrganizationId()): ApiRequest {
         return this.organizations().addPathComponent(id)
+    }
+
+    public organizationResourceAccess(): ApiRequest {
+        return this.organizations().current().addPathComponent('resource_access')
+    }
+
+    public organizationResourceAccessDetail(id: OrganizationResourcePermissionType['id']): ApiRequest {
+        return this.organizationResourceAccess().addPathComponent(id)
     }
 
     // # Projects
@@ -283,6 +296,24 @@ class ApiRequest {
         return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
     }
 
+    // # Roles
+
+    public roles(): ApiRequest {
+        return this.organizations().current().addPathComponent('roles')
+    }
+
+    public rolesDetail(roleId: RoleType['id']): ApiRequest {
+        return this.roles().addPathComponent(roleId)
+    }
+
+    public roleMemberships(roleId: RoleType['id']): ApiRequest {
+        return this.rolesDetail(roleId).addPathComponent('role_memberships')
+    }
+
+    public roleMembershipsDetail(roleId: RoleType['id'], userUuid: UserType['uuid']): ApiRequest {
+        return this.roleMemberships(roleId).addPathComponent(userUuid)
+    }
+
     // # Persons
     public persons(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('persons')
@@ -360,6 +391,19 @@ class ApiRequest {
 
     public media(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
+    }
+
+    // Resource Access Permissions
+
+    public featureFlagAccessPermissions(flagId: FeatureFlagType['id']): ApiRequest {
+        return this.featureFlag(flagId, getCurrentTeamId()).addPathComponent('role_access')
+    }
+
+    public featureFlagAccessPermissionsDetail(
+        flagId: FeatureFlagType['id'],
+        id: FeatureFlagAssociatedRoleType['id']
+    ): ApiRequest {
+        return this.featureFlagAccessPermissions(flagId).addPathComponent(id)
     }
 
     // Request finalization
@@ -688,6 +732,72 @@ const api = {
         },
     },
 
+    resourceAccessPermissions: {
+        featureFlags: {
+            async create(featureFlagId: number, roleId: RoleType['id']): Promise<FeatureFlagAssociatedRoleType> {
+                return await new ApiRequest().featureFlagAccessPermissions(featureFlagId).create({
+                    data: {
+                        role_id: roleId,
+                    },
+                })
+            },
+            async list(featureFlagId: number): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
+                return await new ApiRequest().featureFlagAccessPermissions(featureFlagId).get()
+            },
+
+            async delete(
+                featureFlagId: number,
+                id: FeatureFlagAssociatedRoleType['id']
+            ): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
+                return await new ApiRequest().featureFlagAccessPermissionsDetail(featureFlagId, id).delete()
+            },
+        },
+    },
+
+    roles: {
+        async get(roleId: RoleType['id']): Promise<RoleType> {
+            return await new ApiRequest().rolesDetail(roleId).get()
+        },
+        async list(params: RolesListParams = {}): Promise<PaginatedResponse<RoleType>> {
+            return await new ApiRequest().roles().withQueryString(toParams(params)).get()
+        },
+        async delete(roleId: RoleType['id']): Promise<void> {
+            return await new ApiRequest().rolesDetail(roleId).delete()
+        },
+        async create(
+            roleName: RoleType['name'],
+            featureFlagAccessLevel: RoleType['feature_flags_access_level']
+        ): Promise<RoleType> {
+            return await new ApiRequest().roles().create({
+                data: {
+                    name: roleName,
+                    feature_flags_access_level: featureFlagAccessLevel,
+                },
+            })
+        },
+        async update(roleId: RoleType['id'], roleData: Partial<RoleType>): Promise<ActionType> {
+            return await new ApiRequest().rolesDetail(roleId).update({ data: roleData })
+        },
+        members: {
+            async list(roleId: RoleType['id']): Promise<PaginatedResponse<RoleMemberType>> {
+                return await new ApiRequest().roleMemberships(roleId).get()
+            },
+            async create(roleId: RoleType['id'], userUuid: UserType['uuid']): Promise<RoleMemberType> {
+                return await new ApiRequest().roleMemberships(roleId).create({
+                    data: {
+                        user_uuid: userUuid,
+                    },
+                })
+            },
+            async get(roleId: RoleType['id'], userUuid: UserType['uuid']): Promise<void> {
+                return await new ApiRequest().roleMembershipsDetail(roleId, userUuid).get()
+            },
+            async delete(roleId: RoleType['id'], userUuid: UserType['uuid']): Promise<void> {
+                return await new ApiRequest().roleMembershipsDetail(roleId, userUuid).delete()
+            },
+        },
+    },
+
     persons: {
         async getProperties(): Promise<PersonProperty[]> {
             return new ApiRequest().persons().withAction('properties').get()
@@ -902,6 +1012,23 @@ const api = {
         },
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()
+        },
+    },
+
+    resourcePermissions: {
+        async list(): Promise<PaginatedResponse<OrganizationResourcePermissionType>> {
+            return await new ApiRequest().organizationResourceAccess().get()
+        },
+        async create(data: Partial<OrganizationResourcePermissionType>): Promise<OrganizationResourcePermissionType> {
+            return await new ApiRequest().organizationResourceAccess().create({ data })
+        },
+        async update(
+            resourceId: OrganizationResourcePermissionType['id'],
+            data: Partial<OrganizationResourcePermissionType>
+        ): Promise<OrganizationResourcePermissionType> {
+            return await new ApiRequest().organizationResourceAccessDetail(resourceId).update({
+                data,
+            })
         },
     },
 
