@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
 from django.conf import settings
 from django.core import exceptions
+from django.db import transaction
 
 from posthog.client import query_with_columns, sync_execute
 from posthog.demo.graphile_worker import (
@@ -75,11 +76,12 @@ class MatrixManager:
             organization_kwargs: Dict[str, Any] = {"name": organization_name}
             if settings.DEMO:
                 organization_kwargs["plugins_access_level"] = Organization.PluginsAccessLevel.INSTALL
-            organization = Organization.objects.create(**organization_kwargs)
-            new_user = User.objects.create_and_join(
-                organization, email, password, first_name, OrganizationMembership.Level.ADMIN, is_staff=is_staff
-            )
-            team = self.create_team(organization)
+            with transaction.atomic():
+                organization = Organization.objects.create(**organization_kwargs)
+                new_user = User.objects.create_and_join(
+                    organization, email, password, first_name, OrganizationMembership.Level.ADMIN, is_staff=is_staff
+                )
+                team = self.create_team(organization)
             if self.print_steps:
                 print(f"Saving simulated data...")
             self.run_on_team(team, new_user)
