@@ -894,9 +894,6 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "group_type_index": {
-                            "type": ["number", "null"]
-                        },
                         "key": {
                             "type": "string"
                         },
@@ -920,9 +917,6 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "group_type_index": {
-                            "type": ["number", "null"]
-                        },
                         "key": {
                             "type": "string"
                         },
@@ -946,9 +940,6 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "group_type_index": {
-                            "type": ["number", "null"]
-                        },
                         "key": {
                             "enum": ["tag_name", "text", "href", "selector"],
                             "type": "string"
@@ -972,9 +963,6 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "group_type_index": {
-                            "type": ["number", "null"]
-                        },
                         "key": {
                             "const": "$session_duration",
                             "type": "string"
@@ -998,9 +986,6 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "group_type_index": {
-                            "type": ["number", "null"]
-                        },
                         "key": {
                             "const": "id",
                             "type": "string"
@@ -1021,9 +1006,6 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "group_type_index": {
-                            "type": ["number", "null"]
-                        },
                         "key": {
                             "const": "duration",
                             "type": "string"
@@ -1040,6 +1022,54 @@
                         },
                         "value": {
                             "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "group_type_index": {
+                            "type": ["number", "null"]
+                        },
+                        "key": {
+                            "type": "string"
+                        },
+                        "label": {
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/PropertyOperator"
+                        },
+                        "type": {
+                            "const": "group",
+                            "type": "string"
+                        },
+                        "value": {
+                            "$ref": "#/definitions/PropertyFilterValue"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "type": "string"
+                        },
+                        "label": {
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/PropertyOperator"
+                        },
+                        "type": {
+                            "const": "feature",
+                            "description": "Event property with \"$feature/\" prepended",
+                            "type": "string"
+                        },
+                        "value": {
+                            "$ref": "#/definitions/PropertyFilterValue"
                         }
                     },
                     "type": "object"
@@ -1168,6 +1198,10 @@
                 },
                 "showPropertyFilter": {
                     "description": "Include a property filter above the table (default: true)",
+                    "type": "boolean"
+                },
+                "showReload": {
+                    "description": "Show a reload button",
                     "type": "boolean"
                 },
                 "source": {

@@ -56,6 +56,8 @@ export interface DataTableNode extends Node {
     showMore?: boolean
     /** Show the export button */
     showExport?: boolean
+    /** Show a reload button */
+    showReload?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
 }

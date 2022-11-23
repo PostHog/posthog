@@ -1,6 +1,6 @@
 import { DataTableColumn, DataTableNode, DataTableStringColumn, EventsNode } from '~/queries/schema'
 import { useState } from 'react'
-import { useValues } from 'kea'
+import { useValues, BindLogic } from 'kea'
 import { dataNodeLogic } from '~/queries/nodes/dataNodeLogic'
 import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import { EventType, PropertyFilterType } from '~/types'
@@ -16,6 +16,7 @@ import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFi
 import { EventDetails } from 'scenes/events'
 import { EventActions } from '~/queries/nodes/DataTable/EventActions'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
+import { ReloadQuery } from '~/queries/nodes/DataTable/ReloadQuery'
 
 interface DataTableProps {
     query: DataTableNode
@@ -95,10 +96,12 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     const showEventFilter = query.showEventFilter ?? true
     const showMore = query.showMore ?? true
     const showExport = query.showExport ?? true
+    const showReload = query.showReload ?? true
     const expandable = query.expandable ?? true
 
     const [id] = useState(() => uniqueNode++)
-    const logic = dataNodeLogic({ query: query.source, key: `DataTable.${id}` })
+    const dataNodeLogicProps = { query: query.source, key: `DataTable.${id}` }
+    const logic = dataNodeLogic(dataNodeLogicProps)
     const { response, responseLoading } = useValues(logic)
     const rows = (response as null | EventsNode['response'])?.results ?? []
     const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = columns.map(({ type, key }) => ({
@@ -120,9 +123,10 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     }
 
     return (
-        <>
+        <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             {(showPropertyFilter || showEventFilter || showExport) && (
                 <div className="flex space-x-4 mb-4">
+                    {showReload && <ReloadQuery />}
                     {showEventFilter && (
                         <EventName query={query.source} setQuery={(source) => setQuery?.({ ...query, source })} />
                     )}
@@ -151,7 +155,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
                         : undefined
                 }
             />
-        </>
+        </BindLogic>
     )
 }
 
