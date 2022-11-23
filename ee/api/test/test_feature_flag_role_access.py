@@ -26,8 +26,8 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         )
         self.assertEqual(self.user.role_memberships.count(), 0)
         flag_role_access_create_res = self.client.post(
-            f"/api/organizations/@current/feature_flag_role_access",
-            {"role_id": self.eng_role.id, "feature_flag_id": self.feature_flag.id},
+            f"/api/projects/@current/feature_flags/{self.feature_flag.id}/role_access",
+            {"role_id": self.eng_role.id},
         )
         self.assertEqual(flag_role_access_create_res.status_code, status.HTTP_201_CREATED)
         flag_role = FeatureFlagRoleAccess.objects.get(id=flag_role_access_create_res.json()["id"])
@@ -44,8 +44,8 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
         flag = FeatureFlag.objects.create(created_by=user_a, key="flag_a", name="Flag A", team=self.team)
         res = self.client.post(
-            f"/api/organizations/@current/feature_flag_role_access",
-            {"role_id": self.marketing_role.id, "feature_flag_id": flag.id},
+            f"/api/projects/@current/feature_flags/{flag.id}/role_access",
+            {"role_id": self.marketing_role.id},
         )
         response_data = res.json()
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
@@ -69,10 +69,10 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         )
         user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
         flag = FeatureFlag.objects.create(created_by=user_a, key="flag_a", name="Flag A", team=self.team)
-
+        flag_id = flag.id
         res = self.client.post(
-            f"/api/organizations/@current/feature_flag_role_access",
-            {"role_id": self.marketing_role.id, "feature_flag_id": flag.id},
+            f"/api/projects/@current/feature_flags/{flag_id}/role_access",
+            {"role_id": self.marketing_role.id},
         )
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
 
@@ -98,8 +98,8 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         )
 
         self.client.post(
-            f"/api/organizations/@current/feature_flag_role_access",
-            {"role_id": self.eng_role.id, "feature_flag_id": flag.id},
+            f"/api/projects/@current/feature_flags/{flag.id}/role_access",
+            {"role_id": self.eng_role.id},
         )
 
         # Should now have edit privileges

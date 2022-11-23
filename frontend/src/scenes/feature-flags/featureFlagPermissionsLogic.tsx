@@ -37,7 +37,7 @@ export const featureFlagPermissionsLogic = kea<featureFlagPermissionsLogicType>(
             {
                 loadPossibleRolesToAdd: async () => {
                     const response = await api.roles.list({
-                        feature_flags_access_level: AccessLevel.CUSTOM_ASSIGNED,
+                        feature_flags_access_level: AccessLevel.READ,
                     })
                     return response.results || []
                 },

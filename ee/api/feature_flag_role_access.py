@@ -39,16 +39,17 @@ class FeatureFlagRoleAccessPermissions(BasePermission):
 
 class FeatureFlagRoleAccessSerializer(serializers.ModelSerializer):
     feature_flag = FeatureFlagSerializer(read_only=True)
-    feature_flag_id = serializers.PrimaryKeyRelatedField(
-        write_only=True, source="feature_flag", queryset=FeatureFlag.objects.all()
-    )
     role = RoleSerializer(read_only=True)
     role_id = serializers.PrimaryKeyRelatedField(write_only=True, source="role", queryset=Role.objects.all())
 
     class Meta:
         model = FeatureFlagRoleAccess
-        fields = ["id", "feature_flag", "feature_flag_id", "role", "role_id", "added_at", "updated_at"]
+        fields = ["id", "feature_flag", "role", "role_id", "added_at", "updated_at"]
         read_only_fields = ["id", "added_at", "updated_at"]
+
+    def create(self, validated_data):
+        validated_data["feature_flag_id"] = self.context["feature_flag_id"]
+        return super().create(validated_data)
 
 
 class FeatureFlagRoleAccessViewSet(
