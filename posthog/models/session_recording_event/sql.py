@@ -46,12 +46,12 @@ MATERIALIZED_COLUMNS = {
         "materializer": "MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary))",
     },
     "first_event_timestamp": {
-        "schema": "DateTime64(6, 'UTC')",
-        "materializer": "MATERIALIZED arrayReduce('min', timestamps_summary)",
+        "schema": "Nullable(DateTime64(6, 'UTC'))",
+        "materializer": "MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary))",
     },
     "last_event_timestamp": {
-        "schema": "DateTime64(6, 'UTC')",
-        "materializer": "MATERIALIZED arrayReduce('max', timestamps_summary)",
+        "schema": "Nullable(DateTime64(6, 'UTC'))",
+        "materializer": "MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary))",
     },
     "urls": {
         "schema": "Array(String)",

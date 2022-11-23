@@ -815,4 +815,4 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
 
         assert session_recordings[0]["start_time"] == self.base_time + relativedelta(seconds=0)
         # Currently duration is loaded from the timestamp. This chunked snapshot will have a timestamp of the first event
-        assert session_recordings[0]["end_time"] == self.base_time + relativedelta(minutes=2)
+        assert session_recordings[0]["end_time"] == self.base_time + relativedelta(minutes=2, seconds=9)
