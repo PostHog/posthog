@@ -137,17 +137,20 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                 </>
                             }
                         />
-                        <LemonDivider vertical />
-                        <>
-                            <LemonButton
-                                type="primary"
-                                disabled={!hasChanges}
-                                loading={hasChanges && playlistLoading}
-                                onClick={saveChanges}
-                            >
-                                Save changes
-                            </LemonButton>
-                        </>
+
+                        {!playlist.is_static && (
+                            <>
+                                <LemonDivider vertical />
+                                <LemonButton
+                                    type="primary"
+                                    disabled={!hasChanges}
+                                    loading={hasChanges && playlistLoading}
+                                    onClick={saveChanges}
+                                >
+                                    Save changes
+                                </LemonButton>
+                            </>
+                        )}
                     </div>
                 }
                 caption={
