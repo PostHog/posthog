@@ -908,6 +908,7 @@
                         },
                         "type": {
                             "const": "event",
+                            "description": "Event properties",
                             "type": "string"
                         },
                         "value": {
@@ -933,6 +934,7 @@
                         },
                         "type": {
                             "const": "person",
+                            "description": "Person properties",
                             "type": "string"
                         },
                         "value": {
@@ -1111,6 +1113,82 @@
             ],
             "type": "string"
         },
+        "DataTableColumn": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/PropertyFilterType"
+                }
+            },
+            "required": ["type", "key"],
+            "type": "object"
+        },
+        "DataTableNode": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/DataTableColumn"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/DataTableStringColumn"
+                            },
+                            "type": "array"
+                        }
+                    ],
+                    "description": "Columns shown in the table"
+                },
+                "expandable": {
+                    "description": "Can expand row to show raw event data (default: true)",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "DataTableNode",
+                    "type": "string"
+                },
+                "showEventFilter": {
+                    "description": "Include an event filter above the table (default: true)",
+                    "type": "boolean"
+                },
+                "showExport": {
+                    "description": "Show the export button",
+                    "type": "boolean"
+                },
+                "showMore": {
+                    "description": "Show the \"...\" menu at the end of the row",
+                    "type": "boolean"
+                },
+                "showPropertyFilter": {
+                    "description": "Include a property filter above the table (default: true)",
+                    "type": "boolean"
+                },
+                "source": {
+                    "$ref": "#/definitions/EventsNode",
+                    "description": "Source of the events"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
+        "DataTableStringColumn": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/PropertyColumnString"
+                },
+                {
+                    "const": "person",
+                    "type": "string"
+                }
+            ]
+        },
         "ElementType": {
             "additionalProperties": false,
             "properties": {
@@ -1219,6 +1297,9 @@
                     "const": "EventsNode",
                     "type": "string"
                 },
+                "limit": {
+                    "type": "number"
+                },
                 "properties": {
                     "anyOf": [
                         {
@@ -1251,26 +1332,6 @@
                 }
             },
             "required": ["kind"],
-            "type": "object"
-        },
-        "EventsTableNode": {
-            "additionalProperties": false,
-            "properties": {
-                "columns": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "events": {
-                    "$ref": "#/definitions/EventsNode"
-                },
-                "kind": {
-                    "const": "EventsTableNode",
-                    "type": "string"
-                }
-            },
-            "required": ["events", "kind"],
             "type": "object"
         },
         "FilterLogicalOperator": {
@@ -1333,6 +1394,13 @@
         },
         "PathType": {
             "enum": ["$pageview", "$screen", "custom_event"],
+            "type": "string"
+        },
+        "PropertyColumnString": {
+            "type": "string"
+        },
+        "PropertyFilterType": {
+            "enum": ["meta", "event", "person", "element", "feature", "session", "cohort", "recording", "group"],
             "type": "string"
         },
         "PropertyFilterValue": {
@@ -1424,7 +1492,7 @@
                     "$ref": "#/definitions/EventsNode"
                 },
                 {
-                    "$ref": "#/definitions/EventsTableNode"
+                    "$ref": "#/definitions/DataTableNode"
                 },
                 {
                     "$ref": "#/definitions/LegacyQuery"
