@@ -137,8 +137,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
         )
 
-        self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=another_team.pk)
-        self.create_snapshot("user", "2", now() - relativedelta(days=1))
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        self.create_snapshot("user", "1", base_time, team_id=another_team.pk)
+        self.create_snapshot("user", "2", base_time)
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -147,7 +148,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response_data["results"][0]["id"], "2")
 
     def test_session_recording_for_user_with_multiple_distinct_ids(self):
-        base_time = now() - timedelta(days=1)
+        base_time = (now() - timedelta(days=1)).replace(microsecond=0)
         p = Person.objects.create(
             team=self.team,
             distinct_ids=["d1", "d2"],
@@ -165,7 +166,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
         Person.objects.create(
             team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
         )
-        base_time = now() - timedelta(days=1)
+        base_time = (now() - timedelta(days=1)).replace(microsecond=0)
         SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="1")
         self.create_snapshot("u1", "1", base_time)
         self.create_snapshot("u1", "2", base_time + relativedelta(seconds=30))
@@ -181,7 +182,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
         Person.objects.create(
             team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
         )
-        self.create_snapshot("u1", "1", now() - relativedelta(days=1))
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        self.create_snapshot("u1", "1", base_time)
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         response_data = response.json()
         # Make sure it starts not viewed
@@ -209,7 +211,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
         )
         session_recording_id = "session_1"
-        base_time = now() - relativedelta(days=1)
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
         self.create_snapshot("d1", session_recording_id, base_time)
         self.create_snapshot("d1", session_recording_id, base_time + relativedelta(seconds=30))
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
@@ -219,8 +221,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             response_data["result"]["session_recording"]["start_and_end_times_by_window_id"],
             {
                 "": {
+                    "window_id": "",
                     "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
                     "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                    "is_active": False,
                 }
             },
         )
