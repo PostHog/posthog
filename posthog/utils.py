@@ -910,23 +910,6 @@ def is_anonymous_id(distinct_id: str) -> bool:
     return bool(re.match(ANONYMOUS_REGEX, distinct_id))
 
 
-def mask_email_address(email_address: str) -> str:
-    """
-    Grabs an email address and returns it masked in a human-friendly way to protect PII.
-        Example: testemail@posthog.com -> t********l@posthog.com
-    """
-    index = email_address.find("@")
-
-    if index == -1:
-        raise ValueError("Please provide a valid email address.")
-
-    if index == 1:
-        # Username is one letter, mask it differently
-        return f"*{email_address[index:]}"
-
-    return f"{email_address[0]}{'*' * (index - 2)}{email_address[index-1:]}"
-
-
 def is_valid_regex(value: Any) -> bool:
     try:
         re.compile(value)
