@@ -2304,6 +2304,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "gpetrioli",
+      "name": "Gabriele Petrioli",
+      "avatar_url": "https://avatars.githubusercontent.com/u/914107?v=4",
+      "profile": "http://petrioli.me",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
