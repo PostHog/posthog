@@ -49,6 +49,7 @@ import { EventsTable } from 'scenes/events'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { ResourcePermissionModal } from 'scenes/ResourcePermissionModal'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -317,33 +318,36 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </>
                                     }
                                     buttons={
-                                        featureFlag.can_edit && (
-                                            <>
-                                                <div className="flex items-center gap-2 mb-2">
-                                                    <LemonButton
-                                                        data-attr="delete-feature-flag"
-                                                        status="danger"
-                                                        type="secondary"
-                                                        onClick={() => {
-                                                            deleteFeatureFlag(featureFlag)
-                                                        }}
-                                                        disabled={featureFlagLoading}
-                                                    >
-                                                        Delete feature flag
-                                                    </LemonButton>
-                                                    <LemonButton
-                                                        data-attr="edit-feature-flag"
-                                                        type="secondary"
-                                                        onClick={() => {
-                                                            editFeatureFlag(true)
-                                                        }}
-                                                        disabled={featureFlagLoading}
-                                                    >
-                                                        Edit
-                                                    </LemonButton>
-                                                </div>
-                                            </>
-                                        )
+                                        <>
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <LemonButton
+                                                    data-attr="delete-feature-flag"
+                                                    status="danger"
+                                                    type="secondary"
+                                                    onClick={() => {
+                                                        deleteFeatureFlag(featureFlag)
+                                                    }}
+                                                    disabled={featureFlagLoading || !featureFlag.can_edit}
+                                                >
+                                                    Delete feature flag
+                                                </LemonButton>
+                                                <LemonButton
+                                                    data-attr="edit-feature-flag"
+                                                    type="secondary"
+                                                    tooltip={
+                                                        featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] &&
+                                                        !featureFlag.can_edit &&
+                                                        "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                    }
+                                                    onClick={() => {
+                                                        editFeatureFlag(true)
+                                                    }}
+                                                    disabled={featureFlagLoading || !featureFlag.can_edit}
+                                                >
+                                                    Edit
+                                                </LemonButton>
+                                            </div>
+                                        </>
                                     }
                                 />
                                 <Tabs
@@ -383,15 +387,21 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
                                         </Tabs.TabPane>
                                     )}
-                                    <Tabs.TabPane tab="Permissions" key="permissions">
-                                        <LemonButton
-                                            type="secondary"
-                                            onClick={() => setModalOpen(true)}
-                                            className="mb-4"
-                                        >
-                                            Set permissions
-                                        </LemonButton>
-                                    </Tabs.TabPane>
+                                    {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
+                                        <Tabs.TabPane tab="Permissions" key="permissions">
+                                            <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                                                {featureFlag.can_edit && (
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        onClick={() => setModalOpen(true)}
+                                                        className="mb-4"
+                                                    >
+                                                        Set permissions
+                                                    </LemonButton>
+                                                )}
+                                            </PayGateMini>
+                                        </Tabs.TabPane>
+                                    )}
                                 </Tabs>
                             </>
                         )}

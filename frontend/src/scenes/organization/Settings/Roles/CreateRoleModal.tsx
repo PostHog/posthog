@@ -61,11 +61,11 @@ export function CreateRoleModal(): JSX.Element {
         <LemonModal
             onClose={handleClose}
             isOpen={createRoleModalShown}
-            title={isNewRole ? 'Create Role' : `Edit ${roleInFocus.name} role`}
+            title={isNewRole ? 'Create role' : `Edit ${roleInFocus.name} role`}
             footer={
                 isNewRole && (
                     <LemonButton type="primary" disabled={rolesLoading} onClick={handleSubmit}>
-                        {rolesLoading ? <Spinner monocolor /> : 'Create Role'}
+                        {rolesLoading ? <Spinner monocolor /> : 'Create role'}
                     </LemonButton>
                 )
             }

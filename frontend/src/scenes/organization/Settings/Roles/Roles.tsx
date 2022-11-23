@@ -59,13 +59,13 @@ export function Roles({ isRestricted }: RestrictedComponentProps): JSX.Element {
                         Roles
                     </h2>
                     <p className="text-muted-alt">
-                        Create roles to provide fine grained permissions to users across posthog resources
+                        Create roles to provide fine-grained permissions to users across posthog resources
                     </p>
                 </div>
 
                 {!isRestricted && (
                     <LemonButton type="primary" onClick={openCreateRoleModal} data-attr="create-role-button">
-                        Create Role
+                        Create role
                     </LemonButton>
                 )}
             </div>
