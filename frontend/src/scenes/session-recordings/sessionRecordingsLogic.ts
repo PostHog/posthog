@@ -13,7 +13,7 @@ export const humanFriendlyTabName = (tab: SessionRecordingsTabs): string => {
         case SessionRecordingsTabs.Recent:
             return 'Recent Recordings'
         case SessionRecordingsTabs.Playlists:
-            return 'Saved Playlists'
+            return 'Playlists'
         default:
             return capitalizeFirstLetter(tab)
     }
