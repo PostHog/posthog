@@ -81,7 +81,7 @@ class Command(BaseCommand):
                         else "\nDemo data ready!\n\n"
                         "If running DEMO mode locally, log in instantly with this link:\n"
                         f"http://localhost:8000/signup?email={email}\n\n"
-                        "If running locally, pre-fill the log with this link:\n"
+                        "If running NON-DEMO mode locally, pre-fill the log in with this link:\n"
                         f"http://localhost:8000/login?email={email}\n"
                         f"Log in as {email} with password {password}.\n"
                     )
