@@ -134,6 +134,7 @@ export const FEATURE_FLAGS = {
     RECORDING_AUTOPLAY: 'recording-autoplay', // owner: #team-session-recordings
     SIGNUP_FORM_EXPERIMENT: 'signup-form-experiment', // owner: #team-growth
     SIGNUP_PRODUCT_BENEFITS_EXPERIMENT: 'signup-product-benefits-experiment', // owner: #team-growth
+    ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
