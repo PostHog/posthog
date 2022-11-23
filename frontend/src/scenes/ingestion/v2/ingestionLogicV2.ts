@@ -311,7 +311,6 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 hasInvitedMembers,
                 isDemoProject,
             }) => {
-                console.log(isDemoProject, teamLogic.values.currentTeam?.is_demo, 'IS DEMO')
                 if (isDemoProject) {
                     return INGESTION_VIEWS.NO_DEMO_INGESTION
                 }

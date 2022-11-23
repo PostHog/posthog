@@ -19,8 +19,8 @@ export function GeneratingDemoDataPanel(): JSX.Element {
                         This will take just a moment - we'll redirect you when your demo data is ready.
                     </p>
                     <AlertMessage type="info" className="my-6">
-                        We're using a demo project. Your <b>{currentOrganization?.name}</b> project is still a clean
-                        slate.
+                        We're using a demo project. Your other <b>{currentOrganization?.name}</b> projects won't be
+                        affected.
                     </AlertMessage>
                 </div>
             </div>
