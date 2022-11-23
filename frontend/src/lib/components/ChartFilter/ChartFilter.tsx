@@ -84,7 +84,6 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                 {
                     value: ChartDisplayType.ActionsAreaGraph,
                     label: <Label icon={<IconAreaChart />}>Area</Label>,
-                    // disabled: areaDisabled, // TODO: when do we need to disable this?
                 },
             ],
         },
