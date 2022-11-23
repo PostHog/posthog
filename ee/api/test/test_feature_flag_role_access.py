@@ -79,7 +79,7 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
     def test_feature_flag_permission_changes(self):
         OrganizationResourceAccess.objects.create(
             resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
-            access_level=OrganizationResourceAccess.AccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE,
+            access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
             organization=self.organization,
         )
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

@@ -713,7 +713,7 @@ def can_user_edit_feature_flag(request, feature_flag):
 
         role_level = max([membership.role.feature_flags_access_level for membership in all_role_memberships], default=0)
         final_level = max(role_level, org_level)
-        if final_level == OrganizationResourceAccess.AccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE:
+        if final_level == OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW:
             can_edit = FeatureFlagRoleAccess.objects.filter(
                 feature_flag__id=feature_flag.pk,
                 role__id__in=[membership.role.pk for membership in all_role_memberships],

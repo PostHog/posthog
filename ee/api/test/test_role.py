@@ -100,13 +100,11 @@ class TestRoleAPI(APILicensedTest):
         )
         self.client.patch(
             f"/api/organizations/@current/roles/{role.id}",
-            {
-                "feature_flags_access_level": OrganizationResourceAccess.AccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE
-            },
+            {"feature_flags_access_level": OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT},
         )
         self.assertEqual(
             Role.objects.first().feature_flags_access_level,  # type: ignore
-            OrganizationResourceAccess.AccessLevel.DEFAULT_VIEW_ALLOW_EDIT_BASED_ON_ROLE,
+            OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT,
         )
 
     def test_returns_correct_results_by_organization(self):
