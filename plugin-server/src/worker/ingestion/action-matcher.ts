@@ -53,6 +53,9 @@ export function castingCompare(
     operator: PropertyOperator.Exact | PropertyOperator.IsNot | PropertyOperator.LessThan | PropertyOperator.GreaterThan
 ): boolean {
     // Check null case first
+    // Clickhouse treats the string "null" as null, while here we treat them as different values
+    // Thus, this check special cases the string "null" to be equal to the null value
+    // See more: https://github.com/PostHog/posthog/issues/12893
     if (a === null || b === null) {
         const aNullCast = String(a)
         const bNullCast = String(b)
