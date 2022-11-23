@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import TextareaAutosize from 'react-textarea-autosize'
 import { Tabs } from 'antd'
 import { IconMarkdown, IconTools } from 'lib/components/icons'
-import { TextCardBody } from 'lib/components/Cards/TextCard/TextCard'
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
 import posthog from 'posthog-js'
@@ -75,6 +75,8 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
     const [filesToUpload, setFilesToUpload] = useState<File[]>([])
     const dropRef = createRef<HTMLDivElement>()
 
+    const textAreaRef = useRef<HTMLTextAreaElement>(null)
+
     useEffect(() => {
         const uploadFiles = async (): Promise<void> => {
             if (filesToUpload.length === 0) {
@@ -105,7 +107,7 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
         <Tabs>
             <Tabs.TabPane tab="Write" key="write-card" destroyInactiveTabPane={true}>
                 <div ref={dropRef} className={clsx('LemonTextMarkdown flex flex-col p-2 space-y-1 rounded')}>
-                    <LemonTextArea {...editAreaProps} autoFocus value={value} onChange={onChange} />
+                    <LemonTextArea ref={textAreaRef} {...editAreaProps} autoFocus value={value} onChange={onChange} />
                     <div className="text-muted inline-flex items-center space-x-1">
                         <IconMarkdown className={'text-2xl'} />
                         <span>Markdown formatting support</span>
@@ -137,7 +139,7 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
                 </div>
             </Tabs.TabPane>
             <Tabs.TabPane tab="Preview" key={'preview-card'}>
-                <TextCardBody text={value} />
+                <TextContent text={value} />
             </Tabs.TabPane>
         </Tabs>
     )
