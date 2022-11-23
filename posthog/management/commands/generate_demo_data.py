@@ -5,6 +5,7 @@ from time import monotonic
 
 from django.core import exceptions
 from django.core.management.base import BaseCommand
+from django.db import transaction
 
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
@@ -63,23 +64,24 @@ class Command(BaseCommand):
             email = options["email"]
             password = options["password"]
             matrix_manager = MatrixManager(matrix, print_steps=True)
-            try:
-                if options["reset_master"]:
-                    matrix_manager.reset_master()
+            with transaction.atomic():
+                try:
+                    if options["reset_master"]:
+                        matrix_manager.reset_master()
+                    else:
+                        matrix_manager.ensure_account_and_save(
+                            email, "Employee 427", "Hedgebox Inc.", password=password, disallow_collision=True
+                        )
+                except exceptions.ValidationError as e:
+                    print(f"Error: {e}")
                 else:
-                    matrix_manager.ensure_account_and_save(
-                        email, "Employee 427", "Hedgebox Inc.", password=password, disallow_collision=True
+                    print(
+                        "Master project reset!"
+                        if options["reset_master"]
+                        else f"Demo data ready! Log in as {email} with password {password}.\n"
+                        "If running DEMO mode locally, log in instantly with this link:\n"
+                        f"http://localhost:8000/signup?email={email}"
                     )
-            except exceptions.ValidationError as e:
-                print(f"Error: {e}")
-            else:
-                print(
-                    "Master project reset!"
-                    if options["reset_master"]
-                    else f"Demo data ready! Log in as {email} with password {password}.\n"
-                    "If running DEMO mode locally, log in instantly with this link:\n"
-                    f"http://localhost:8000/signup?email={email}"
-                )
         else:
             print("Dry run - not saving results.")
 
