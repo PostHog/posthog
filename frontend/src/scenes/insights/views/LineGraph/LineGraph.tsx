@@ -46,6 +46,7 @@ export interface LineGraphProps {
     showPersonsModal?: boolean
     tooltip?: TooltipConfig
     isCompare?: boolean
+    inCardView?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
     labelGroupType: number | 'people' | 'none'
     filters?: Partial<TrendsFilterType>
@@ -196,6 +197,7 @@ export function LineGraph_({
     ['data-attr']: dataAttr,
     showPersonsModal = true,
     isCompare = false,
+    inCardView,
     incompletenessOffsetFromEnd = -1,
     tooltip: tooltipConfig,
     labelGroupType,
@@ -224,6 +226,7 @@ export function LineGraph_({
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar].includes(type)
     const showAnnotations = (!insightType || insightType === InsightType.TRENDS) && !isHorizontal
+    const shouldAutoResize = isHorizontal && !inCardView
 
     // Remove tooltip element on unmount
     useEffect(() => {
@@ -505,10 +508,25 @@ export function LineGraph_({
                     },
                 },
                 y: {
+                    beforeFit: (scale) => {
+                        if (shouldAutoResize) {
+                            // automatically resize the chart container to fit the number of rows
+                            const MIN_HEIGHT = 575
+                            const ROW_HEIGHT = 16
+                            const dynamicHeight = scale.ticks.length * ROW_HEIGHT
+                            const height = Math.max(dynamicHeight, MIN_HEIGHT)
+                            const parentNode: any = scale.chart?.canvas?.parentNode
+                            parentNode.style.height = `${height}px`
+                        } else {
+                            // display only as many bars, as we can fit labels
+                            scale.max = scale.ticks.length
+                        }
+                    },
                     beginAtZero: true,
                     ticks: {
                         precision,
                         color: colors.axisLabel as string,
+                        autoSkip: !shouldAutoResize,
                         callback: function _renderYLabel(_, i) {
                             const labelDescriptors = [
                                 datasets?.[0]?.actions?.[i]?.custom_name ?? datasets?.[0]?.actions?.[i]?.name, // action name
@@ -533,7 +551,10 @@ export function LineGraph_({
     }, [datasets, hiddenLegendKeys])
 
     return (
-        <div className="LineGraph absolute w-full h-full overflow-hidden" data-attr={dataAttr}>
+        <div
+            className={`w-full h-full overflow-hidden ${shouldAutoResize ? 'mx-6 mb-6' : 'LineGraph absolute'}`}
+            data-attr={dataAttr}
+        >
             <canvas ref={canvasRef} />
             {showAnnotations && myLineChart && chartWidth && chartHeight ? (
                 <AnnotationsOverlay

@@ -5,7 +5,7 @@ import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { IconAutocapture, IconKeyboard, IconSchedule } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { asDisplay } from 'scenes/persons/PersonHeader'
-import { TZLabel } from 'lib/components/TimezoneAware'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 interface SessionRecordingPlaylistItemProps {

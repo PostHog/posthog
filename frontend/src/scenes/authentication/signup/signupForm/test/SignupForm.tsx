@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { signupLogic } from './signupLogic'
+import { signupTestLogic } from './signupTestLogic'
 import { userLogic } from '../../../../userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -14,14 +14,14 @@ import { SignupPanel2 } from './panels/SignupPanel2'
 
 export const scene: SceneExport = {
     component: SignupForm,
-    logic: signupLogic,
+    logic: signupTestLogic,
 }
 
 export function SignupForm(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
-    const { isSignupPanel2Submitting, signupPanel2ManualErrors, panel } = useValues(signupLogic)
-    const { setPanel } = useActions(signupLogic)
+    const { isSignupPanel2Submitting, signupPanel2ManualErrors, panel } = useValues(signupTestLogic)
+    const { setPanel } = useActions(signupTestLogic)
     const [showSpinner, setShowSpinner] = useState(true)
 
     useEffect(() => {
@@ -52,7 +52,7 @@ export function SignupForm(): JSX.Element | null {
                     </Link>
                 </div>
             )}
-            {!isSignupPanel2Submitting && signupPanel2ManualErrors.generic && (
+            {!isSignupPanel2Submitting && signupPanel2ManualErrors?.generic && (
                 <AlertMessage type="error">
                     {signupPanel2ManualErrors.generic?.detail || 'Could not complete your signup. Please try again.'}
                 </AlertMessage>

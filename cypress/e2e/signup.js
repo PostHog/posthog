@@ -50,4 +50,23 @@ describe('Signup', () => {
 
         cy.location('pathname').should('eq', '/ingestion')
     })
+
+    it('Can fill out all the fields on social login', () => {
+        // We can't actually test the social login feature.
+        // But, we can make sure the form exists as it should, and that upon submit
+        // we get the expected error that no social session exists.
+        cy.visit('/logout')
+        cy.location('pathname').should('include', '/login')
+        cy.visit('/organization/confirm-creation?organization_name=&first_name=Test&email=test%40posthog.com')
+
+        cy.get('[name=email]').should('have.value', 'test@posthog.com')
+        cy.get('[name=first_name]').should('have.value', 'Test')
+        cy.get('[name=organization_name]').type('Hogflix SpinOff').should('have.value', 'Hogflix SpinOff')
+        cy.get('[data-attr=signup-role-at-organization]').click()
+        cy.get('.Popup button:first-child').click()
+        cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
+        cy.get('[type=submit]').click()
+        // if there are other form issues, we'll get errors on the form, not this toast
+        cy.get('.Toastify [data-attr="error-toast"]').contains('Inactive social login session.')
+    })
 })

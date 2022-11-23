@@ -19,7 +19,7 @@ from posthog.helpers.session_recording import (
     get_active_segments_from_event_list,
     parse_snapshot_timestamp,
 )
-from posthog.models import Team
+from posthog.models import SessionRecordingPlaylistItem, Team
 
 
 class SessionRecording:
@@ -44,6 +44,7 @@ class SessionRecording:
             AND session_id = %(session_id)s
             {date_clause}
         ORDER BY timestamp
+        {limit_param}
     """
 
     def get_recording_snapshot_date_clause(self) -> Tuple[str, Dict]:
@@ -66,7 +67,7 @@ class SessionRecording:
             fields.append("snapshot_data")
 
         date_clause, date_clause_params = self.get_recording_snapshot_date_clause()
-        query = self._recording_snapshot_query.format(date_clause=date_clause, fields=", ".join(fields))
+        query = self._recording_snapshot_query.format(date_clause=date_clause, fields=", ".join(fields), limit_param="")
 
         response = sync_execute(
             query, {"team_id": self._team.id, "session_id": self._session_recording_id, **date_clause_params}
@@ -83,6 +84,17 @@ class SessionRecording:
             )
             for columns in response
         ]
+
+    # Fast constant time query that checks if session exists.
+    def query_session_exists(self) -> bool:
+        date_clause, date_clause_params = self.get_recording_snapshot_date_clause()
+        query = self._recording_snapshot_query.format(
+            date_clause=date_clause, fields="session_id", limit_param="LIMIT 1"
+        )
+        response = sync_execute(
+            query, {"team_id": self._team.id, "session_id": self._session_recording_id, **date_clause_params}
+        )
+        return bool(response)
 
     def get_snapshots(self, limit, offset) -> DecompressedRecordingData:
         all_snapshots = [
@@ -115,10 +127,18 @@ class SessionRecording:
             statsd.incr("session_recordings.metadata_parsed_from_snapshot_data")
             segments, start_and_end_times_by_window_id = self._get_recording_segments_from_snapshot(snapshots)
 
+        playlists = list(
+            SessionRecordingPlaylistItem.objects.filter(session_id=self._session_recording_id)
+            .exclude(deleted=True)
+            .values_list("playlist_id", flat=True)
+            .distinct()
+        )
+
         return RecordingMetadata(
             segments=segments,
             start_and_end_times_by_window_id=start_and_end_times_by_window_id,
             distinct_id=cast(str, distinct_id),
+            playlists=playlists,
         )
 
     def _get_events_summary_by_window_id(

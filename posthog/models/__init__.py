@@ -34,6 +34,7 @@ from .prompt import UserPromptSequenceState
 from .property import Property
 from .property_definition import PropertyDefinition
 from .session_recording_playlist import SessionRecordingPlaylist
+from .session_recording_playlist_item import SessionRecordingPlaylistItem
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
 from .tag import Tag
@@ -91,6 +92,7 @@ __all__ = [
     "PropertyDefinition",
     "RetentionFilter",
     "SessionRecordingPlaylist",
+    "SessionRecordingPlaylistItem",
     "SharingConfiguration",
     "Subscription",
     "Tag",

@@ -33,8 +33,7 @@ export const keyForInsightLogicProps =
 export function filterTrendsClientSideParams(
     filters: Partial<TrendsFilterType & StickinessFilterType>
 ): Partial<TrendsFilterType & StickinessFilterType> {
-    const { people_day: _discard, people_action: __discard, stickiness_days: ___discard, ...newFilters } = filters
-
+    const { stickiness_days: ___discard, ...newFilters } = filters
     return newFilters
 }
 

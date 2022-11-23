@@ -60,4 +60,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Unsubscribe]: () => import('./Unsubscribe/Unsubscribe'),
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
     [Scene.IngestionWarnings]: () => import('./data-management/ingestion-warnings/IngestionWarningsView'),
+    [Scene.Query]: () => import('./query/QueryScene'),
 }

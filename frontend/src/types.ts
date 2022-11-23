@@ -510,6 +510,7 @@ export interface SessionRecordingMeta {
     segments: RecordingSegment[]
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
     recordingDurationMs: number
+    playlists?: SessionRecordingPlaylistType['id'][]
 }
 
 export interface SessionPlayerSnapshotData {
@@ -568,6 +569,7 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
+    static_recordings?: SessionRecordingPlaylistType['playlist_items']
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {
@@ -773,15 +775,17 @@ export interface EventsTableAction {
 }
 
 export interface EventType {
-    elements: ElementType[]
-    elements_hash: string | null // Deprecated for elements_chain
-    elements_chain?: string | null
-    id: number | string
+    // fields from the API
+    id: string
+    distinct_id: string
     properties: Record<string, any>
-    timestamp: string
-    colonTimestamp?: string // Used in session recording events list
-    person?: Pick<PersonType, 'is_identified' | 'distinct_ids' | 'properties'>
     event: string
+    timestamp: string
+    person?: Pick<PersonType, 'is_identified' | 'distinct_ids' | 'properties'>
+    elements: ElementType[]
+    elements_chain?: string | null
+    /** Used in session recording events list */
+    colonTimestamp?: string
 }
 
 export interface RecordingTimeMixinType {
@@ -816,6 +820,8 @@ export interface SessionRecordingPlaylistType {
     last_modified_at: string
     last_modified_by: UserBasicType | null
     filters?: RecordingFilters
+    playlist_items?: Pick<SessionRecordingType, 'id'>[] // only id is exposed by api to minimize data passed through components
+    is_static?: boolean
 }
 
 export interface SessionRecordingType {
@@ -833,7 +839,8 @@ export interface SessionRecordingType {
     distinct_id?: string
     email?: string
     person?: PersonType
-
+    /** List of static playlists that this recording is referenced on */
+    playlists?: SessionRecordingPlaylistType['id'][]
     click_count?: number
     keypress_count?: number
     urls?: string[]
@@ -966,6 +973,7 @@ export interface DashboardTile extends Tileable, Cacheable {
     insight?: InsightModel
     text?: TextModel
     deleted?: boolean
+    is_cached?: boolean
 }
 
 export interface TextModel {
@@ -1234,9 +1242,6 @@ export interface FilterType {
     date_from?: string | null
     date_to?: string | null
 
-    // used by insights and funnels
-    interval?: IntervalType
-
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
@@ -1249,6 +1254,8 @@ export interface FilterType {
     entity_type?: EntityType
     entity_math?: string
 
+    // used by trends and stickiness
+    interval?: IntervalType
     // TODO: extract into TrendsFunnelsCommonFilterType
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
@@ -1271,8 +1278,6 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
-    people_day?: any
-    people_action?: any
     formula?: any
     shown_as?: ShownAsValue
     display?: ChartDisplayType

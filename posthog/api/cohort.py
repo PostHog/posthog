@@ -202,8 +202,8 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         team = self.team
         filter = Filter(request=request, team=self.team)
 
-        is_csv_request = self.request.accepted_renderer.format == "csv"
-        if is_csv_request:
+        is_csv_request = self.request.accepted_renderer.format == "csv" or request.GET.get("is_csv_export")
+        if is_csv_request and not filter.limit:
             filter = filter.with_data({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
         elif not filter.limit:
             filter = filter.with_data({LIMIT: 100})
@@ -212,7 +212,7 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         raw_result = sync_execute(query, params)
         actor_ids = [row[0] for row in raw_result]
-        actors, serialized_actors = get_people(team.pk, actor_ids)
+        actors, serialized_actors = get_people(team.pk, actor_ids, distinct_id_limit=10 if is_csv_request else None)
 
         _should_paginate = len(actor_ids) >= filter.limit
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
@@ -221,6 +221,17 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             if filter.offset - filter.limit >= 0
             else None
         )
+        if is_csv_request:
+            KEYS_ORDER = ["id", "email", "name", "created_at", "properties", "distinct_ids"]
+            DELETE_KEYS = ["value_at_data_point", "uuid", "type", "is_identified", "matched_recordings"]
+            for actor in serialized_actors:
+                if actor["properties"].get("email"):
+                    actor["email"] = actor["properties"]["email"]  # type: ignore
+                    del actor["properties"]["email"]
+            serialized_actors = [
+                {k: v for k, v in sorted(actor.items(), key=lambda item: KEYS_ORDER.index(item[0]) if item[0] in KEYS_ORDER else 999999) if k not in DELETE_KEYS}  # type: ignore
+                for actor in serialized_actors
+            ]
 
         return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
 

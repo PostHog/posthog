@@ -1,4 +1,4 @@
-import { TZLabel } from '../TimezoneAware'
+import { TZLabel } from '../TZLabel'
 import { Row } from 'antd'
 import { ProfilePicture } from '../ProfilePicture'
 import { LemonTableColumn } from './types'

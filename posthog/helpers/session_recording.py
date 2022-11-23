@@ -19,7 +19,9 @@ from sentry_sdk.api import capture_exception, capture_message
 
 from posthog.models import utils
 
-Event = Dict
+FULL_SNAPSHOT = 2
+
+Event = Dict[str, Any]
 SnapshotData = Dict
 WindowId = Optional[str]
 
@@ -104,7 +106,13 @@ class SnapshotDataTaggedWithWindowId(TypedDict):
 class SessionRecordingEventSummary(TypedDict):
     timestamp: int
     type: int
+    # keys of this object should be any of EVENT_SUMMARY_DATA_INCLUSIONS
     data: Dict[str, Union[int, str]]
+
+
+class MinimalStaticSessionRecording(TypedDict):
+    id: int
+    created_at: datetime
 
 
 class SessionRecordingEvent(TypedDict):
@@ -120,6 +128,13 @@ class RecordingMetadata(TypedDict):
     distinct_id: str
     segments: List[RecordingSegment]
     start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment]
+
+
+class RecordingSegment(TypedDict):
+    start_time: datetime
+    end_time: datetime
+    window_id: WindowId
+    is_active: bool
 
 
 class DecompressedRecordingData(TypedDict):

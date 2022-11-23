@@ -56,7 +56,7 @@ export async function emitToBufferStep(
 
 /** Returns whether the event should be delayed using the event buffer mechanism.
  *
- * Why? Non-anonymous non-$identify events with no existing person matching their distinct ID are sent to a buffer.
+ * Why? Non-anonymous not merging events with no existing person matching their distinct ID are sent to a buffer.
  * This is so that we can better handle the case where one client uses a fresh distinct ID before another client
  * has managed to send the $identify event aliasing an existing anonymous distinct ID to the fresh distinct ID.
  *
@@ -89,7 +89,9 @@ export function shouldSendEventToBuffer(
     // we don't want to buffer these to make group properties available asap
     // identify and alias are identical and could merge the person - the sooner we update the person_id the better
     const isIdentifyingEvent =
-        event.event == '$groupidentify' || event.event == '$identify' || event.event == `$create_alias`
+        event.event == '$groupidentify' ||
+        (event.event == '$identify' && !!event.properties && !!event.properties['$anon_distinct_id']) ||
+        (event.event == `$create_alias` && !!event.properties && !!event.properties['alias'])
 
     const isAnonymousEvent =
         event.properties && event.properties['$device_id'] && event.distinct_id === event.properties['$device_id']

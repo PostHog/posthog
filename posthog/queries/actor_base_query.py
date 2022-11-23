@@ -13,16 +13,17 @@ from typing import (
     cast,
 )
 
+from django.db.models import OuterRef, Subquery
 from django.db.models.query import Prefetch, QuerySet
 
-from posthog.client import sync_execute
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_TRENDS
-from posthog.models import Entity, Filter, Team
+from posthog.models import Entity, Filter, PersonDistinctId, Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group import Group
 from posthog.models.person import Person
+from posthog.queries.insight import insight_sync_execute
 
 
 class EventInfoForRecording(TypedDict):
@@ -64,6 +65,8 @@ SerializedActor = Union[SerializedGroup, SerializedPerson]
 class ActorBaseQuery:
     # Whether actor values are included as the second column of the actors query
     ACTOR_VALUES_INCLUDED = False
+    # What query type to report
+    QUERY_TYPE = "actors"
 
     entity: Optional[Entity] = None
 
@@ -96,7 +99,7 @@ class ActorBaseQuery:
     ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]], int]:
         """Get actors in data model and dict formats. Builds query and executes"""
         query, params = self.actor_query()
-        raw_result = sync_execute(query, params)
+        raw_result = insight_sync_execute(query, params, query_type=self.QUERY_TYPE, filter=self._filter)
         actors, serialized_actors = self.get_actors_from_result(raw_result)
 
         if hasattr(self._filter, "include_recordings") and self._filter.include_recordings and self._filter.insight in [INSIGHT_PATHS, INSIGHT_TRENDS, INSIGHT_FUNNELS]:  # type: ignore
@@ -115,7 +118,7 @@ class ActorBaseQuery:
             and session_id in %(session_ids)s
         """
         params = {"team_id": self._team.pk, "session_ids": list(session_ids)}
-        raw_result = sync_execute(query, params)
+        raw_result = insight_sync_execute(query, params, query_type="actors_session_ids_with_recordings")
         return {row[0] for row in raw_result}
 
     def add_matched_recordings_to_serialized_actors(
@@ -194,12 +197,23 @@ def get_groups(
 
 
 def get_people(
-    team_id: int, people_ids: List[Any], value_per_actor_id: Optional[Dict[str, float]] = None
+    team_id: int, people_ids: List[Any], value_per_actor_id: Optional[Dict[str, float]] = None, distinct_id_limit=None
 ) -> Tuple[QuerySet[Person], List[SerializedPerson]]:
     """Get people from raw SQL results in data model and dict formats"""
+    distinct_id_subquery = Subquery(
+        PersonDistinctId.objects.filter(person_id=OuterRef("person_id")).values_list("id", flat=True)[
+            :distinct_id_limit
+        ]
+    )
     persons: QuerySet[Person] = (
         Person.objects.filter(team_id=team_id, uuid__in=people_ids)
-        .prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        .prefetch_related(
+            Prefetch(
+                "persondistinctid_set",
+                to_attr="distinct_ids_cache",
+                queryset=PersonDistinctId.objects.filter(id__in=distinct_id_subquery),
+            )
+        )
         .order_by("-created_at", "uuid")
         .only("id", "is_identified", "created_at", "properties", "uuid")
     )
