@@ -1,15 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { Framework, PlatformType } from 'scenes/ingestion/v2/types'
-import {
-    API,
-    MOBILE,
-    BACKEND,
-    WEB,
-    GENERATING_DEMO_DATA,
-    thirdPartySources,
-    THIRD_PARTY,
-    ThirdPartySource,
-} from './constants'
+import { API, MOBILE, BACKEND, WEB, thirdPartySources, THIRD_PARTY, ThirdPartySource } from './constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
@@ -77,6 +68,7 @@ export type IngestionState = {
     hasInvitedMembers: boolean | null
     isTechnicalUser: boolean | null
     isDemoProject: boolean | null
+    generatingDemoData: boolean | null
 }
 
 const viewToState = (view: string, props: IngestionState): IngestionState => {
@@ -90,6 +82,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 readyToVerify: false,
                 showBilling: false,
                 isDemoProject: props.isDemoProject,
+                generatingDemoData: false,
             }
         case INGESTION_VIEWS.TEAM_INVITED:
             return {
@@ -100,6 +93,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 readyToVerify: false,
                 showBilling: false,
                 isDemoProject: props.isDemoProject,
+                generatingDemoData: false,
             }
         case INGESTION_VIEWS.BILLING:
             return {
@@ -110,6 +104,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 readyToVerify: false,
                 showBilling: true,
                 isDemoProject: props.isDemoProject,
+                generatingDemoData: false,
             }
         case INGESTION_VIEWS.VERIFICATION:
             return {
@@ -120,6 +115,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 readyToVerify: true,
                 showBilling: false,
                 isDemoProject: props.isDemoProject,
+                generatingDemoData: false,
             }
         case INGESTION_VIEWS.CHOOSE_PLATFORM:
             return {
@@ -130,6 +126,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 readyToVerify: false,
                 showBilling: false,
                 isDemoProject: props.isDemoProject,
+                generatingDemoData: false,
             }
 
         case INGESTION_VIEWS.CHOOSE_FRAMEWORK:
@@ -141,6 +138,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 readyToVerify: false,
                 showBilling: false,
                 isDemoProject: props.isDemoProject,
+                generatingDemoData: false,
             }
     }
     return {
@@ -151,6 +149,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
         readyToVerify: false,
         showBilling: false,
         isDemoProject: props.isDemoProject,
+        generatingDemoData: false,
     }
 }
 
@@ -180,6 +179,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
             readyToVerify,
             showBilling,
             isDemoProject,
+            generatingDemoData,
         }: IngestionState) => ({
             isTechnicalUser,
             hasInvitedMembers,
@@ -188,6 +188,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
             readyToVerify,
             showBilling,
             isDemoProject,
+            generatingDemoData,
         }),
         setActiveTab: (tab: string) => ({ tab }),
         setInstructionsModal: (isOpen: boolean) => ({ isOpen }),
@@ -278,6 +279,12 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 setState: (_, { isDemoProject }) => isDemoProject,
             },
         ],
+        generatingDemoData: [
+            false,
+            {
+                setState: (_, { generatingDemoData }) => generatingDemoData,
+            },
+        ],
     }),
     selectors(() => ({
         currentState: [
@@ -289,8 +296,9 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 s.isTechnicalUser,
                 s.hasInvitedMembers,
                 s.isDemoProject,
+                s.generatingDemoData,
             ],
-            (platform, framework, readyToVerify, showBilling, isTechnicalUser, hasInvitedMembers, isDemoProject) => ({
+            (
                 platform,
                 framework,
                 readyToVerify,
@@ -298,6 +306,16 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 isTechnicalUser,
                 hasInvitedMembers,
                 isDemoProject,
+                generatingDemoData
+            ) => ({
+                platform,
+                framework,
+                readyToVerify,
+                showBilling,
+                isTechnicalUser,
+                hasInvitedMembers,
+                isDemoProject,
+                generatingDemoData,
             }),
         ],
         currentView: [
@@ -310,6 +328,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 showBilling,
                 hasInvitedMembers,
                 isDemoProject,
+                generatingDemoData,
             }) => {
                 if (isDemoProject) {
                     return INGESTION_VIEWS.NO_DEMO_INGESTION
@@ -336,7 +355,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                     }
                     // could be null, so we check that it's set to false
                 } else if (isTechnicalUser === false) {
-                    if (platform === GENERATING_DEMO_DATA) {
+                    if (generatingDemoData) {
                         return INGESTION_VIEWS.GENERATING_DEMO_DATA
                     }
                     if (hasInvitedMembers) {
@@ -419,6 +438,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 readyToVerify: false,
                 showBilling: false,
                 isDemoProject: values.isDemoProject,
+                generatingDemoData: false,
             })
         },
     })),
@@ -514,7 +534,8 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
 ])
 
 function getUrl(values: ingestionLogicV2Type['values']): string | [string, Record<string, undefined | string>] {
-    const { isTechnicalUser, platform, framework, readyToVerify, showBilling, hasInvitedMembers } = values
+    const { isTechnicalUser, platform, framework, readyToVerify, showBilling, hasInvitedMembers, generatingDemoData } =
+        values
 
     let url = '/ingestion'
 
@@ -555,7 +576,7 @@ function getUrl(values: ingestionLogicV2Type['values']): string | [string, Recor
             url += '/backend'
         }
 
-        if (platform === GENERATING_DEMO_DATA) {
+        if (generatingDemoData) {
             url += '/just-exploring'
         }
 
