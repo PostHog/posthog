@@ -156,9 +156,7 @@ export const teamLogic = kea<teamLogicType>([
         },
         createTeamSuccess: ({ currentTeam }) => {
             if (window.location.href.includes('/ingestion') && currentTeam.is_demo) {
-                actions.updateCurrentTeam({
-                    completed_snippet_onboarding: true,
-                })
+                window.location.href = '/'
             } else {
                 window.location.href = '/ingestion'
             }
