@@ -194,10 +194,11 @@ class SessionRecordingList(EventQuery):
         return start_time_clause, start_time_params
 
     def _get_static_recordings_clause(self) -> Tuple[str, Dict[str, Any]]:
-        static_session_ids = [session["id"] for session in self._filter.static_recordings]
 
-        if not static_session_ids:
+        if self._filter.static_recordings is None:
             return "", {}
+
+        static_session_ids = [session["id"] for session in self._filter.static_recordings]
 
         return "AND session_id in %(static_session_ids)s", {"static_session_ids": static_session_ids}
 

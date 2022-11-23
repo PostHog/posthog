@@ -26,6 +26,8 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
 
     """
 
+    QUERY_TYPE = "funnel"
+
     def get_query(self):
         max_steps = len(self._filter.entities)
 

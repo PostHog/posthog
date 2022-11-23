@@ -39,8 +39,8 @@ const randomString = (): string => Math.random().toString(36).substring(2, 5)
 const makeEvent = (id: string = '1', timestamp: string = randomString()): EventType => ({
     id: id,
     timestamp,
+    distinct_id: 'distinct_id',
     elements: [],
-    elements_hash: '',
     event: '',
     properties: {},
 })

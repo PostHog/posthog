@@ -4,6 +4,8 @@ from posthog.queries.funnels.base import ClickhouseFunnelBase
 
 
 class ClickhouseFunnelStrict(ClickhouseFunnelBase):
+    QUERY_TYPE = "funnel_strict"
+
     def get_query(self):
         max_steps = len(self._filter.entities)
 

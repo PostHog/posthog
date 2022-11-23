@@ -52,7 +52,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         filters: [
             null as RecordingFilters | null,
             {
-                loadPlaylistSuccess: (_, { playlist }) => playlist.filters || null,
+                setPlaylist: (_, { playlist }) => playlist?.filters || null,
                 setFilters: (_, { filters }) => filters,
             },
         ],

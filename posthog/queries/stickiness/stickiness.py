@@ -2,13 +2,13 @@ import copy
 import urllib.parse
 from typing import Any, Dict, List
 
-from posthog.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
 from posthog.queries.base import handle_compare
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.stickiness.stickiness_actors import StickinessActors
 from posthog.queries.stickiness.stickiness_event_query import StickinessEventsQuery
 from posthog.utils import encode_get_request_params
@@ -42,9 +42,11 @@ class Stickiness:
         SETTINGS optimize_move_to_prewhere = 0
         """
 
-        counts = sync_execute(
+        counts = insight_sync_execute(
             query,
             {**event_params, "num_intervals": filter.total_intervals},
+            query_type="stickiness",
+            filter=filter,
             client_query_id=filter.client_query_id,
             client_query_team_id=team.pk,
         )
