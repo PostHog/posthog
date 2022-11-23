@@ -222,8 +222,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             {
                 "": {
                     "window_id": "",
-                    "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-                    "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                    "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "is_active": False,
                 }
             },
@@ -232,8 +232,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             response_data["result"]["session_recording"]["segments"],
             [
                 {
-                    "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-                    "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                    "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "is_active": False,
                     "window_id": "",
                 }
