@@ -5,7 +5,7 @@ import { AccessLevel, FeatureFlagAssociatedRoleType, RoleType } from '~/types'
 
 import type { featureFlagPermissionsLogicType } from './featureFlagPermissionsLogicType'
 
-interface FeatureFlagPermissionsLogicProps {
+export interface FeatureFlagPermissionsLogicProps {
     flagId: number | 'new'
 }
 
