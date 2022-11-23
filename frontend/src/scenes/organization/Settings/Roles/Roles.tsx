@@ -2,8 +2,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
-import { RoleType } from '~/types'
+import { AvailableFeature, RoleType } from '~/types'
 import { CreateRoleModal } from './CreateRoleModal'
 import { rolesLogic } from './rolesLogic'
 
@@ -52,34 +53,36 @@ export function Roles({ isRestricted }: RestrictedComponentProps): JSX.Element {
     ]
 
     return (
-        <>
-            <div className="flex items-center">
-                <div style={{ flexGrow: 1 }}>
-                    <h2 id="roles" className="subtitle">
-                        Roles
-                    </h2>
-                    <p className="text-muted-alt">
-                        Create roles to provide fine grained permissions to users across posthog resources
-                    </p>
-                </div>
+        <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+            <>
+                <div className="flex items-center">
+                    <div style={{ flexGrow: 1 }}>
+                        <h2 id="roles" className="subtitle">
+                            Roles
+                        </h2>
+                        <p className="text-muted-alt">
+                            Create roles to provide fine grained permissions to users across posthog resources
+                        </p>
+                    </div>
 
-                {!isRestricted && (
-                    <LemonButton type="primary" onClick={openCreateRoleModal} data-attr="create-role-button">
-                        Create Role
-                    </LemonButton>
-                )}
-            </div>
-            <LemonTable
-                dataSource={roles}
-                columns={columns}
-                rowKey={() => 'id'}
-                style={{ marginTop: '1rem' }}
-                loading={rolesLoading}
-                data-attr="org-roles-table"
-                defaultSorting={{ columnKey: 'level', order: -1 }}
-                pagination={{ pageSize: 50 }}
-            />
-            <CreateRoleModal />
-        </>
+                    {!isRestricted && (
+                        <LemonButton type="primary" onClick={openCreateRoleModal} data-attr="create-role-button">
+                            Create Role
+                        </LemonButton>
+                    )}
+                </div>
+                <LemonTable
+                    dataSource={roles}
+                    columns={columns}
+                    rowKey={() => 'id'}
+                    style={{ marginTop: '1rem' }}
+                    loading={rolesLoading}
+                    data-attr="org-roles-table"
+                    defaultSorting={{ columnKey: 'level', order: -1 }}
+                    pagination={{ pageSize: 50 }}
+                />
+                <CreateRoleModal />
+            </>
+        </PayGateMini>
     )
 }

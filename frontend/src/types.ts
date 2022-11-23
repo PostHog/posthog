@@ -50,6 +50,7 @@ export enum AvailableFeature {
     SUBSCRIPTIONS = 'subscriptions',
     APP_METRICS = 'app_metrics',
     RECORDINGS_PLAYLISTS = 'recordings_playlists',
+    ROLE_BASED_ACCESS = 'role_based_access',
 }
 
 export enum LicensePlan {

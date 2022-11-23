@@ -158,6 +158,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
     [AvailableFeature.APP_METRICS]: LicensePlan.Scale,
     [AvailableFeature.RECORDINGS_PLAYLISTS]: LicensePlan.Scale,
+    [AvailableFeature.ROLE_BASED_ACCESS]: LicensePlan.Enterprise,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
