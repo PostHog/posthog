@@ -818,7 +818,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                                 <span className="simple-tag tag-light-blue text-primary-alt">
                                                     {property.type === 'cohort' ? 'Cohort' : property.key}{' '}
                                                 </span>
-                                                {property.operator ? (
+                                                {(property?.operator as any) ? (
                                                     <span>{allOperatorsToHumanName(property.operator)} </span>
                                                 ) : null}
                                                 {[

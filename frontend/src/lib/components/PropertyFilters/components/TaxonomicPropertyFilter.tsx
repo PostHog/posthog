@@ -166,7 +166,7 @@ export function TaxonomicPropertyFilter({
                                 propertyDefinitions={propertyDefinitions}
                                 type={filter?.type}
                                 propkey={filter?.key}
-                                operator={filter?.operator}
+                                operator={filter?.operator as any}
                                 value={filter?.value}
                                 placeholder="Enter value..."
                                 endpoint={filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)}
