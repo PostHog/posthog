@@ -3,7 +3,6 @@ import { useState } from 'react'
 import { useValues } from 'kea'
 import { dataNodeLogic } from '~/queries/nodes/dataNodeLogic'
 import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
-import { normalizeDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { EventType, PropertyFilterType } from '~/types'
 import { autoCaptureEventToDescription } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -23,7 +22,6 @@ interface DataTableProps {
     setQuery?: (node: DataTableNode) => void
 }
 
-let uniqueNode = 0
 export const defaultDataTableStringColumns: DataTableStringColumn[] = [
     'meta.event',
     'person',
@@ -89,6 +87,8 @@ function renderColumn(type: PropertyFilterType, key: string, record: EventType):
     return <div>Unknown</div>
 }
 
+let uniqueNode = 0
+
 export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     const columns = query.columns ? normalizeDataTableColumns(query.columns) : defaultDataTableColumns
     const showPropertyFilter = query.showPropertyFilter ?? true
@@ -97,7 +97,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     const showExport = query.showExport ?? true
     const expandable = query.expandable ?? true
 
-    const [id] = useState(uniqueNode++)
+    const [id] = useState(() => uniqueNode++)
     const logic = dataNodeLogic({ query: query.source, key: `DataTable.${id}` })
     const { response, responseLoading } = useValues(logic)
     const rows = (response as null | EventsNode['response'])?.results ?? []
@@ -153,4 +153,17 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
             />
         </>
     )
+}
+
+function normalizeDataTableColumns(input: (DataTableStringColumn | DataTableColumn)[]): DataTableColumn[] {
+    return input.map((column) => {
+        if (typeof column === 'string') {
+            const [first, ...rest] = column.split('.')
+            return {
+                type: first as PropertyFilterType,
+                key: rest.join('.'),
+            }
+        }
+        return column
+    })
 }
