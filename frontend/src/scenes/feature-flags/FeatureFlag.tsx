@@ -241,9 +241,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </Field>
                             </Col>
                             <Col span={12}>
-                                <LemonButton type="secondary" onClick={() => setModalOpen(true)} className="mb-4">
-                                    Set permissions
-                                </LemonButton>
                                 <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
                             </Col>
                         </Row>

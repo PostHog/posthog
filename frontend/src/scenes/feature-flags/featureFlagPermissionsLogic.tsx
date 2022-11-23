@@ -1,17 +1,17 @@
-import { actions, afterMount, kea, key, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { teamLogic } from 'scenes/teamLogic'
 import { AccessLevel, FeatureFlagAssociatedRoleType, RoleType } from '~/types'
 
 import type { featureFlagPermissionsLogicType } from './featureFlagPermissionsLogicType'
 
 interface FeatureFlagPermissionsLogicProps {
-    flagId?: number
+    flagId: number | 'new'
 }
 
 export const featureFlagPermissionsLogic = kea<featureFlagPermissionsLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagPermissionsLogic']),
+    props({} as FeatureFlagPermissionsLogicProps),
     key((props: FeatureFlagPermissionsLogicProps) => `${props.flagId}`),
     actions({
         setModalOpen: (visible: boolean) => ({ visible }),
@@ -47,11 +47,8 @@ export const featureFlagPermissionsLogic = kea<featureFlagPermissionsLogicType>(
             [] as FeatureFlagAssociatedRoleType[],
             {
                 loadAssociatedRoles: async () => {
-                    if (props.flagId && teamLogic.values.currentTeamId) {
-                        const response = await api.resourceAccessPermissions.featureFlags.list(
-                            teamLogic.values.currentTeamId,
-                            props.flagId
-                        )
+                    if (props.flagId) {
+                        const response = await api.resourceAccessPermissions.featureFlags.list(props.flagId)
 
                         return response.results || []
                     } else {
@@ -61,15 +58,11 @@ export const featureFlagPermissionsLogic = kea<featureFlagPermissionsLogicType>(
                 addAssociatedRoles: async (flagId?: number) => {
                     const { rolesToAdd } = values
                     const possibleFlagId = props.flagId || flagId
-                    if (possibleFlagId && teamLogic.values.currentTeamId) {
+                    if (possibleFlagId) {
                         const newAssociatedRoles = await Promise.all(
                             rolesToAdd.map(
                                 async (roleId) =>
-                                    await api.resourceAccessPermissions.featureFlags.create(
-                                        teamLogic.values.currentTeamId,
-                                        possibleFlagId,
-                                        roleId
-                                    )
+                                    await api.resourceAccessPermissions.featureFlags.create(possibleFlagId, roleId)
                             )
                         )
                         actions.setRolesToAdd([])
@@ -83,11 +76,7 @@ export const featureFlagPermissionsLogic = kea<featureFlagPermissionsLogicType>(
                     )?.id
                     if (props.flagId) {
                         associatedRoleId &&
-                            (await api.resourceAccessPermissions.featureFlags.delete(
-                                teamLogic.values.currentTeamId,
-                                props.flagId,
-                                associatedRoleId
-                            ))
+                            (await api.resourceAccessPermissions.featureFlags.delete(props.flagId, associatedRoleId))
                     }
                     return values.associatedRoles.filter((associatedRole) => associatedRole.id !== associatedRoleId)
                 },

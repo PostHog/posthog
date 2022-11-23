@@ -395,16 +395,15 @@ class ApiRequest {
 
     // Resource Access Permissions
 
-    public featureFlagAccessPermissions(teamId: TeamType['id'], flagId: FeatureFlagType['id']): ApiRequest {
-        return this.featureFlag(flagId, teamId).addPathComponent('role_access')
+    public featureFlagAccessPermissions(flagId: FeatureFlagType['id']): ApiRequest {
+        return this.featureFlag(flagId, getCurrentTeamId()).addPathComponent('role_access')
     }
 
     public featureFlagAccessPermissionsDetail(
-        teamId: TeamType['id'],
         flagId: FeatureFlagType['id'],
         id: FeatureFlagAssociatedRoleType['id']
     ): ApiRequest {
-        return this.featureFlagAccessPermissions(teamId, flagId).addPathComponent(id)
+        return this.featureFlagAccessPermissions(flagId).addPathComponent(id)
     }
 
     // Request finalization
@@ -735,31 +734,22 @@ const api = {
 
     resourceAccessPermissions: {
         featureFlags: {
-            async create(
-                teamId: TeamType['id'],
-                featureFlagId: number,
-                roleId: RoleType['id']
-            ): Promise<FeatureFlagAssociatedRoleType> {
-                return await new ApiRequest().featureFlagAccessPermissions(teamId, featureFlagId).create({
+            async create(featureFlagId: number, roleId: RoleType['id']): Promise<FeatureFlagAssociatedRoleType> {
+                return await new ApiRequest().featureFlagAccessPermissions(featureFlagId).create({
                     data: {
                         role_id: roleId,
-                        feature_flag_id: featureFlagId,
                     },
                 })
             },
-            async list(
-                teamId: TeamType['id'],
-                featureFlagId: number
-            ): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
-                return await new ApiRequest().featureFlagAccessPermissions(teamId, featureFlagId).get()
+            async list(featureFlagId: number): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
+                return await new ApiRequest().featureFlagAccessPermissions(featureFlagId).get()
             },
 
             async delete(
-                teamId: TeamType['id'],
                 featureFlagId: number,
                 id: FeatureFlagAssociatedRoleType['id']
             ): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
-                return await new ApiRequest().featureFlagAccessPermissionsDetail(teamId, featureFlagId, id).delete()
+                return await new ApiRequest().featureFlagAccessPermissionsDetail(featureFlagId, id).delete()
             },
         },
     },
