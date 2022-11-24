@@ -20,7 +20,7 @@ from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.models import Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.permissions import CanCreateOrg
-from posthog.utils import get_can_create_org, mask_email_address
+from posthog.utils import get_can_create_org
 
 logger = structlog.get_logger(__name__)
 
@@ -244,7 +244,7 @@ class InviteSignupViewset(generics.CreateAPIView):
         return response.Response(
             {
                 "id": str(invite.id),
-                "target_email": mask_email_address(invite.target_email),
+                "target_email": invite.target_email,
                 "first_name": invite.first_name,
                 "organization_name": invite.organization.name,
             }

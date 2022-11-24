@@ -5,7 +5,6 @@ from time import monotonic
 
 from django.core import exceptions
 from django.core.management.base import BaseCommand
-from django.db import transaction
 
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
@@ -64,27 +63,26 @@ class Command(BaseCommand):
             email = options["email"]
             password = options["password"]
             matrix_manager = MatrixManager(matrix, print_steps=True)
-            with transaction.atomic():
-                try:
-                    if options["reset_master"]:
-                        matrix_manager.reset_master()
-                    else:
-                        matrix_manager.ensure_account_and_save(
-                            email, "Employee 427", "Hedgebox Inc.", password=password, disallow_collision=True
-                        )
-                except exceptions.ValidationError as e:
-                    print(f"Error: {e}")
+            try:
+                if options["reset_master"]:
+                    matrix_manager.reset_master()
                 else:
-                    print(
-                        "Master project reset!"
-                        if options["reset_master"]
-                        else "\nDemo data ready!\n\n"
-                        "If running DEMO mode locally, log in instantly with this link:\n"
-                        f"http://localhost:8000/signup?email={email}\n\n"
-                        "If running NON-DEMO mode locally, pre-fill the log in with this link:\n"
-                        f"http://localhost:8000/login?email={email}\n"
-                        f"Log in as {email} with password {password}.\n"
+                    matrix_manager.ensure_account_and_save(
+                        email, "Employee 427", "Hedgebox Inc.", password=password, disallow_collision=True
                     )
+            except exceptions.ValidationError as e:
+                print(f"Error: {e}")
+            else:
+                print(
+                    "Master project reset!"
+                    if options["reset_master"]
+                    else "\nDemo data ready!\n\n"
+                    "If running DEMO mode locally, log in instantly with this link:\n"
+                    f"http://localhost:8000/signup?email={email}\n\n"
+                    "If running NON-DEMO mode locally, pre-fill the log in with this link:\n"
+                    f"http://localhost:8000/login?email={email}\n"
+                    f"Log in as {email} with password {password}.\n"
+                )
         else:
             print("Dry run - not saving results.")
 

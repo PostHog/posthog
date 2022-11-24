@@ -4,6 +4,7 @@ import json
 import random
 import string
 import zlib
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from datetime import timezone as tz
 from typing import Any, Counter, Dict, List, Union
@@ -12,6 +13,9 @@ from unittest.mock import MagicMock, call, patch
 from urllib.parse import quote
 
 import lzstring
+from django.db import DEFAULT_DB_ALIAS
+from django.db import Error as DjangoDatabaseError
+from django.db import connections
 from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
@@ -27,6 +31,17 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.test.base import BaseTest
+
+
+@contextmanager
+def simulate_postgres_error():
+    """
+    Causes any call to cursor to raise the upper most Error in djangos db
+    Exception hierachy
+    """
+    with patch.object(connections[DEFAULT_DB_ALIAS], "cursor") as cursor_mock:
+        cursor_mock.side_effect = DjangoDatabaseError  # This should be the most general
+        yield
 
 
 def mocked_get_ingest_context_from_token(_: Any) -> None:
@@ -1140,6 +1155,13 @@ class TestCapture(BaseTest):
                         ],
                         "compression": "gzip-base64",
                         "has_full_snapshot": False,
+                        "events_summary": [
+                            {
+                                "type": snapshot_type,
+                                "data": {"source": snapshot_source},
+                                "timestamp": timestamp,
+                            }
+                        ],
                     },
                     "$session_id": session_id,
                     "$window_id": window_id,
@@ -1164,3 +1186,44 @@ class TestCapture(BaseTest):
         self._send_session_recording_event(event_data=data)
         topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
         self.assertGreater(topic_counter[KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC], 1)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_database_unavailable(self, kafka_produce):
+
+        with simulate_postgres_error():
+            # currently we send events to the dead letter queue if Postgres is unavailable
+            data = {"type": "capture", "event": "user signed up", "distinct_id": "2"}
+            self.client.post(
+                "/batch/", data={"api_key": self.team.api_token, "batch": [data]}, content_type="application/json"
+            )
+            kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
+
+            self.assertEqual(kafka_topic_used, "events_dead_letter_queue_test")
+
+            # the new behavior (currently defined by LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS)
+            # is to not hit postgres at all in this endpoint, and rather pass the token in the Kafka
+            # message so that the plugin server can handle the team_id and IP anonymization
+            with self.settings(LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS=[self.team.api_token]):
+                data = {"type": "capture", "event": "user signed up", "distinct_id": "2"}
+                self.client.post(
+                    "/batch/", data={"api_key": self.team.api_token, "batch": [data]}, content_type="application/json"
+                )
+                arguments = self._to_arguments(kafka_produce)
+                arguments.pop("now")  # can't compare fakedate
+                arguments.pop("sent_at")  # can't compare fakedate
+                self.assertDictEqual(
+                    arguments,
+                    {
+                        "uuid": mock.ANY,
+                        "distinct_id": "2",
+                        "ip": "127.0.0.1",
+                        "site_url": "http://testserver",
+                        "data": {**data, "properties": {}},  # type: ignore
+                        "team_id": None,  # this will be set by the plugin server later
+                    },
+                )
+
+                # many tests depend on _to_arguments so changing its behavior is a larger
+                # refactor best suited for another PR, hence accessing the call_args
+                # directly here
+                self.assertEqual(kafka_produce.call_args[1]["data"]["token"], "token123")

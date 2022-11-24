@@ -9,6 +9,7 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
+from posthog.test.base import APIBaseTest
 
 
 def create_billing_response(**kwargs) -> Dict[str, Any]:
@@ -36,7 +37,7 @@ def create_billing_customer(**kwargs) -> Dict[str, Any]:
         "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
         "current_total_amount_usd": "100.00",
         "available_features": [],
-        "deativated": False,
+        "deactivated": False,
         "products": [
             {
                 "name": "Product OS",
@@ -112,6 +113,69 @@ def create_billing_license_response(**kwargs) -> Dict[str, Any]:
     return data
 
 
+class TestUnlicensedBillingAPI(APIBaseTest):
+    @patch("ee.api.billing.requests.get")
+    @freeze_time("2022-01-01")
+    def test_billing_v2_calls_the_service_without_token(self, mock_request):
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+            mock = MagicMock()
+            mock.status_code = 404
+
+            if "api/billing" in url:
+                mock.status_code = 401
+                mock.json.return_value = {"detail": "Authorization is missing."}
+            if "api/products" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_products_response()
+
+            return mock
+
+        mock_request.side_effect = mock_implementation
+
+        res = self.client.get("/api/billing-v2")
+        assert res.status_code == 200
+        assert res.json() == {
+            "available_features": [],
+            "products": [
+                {
+                    "name": "Product OS",
+                    "description": "Product Analytics, event pipelines, data warehousing",
+                    "price_description": None,
+                    "type": "events",
+                    "free_allocation": 10000,
+                    "tiers": [
+                        {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
+                        {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
+                    ],
+                    "current_usage": 0,
+                    "percentage_usage": 0,
+                }
+            ],
+            "products_enterprise": [
+                {
+                    "current_usage": 0,
+                    "description": "Product Analytics, event pipelines, data warehousing",
+                    "free_allocation": 10000,
+                    "name": "Product OS Enterprise",
+                    "price_description": None,
+                    "tiers": [
+                        {
+                            "current_amount_usd": "0.00",
+                            "unit_amount_usd": "0.00",
+                            "up_to": 1000000,
+                        },
+                        {
+                            "current_amount_usd": None,
+                            "unit_amount_usd": "0.00045",
+                            "up_to": 2000000,
+                        },
+                    ],
+                    "type": "events",
+                }
+            ],
+        }
+
+
 class TestBillingAPI(APILicensedTest):
     def test_billing_v2_fails_for_old_license_type(self):
         self.license.key = "test_key"
@@ -160,7 +224,7 @@ class TestBillingAPI(APILicensedTest):
             "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
             "current_total_amount_usd": "100.00",
             "available_features": [],
-            "deativated": False,
+            "deactivated": False,
             "products": [
                 {
                     "name": "Product OS",

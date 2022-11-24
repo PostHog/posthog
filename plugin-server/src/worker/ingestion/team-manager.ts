@@ -29,10 +29,11 @@ const NOT_SYNCED_PROPERTIES = new Set([
 
 export class TeamManager {
     db: DB
-    teamCache: LRU<TeamId, Team>
+    teamCache: LRU<TeamId, Team | null>
     eventDefinitionsCache: LRU<TeamId, Set<string>>
     eventPropertiesCache: LRU<string, Set<string>> // Map<JSON.stringify([TeamId, Event], Set<Property>>
     eventLastSeenCache: LRU<string, number> // key: JSON.stringify([team_id, event]); value: parseInt(YYYYMMDD)
+    tokenToTeamIdCache: LRU<string, TeamId | null>
     propertyDefinitionsCache: PropertyDefinitionsCache
     instanceSiteUrl: string
     statsd?: StatsD
@@ -65,20 +66,56 @@ export class TeamManager {
             maxAge: ONE_HOUR * 24, // cache up to 24h
             updateAgeOnGet: true,
         })
+        this.tokenToTeamIdCache = new LRU({
+            max: 100_000,
+        })
         this.propertyDefinitionsCache = new PropertyDefinitionsCache(serverConfig, statsd)
         this.instanceSiteUrl = serverConfig.SITE_URL || 'unknown'
     }
 
     public async fetchTeam(teamId: number): Promise<Team | null> {
         const cachedTeam = this.teamCache.get(teamId)
-        if (cachedTeam) {
+        if (cachedTeam !== undefined) {
             return cachedTeam
         }
 
         const timeout = timeoutGuard(`Still running "fetchTeam". Timeout warning after 30 sec!`)
         try {
-            const team: Team | null = (await this.db.fetchTeam(teamId)) || null
+            const team: Team | null = await this.db.fetchTeam(teamId)
             this.teamCache.set(teamId, team)
+            return team
+        } finally {
+            clearTimeout(timeout)
+        }
+    }
+
+    public async getTeamByToken(token: string): Promise<Team | null> {
+        const cachedTeamId = this.tokenToTeamIdCache.get(token)
+
+        // tokenToTeamIdCache.get returns `undefined` if the value doesn't
+        // exist so we check for the value being `null` as that means we've
+        // explictly cached that the team does not exist
+        if (cachedTeamId === null) {
+            return null
+        } else if (cachedTeamId) {
+            const cachedTeam = this.teamCache.get(cachedTeamId)
+            if (cachedTeam) {
+                return cachedTeam
+            }
+        }
+
+        const timeout = timeoutGuard(`Still running "fetchTeam". Timeout warning after 30 sec!`)
+        try {
+            const team = await this.db.fetchTeamByToken(token)
+            if (!team) {
+                // explicitly cache a null to avoid
+                // unnecessary lookups in the future
+                this.tokenToTeamIdCache.set(token, null)
+                return null
+            }
+
+            this.tokenToTeamIdCache.set(token, team.id)
+            this.teamCache.set(team.id, team)
             return team
         } finally {
             clearTimeout(timeout)

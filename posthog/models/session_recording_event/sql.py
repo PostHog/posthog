@@ -46,12 +46,12 @@ MATERIALIZED_COLUMNS = {
         "materializer": "MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary))",
     },
     "first_event_timestamp": {
-        "schema": "DateTime64(6, 'UTC')",
-        "materializer": "MATERIALIZED arrayReduce('min', timestamps_summary)",
+        "schema": "Nullable(DateTime64(6, 'UTC'))",
+        "materializer": "MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary))",
     },
     "last_event_timestamp": {
-        "schema": "DateTime64(6, 'UTC')",
-        "materializer": "MATERIALIZED arrayReduce('max', timestamps_summary)",
+        "schema": "Nullable(DateTime64(6, 'UTC'))",
+        "materializer": "MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary))",
     },
     "urls": {
         "schema": "Array(String)",
@@ -71,14 +71,6 @@ SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS = ", " + ", ".join(
     for column_name, column in MATERIALIZED_COLUMNS.items()
 )
 
-
-SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL = lambda: """
-    ALTER TABLE session_recording_events
-    ON CLUSTER '{cluster}'
-    COMMENT COLUMN has_full_snapshot 'column_materializer::has_full_snapshot'
-""".format(
-    cluster=settings.CLICKHOUSE_CLUSTER
-)
 
 SESSION_RECORDING_EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
     "session_recording_events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED

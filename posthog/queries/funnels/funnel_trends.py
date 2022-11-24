@@ -47,6 +47,8 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     If no people have reached step {from_step} in the period, {conversion_rate} is zero.
     """
 
+    QUERY_TYPE = "funnel_trends"
+
     def __init__(self, filter: Filter, team: Team) -> None:
 
         super().__init__(filter, team)

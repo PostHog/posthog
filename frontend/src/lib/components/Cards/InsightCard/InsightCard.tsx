@@ -81,6 +81,10 @@ const displayMap: Record<
         className: 'graph',
         element: ActionsLineGraph,
     },
+    ActionsAreaGraph: {
+        className: 'graph',
+        element: ActionsLineGraph,
+    },
     ActionsBar: {
         className: 'bar',
         element: ActionsLineGraph,

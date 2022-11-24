@@ -287,7 +287,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
             >
                 <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />
                 <div className="insights-container" data-attr="insight-view">
-                    {<InsightContainer />}
+                    <InsightContainer insightMode={insightMode} />
                 </div>
             </div>
 

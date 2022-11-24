@@ -181,9 +181,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect
-def set_up_instrumentation(task_id, task, **kwargs):
+def pre_run_signal_handler(task_id, task, **kwargs):
+    from statshog.defaults.django import statsd
+
     from posthog.clickhouse.query_tagging import tag_queries
 
+    statsd.incr("celery_tasks_metrics.pre_run", tags={"name": task.name})
     tag_queries(kind="celery", id=task.name)
 
 
