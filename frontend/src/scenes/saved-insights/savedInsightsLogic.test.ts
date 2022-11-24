@@ -26,7 +26,6 @@ const createInsight = (id: number, string = 'hi'): InsightModel =>
         is_sample: false,
         updated_at: 'now',
         result: {},
-        tags: [],
         color: null,
         created_at: 'now',
         dashboard: null,
@@ -183,6 +182,7 @@ describe('savedInsightsLogic', () => {
             expect.objectContaining({ name: 'should be copied (copy)' })
         )
     })
+
     it('can duplicate using name', async () => {
         const sourceInsight = createInsight(123, 'hello')
         sourceInsight.name = 'should be copied'
