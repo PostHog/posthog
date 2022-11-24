@@ -548,6 +548,45 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.assertTrue("lg" in first_tile_layouts)
 
+    def test_dashboard_tile_color_can_be_set_for_new_or_existing_tiles(self):
+        dashboard_id, _ = self._create_dashboard({"name": "asdasd", "pinned": True})
+
+        insight_id, _ = self._create_insight(
+            {"filters": {"hello": "test"}, "dashboards": [dashboard_id], "name": "another"}
+        )
+
+        dashboard_json = self._get_dashboard(dashboard_id)
+        tiles = dashboard_json["tiles"]
+        assert len(tiles) == 1
+        tile_id = tiles[0]["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {
+                "tiles": [
+                    {
+                        "id": tile_id,
+                        "color": "red",
+                        "is_cached": True,  # included to ensure we can update existing tiles with this readonly property
+                    },
+                    {
+                        "id": tile_id + 1,
+                        "color": "red",
+                        "is_cached": True,  # included to ensure we can update new tiles with this readonly property
+                        "text": {"body": "an example"},
+                        "layouts": {},
+                    },
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        dashboard_json = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/", {"refresh": False}
+        ).json()
+        assert dashboard_json["tiles"][0]["color"] == "red"
+
     def test_dashboard_from_template(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/", {"name": "another", "use_template": "DEFAULT_APP"}

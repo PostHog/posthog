@@ -2,11 +2,11 @@ from typing import Optional
 
 from django.utils import timezone
 
-from posthog.client import sync_execute
 from posthog.models.event.sql import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
 from posthog.models.person.sql import SELECT_PERSON_PROP_VALUES_SQL, SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
+from posthog.queries.insight import insight_sync_execute
 from posthog.utils import relative_date_parse
 
 
@@ -16,17 +16,19 @@ def get_property_values_for_key(key: str, team: Team, value: Optional[str] = Non
     parsed_date_to = "AND timestamp <= '{}'".format(timezone.now().strftime("%Y-%m-%d 23:59:59"))
 
     if value:
-        return sync_execute(
+        return insight_sync_execute(
             SELECT_PROP_VALUES_SQL_WITH_FILTER.format(
                 parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to, property_field=property_field
             ),
             {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
+            query_type="get_property_values_with_value",
         )
-    return sync_execute(
+    return insight_sync_execute(
         SELECT_PROP_VALUES_SQL.format(
             parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to, property_field=property_field
         ),
         {"team_id": team.pk, "key": key},
+        query_type="get_property_values",
     )
 
 
@@ -34,10 +36,13 @@ def get_person_property_values_for_key(key: str, team: Team, value: Optional[str
     property_field, _ = get_property_string_expr("person", key, "%(key)s", "properties")
 
     if value:
-        return sync_execute(
+        return insight_sync_execute(
             SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER.format(property_field=property_field),
             {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
+            query_type="get_person_property_values_with_value",
         )
-    return sync_execute(
-        SELECT_PERSON_PROP_VALUES_SQL.format(property_field=property_field), {"team_id": team.pk, "key": key}
+    return insight_sync_execute(
+        SELECT_PERSON_PROP_VALUES_SQL.format(property_field=property_field),
+        {"team_id": team.pk, "key": key},
+        query_type="get_person_property_values",
     )

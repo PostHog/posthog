@@ -1,33 +1,28 @@
 import { kea } from 'kea'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { eventWithTime } from 'rrweb/typings/types'
-import { PersonType, SessionRecordingPlayerProps } from '~/types'
+import { PersonType } from '~/types'
 import { ceilMsToClosestSecond, findLastIndex } from 'lib/utils'
 import { getEpochTimeFromPlayerPosition } from './playerUtils'
 
 export const playerMetaLogic = kea<playerMetaLogicType>({
     path: (key) => ['scenes', 'session-recordings', 'player', 'playerMetaLogic', key],
-    props: {} as SessionRecordingPlayerProps,
-    key: (props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`,
-    connect: ({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({
+    props: {} as SessionRecordingPlayerLogicProps,
+    key: (props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`,
+    connect: ({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps) => ({
         values: [
             sessionRecordingDataLogic({ sessionRecordingId }),
-            ['sessionPlayerData', 'sessionEventsData'],
+            ['sessionPlayerData', 'sessionEventsData', 'sessionPlayerMetaDataLoading', 'windowIds'],
             sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
             ['currentPlayerPosition', 'scale', 'currentPlayerTime'],
         ],
         actions: [sessionRecordingDataLogic({ sessionRecordingId }), ['loadRecordingMetaSuccess']],
     }),
-    reducers: {
-        loading: [
-            true,
-            {
-                loadRecordingMetaSuccess: () => false,
-            },
-        ],
-    },
     selectors: () => ({
         sessionPerson: [
             (selectors) => [selectors.sessionPlayerData],
@@ -69,12 +64,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>({
             (sessionPlayerData) => {
                 const startTimeFromMeta = sessionPlayerData?.metadata?.segments[0]?.startTimeEpochMs
                 return startTimeFromMeta ?? null
-            },
-        ],
-        windowIds: [
-            (selectors) => [selectors.sessionPlayerData],
-            (sessionPlayerData) => {
-                return Object.keys(sessionPlayerData?.metadata?.startAndEndTimesByWindowId) ?? []
             },
         ],
         currentWindowIndex: [

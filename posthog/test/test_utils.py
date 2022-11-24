@@ -22,7 +22,6 @@ from posthog.utils import (
     get_compare_period_dates,
     get_default_event_name,
     load_data_from_request,
-    mask_email_address,
     relative_date_parse,
     should_refresh,
 )
@@ -121,18 +120,6 @@ class TestFormatUrls(TestCase):
 
 
 class TestGeneralUtils(TestCase):
-    def test_mask_email_address(self):
-        self.assertEqual(mask_email_address("hey@posthog.com"), "h*y@posthog.com")
-        self.assertEqual(mask_email_address("richard@gmail.com"), "r*****d@gmail.com")
-        self.assertEqual(
-            mask_email_address("m@posthog.com"), "*@posthog.com"
-        )  # one letter emails are masked differently
-        self.assertEqual(mask_email_address("test+alias@posthog.com"), "t********s@posthog.com")
-
-        with self.assertRaises(ValueError) as e:
-            mask_email_address("not an email")
-        self.assertEqual(str(e.exception), "Please provide a valid email address.")
-
     def test_available_timezones(self):
         timezones = get_available_timezones_with_offsets()
         self.assertEqual(timezones.get("Europe/Moscow"), 3)

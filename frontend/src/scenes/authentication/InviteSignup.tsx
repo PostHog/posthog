@@ -17,6 +17,7 @@ import PasswordStrength from 'lib/components/PasswordStrength'
 import clsx from 'clsx'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 
 export const scene: SceneExport = {
     component: InviteSignup,
@@ -243,6 +244,8 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 >
                     <LemonInput data-attr="first_name" placeholder="Jane" />
                 </Field>
+
+                <SignupRoleSelect />
 
                 <Field name="email_opt_in">
                     {({ value, onChange }) => {

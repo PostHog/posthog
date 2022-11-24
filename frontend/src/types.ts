@@ -50,6 +50,7 @@ export enum AvailableFeature {
     SUBSCRIPTIONS = 'subscriptions',
     APP_METRICS = 'app_metrics',
     RECORDINGS_PLAYLISTS = 'recordings_playlists',
+    ROLE_BASED_ACCESS = 'role_based_access',
 }
 
 export enum LicensePlan {
@@ -244,6 +245,12 @@ export interface TeamBasicType {
     effective_membership_level: OrganizationMembershipLevel | null
 }
 
+export interface CorrelationConfigType {
+    excluded_person_property_names?: string[]
+    excluded_event_property_names?: string[]
+    excluded_event_names?: string[]
+}
+
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -261,14 +268,12 @@ export interface TeamType extends TeamBasicType {
     has_group_types: boolean
     primary_dashboard: number // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
-
-    // Uses to exclude person properties from correlation analysis results, for
-    // example can be used to exclude properties that have trivial causation
-    correlation_config: {
-        excluded_person_property_names?: string[]
-        excluded_event_property_names?: string[]
-        excluded_event_names?: string[]
-    }
+    /** Used to exclude person properties from correlation analysis results.
+     *
+     * For example can be used to exclude properties that have trivial causation.
+     * This field should have a default value of `{}`, but it IS nullable and can be `null` in some cases.
+     */
+    correlation_config: CorrelationConfigType | null
 }
 
 export interface ActionType {
@@ -346,18 +351,6 @@ export interface ToolbarProps extends EditorProps {
 
 export type PropertyFilterValue = string | number | (string | number)[] | null
 
-export interface PropertyFilter {
-    key: string
-    operator: PropertyOperator | null
-    type: string
-    value: PropertyFilterValue
-    group_type_index?: number | null
-}
-
-export type EmptyPropertyFilter = Partial<PropertyFilter>
-
-export type AnyPropertyFilter = PropertyFilter | EmptyPropertyFilter
-
 /** Sync with plugin-server/src/types.ts */
 export enum PropertyOperator {
     Exact = 'exact',
@@ -405,44 +398,94 @@ export enum ExperimentStatus {
     Complete = 'complete',
 }
 
+export enum PropertyFilterType {
+    /** Event metadata and fields on the clickhouse events table */
+    Meta = 'meta',
+    /** Event properties */
+    Event = 'event',
+    /** Person properties */
+    Person = 'person',
+    Element = 'element',
+    /** Event property with "$feature/" prepended */
+    Feature = 'feature',
+    Session = 'session',
+    Cohort = 'cohort',
+    Recording = 'recording',
+    Group = 'group',
+}
+
 /** Sync with plugin-server/src/types.ts */
 interface BasePropertyFilter {
     key: string
     value: PropertyFilterValue
     label?: string
+    type?: PropertyFilterType
 }
 
 /** Sync with plugin-server/src/types.ts */
 export interface EventPropertyFilter extends BasePropertyFilter {
-    type: 'event'
+    type: PropertyFilterType.Event
     operator: PropertyOperator
 }
 
 /** Sync with plugin-server/src/types.ts */
 export interface PersonPropertyFilter extends BasePropertyFilter {
-    type: 'person'
+    type: PropertyFilterType.Person
     operator: PropertyOperator
 }
 
 /** Sync with plugin-server/src/types.ts */
 export interface ElementPropertyFilter extends BasePropertyFilter {
-    type: 'element'
+    type: PropertyFilterType.Element
     key: 'tag_name' | 'text' | 'href' | 'selector'
     operator: PropertyOperator
 }
 
 export interface SessionPropertyFilter extends BasePropertyFilter {
-    type: 'session'
+    type: PropertyFilterType.Session
     key: '$session_duration'
     operator: PropertyOperator
 }
 
 /** Sync with plugin-server/src/types.ts */
 export interface CohortPropertyFilter extends BasePropertyFilter {
-    type: 'cohort'
+    type: PropertyFilterType.Cohort
     key: 'id'
     value: number
 }
+
+export interface GroupPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Group
+    group_type_index?: number | null
+    operator: PropertyOperator
+}
+
+export interface FeaturePropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Feature
+    operator: PropertyOperator
+}
+
+export type PropertyFilter =
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | ElementPropertyFilter
+    | SessionPropertyFilter
+    | CohortPropertyFilter
+    | RecordingDurationFilter
+    | GroupPropertyFilter
+    | FeaturePropertyFilter
+
+export type AnyPropertyFilter =
+    | Partial<EventPropertyFilter>
+    | Partial<PersonPropertyFilter>
+    | Partial<ElementPropertyFilter>
+    | Partial<SessionPropertyFilter>
+    | Partial<CohortPropertyFilter>
+    | Partial<RecordingDurationFilter>
+    | Partial<GroupPropertyFilter>
+    | Partial<FeaturePropertyFilter>
+
+export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
 export type SessionRecordingId = SessionRecordingType['id']
 
@@ -487,6 +530,7 @@ export interface SessionRecordingMeta {
     segments: RecordingSegment[]
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
     recordingDurationMs: number
+    playlists?: SessionRecordingPlaylistType['id'][]
 }
 
 export interface SessionPlayerSnapshotData {
@@ -531,7 +575,7 @@ export type ActionStepProperties =
     | CohortPropertyFilter
 
 export interface RecordingDurationFilter extends BasePropertyFilter {
-    type: 'recording'
+    type: PropertyFilterType.Recording
     key: 'duration'
     value: number
     operator: PropertyOperator
@@ -545,6 +589,11 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
+    static_recordings?: SessionRecordingPlaylistType['playlist_items']
+}
+
+export interface LocalRecordingFilters extends RecordingFilters {
+    new_entity?: Record<string, any>[]
 }
 
 export interface SessionRecordingsResponse {
@@ -746,15 +795,17 @@ export interface EventsTableAction {
 }
 
 export interface EventType {
-    elements: ElementType[]
-    elements_hash: string | null // Deprecated for elements_chain
-    elements_chain?: string | null
-    id: number | string
+    // fields from the API
+    id: string
+    distinct_id: string
     properties: Record<string, any>
-    timestamp: string
-    colonTimestamp?: string // Used in session recording events list
-    person?: Pick<PersonType, 'is_identified' | 'distinct_ids' | 'properties'>
     event: string
+    timestamp: string
+    person?: Pick<PersonType, 'is_identified' | 'distinct_ids' | 'properties'>
+    elements: ElementType[]
+    elements_chain?: string | null
+    /** Used in session recording events list */
+    colonTimestamp?: string
 }
 
 export interface RecordingTimeMixinType {
@@ -789,6 +840,8 @@ export interface SessionRecordingPlaylistType {
     last_modified_at: string
     last_modified_by: UserBasicType | null
     filters?: RecordingFilters
+    playlist_items?: Pick<SessionRecordingType, 'id'>[] // only id is exposed by api to minimize data passed through components
+    is_static?: boolean
 }
 
 export interface SessionRecordingType {
@@ -806,6 +859,11 @@ export interface SessionRecordingType {
     distinct_id?: string
     email?: string
     person?: PersonType
+    /** List of static playlists that this recording is referenced on */
+    playlists?: SessionRecordingPlaylistType['id'][]
+    click_count?: number
+    keypress_count?: number
+    urls?: string[]
 }
 
 export interface SessionRecordingPropertiesType {
@@ -866,6 +924,7 @@ export interface BillingProductV2Type {
 export interface BillingV2Type {
     customer_id: string
     has_active_subscription: boolean
+    free_trial_until?: Dayjs
     stripe_portal_url?: string
     deactivated?: boolean
     current_total_amount_usd?: string
@@ -934,6 +993,7 @@ export interface DashboardTile extends Tileable, Cacheable {
     insight?: InsightModel
     text?: TextModel
     deleted?: boolean
+    is_cached?: boolean
 }
 
 export interface TextModel {
@@ -1147,12 +1207,11 @@ export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
 export enum ChartDisplayType {
     ActionsLineGraph = 'ActionsLineGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
+    ActionsAreaGraph = 'ActionsAreaGraph',
     ActionsTable = 'ActionsTable',
     ActionsPie = 'ActionsPie',
     ActionsBar = 'ActionsBar',
     ActionsBarValue = 'ActionsBarValue',
-    PathsViz = 'PathsViz',
-    FunnelViz = 'FunnelViz',
     WorldMap = 'WorldMap',
     BoldNumber = 'BoldNumber',
 }
@@ -1195,68 +1254,95 @@ export type BreakdownKeyType = string | number | (string | number)[] | null
 export interface Breakdown {
     property: string | number
     type: BreakdownType
+    normalize_url?: boolean
 }
 
 export interface FilterType {
+    // used by all
     insight?: InsightType
-    display?: ChartDisplayType
-    interval?: IntervalType
+    date_from?: string | null
+    date_to?: string | null
 
+    properties?: AnyPropertyFilter[] | PropertyGroupFilter
+    events?: Record<string, any>[]
+    actions?: Record<string, any>[]
+
+    filter_test_accounts?: boolean
+    from_dashboard?: boolean | number
+
+    // persons modal
+    entity_id?: string | number
+    entity_type?: EntityType
+    entity_math?: string
+
+    // used by trends and stickiness
+    interval?: IntervalType
+    // TODO: extract into TrendsFunnelsCommonFilterType
+    breakdown_type?: BreakdownType | null
+    breakdown?: BreakdownKeyType
+    breakdown_normalize_url?: boolean
+    breakdowns?: Breakdown[]
+    breakdown_value?: string | number
+    breakdown_group_type_index?: number | null
+    aggregation_group_type_index?: number | undefined // Groups aggregation
+}
+
+export interface TrendsFilterType extends FilterType {
     // Specifies that we want to smooth the aggregation over the specified
     // number of intervals, e.g. for a day interval, we may want to smooth over
     // 7 days to remove weekly variation. Smoothing is performed as a moving average.
     smoothing_intervals?: number
-    date_from?: string | null
-    date_to?: string | null
-    properties?: AnyPropertyFilter[] | PropertyGroupFilter
-    events?: Record<string, any>[]
-    event?: string // specify one event
-    actions?: Record<string, any>[]
-    breakdown_type?: BreakdownType | null
-    breakdown?: BreakdownKeyType
-    breakdowns?: Breakdown[]
-    breakdown_value?: string | number
-    breakdown_group_type_index?: number | null
-    shown_as?: ShownAsValue
-    session?: string
-    period?: string
-
-    retention_type?: RetentionType
-    retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
-    total_intervals?: number // retention total intervals
-    new_entity?: Record<string, any>[]
-    returning_entity?: Record<string, any>
-    target_entity?: Record<string, any>
-    path_type?: PathType
-    include_event_types?: PathType[]
-    start_point?: string
-    end_point?: string
-    path_groupings?: string[]
-    stickiness_days?: number
-    type?: EntityType
-    entity_id?: string | number
-    entity_type?: EntityType
-    entity_math?: string
-    people_day?: any
-    people_action?: any
+    show_legend?: boolean // used to show/hide legend next to insights graph
+    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
+    compare?: boolean
+    aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
+    aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
+    aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
+    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
     formula?: any
-    filter_test_accounts?: boolean
-    from_dashboard?: boolean | number
-    layout?: FunnelLayout // used only for funnels
-    funnel_step?: number
-    entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
-    drop_off?: boolean
+    shown_as?: ShownAsValue
+    display?: ChartDisplayType
+}
+export interface StickinessFilterType extends FilterType {
+    compare?: boolean
+    show_legend?: boolean // used to show/hide legend next to insights graph
+    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
+    stickiness_days?: number
+    shown_as?: ShownAsValue
+    display?: ChartDisplayType
+}
+export interface FunnelsFilterType extends FilterType {
     funnel_viz_type?: FunnelVizType // parameter sent to funnels API for time conversion code path
     funnel_from_step?: number // used in time to convert: initial step index to compute time to convert
     funnel_to_step?: number // used in time to convert: ending step index to compute time to convert
     funnel_step_reference?: FunnelStepReference // whether conversion shown in graph should be across all steps or just from the previous step
     funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
-    compare?: boolean
+    breakdown_attribution_type?: BreakdownAttributionType // funnels breakdown attribution type
+    breakdown_attribution_value?: number // funnels breakdown attribution specific step value
     bin_count?: BinCountValue // used in time to convert: number of bins to show in histogram
     funnel_window_interval_unit?: FunnelConversionWindowTimeUnit // minutes, days, weeks, etc. for conversion window
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
     exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
+    funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
+    funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
+    funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
+    funnel_advanced?: boolean // used to toggle advanced options on or off
+    layout?: FunnelLayout // used only for funnels
+    funnel_step?: number
+    entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
+    drop_off?: boolean
+    new_entity?: Record<string, any>[]
+    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
+}
+export interface PathsFilterType extends FilterType {
+    path_type?: PathType
+    include_event_types?: PathType[]
+    start_point?: string
+    end_point?: string
+    path_groupings?: string[]
+    funnel_paths?: FunnelPathType
+    funnel_filter?: Record<string, any> // Funnel Filter used in Paths
     exclude_events?: string[] // Paths Exclusion type
     step_limit?: number // Paths Step Limit
     path_start_key?: string // Paths People Start Key
@@ -1264,24 +1350,46 @@ export interface FilterType {
     path_dropoff_key?: string // Paths People Dropoff Key
     path_replacements?: boolean
     local_path_cleaning_filters?: Record<string, any>[]
-    funnel_filter?: Record<string, any> // Funnel Filter used in Paths
-    funnel_paths?: FunnelPathType
     edge_limit?: number | undefined // Paths edge limit
     min_edge_weight?: number | undefined // Paths
     max_edge_weight?: number | undefined // Paths
-    funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
-    funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
-    funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
-    aggregation_group_type_index?: number | undefined // Groups aggregation
-    funnel_advanced?: boolean // used to toggle advanced options on or off
-    show_legend?: boolean // used to show/hide legend next to insights graph
-    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
-    breakdown_attribution_type?: BreakdownAttributionType // funnels breakdown attribution type
-    breakdown_attribution_value?: number // funnels breakdown attribution specific step value
-    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
-    aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
-    aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
-    aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
+}
+export interface RetentionFilterType extends FilterType {
+    retention_type?: RetentionType
+    retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
+    total_intervals?: number // retention total intervals
+    returning_entity?: Record<string, any>
+    target_entity?: Record<string, any>
+    period?: string
+}
+export interface LifecycleFilterType extends FilterType {
+    shown_as?: ShownAsValue
+}
+export type AnyFilterType =
+    | TrendsFilterType
+    | StickinessFilterType
+    | FunnelsFilterType
+    | PathsFilterType
+    | RetentionFilterType
+    | LifecycleFilterType
+    | FilterType
+
+export type AnyPartialFilterType =
+    | Partial<TrendsFilterType>
+    | Partial<StickinessFilterType>
+    | Partial<FunnelsFilterType>
+    | Partial<PathsFilterType>
+    | Partial<RetentionFilterType>
+    | Partial<LifecycleFilterType>
+    | Partial<FilterType>
+
+export interface EventsListQueryParams {
+    event?: string
+    properties?: AnyPropertyFilter[] | PropertyGroupFilter
+    orderBy?: string[]
+    action_id?: number
+    after?: string
+    limit?: number
 }
 
 export interface RecordingEventsFilters {
@@ -1588,6 +1696,7 @@ export interface FeatureFlagType {
     experiment_set: string[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
+    can_edit: boolean
 }
 
 export interface FeatureFlagRollbackConditions {
@@ -1703,6 +1812,11 @@ export type HotKeys =
     | 'z'
     | 'escape'
     | 'enter'
+    | ' '
+    | 'arrowleft'
+    | 'arrowright'
+    | 'arrowdown'
+    | 'arrowup'
 
 export interface LicenseType {
     id: number
@@ -1851,7 +1965,7 @@ export interface PropertyGroupFilter {
 
 export interface PropertyGroupFilterValue {
     type: FilterLogicalOperator
-    values: AnyPropertyFilter[]
+    values: (AnyPropertyFilter | PropertyGroupFilterValue)[]
 }
 
 export interface CohortCriteriaGroupFilter {
@@ -2223,15 +2337,6 @@ export enum YesOrNoResponse {
     No = 'no',
 }
 
-export interface SessionRecordingPlayerProps {
-    sessionRecordingId: SessionRecordingId
-    playerKey: string
-    includeMeta?: boolean
-    recordingStartTime?: string
-    matching?: MatchedRecording[]
-    noBorder?: boolean
-}
-
 export enum FeatureFlagReleaseType {
     ReleaseToggle = 'Release toggle',
     Variants = 'Multiple variants',
@@ -2246,4 +2351,51 @@ export interface MediaUploadResponse {
 export enum RolloutConditionType {
     Insight = 'insight',
     Sentry = 'sentry',
+}
+
+export enum Resource {
+    FEATURE_FLAGS = 'feature flags',
+}
+
+export enum AccessLevel {
+    READ = 21,
+    WRITE = 37,
+}
+
+export interface RoleType {
+    id: string
+    name: string
+    feature_flags_access_level: AccessLevel
+    created_at: string
+    created_by: UserBasicType | null
+}
+
+export interface RolesListParams {
+    feature_flags_access_level?: AccessLevel
+}
+
+export interface FeatureFlagAssociatedRoleType {
+    id: string
+    feature_flag: FeatureFlagType
+    role: RoleType
+    updated_at: string
+    added_at: string
+}
+
+export interface RoleMemberType {
+    id: string
+    user: UserBaseType
+    role_id: string
+    joined_at: string
+    updated_at: string
+    user_uuid: string
+}
+
+export interface OrganizationResourcePermissionType {
+    id: string
+    resource: Resource
+    access_level: AccessLevel
+    created_at: string
+    updated_at: string
+    created_by: UserBaseType | null
 }

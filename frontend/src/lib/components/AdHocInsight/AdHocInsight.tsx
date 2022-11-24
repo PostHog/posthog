@@ -11,7 +11,7 @@ export function AdHocInsight({
     style,
 }: {
     filters: Partial<FilterType>
-    style: React.CSSProperties
+    style?: React.CSSProperties
 }): JSX.Element {
     const pageKey = useMemo(() => `filter-${uniqueMemoizedIndex++}`, [])
     const props: InsightLogicProps = {
@@ -25,6 +25,7 @@ export function AdHocInsight({
 
     return (
         <BindLogic logic={insightLogic} props={props}>
+            {/* eslint-disable-next-line react/forbid-dom-props */}
             <div style={{ position: 'relative', ...style }}>
                 <InsightViz insight={insight as any} style={{ top: 0, left: 0 }} />
             </div>

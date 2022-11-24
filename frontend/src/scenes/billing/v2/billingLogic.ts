@@ -13,6 +13,7 @@ import { projectUsage } from './billing-utils'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
+import { pluralize } from 'lib/utils'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 
@@ -33,6 +34,8 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
             x.projected_usage = projectUsage(x.current_usage, data.billing_period)
         })
     }
+
+    data.free_trial_until = data.free_trial_until ? dayjs(data.free_trial_until) : undefined
 
     return data as BillingV2Type
 }
@@ -97,6 +100,24 @@ export const billingLogic = kea<billingLogicType>([
                 if (!billing || !preflight?.cloud) {
                     return
                 }
+
+                if (billing.free_trial_until && billing.free_trial_until.isAfter(dayjs())) {
+                    const remainingDays = billing.free_trial_until.diff(dayjs(), 'days')
+                    const remainingHours = billing.free_trial_until.diff(dayjs(), 'hours')
+
+                    if (remainingHours > 72) {
+                        return
+                    }
+
+                    return {
+                        status: 'info',
+                        title: `Your free trial will end in ${
+                            remainingHours < 24 ? pluralize(remainingHours, 'hour') : pluralize(remainingDays, 'day')
+                        }.`,
+                        message: `Setup billing now to ensure you don't lose access to premium features.`,
+                    }
+                }
+
                 const productOverLimit = billing.products.find((x) => {
                     return x.percentage_usage > 1
                 })
@@ -165,7 +186,7 @@ export const billingLogic = kea<billingLogicType>([
         loadBillingSuccess: () => {
             if (
                 router.values.location.pathname.includes('/organization/billing') &&
-                router.values.searchParams.get('success')
+                router.values.searchParams['success']
             ) {
                 // if the activation is successful, we reload the user to get the updated billing info on the organization
                 actions.loadUser()

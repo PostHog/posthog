@@ -27,12 +27,14 @@ class AvailableFeature(str, Enum):
     SUBSCRIPTIONS = "subscriptions"
     APP_METRICS = "app_metrics"
     RECORDINGS_PLAYLISTS = "recordings_playlists"
+    ROLE_BASED_ACCESS = "role_based_access"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 
 SESSION_RECORDINGS_FILTER_TYPE_DURATION = "session_recording_duration"
+SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS = "static_recordings"
 SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
 
 TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
@@ -187,6 +189,7 @@ PATH_MIN_EDGE_WEIGHT = "min_edge_weight"
 PATH_MAX_EDGE_WEIGHT = "max_edge_weight"
 AGGREGATION_GROUP_TYPE_INDEX = "aggregation_group_type_index"
 BREAKDOWN_HISTOGRAM_BIN_COUNT = "breakdown_histogram_bin_count"
+BREAKDOWN_NORMALIZE_URL = "breakdown_normalize_url"
 
 BREAKDOWN_TYPES = Literal["event", "person", "cohort", "group", "session"]
 

@@ -66,7 +66,15 @@ export const PureField = ({
 
 export type FieldProps = Omit<PureFieldProps, 'children' | 'error'> & Pick<KeaFieldProps, 'children' | 'name'>
 
-export const Field = ({ name, help, className, showOptional, inline, ...keaFieldProps }: FieldProps): JSX.Element => {
+export const Field = ({
+    name,
+    help,
+    className,
+    showOptional,
+    inline,
+    info,
+    ...keaFieldProps
+}: FieldProps): JSX.Element => {
     /** Drop-in replacement antd template for kea forms */
     const template: KeaFieldProps['template'] = ({ label, kids, error }) => {
         return (
@@ -77,6 +85,7 @@ export const Field = ({ name, help, className, showOptional, inline, ...keaField
                 className={className}
                 showOptional={showOptional}
                 inline={inline}
+                info={info}
             >
                 {kids}
             </PureField>

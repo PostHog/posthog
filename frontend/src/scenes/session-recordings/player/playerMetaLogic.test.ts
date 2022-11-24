@@ -35,7 +35,7 @@ describe('playerMetaLogic', () => {
         })
         it('starts with loading state', () => {
             expectLogic(logic).toMatchValues({
-                loading: true,
+                sessionPlayerMetaDataLoading: true,
             })
         })
     })
@@ -46,7 +46,7 @@ describe('playerMetaLogic', () => {
                 sessionRecordingDataLogic(playerProps).actions.loadRecordingMeta()
             })
                 .toDispatchActions(['loadRecordingMetaSuccess'])
-                .toMatchValues({ loading: false })
+                .toMatchValues({ sessionPlayerMetaDataLoading: false })
         })
     })
 })

@@ -16,6 +16,7 @@ from posthog.constants import (
     BREAKDOWN_GROUP_TYPE_INDEX,
     BREAKDOWN_HISTOGRAM_BIN_COUNT,
     BREAKDOWN_LIMIT,
+    BREAKDOWN_NORMALIZE_URL,
     BREAKDOWN_TYPE,
     BREAKDOWN_VALUE,
     BREAKDOWN_VALUES_LIMIT,
@@ -47,7 +48,7 @@ from posthog.constants import (
 )
 from posthog.models.entity import Entity, ExclusionEntity, MathType
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
-from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
+from posthog.models.filters.mixins.utils import cached_property, include_dict, include_query_tags, process_bool
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse_with_delta_mapping
 
@@ -99,8 +100,8 @@ class ClientQueryIdMixin(BaseParamMixin):
     def client_query_id(self) -> Optional[str]:
         return self._data.get(CLIENT_QUERY_ID, None)
 
-    @include_dict
-    def client_query_id_to_dict(self):
+    @include_query_tags
+    def client_query_tags(self):
         return {"client_query_id": self.client_query_id} if self.client_query_id else {}
 
 
@@ -220,6 +221,8 @@ class BreakdownMixin(BaseParamMixin):
             result[BREAKDOWN_ATTRIBUTION_VALUE] = self.breakdown_attribution_value
         if self.breakdown_histogram_bin_count is not None:
             result[BREAKDOWN_HISTOGRAM_BIN_COUNT] = self.breakdown_histogram_bin_count
+        if self.breakdown_normalize_url is not None:
+            result[BREAKDOWN_NORMALIZE_URL] = self.breakdown_normalize_url
         return result
 
     @cached_property
@@ -239,6 +242,21 @@ class BreakdownMixin(BaseParamMixin):
             return {BREAKDOWN_TYPE: self.breakdown_type}
         else:
             return {}
+
+    @cached_property
+    def breakdown_normalize_url(self) -> bool:
+        """
+        When breaking down by $current_url or $pathname, we ignore trailing slashes, question marks, and hashes.
+        """
+        bool_to_test = self._data.get("breakdown_normalize_url", False)
+        return process_bool(bool_to_test)
+
+    @include_query_tags
+    def breakdown_query_tags(self):
+        if self.breakdown_type:
+            return {"breakdown_by": [self.breakdown_type]}
+
+        return {}
 
 
 class BreakdownValueMixin(BaseParamMixin):
@@ -385,6 +403,13 @@ class DateMixin(BaseParamMixin):
 
         return result_dict
 
+    @include_query_tags
+    def query_tags_dates(self):
+        if self.date_from and self.date_to:
+            delta = self.date_to - self.date_from
+            return {"query_time_range_days": delta.days}
+        return {}
+
 
 class EntitiesMixin(BaseParamMixin):
     @cached_property
@@ -434,6 +459,10 @@ class EntitiesMixin(BaseParamMixin):
             **({"actions": [entity.to_dict() for entity in self.actions]} if len(self.actions) > 0 else {}),
             **({"exclusions": [entity.to_dict() for entity in self.exclusions]} if len(self.exclusions) > 0 else {}),
         }
+
+    @include_query_tags
+    def entities_query_tags(self):
+        return {"entity_math": list(set(entity.math for entity in self.entities if entity.math))}
 
 
 # These arguments are used to specify the target entity for insight actor retrieval on trend graphs
