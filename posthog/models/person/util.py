@@ -40,9 +40,11 @@ if TEST:
             version=instance.version or 0,
         )
 
-    @receiver(post_save, sender=PersonDistinctId)
+    @mutable_receiver(post_save, sender=PersonDistinctId)
     def person_distinct_id_created(sender, instance: PersonDistinctId, created, **kwargs):
-        create_person_distinct_id(instance.team.pk, instance.distinct_id, str(instance.person.uuid))
+        create_person_distinct_id(
+            instance.team.pk, instance.distinct_id, str(instance.person.uuid), version=instance.version or 0
+        )
 
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
@@ -137,7 +139,9 @@ def create_person(
     return uuid
 
 
-def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str, version=0, is_deleted=False) -> None:
+def create_person_distinct_id(
+    team_id: int, distinct_id: str, person_id: str, version=0, is_deleted: bool = False, sync: bool = False
+) -> None:
     p = ClickhouseProducer()
     p.produce(
         topic=KAFKA_PERSON_DISTINCT_ID,
@@ -149,6 +153,7 @@ def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str, ve
             "version": version,
             "is_deleted": int(is_deleted),
         },
+        sync=sync,
     )
 
 
@@ -189,13 +194,14 @@ def _get_distinct_ids_with_version(person: Person) -> Dict[str, int]:
     }
 
 
-def _delete_ch_distinct_id(team_id: int, uuid: UUID, distinct_id: str, version: int) -> None:
+def _delete_ch_distinct_id(team_id: int, uuid: UUID, distinct_id: str, version: int, sync: bool = False) -> None:
     create_person_distinct_id(
         team_id=team_id,
         distinct_id=distinct_id,
         person_id=str(uuid),
         version=version + 100,
         is_deleted=True,
+        sync=sync,
     )
 
 
