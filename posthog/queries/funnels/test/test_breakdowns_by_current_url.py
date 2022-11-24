@@ -21,12 +21,12 @@ class TestBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
                 # trailing question mark
                 {
                     "event": "watched movie",
-                    "timestamp": datetime(2020, 1, 2, 12, 1),
+                    "timestamp": datetime(2020, 1, 2, 12, 2),
                     "properties": {"$current_url": "https://example.com?", "$pathname": "?"},
                 },
                 {
                     "event": "terminate funnel",
-                    "timestamp": datetime(2020, 1, 2, 12, 1),
+                    "timestamp": datetime(2020, 1, 2, 12, 3),
                 },
             ],
             "person2": [
@@ -39,12 +39,12 @@ class TestBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
                 # trailing hash
                 {
                     "event": "watched movie",
-                    "timestamp": datetime(2020, 1, 2, 12, 1),
+                    "timestamp": datetime(2020, 1, 2, 12, 2),
                     "properties": {"$current_url": "https://example.com#", "$pathname": "#"},
                 },
                 {
                     "event": "terminate funnel",
-                    "timestamp": datetime(2020, 1, 2, 12, 1),
+                    "timestamp": datetime(2020, 1, 2, 12, 3),
                 },
             ],
             "person3": [
@@ -56,7 +56,7 @@ class TestBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
                 },
                 {
                     "event": "terminate funnel",
-                    "timestamp": datetime(2020, 1, 2, 12, 1),
+                    "timestamp": datetime(2020, 1, 2, 12, 2),
                 },
             ],
             "person4": [
@@ -69,18 +69,18 @@ class TestBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
                 # trailing hash
                 {
                     "event": "watched movie",
-                    "timestamp": datetime(2020, 1, 2, 12, 1),
+                    "timestamp": datetime(2020, 1, 2, 12, 2),
                     "properties": {"$current_url": "https://example.com/home#", "$pathname": "/home#"},
                 },
                 # all the things
                 {
                     "event": "watched movie",
-                    "timestamp": datetime(2020, 1, 2, 12, 1),
+                    "timestamp": datetime(2020, 1, 2, 12, 3),
                     "properties": {"$current_url": "https://example.com/home/?#", "$pathname": "/home/?#"},
                 },
                 {
                     "event": "terminate funnel",
-                    "timestamp": datetime(2020, 1, 2, 12, 1),
+                    "timestamp": datetime(2020, 1, 2, 12, 4),
                 },
             ],
         }
@@ -123,12 +123,10 @@ class TestBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
                 actual.append((funnel_step["name"], funnel_step["count"], funnel_step["breakdown"]))
 
         assert actual == [
-            ("watched movie", 1, ["/"]),
-            ("terminate funnel", 1, ["/"]),
-            ("watched movie", 1, ["/home"]),
-            ("terminate funnel", 1, ["/home"]),
-            ("watched movie", 2, ["Other"]),
-            ("terminate funnel", 2, ["Other"]),
+            ("watched movie", 2, ["/"]),
+            ("terminate funnel", 2, ["/"]),
+            ("watched movie", 2, ["/home"]),
+            ("terminate funnel", 2, ["/home"]),
         ]
 
     @snapshot_clickhouse_queries
@@ -141,10 +139,8 @@ class TestBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
                 actual.append((funnel_step["name"], funnel_step["count"], funnel_step["breakdown"]))
 
         assert actual == [
-            ("watched movie", 1, ["https://example.com/home"]),
-            ("terminate funnel", 1, ["https://example.com/home"]),
-            ("watched movie", 1, ["https://example.com"]),
-            ("terminate funnel", 1, ["https://example.com"]),
-            ("watched movie", 2, ["Other"]),
-            ("terminate funnel", 2, ["Other"]),
+            ("watched movie", 2, ["https://example.com/home"]),
+            ("terminate funnel", 2, ["https://example.com/home"]),
+            ("watched movie", 2, ["https://example.com"]),
+            ("terminate funnel", 2, ["https://example.com"]),
         ]

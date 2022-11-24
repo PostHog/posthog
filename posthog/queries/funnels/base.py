@@ -22,7 +22,6 @@ from posthog.models.property.util import (
     box_value,
     get_property_string_expr,
     get_single_or_multi_property_string_expr,
-    normalize_url_breakdown,
     parse_prop_grouped_clauses,
 )
 from posthog.models.team.team import groups_on_events_querying_enabled
@@ -712,7 +711,11 @@ class ClickhouseFunnelBase(ABC):
                 )
         elif self._filter.breakdown_type == "event":
             basic_prop_selector = get_single_or_multi_property_string_expr(
-                self._filter.breakdown, table="events", query_alias="prop_basic", column="properties"
+                self._filter.breakdown,
+                table="events",
+                query_alias="prop_basic",
+                column="properties",
+                normalize_url=self._filter.breakdown_normalize_url,
             )
         elif self._filter.breakdown_type == "cohort":
             basic_prop_selector = "value AS prop_basic"
@@ -830,8 +833,7 @@ class ClickhouseFunnelBase(ABC):
         if self._filter.breakdown:
             other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
             if group_remaining and self._filter.breakdown_type in ["person", "event", "group"]:
-                candidate = normalize_url_breakdown("prop", True)
-                return f", if(has(%(breakdown_values)s, {candidate}), {candidate}, {other_aggregation}) as prop"
+                return f", if(has(%(breakdown_values)s, prop), prop, {other_aggregation}) as prop"
             else:
                 # Cohorts don't have "Other" aggregation
                 return ", prop"
