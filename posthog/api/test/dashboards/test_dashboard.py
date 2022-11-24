@@ -11,7 +11,7 @@ from rest_framework import status
 from posthog.api.dashboard import DashboardSerializer
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
-from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
+from posthog.models import Dashboard, DashboardTemplate, DashboardTile, Filter, Insight, Team, User
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
@@ -588,8 +588,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert dashboard_json["tiles"][0]["color"] == "red"
 
     def test_dashboard_from_template(self):
+        dashboard_template = DashboardTemplate.objects.first()
+        assert dashboard_template is not None
+
         response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/", {"name": "another", "use_template": "DEFAULT_APP"}
+            f"/api/projects/{self.team.id}/dashboards/", {"name": "another", "use_template": dashboard_template.id}
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertGreater(Insight.objects.count(), 1)
