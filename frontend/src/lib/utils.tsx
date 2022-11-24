@@ -1165,6 +1165,8 @@ export function pluralize(count: number, singular: string, plural?: string, incl
     return includeNumber ? `${humanFriendlyNumber(count)} ${form}` : form
 }
 
+const COMPACT_NUMBER_MAGNITUDES = ['', 'K', 'M', 'B', 'T', 'P', 'E', 'Z', 'Y']
+
 /** Return a number in a compact format, with a SI suffix if applicable.
  *  Server-side equivalent: utils.py#compact_number.
  */
@@ -1179,7 +1181,7 @@ export function compactNumber(value: number | null): string {
         magnitude++
         value /= 1000
     }
-    return value.toString() + ['', 'K', 'M', 'B', 'T', 'P', 'E', 'Z', 'Y'][magnitude]
+    return `${value} ${COMPACT_NUMBER_MAGNITUDES[magnitude]}`
 }
 
 export function roundToDecimal(value: number | null, places: number = 2): string {
