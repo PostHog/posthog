@@ -18,7 +18,7 @@
 
 ## PostHog is an open-source suite of product and data tools, built for engineers
 
-- Automatic and/or customized event capture for your app and website
+- Specify events manually, or use autocapture to get started quickly
 - Analyze your data with visualizations and session recordings
 - Improve your product with A/B testing and feature flags
 - Keep control over your data by deploying PostHog on your infrastructure
@@ -76,7 +76,7 @@ We bring together all the tools and data in one place to help you build better p
 - **Ready-made libraries:** we’ve built libraries for [JavaScript](https://posthog.com/docs/integrations/js-integration), [Python](https://posthog.com/docs/integrations/python-integration), [Ruby](https://posthog.com/docs/integrations/ruby-integration), [Node](https://posthog.com/docs/integrations/node-integration), [Go](https://posthog.com/docs/integrations/go-integration), [Android](https://posthog.com/docs/integrations/android-integration), [iOS](https://posthog.com/docs/integrations/ios-integration), [PHP](https://posthog.com/docs/integrations/php-integration), [Flutter](https://posthog.com/docs/integrations/flutter-integration), [React Native](https://posthog.com/docs/integrations/react-native-integration), [Elixir](https://posthog.com/docs/integrations/elixir-integration), [Nim](https://github.com/Yardanico/posthog-nim), and an [API](https://posthog.com/docs/integrations/api) for anything else
 - **Plays nicely with data warehouses:** import events or user data from your warehouse by writing a simple transformation plugin, and export data with pre-built apps - such as [BigQuery](https://posthog.com/apps/bigquery-export), [Redshift](https://posthog.com/apps/redshift-export), [Snowflake](https://posthog.com/apps/snowflake-export), and [S3](https://posthog.com/apps/s3-expo)
 
-[Read a full list of PostHog features](https://posthog.com/features).
+[Read a full list of PostHog features](https://posthog.com/product).
 
 ## Docs and support
 
@@ -99,7 +99,7 @@ We <3 contributions big and small. The best ways to do this are:
 
 ## Philosophy
 
-Our mission is to increase the number of successful products in the world. To do that, we continue to build and improve product and data tools that help you understand user behavior without losing control of your data.
+Our mission is to increase the number of successful products in the world. To do that, we build product and data tools that help you understand user behavior without losing control of your data.
 
 In our view, third-party analytics tools do not work in a world of cookie deprecation, GDPR, HIPAA, CCPA, and many other four-letter acronyms. PostHog is the alternative to sending all of your customers' personal information and usage data to third-parties.
 
