@@ -64,8 +64,8 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                     disabled={!currentTeam?.session_recording_opt_in}
                 />
                 <p>
-                    This setting controls if browser console logs will be captured as a part of recordings. The console logs
-                    will be shown in the recording player to help you debug any issues.
+                    This setting controls if browser console logs will be captured as a part of recordings. The console
+                    logs will be shown in the recording player to help you debug any issues.
                 </p>
             </div>
 
