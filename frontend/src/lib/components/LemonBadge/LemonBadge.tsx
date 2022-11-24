@@ -4,7 +4,7 @@ import { CSSTransition } from 'react-transition-group'
 import './LemonBadge.scss'
 
 export interface LemonBadgeProps {
-    count?: number
+    count?: number | JSX.Element
     size?: 'small' | 'medium' | 'large'
     position?: 'none' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
     /** Maximum number of digits shown at once. Default value: 1 (so all numbers above 9 are shown as "9+"). */
@@ -33,7 +33,9 @@ export function LemonBadge({
 }: LemonBadgeProps): JSX.Element {
     // NOTE: We use 1 for the text if not showing so the fade out animation looks right
     const text =
-        typeof count === 'number' && count !== 0
+        typeof count === 'object'
+            ? count
+            : typeof count === 'number' && count !== 0
             ? count < Math.pow(10, maxDigits)
                 ? compactNumber(count)
                 : `${'9'.repeat(maxDigits)}+`
