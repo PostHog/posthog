@@ -34,6 +34,7 @@ export function SessionPlayerModal(): JSX.Element | null {
                             sessionRecordingId={activeSessionRecording?.id}
                             matching={activeSessionRecording?.matching_events}
                             includeMeta={false}
+                            noBorder
                         />
                     )}
                 </div>

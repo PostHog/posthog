@@ -148,6 +148,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         sender.add_periodic_task(
             crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
         )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
+        sender.add_periodic_task(
+            crontab(hour=4, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
+        )  # again a few hours later just to make sure
 
         materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
 
@@ -171,20 +174,27 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             name="count tiles with no filters_hash",
         )
 
+        sender.add_periodic_task(
+            crontab(hour="*"), check_flags_to_rollback.s(), name="check feature flags that should be rolled back"
+        )
+
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect
-def set_up_instrumentation(task_id, task, **kwargs):
-    from posthog import client
+def pre_run_signal_handler(task_id, task, **kwargs):
+    from statshog.defaults.django import statsd
 
-    client._request_information = {"kind": "celery", "id": task.name}
+    from posthog.clickhouse.query_tagging import tag_queries
+
+    statsd.incr("celery_tasks_metrics.pre_run", tags={"name": task.name})
+    tag_queries(kind="celery", id=task.name)
 
 
 @task_postrun.connect
 def teardown_instrumentation(task_id, task, **kwargs):
-    from posthog import client
+    from posthog.clickhouse.query_tagging import reset_query_tags
 
-    client._request_information = None
+    reset_query_tags()
 
 
 @app.task(ignore_result=True)
@@ -631,12 +641,22 @@ def schedule_all_subscriptions():
         _schedule_all_subscriptions()
 
 
-@app.task(ignore_result=True)
+@app.task(ignore_result=True, retries=3)
 def clickhouse_send_license_usage():
     try:
         if not is_cloud():
             from ee.tasks.send_license_usage import send_license_usage
 
             send_license_usage()
+    except ImportError:
+        pass
+
+
+@app.task(ignore_result=True)
+def check_flags_to_rollback():
+    try:
+        from ee.tasks.auto_rollback_feature_flag import check_flags_to_rollback
+
+        check_flags_to_rollback()
     except ImportError:
         pass

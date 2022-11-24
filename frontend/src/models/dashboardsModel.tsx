@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { delay, idToKey, isUserLoggedIn } from 'lib/utils'
+import { idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { dashboardsModelType } from './dashboardsModelType'
 import { DashboardType, InsightShortId, DashboardTile, InsightModel } from '~/types'
@@ -49,10 +49,21 @@ export const dashboardsModel = kea<dashboardsModelType>({
         pinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         unpinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         loadDashboards: true,
-        duplicateDashboard: ({ id, name, show }: { id: number; name?: string; show?: boolean }) => ({
+        duplicateDashboard: ({
+            id,
+            name,
+            show,
+            duplicateTiles,
+        }: {
+            id: number
+            name?: string
+            show?: boolean
+            duplicateTiles?: boolean
+        }) => ({
             id: id,
             name: name || `#${id}`,
             show: show || false,
+            duplicateTiles: duplicateTiles || false,
         }),
         tileMovedToDashboard: (tile: DashboardTile, dashboardId: number) => ({ tile, dashboardId }),
         tileRemovedFromDashboard: ({ tile, dashboardId }: { tile?: DashboardTile; dashboardId?: number }) => ({
@@ -126,9 +137,10 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 }
                 return response
             },
-            deleteDashboard: async ({ id }) =>
+            deleteDashboard: async ({ id, deleteInsights }) =>
                 (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                     deleted: true,
+                    delete_insights: deleteInsights,
                 })) as DashboardType,
             restoreDashboard: async ({ id }) =>
                 (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
@@ -148,10 +160,11 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 eventUsageLogic.actions.reportDashboardPinToggled(false, source)
                 return response
             },
-            duplicateDashboard: async ({ id, name, show }) => {
+            duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
                 const result = (await api.create(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`, {
                     use_dashboard: id,
                     name: `${name} (Copy)`,
+                    duplicate_tiles: duplicateTiles,
                 })) as DashboardType
                 if (show) {
                     router.actions.push(urls.dashboard(result.id))
@@ -269,20 +282,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 }
             )
 
-            const { id } = dashboard
-            const nextDashboard = values.pinSortedDashboards.find((d) => d.id !== id && !d.deleted)
-
-            if (values.redirect) {
-                if (nextDashboard) {
-                    router.actions.push(urls.dashboard(nextDashboard.id))
-                } else {
-                    router.actions.push(urls.dashboards())
-                }
-
-                await delay(500)
-            }
-
-            actions.delayedDeleteDashboard(id)
+            actions.delayedDeleteDashboard(dashboard.id)
         },
 
         duplicateDashboardSuccess: async ({ dashboard }) => {

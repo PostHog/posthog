@@ -4,8 +4,8 @@ import { DateTime } from 'luxon'
 
 import { KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import {
-    ClickHouseTimestamp,
     Element,
+    GroupTypeIndex,
     Hub,
     IngestionPersonData,
     ISOTimestamp,
@@ -85,12 +85,9 @@ export class EventsProcessor {
                             eventUuid,
                             teamId,
                             distinctId,
-                            properties['$session_id'],
-                            properties['$window_id'],
                             timestamp,
-                            properties['$snapshot_data'],
-                            properties,
-                            ip
+                            ip,
+                            properties
                         )
                         this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer, {
                             team_id: teamId.toString(),
@@ -160,10 +157,10 @@ export class EventsProcessor {
 
     getGroupIdentifiers(properties: Properties): GroupId[] {
         const res: GroupId[] = []
-        for (let groupIndex = 0; groupIndex < this.db.MAX_GROUP_TYPES_PER_TEAM; ++groupIndex) {
-            const key = `$group_${groupIndex}`
+        for (let groupTypeIndex = 0; groupTypeIndex < this.db.MAX_GROUP_TYPES_PER_TEAM; ++groupTypeIndex) {
+            const key = `$group_${groupTypeIndex}`
             if (key in properties) {
-                res.push([groupIndex, properties[key]])
+                res.push([groupTypeIndex as GroupTypeIndex, properties[key]])
             }
         }
         return res
@@ -213,18 +210,15 @@ export class EventsProcessor {
             uuid,
             event: safeClickhouseString(event),
             properties: JSON.stringify(properties ?? {}),
-            timestamp: castTimestampOrNow(timestamp, TimestampFormat.ClickHouse) as ClickHouseTimestamp,
+            timestamp: castTimestampOrNow(timestamp, TimestampFormat.ClickHouse),
             team_id: teamId,
             distinct_id: safeClickhouseString(distinctId),
             elements_chain: safeClickhouseString(elementsChain),
-            created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse) as ClickHouseTimestamp,
+            created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
             person_id: personInfo?.uuid,
             person_properties: eventPersonProperties ?? undefined,
             person_created_at: personInfo
-                ? (castTimestampOrNow(
-                      personInfo?.created_at,
-                      TimestampFormat.ClickHouseSecondPrecision
-                  ) as ClickHouseTimestamp)
+                ? castTimestampOrNow(personInfo?.created_at, TimestampFormat.ClickHouseSecondPrecision)
                 : undefined,
             ...groupsColumns,
         }
@@ -246,25 +240,19 @@ export class EventsProcessor {
         uuid: string,
         team_id: number,
         distinct_id: string,
-        session_id: string,
-        window_id: string,
         timestamp: DateTime,
-        snapshot_data: Record<any, any>,
-        properties: Properties,
-        ip: string | null
+        ip: string | null,
+        properties: Properties
     ): Promise<PostIngestionEvent> {
-        const timestampString = castTimestampOrNow(
-            timestamp,
-            this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
-        )
+        const timestampString = castTimestampOrNow(timestamp, TimestampFormat.ClickHouse)
 
-        const data: RawSessionRecordingEvent = {
+        const data: Partial<RawSessionRecordingEvent> = {
             uuid,
             team_id: team_id,
             distinct_id: distinct_id,
-            session_id: session_id,
-            window_id: window_id,
-            snapshot_data: JSON.stringify(snapshot_data),
+            session_id: properties['$session_id'],
+            window_id: properties['$window_id'],
+            snapshot_data: JSON.stringify(properties['$snapshot_data']),
             timestamp: timestampString,
             created_at: timestampString,
         }

@@ -4,11 +4,10 @@ import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { useActions, useValues } from 'kea'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
-import { TZLabel } from 'lib/components/TimezoneAware'
+import { TZLabel } from 'lib/components/TZLabel'
 import { percentage } from 'lib/utils'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { SessionRecordingPlayerProps } from '~/types'
 import clsx from 'clsx'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { LemonButton, Link } from '@posthog/lemon-ui'
@@ -18,20 +17,19 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { CSSTransition } from 'react-transition-group'
 import { Tooltip } from 'lib/components/Tooltip'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
 
-export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
     const {
         sessionPerson,
-        description,
         resolution,
         lastPageviewEvent,
         scale,
         currentWindowIndex,
         recordingStartTime,
-        loading,
-        isSmallPlayer,
+        sessionPlayerMetaDataLoading,
+        windowIds,
     } = useValues(playerMetaLogic({ sessionRecordingId, playerKey }))
 
     const { isFullScreen, isMetadataExpanded } = useValues(playerSettingsLogic)
@@ -39,12 +37,16 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
 
     const iconProperties = lastPageviewEvent?.properties || sessionPerson?.properties
 
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { ref, size } = useResizeBreakpoints({
+        0: 'compact',
+        550: 'normal',
+    })
 
-    const listIcons = featureFlags[FEATURE_FLAGS.RECORDING_LIST_ICONS] || 'none'
+    const isSmallPlayer = size === 'compact'
 
     return (
         <div
+            ref={ref}
             className={clsx('PlayerMeta', {
                 'PlayerMeta--fullscreen': isFullScreen,
             })}
@@ -92,66 +94,57 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                         )}
                     </div>
                     <div className="text-muted">
-                        {loading ? (
+                        {sessionPlayerMetaDataLoading ? (
                             <LemonSkeleton className="w-1/4 my-1" />
-                        ) : listIcons != 'none' ? (
-                            iconProperties ? (
-                                <div className="flex flex-row flex-nowrap shrink-0 gap-2 text-muted-alt">
-                                    <span className="flex items-center gap-1 whitespace-nowrap">
-                                        <PropertyIcon
-                                            noTooltip={!isFullScreen}
-                                            property="$browser"
-                                            value={iconProperties['$browser']}
-                                        />
-                                        {!isFullScreen ? iconProperties['$browser'] : null}
-                                    </span>
-                                    <span className="flex items-center gap-1 whitespace-nowrap">
-                                        <PropertyIcon
-                                            noTooltip={!isFullScreen}
-                                            property="$device_type"
-                                            value={
-                                                iconProperties['$device_type'] || iconProperties['$initial_device_type']
-                                            }
-                                        />
-                                        {!isFullScreen
-                                            ? iconProperties['$device_type'] || iconProperties['$initial_device_type']
-                                            : null}
-                                    </span>
-                                    <span className="flex items-center gap-1 whitespace-nowrap">
-                                        <PropertyIcon
-                                            noTooltip={!isFullScreen}
-                                            property="$os"
-                                            value={iconProperties['$os']}
-                                        />
-                                        {!isFullScreen ? iconProperties['$os'] : null}
-                                    </span>
-                                    <span className="flex items-center gap-1 whitespace-nowrap">
-                                        <PropertyIcon
-                                            noTooltip={!isFullScreen}
-                                            property="$geoip_country_code"
-                                            value={iconProperties['$geoip_country_code']}
-                                        />
-                                        {!isFullScreen ? iconProperties['$geoip_city_name'] : null}
-                                    </span>
-                                </div>
-                            ) : null
-                        ) : (
-                            description
-                        )}
+                        ) : iconProperties ? (
+                            <div className="flex flex-row flex-nowrap shrink-0 gap-2 text-muted-alt">
+                                <span className="flex items-center gap-1 whitespace-nowrap">
+                                    <PropertyIcon
+                                        noTooltip={!isFullScreen}
+                                        property="$browser"
+                                        value={iconProperties['$browser']}
+                                    />
+                                    {!isFullScreen ? iconProperties['$browser'] : null}
+                                </span>
+                                <span className="flex items-center gap-1 whitespace-nowrap">
+                                    <PropertyIcon
+                                        noTooltip={!isFullScreen}
+                                        property="$device_type"
+                                        value={iconProperties['$device_type'] || iconProperties['$initial_device_type']}
+                                    />
+                                    {!isFullScreen
+                                        ? iconProperties['$device_type'] || iconProperties['$initial_device_type']
+                                        : null}
+                                </span>
+                                <span className="flex items-center gap-1 whitespace-nowrap">
+                                    <PropertyIcon
+                                        noTooltip={!isFullScreen}
+                                        property="$os"
+                                        value={iconProperties['$os']}
+                                    />
+                                    {!isFullScreen ? iconProperties['$os'] : null}
+                                </span>
+                                <span className="flex items-center gap-1 whitespace-nowrap">
+                                    <PropertyIcon
+                                        noTooltip={!isFullScreen}
+                                        property="$geoip_country_code"
+                                        value={iconProperties['$geoip_country_code']}
+                                    />
+                                    {!isFullScreen ? iconProperties['$geoip_city_name'] : null}
+                                </span>
+                            </div>
+                        ) : null}
                     </div>
                 </div>
-                <Tooltip
-                    title={isMetadataExpanded ? 'Hide person properties' : 'Show person properties'}
-                    placement={isFullScreen ? 'bottom' : 'left'}
-                >
-                    <LemonButton
-                        className={clsx('PlayerMeta__expander', isFullScreen ? 'rotate-90' : '')}
-                        status="stealth"
-                        active={isMetadataExpanded}
-                        onClick={() => setIsMetadataExpanded(!isMetadataExpanded)}
-                        icon={isMetadataExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                    />
-                </Tooltip>
+                <LemonButton
+                    className={clsx('PlayerMeta__expander', isFullScreen ? 'rotate-90' : '')}
+                    status="stealth"
+                    active={isMetadataExpanded}
+                    onClick={() => setIsMetadataExpanded(!isMetadataExpanded)}
+                    icon={isMetadataExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                    tooltip={isMetadataExpanded ? 'Hide person properties' : 'Show person properties'}
+                    tooltipPlacement={isFullScreen ? 'bottom' : 'left'}
+                />
             </div>
             {sessionPerson && (
                 <CSSTransition
@@ -176,37 +169,45 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                     'p-1 px-3 text-xs h-12': isFullScreen,
                 })}
             >
-                {loading || currentWindowIndex === -1 ? (
+                {sessionPlayerMetaDataLoading || currentWindowIndex === -1 ? (
                     <LemonSkeleton className="w-1/3 my-1" />
                 ) : (
                     <>
-                        <IconWindow value={currentWindowIndex + 1} className="text-muted" />
-                        {!isSmallPlayer && <div className="window-number">Window {currentWindowIndex + 1}</div>}
+                        <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
+                        {windowIds.length > 1 && !isSmallPlayer ? (
+                            <div className="text-muted-alt">Window {currentWindowIndex + 1}</div>
+                        ) : null}
+
                         {lastPageviewEvent?.properties?.['$current_url'] && (
                             <span className="flex items-center gap-2 truncate">
                                 <span>·</span>
-                                <Link
-                                    to={lastPageviewEvent?.properties['$current_url']}
-                                    target="_blank"
-                                    className="truncate"
-                                >
-                                    {lastPageviewEvent?.properties['$current_url']}
-                                </Link>
-                                <span className="flex items-center">
-                                    <CopyToClipboardInline
-                                        description="current url"
-                                        explicitValue={lastPageviewEvent?.properties['$current_url']}
-                                    />
+                                <span className="flex items-center gap-1 truncate">
+                                    <Tooltip title="Click to open url">
+                                        <Link
+                                            to={lastPageviewEvent?.properties['$current_url']}
+                                            target="_blank"
+                                            className="truncate"
+                                        >
+                                            {lastPageviewEvent?.properties['$current_url']}
+                                        </Link>
+                                    </Tooltip>
+                                    <span className="flex items-center">
+                                        <CopyToClipboardInline
+                                            description="current url"
+                                            explicitValue={lastPageviewEvent?.properties['$current_url']}
+                                            iconStyle={{ color: 'var(--muted-alt)' }}
+                                        />
+                                    </span>
                                 </span>
                             </span>
                         )}
                     </>
                 )}
-                <div className="flex-1 min-w-20" />
-                {loading ? (
+                <div className={clsx('flex-1', isSmallPlayer ? 'min-w-4' : 'min-w-20')} />
+                {sessionPlayerMetaDataLoading ? (
                     <LemonSkeleton className="w-1/3" />
                 ) : (
-                    <span>
+                    <span className="text-muted-alt">
                         {resolution && (
                             <>
                                 Resolution: {resolution.width} x {resolution.height}{' '}

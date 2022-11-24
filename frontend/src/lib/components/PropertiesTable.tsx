@@ -79,7 +79,7 @@ function ValueDisplay({
     const valueComponent = (
         <span
             className={clsx(
-                'relative hidden inline-flex items-center flex flex-row flex-nowrap w-fit break-all',
+                'relative inline-flex items-center flex flex-row flex-nowrap w-fit break-all',
                 canEdit ? 'editable ph-no-capture' : 'ph-no-capture'
             )}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}

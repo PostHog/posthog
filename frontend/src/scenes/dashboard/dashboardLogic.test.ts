@@ -8,7 +8,6 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
-    ChartDisplayType,
     DashboardTile,
     DashboardType,
     InsightColor,
@@ -23,8 +22,6 @@ import { dayjs, now } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import api from 'lib/api'
-
-import anything = jasmine.anything
 
 const dashboardJson = _dashboardJson as any as DashboardType
 
@@ -120,7 +117,7 @@ describe('dashboardLogic', () => {
         const insights: Record<number, InsightModel> = {
             172: {
                 ...insightOnDashboard(172, [5, 6], {
-                    filters: { insight: InsightType.RETENTION, display: ChartDisplayType.ActionsLineGraph },
+                    filters: { insight: InsightType.RETENTION },
                 }),
                 short_id: '172' as InsightShortId,
             },
@@ -404,7 +401,7 @@ describe('dashboardLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    refreshStatus: { 1001: { error: true, timer: anything() } },
+                    refreshStatus: { 1001: { error: true, timer: expect.anything() } },
                 })
         })
     })
@@ -432,7 +429,7 @@ describe('dashboardLogic', () => {
                     })
                     .toDispatchActions(['loadDashboardItemsSuccess'])
                     .toMatchValues({
-                        allItems: dashboards['5'],
+                        allItems: expect.objectContaining(dashboards['5']),
                         tiles: truth((tiles) => tiles.length === 3),
                         insightTiles: truth((insightTiles) => insightTiles.length === 2),
                         textTiles: truth((textTiles) => textTiles.length === 1),
@@ -465,11 +462,11 @@ describe('dashboardLogic', () => {
                         refreshStatus: {
                             [(dashboards['5'].tiles[0] as DashboardTile).insight!.short_id]: {
                                 loading: true,
-                                timer: anything(),
+                                timer: expect.anything(),
                             },
                             [(dashboards['5'].tiles[1] as DashboardTile).insight!.short_id]: {
                                 loading: true,
-                                timer: anything(),
+                                timer: expect.anything(),
                             },
                         },
                         refreshMetrics: {
@@ -501,11 +498,11 @@ describe('dashboardLogic', () => {
                         refreshStatus: {
                             [(dashboards['5'].tiles[0] as DashboardTile).insight!.short_id]: {
                                 refreshed: true,
-                                timer: anything(),
+                                timer: expect.anything(),
                             },
                             [(dashboards['5'].tiles[1] as DashboardTile).insight!.short_id]: {
                                 refreshed: true,
-                                timer: anything(),
+                                timer: expect.anything(),
                             },
                         },
                         refreshMetrics: {
@@ -517,7 +514,10 @@ describe('dashboardLogic', () => {
 
             it('reloads selected items', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.refreshAllDashboardItems([dashboards['5'].tiles[0] as DashboardTile])
+                    logic.actions.refreshAllDashboardItems({
+                        tiles: [dashboards['5'].tiles[0] as DashboardTile],
+                        action: 'refresh_manual',
+                    })
                 })
                     .toFinishAllListeners()
                     .toDispatchActions([
@@ -531,7 +531,7 @@ describe('dashboardLogic', () => {
                         refreshStatus: {
                             [(dashboards['5'].tiles[0] as DashboardTile).insight!.short_id]: {
                                 loading: true,
-                                timer: anything(),
+                                timer: expect.anything(),
                             },
                         },
                         refreshMetrics: {
@@ -553,7 +553,7 @@ describe('dashboardLogic', () => {
                         refreshStatus: {
                             [(dashboards['5'].tiles[0] as DashboardTile).insight!.short_id]: {
                                 refreshed: true,
-                                timer: anything(),
+                                timer: expect.anything(),
                             },
                         },
                         refreshMetrics: {

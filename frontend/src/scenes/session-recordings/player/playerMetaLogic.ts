@@ -1,65 +1,33 @@
 import { kea } from 'kea'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { eventWithTime } from 'rrweb/typings/types'
-import { PersonType, SessionRecordingPlayerProps } from '~/types'
+import { PersonType } from '~/types'
 import { ceilMsToClosestSecond, findLastIndex } from 'lib/utils'
 import { getEpochTimeFromPlayerPosition } from './playerUtils'
-import { sessionRecordingsListLogic } from '../playlist/sessionRecordingsListLogic'
-
-const getPersonProperties = (person: Partial<PersonType>, keys: string[]): string | null => {
-    if (keys.some((k) => !person?.properties?.[k])) {
-        return null
-    }
-    return keys.map((k) => person?.properties?.[k]).join(', ')
-}
 
 export const playerMetaLogic = kea<playerMetaLogicType>({
     path: (key) => ['scenes', 'session-recordings', 'player', 'playerMetaLogic', key],
-    props: {} as SessionRecordingPlayerProps,
-    key: (props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`,
-    connect: ({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({
+    props: {} as SessionRecordingPlayerLogicProps,
+    key: (props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`,
+    connect: ({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps) => ({
         values: [
             sessionRecordingDataLogic({ sessionRecordingId }),
-            ['sessionPlayerData', 'sessionEventsData'],
+            ['sessionPlayerData', 'sessionEventsData', 'sessionPlayerMetaDataLoading', 'windowIds'],
             sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
-            ['currentPlayerPosition', 'scale', 'isSmallPlayer', 'currentPlayerTime'],
-            sessionRecordingsListLogic,
-            ['sessionRecordings'],
+            ['currentPlayerPosition', 'scale', 'currentPlayerTime'],
         ],
         actions: [sessionRecordingDataLogic({ sessionRecordingId }), ['loadRecordingMetaSuccess']],
     }),
-    reducers: {
-        loading: [
-            true,
-            {
-                loadRecordingMetaSuccess: () => false,
-            },
-        ],
-    },
-    selectors: ({ props }) => ({
+    selectors: () => ({
         sessionPerson: [
-            (selectors) => [selectors.sessionPlayerData, selectors.sessionRecordings],
-            (playerData, sessionRecordings): PersonType | null => {
-                if (playerData?.person) {
-                    return playerData?.person
-                }
-                // If the metadata hasn't loaded, then check if the recording is in the recording list
-                return (
-                    sessionRecordings.find((sessionRecording) => sessionRecording.id === props.sessionRecordingId)
-                        ?.person ?? null
-                )
-            },
-        ],
-        description: [
-            (selectors) => [selectors.sessionPerson],
-            (person) => {
-                const location = person
-                    ? getPersonProperties(person, ['$geoip_city_name', '$geoip_country_code'])
-                    : null
-                const device = person ? getPersonProperties(person, ['$browser', '$os']) : null
-                return [device, location].filter((s) => s).join(' · ')
+            (selectors) => [selectors.sessionPlayerData],
+            (playerData): PersonType | null => {
+                return playerData?.person ?? null
             },
         ],
         resolution: [
@@ -92,23 +60,10 @@ export const playerMetaLogic = kea<playerMetaLogicType>({
             },
         ],
         recordingStartTime: [
-            (selectors) => [selectors.sessionPlayerData, selectors.sessionRecordings],
-            (sessionPlayerData, sessionRecordings) => {
-                const startTimeFromMeta = sessionPlayerData?.metadata?.segments[0]?.startTimeEpochMs
-                if (startTimeFromMeta) {
-                    return startTimeFromMeta
-                }
-                // If the metadata hasn't loaded, then check if the recording is in the recording list
-                return (
-                    sessionRecordings.find((sessionRecording) => sessionRecording.id === props.sessionRecordingId)
-                        ?.start_time ?? null
-                )
-            },
-        ],
-        windowIds: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => {
-                return Object.keys(sessionPlayerData?.metadata?.startAndEndTimesByWindowId) ?? []
+                const startTimeFromMeta = sessionPlayerData?.metadata?.segments[0]?.startTimeEpochMs
+                return startTimeFromMeta ?? null
             },
         ],
         currentWindowIndex: [

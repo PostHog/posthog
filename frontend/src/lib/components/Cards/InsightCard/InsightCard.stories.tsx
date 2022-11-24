@@ -1,6 +1,15 @@
 import { Meta, Story } from '@storybook/react'
 import { useState } from 'react'
-import { ChartDisplayType, FunnelVizType, InsightColor, InsightModel, InsightShortId, InsightType } from '~/types'
+import {
+    ChartDisplayType,
+    FunnelsFilterType,
+    FunnelVizType,
+    InsightColor,
+    InsightModel,
+    InsightShortId,
+    InsightType,
+    TrendsFilterType,
+} from '~/types'
 import { InsightCard as InsightCardComponent } from './index'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import { uuid } from 'lib/utils'
@@ -206,13 +215,12 @@ const EXAMPLE_FUNNEL: InsightModel = {
             },
         ],
         actions: [],
-        display: ChartDisplayType.FunnelViz,
         insight: InsightType.FUNNELS,
         interval: 'day',
         exclusions: [],
         properties: [],
         funnel_viz_type: FunnelVizType.Steps,
-    },
+    } as FunnelsFilterType,
     filters_hash: 'cache_efe341a46f090f397007fe97d8faf263',
     order: 1,
     deleted: false,
@@ -365,7 +373,10 @@ export const InsightCard: Story = (args) => {
             <InsightCardComponent
                 insight={{
                     ...EXAMPLE_TRENDS,
-                    filters: { ...EXAMPLE_TRENDS.filters, display: 'totally_wrong_display_type' as ChartDisplayType },
+                    filters: {
+                        ...EXAMPLE_TRENDS.filters,
+                        display: 'totally_wrong_display_type' as ChartDisplayType,
+                    } as TrendsFilterType,
                 }}
                 rename={() => {}}
                 duplicate={() => {}}

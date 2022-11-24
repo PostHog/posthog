@@ -1,24 +1,25 @@
 import { actions, kea, reducers, path, listeners, connect, props, key } from 'kea'
-import { PlayerPosition, RecordingWindowFilter, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
+import { PlayerPosition, RecordingWindowFilter, SessionRecordingPlayerTab } from '~/types'
 import type { sharedListLogicType } from './sharedListLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 
 export type WindowOption = RecordingWindowFilter.All | PlayerPosition['windowId']
 
 // Settings local to each recording
 export const sharedListLogic = kea<sharedListLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sharedListLogic', key]),
-    props({} as SessionRecordingPlayerProps),
-    key((props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    props({} as SessionRecordingPlayerLogicProps),
+    key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect({
         logic: [eventUsageLogic],
         values: [playerSettingsLogic, ['showOnlyMatching']],
         actions: [playerSettingsLogic, ['setShowOnlyMatching']],
     }),
     actions(() => ({
-        setTab: (tab: SessionRecordingTab) => ({ tab }),
+        setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
         setWindowIdFilter: (windowId: WindowOption) => ({ windowId }),
     })),
     reducers(() => ({
@@ -29,7 +30,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
             },
         ],
         tab: [
-            SessionRecordingTab.EVENTS as SessionRecordingTab,
+            SessionRecordingPlayerTab.EVENTS as SessionRecordingPlayerTab,
             {
                 setTab: (_, { tab }) => tab,
             },
@@ -37,7 +38,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
     })),
     listeners(() => ({
         setTab: ({ tab }) => {
-            if (tab === SessionRecordingTab.CONSOLE) {
+            if (tab === SessionRecordingPlayerTab.CONSOLE) {
                 eventUsageLogic
                     .findMounted()
                     ?.actions?.reportRecordingConsoleViewed(

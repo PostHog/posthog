@@ -1,11 +1,11 @@
 import json
-from uuid import uuid4
+from datetime import datetime
 
 from freezegun import freeze_time
 
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
 from posthog.models import Action, ActionStep, Cohort, Organization
-from posthog.models.session_recording_event.util import create_session_recording_event
+from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -30,18 +30,6 @@ def _create_cohort(**kwargs):
     groups = kwargs.pop("groups")
     cohort = Cohort.objects.create(team=team, name=name, groups=groups)
     return cohort
-
-
-def _create_session_recording_event(team_id, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True):
-    create_session_recording_event(
-        uuid=uuid4(),
-        team_id=team_id,
-        distinct_id=distinct_id,
-        timestamp=timestamp,
-        session_id=session_id,
-        window_id=window_id,
-        snapshot_data={"has_full_snapshot": has_full_snapshot},
-    )
 
 
 class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
@@ -491,6 +479,27 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(resp[1], "Distinct ID,Email,Internal ID,Name,Properties.name")
         self.assertEqual(resp[2].split(",")[0], "person1")
 
+    def test_people_csv_returns_400_on_no_entity_id_provided(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/actions/people",
+            data={
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-07",
+                # Here we don't provide an entity_id or entity_type, which are
+                # required
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            json.loads(response.content),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "An entity id and the entity type must be provided to determine an entity",
+                "attr": None,
+            },
+        )
+
     def test_breakdown_by_cohort_people_endpoint(self):
         person1, _, _, _ = self._create_multiple_people()
         cohort = _create_cohort(
@@ -807,7 +816,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-09T12:00:00Z",
             properties={"$session_id": "s1", "$window_id": "w1"},
         )
-        _create_session_recording_event(self.team.pk, "u1", "s1", timestamp="2020-01-09T12:00:00Z")
+        create_session_recording_events(self.team.pk, datetime(2020, 1, 9, 12), "u1", "s1")
 
         people = self.client.get(
             f"/api/projects/{self.team.id}/persons/trends/",

@@ -1,7 +1,7 @@
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { useActions, useValues } from 'kea'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
-import { RecordingWindowFilter, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
+import { RecordingWindowFilter, SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { IconInfo } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -9,25 +9,34 @@ import { sharedListLogic, WindowOption } from 'scenes/session-recordings/player/
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { eventsListLogic } from 'scenes/session-recordings/player/list/eventsListLogic'
+import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
+import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 
-export function PlayerFilter({ sessionRecordingId, playerKey, matching }: SessionRecordingPlayerProps): JSX.Element {
+export function PlayerFilter({
+    sessionRecordingId,
+    playerKey,
+    matching,
+}: SessionRecordingPlayerLogicProps): JSX.Element {
     const logicProps = { sessionRecordingId, playerKey }
     const { windowIdFilter, showOnlyMatching, tab } = useValues(sharedListLogic(logicProps))
     const { setWindowIdFilter, setShowOnlyMatching } = useActions(sharedListLogic(logicProps))
-    const { localFilters } = useValues(eventsListLogic(logicProps))
-    const { setLocalFilters } = useActions(eventsListLogic(logicProps))
+    const { eventListLocalFilters } = useValues(eventsListLogic(logicProps))
+    const { setEventListLocalFilters } = useActions(eventsListLogic(logicProps))
+    const { consoleListLocalFilters } = useValues(consoleLogsListLogic(logicProps))
+    const { setConsoleListLocalFilters } = useActions(consoleLogsListLogic(logicProps))
     const { windowIds } = useValues(playerMetaLogic(logicProps))
 
     return (
         <div className="PlayerFilter flex justify-between gap-2 bg-side p-2 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
-                {tab === SessionRecordingTab.EVENTS && (
+                {tab === SessionRecordingPlayerTab.EVENTS ? (
                     <>
                         <LemonInput
-                            onChange={(query) => setLocalFilters({ query })}
+                            key="event-list-search-input"
+                            onChange={(query) => setEventListLocalFilters({ query })}
                             placeholder="Search events"
                             type="search"
-                            value={localFilters.query}
+                            value={eventListLocalFilters.query}
                         />
                         {matching?.length ? (
                             <LemonSwitch
@@ -48,34 +57,44 @@ export function PlayerFilter({ sessionRecordingId, playerKey, matching }: Sessio
                             />
                         ) : null}
                     </>
+                ) : (
+                    <LemonInput
+                        key="console-list-search-input"
+                        onChange={(query) => setConsoleListLocalFilters({ query })}
+                        placeholder="Search console logs"
+                        type="search"
+                        value={consoleListLocalFilters.query}
+                    />
                 )}
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
-                <LemonSelect
-                    data-attr="player-window-select"
-                    value={windowIdFilter ?? undefined}
-                    onChange={(val) => setWindowIdFilter(val as WindowOption)}
-                    options={[
-                        {
-                            value: RecordingWindowFilter.All,
-                            label: 'All windows',
-                            icon: <IconWindow value="A" className="text-muted" />,
-                        },
-                        ...windowIds.map((windowId, index) => ({
-                            value: windowId,
-                            label: `Window ${index + 1}`,
-                            icon: <IconWindow value={index + 1} className="text-muted" />,
-                        })),
-                    ]}
-                />
-                <Tooltip
-                    title="Each recording window translates to a distinct browser tab or window."
-                    className="text-base text-muted-alt mr-2"
-                >
-                    <IconInfo />
-                </Tooltip>
-            </div>
+            {windowIds.length > 1 ? (
+                <div className="flex items-center gap-2 flex-wrap">
+                    <LemonSelect
+                        data-attr="player-window-select"
+                        value={windowIdFilter ?? undefined}
+                        onChange={(val) => setWindowIdFilter(val as WindowOption)}
+                        options={[
+                            {
+                                value: RecordingWindowFilter.All,
+                                label: 'All windows',
+                                icon: <IconWindow value="A" className="text-muted" />,
+                            },
+                            ...windowIds.map((windowId, index) => ({
+                                value: windowId,
+                                label: `Window ${index + 1}`,
+                                icon: <IconWindow value={index + 1} className="text-muted" />,
+                            })),
+                        ]}
+                    />
+                    <Tooltip
+                        title="Each recording window translates to a distinct browser tab or window."
+                        className="text-base text-muted-alt mr-2"
+                    >
+                        <IconInfo />
+                    </Tooltip>
+                </div>
+            ) : null}
         </div>
     )
 }

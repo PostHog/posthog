@@ -17,7 +17,6 @@ import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
 
-import { GraphileWorker } from './main/graphile-worker/graphile-worker'
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
@@ -161,6 +160,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: number
     HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: number
     APP_METRICS_GATHERED_FOR_ALL: boolean
+    MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -200,7 +200,6 @@ export interface Hub extends PluginsServerConfig {
     personManager: PersonManager
     siteUrlManager: SiteUrlManager
     appMetrics: AppMetrics
-    graphileWorker: GraphileWorker
     // diagnostics
     lastActivity: number
     lastActivityType: string
@@ -397,6 +396,7 @@ export interface PluginTask {
 export type WorkerMethods = {
     runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
     runEventPipeline: (event: PluginEvent) => Promise<void>
+    runLightweightCaptureEndpointEventPipeline: (event: PipelineEvent) => Promise<void>
 }
 
 export type VMMethods = {
@@ -518,6 +518,7 @@ interface BaseEvent {
 
 export type ISOTimestamp = Brand<string, 'ISOTimestamp'>
 export type ClickHouseTimestamp = Brand<string, 'ClickHouseTimestamp'>
+export type ClickHouseTimestampSecondPrecision = Brand<string, 'ClickHouseTimestamp'>
 
 /** Raw event row from ClickHouse. */
 export interface RawClickHouseEvent extends BaseEvent {
@@ -935,4 +936,9 @@ export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
     Owner = 15,
+}
+
+export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
+    team_id?: number | null
+    token?: string
 }

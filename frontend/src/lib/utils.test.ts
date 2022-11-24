@@ -2,48 +2,51 @@ import tk from 'timekeeper'
 import {
     areObjectValuesEmpty,
     average,
+    booleanOperatorMap,
+    calculateDays,
     capitalizeFirstLetter,
+    ceilMsToClosestSecond,
+    chooseOperatorMap,
     colonDelimitedDuration,
     compactNumber,
+    convertPropertiesToPropertyGroup,
+    convertPropertyGroupToProperties,
     dateFilterToText,
+    dateMapping,
+    dateStringToDayJs,
+    dateTimeOperatorMap,
+    durationOperatorMap,
     endWithPunctation,
     ensureStringIsNotBlank,
+    eventToDescription,
+    floorMsToClosestSecond,
     formatLabel,
+    genericOperatorMap,
+    getFormattedLastWeekDate,
     hexToRGBA,
     humanFriendlyDuration,
     identifierToHuman,
+    isExternalLink,
     isURL,
     median,
     midEllipsis,
+    numericOperatorMap,
     objectDiffShallow,
     pluralize,
-    toParams,
-    eventToDescription,
-    ceilMsToClosestSecond,
-    floorMsToClosestSecond,
-    dateMapping,
-    getFormattedLastWeekDate,
-    genericOperatorMap,
-    dateTimeOperatorMap,
-    stringOperatorMap,
-    numericOperatorMap,
-    chooseOperatorMap,
-    booleanOperatorMap,
-    roundToDecimal,
-    convertPropertyGroupToProperties,
-    convertPropertiesToPropertyGroup,
-    calculateDays,
     range,
-    durationOperatorMap,
-    isExternalLink,
+    reverseColonDelimitedDuration,
+    roundToDecimal,
     selectorOperatorMap,
-    dateStringToDayJs,
+    stringOperatorMap,
+    toParams,
 } from './utils'
 import {
     ActionFilter,
     ElementType,
     EventType,
     FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyGroupFilter,
     PropertyOperator,
     PropertyType,
     TimeUnitType,
@@ -130,8 +133,13 @@ describe('formatLabel()', () => {
             formatLabel('some_event', {
                 ...action,
                 properties: [
-                    { value: 'hello', key: 'greeting', operator: PropertyOperator.Exact, type: '' },
-                    { operator: PropertyOperator.GreaterThan, value: 5, key: '', type: '' },
+                    {
+                        value: 'hello',
+                        key: 'greeting',
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Person,
+                    },
+                    { operator: PropertyOperator.GreaterThan, value: 5, key: '', type: PropertyFilterType.Person },
                 ],
             })
         ).toEqual('some_event (greeting = hello, > 5)')
@@ -512,10 +520,28 @@ describe('colonDelimitedDuration()', () => {
         expect(colonDelimitedDuration(604800.222, 5)).toEqual('01:00:00:00:00')
         expect(colonDelimitedDuration(604800.999, 6)).toEqual('01:00:00:00:00')
     })
+    it('returns the smallest possible for numUnits = null', () => {
+        expect(colonDelimitedDuration(59, null)).toEqual('00:59')
+        expect(colonDelimitedDuration(3599, null)).toEqual('59:59')
+        expect(colonDelimitedDuration(3600, null)).toEqual('01:00:00')
+    })
     it('returns an empty string for nullish inputs', () => {
         expect(colonDelimitedDuration('')).toEqual('')
         expect(colonDelimitedDuration(null)).toEqual('')
         expect(colonDelimitedDuration(undefined)).toEqual('')
+    })
+})
+
+describe('reverseColonDelimitedDuration()', () => {
+    it('returns correct value', () => {
+        expect(reverseColonDelimitedDuration('59')).toEqual(59)
+        expect(reverseColonDelimitedDuration('59:59')).toEqual(3599)
+        expect(reverseColonDelimitedDuration('23:59:59')).toEqual(86399)
+    })
+    it('returns an null for bad values', () => {
+        expect(reverseColonDelimitedDuration('1232123')).toEqual(null)
+        expect(reverseColonDelimitedDuration('AA:AA:AA')).toEqual(null)
+        expect(reverseColonDelimitedDuration(undefined)).toEqual(null)
     })
 })
 
@@ -691,7 +717,7 @@ describe('convertPropertyGroupToProperties()', () => {
     })
 
     it('converts a deeply nested property group into an array of properties', () => {
-        const propertyGroup = {
+        const propertyGroup: PropertyGroupFilter = {
             type: FilterLogicalOperator.And,
             values: [
                 {

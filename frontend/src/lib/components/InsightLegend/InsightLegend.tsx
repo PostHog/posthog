@@ -13,6 +13,7 @@ import clsx from 'clsx'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { useEffect, useRef } from 'react'
+import { isFilterWithDisplay, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export interface InsightLegendProps {
     readOnly?: boolean
@@ -31,6 +32,7 @@ const insightViewCanShowLegendAllowList = [InsightType.TRENDS, InsightType.STICK
 
 const shouldShowLegend = (filters: Partial<FilterType>, activeView: InsightType): boolean =>
     insightViewCanShowLegendAllowList.includes(activeView) &&
+    isFilterWithDisplay(filters) &&
     !!filters.display &&
     !trendTypeCanShowLegendDenyList.includes(filters.display)
 
@@ -38,7 +40,7 @@ export function InsightLegendButton(): JSX.Element | null {
     const { filters, activeView } = useValues(insightLogic)
     const { toggleInsightLegend } = useActions(insightLogic)
 
-    return shouldShowLegend(filters, activeView) ? (
+    return shouldShowLegend(filters, activeView) && isFilterWithDisplay(filters) ? (
         <Button className="InsightLegendButton" onClick={toggleInsightLegend}>
             <IconLegend />
             <span className="InsightLegendButton-title">{filters.show_legend ? 'Hide' : 'Show'} legend</span>
@@ -88,30 +90,32 @@ function InsightLegendRow({
         }
     }, [highlighted])
 
+    const compare = isTrendsFilter(filters) && !!filters.compare
+
     return (
         <div key={item.id} className="InsightLegendMenu-item p-2 w-full flex flex-row" ref={rowRef}>
             <div key={item.id} className={clsx('InsightLegendMenu-item p-2 w-full flex flex-row')} {...highlightStyle}>
                 <LemonCheckbox
                     className="text-xs mr-4"
-                    color={getSeriesColor(item.id, !!filters.compare)}
+                    color={getSeriesColor(item.id, compare)}
                     checked={!hiddenLegendKeys[rowIndex]}
                     onChange={() => toggleVisibility(rowIndex)}
                     fullWidth
                     label={
                         <InsightLabel
                             key={item.id}
-                            seriesColor={getSeriesColor(item.id, !!filters.compare)}
+                            seriesColor={getSeriesColor(item.id, compare)}
                             action={item.action}
                             fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                             hasMultipleSeries={hasMultipleSeries}
                             breakdownValue={item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()}
-                            compareValue={filters.compare ? formatCompareLabel(item) : undefined}
+                            compareValue={compare ? formatCompareLabel(item) : undefined}
                             pillMidEllipsis={item?.filter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
                             hideIcon
                         />
                     }
                 />
-                {filters.display === ChartDisplayType.ActionsPie && (
+                {isTrendsFilter(filters) && filters.display === ChartDisplayType.ActionsPie && (
                     <div className={'text-muted'}>{formatAggregationAxisValue(filters, item.aggregated_value)}</div>
                 )}
             </div>

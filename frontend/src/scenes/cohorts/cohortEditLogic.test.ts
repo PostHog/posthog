@@ -18,7 +18,6 @@ import {
 } from '~/types'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 
@@ -29,8 +28,6 @@ describe('cohortEditLogic', () => {
         await expectLogic(teamLogic).toFinishAllListeners()
         cohortsModel.mount()
         await expectLogic(cohortsModel).toFinishAllListeners()
-        featureFlagLogic.mount()
-        await expectLogic(featureFlagLogic).toFinishAllListeners()
         jest.spyOn(api, 'get')
         jest.spyOn(api, 'update')
         api.get.mockClear()
@@ -93,11 +90,6 @@ describe('cohortEditLogic', () => {
     })
 
     describe('form validation', () => {
-        beforeAll(() => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { 'cohort-filters': true })
-        })
-
         it('save with valid cohort', async () => {
             await initCohortLogic({ id: 1 })
             await expectLogic(logic, async () => {
@@ -533,11 +525,6 @@ describe('cohortEditLogic', () => {
     })
 
     describe('mutate filters', () => {
-        beforeAll(async () => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { 'cohort-filters': true })
-        })
-
         beforeEach(async () => {
             await initCohortLogic({ id: 1 })
         })

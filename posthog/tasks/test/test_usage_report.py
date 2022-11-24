@@ -271,7 +271,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "organization_name": "Test",
                     "organization_created_at": "2022-01-10T00:01:00+00:00",
                     "organization_user_count": 1,
-                    "team_count": 1,
+                    "team_count": 2,
                     "teams": {
                         self.org_1_team_1.id: {
                             "event_count_lifetime": 32,

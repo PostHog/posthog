@@ -294,7 +294,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                         />
                                         <small>
                                             <a
-                                                href="https://posthog.com/docs/integrations/message-formatting/"
+                                                href="https://posthog.com/docs/integrate/webhooks/message-formatting"
                                                 target="_blank"
                                                 rel="noopener noreferrer"
                                             >

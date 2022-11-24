@@ -2,7 +2,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from django.forms import ValidationError
 
-from posthog.client import sync_execute
 from posthog.constants import BREAKDOWN_TYPES, PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import format_filter_query
@@ -17,9 +16,11 @@ from posthog.models.property.util import (
     parse_prop_grouped_clauses,
 )
 from posthog.models.team import Team
+from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
@@ -76,6 +77,9 @@ def get_breakdown_prop_values(
     if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
         outer_properties: Optional[PropertyGroup] = props_to_filter
         person_id_joined_alias = "e.person_id"
+
+        if not groups_on_events_querying_enabled():
+            groups_join_clause, groups_join_params = GroupsJoinQuery(filter, team.pk, column_optimizer).get_join_query()
     else:
         outer_properties = column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
         person_id_joined_alias = "pdi.person_id"
@@ -132,6 +136,7 @@ def get_breakdown_prop_values(
         filter.breakdown_type,
         filter.breakdown,
         filter.breakdown_group_type_index,
+        filter.breakdown_normalize_url,
         direct_on_events=True if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else False,
         cast_as_float=filter.using_histogram,
     )
@@ -164,7 +169,7 @@ def get_breakdown_prop_values(
             null_person_filter=null_person_filter,
             **entity_format_params,
         )
-    return sync_execute(
+    return insight_sync_execute(
         elements_query,
         {
             "key": filter.breakdown,
@@ -180,6 +185,8 @@ def get_breakdown_prop_values(
             **extra_params,
             **date_params,
         },
+        query_type="get_breakdown_prop_values",
+        filter=filter,
     )[0][0]
 
 
@@ -187,6 +194,7 @@ def _to_value_expression(
     breakdown_type: Optional[BREAKDOWN_TYPES],
     breakdown: Union[str, List[Union[str, int]], None],
     breakdown_group_type_index: Optional[GroupTypeIndex],
+    breakdown_normalize_url: bool = False,
     direct_on_events: bool = False,
     cast_as_float: bool = False,
 ) -> str:
@@ -220,11 +228,12 @@ def _to_value_expression(
         )
     else:
         value_expression = get_single_or_multi_property_string_expr(
-            breakdown, table="events", query_alias=None, column="properties"
+            breakdown, table="events", query_alias=None, column="properties", normalize_url=breakdown_normalize_url
         )
 
     if cast_as_float:
         value_expression = f"toFloat64OrNull(toString({value_expression}))"
+
     return f"{value_expression} AS value"
 
 

@@ -19,7 +19,7 @@ export interface LemonButtonPropsBase
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
     /** What color scheme the button should follow */
-    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'stealth'
+    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */
@@ -125,7 +125,8 @@ function LemonButtonInternal(
     if (tooltip) {
         workingButton = (
             <Tooltip title={tooltip} placement={tooltipPlacement}>
-                {workingButton}
+                {/* If the button is disabled, wrap it in a div so that the tooltip can still work */}
+                {disabled ? <div>{workingButton}</div> : workingButton}
             </Tooltip>
         )
     }

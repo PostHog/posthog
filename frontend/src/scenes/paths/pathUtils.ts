@@ -1,5 +1,5 @@
 import { RGBColor } from 'd3'
-import { FilterType, FunnelPathType } from '~/types'
+import { FunnelPathType, PathsFilterType } from '~/types'
 
 export interface PathTargetLink {
     average_conversion_time: number
@@ -109,7 +109,7 @@ export function pageUrl(d: PathNodeData, display?: boolean): string {
         : name
 }
 
-export const isSelectedPathStartOrEnd = (filter: Partial<FilterType>, pathItemCard: PathNodeData): boolean => {
+export const isSelectedPathStartOrEnd = (filter: Partial<PathsFilterType>, pathItemCard: PathNodeData): boolean => {
     const cardName = pageUrl(pathItemCard)
     const isPathStart = pathItemCard.targetLinks.length === 0
     const isPathEnd = pathItemCard.sourceLinks.length === 0

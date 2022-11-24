@@ -5,6 +5,20 @@
     flex-direction: column;
     height: 100%;
     width: 100%;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+
+    &--no-border {
+        border: none;
+        border-radius: 0px;
+    }
+
+    .SessionRecordingPlayer__header {
+        width: 100%;
+        background-color: var(--side);
+        min-width: 1px;
+        border-bottom: 1px solid var(--border);
+    }
 
     .SessionRecordingPlayer__body {
         position: relative;
@@ -13,14 +27,12 @@
         min-width: 1px;
         height: 500px;
         min-height: 500px;
-        padding: 0.5rem;
-
-        @include screen($md) {
-            width: 100%;
-        }
+        margin: 0.5rem;
+        overflow: hidden;
+        border-radius: var(--radius);
     }
 
-    &.SessionRecordingPlayer--fullscreen {
+    &--fullscreen {
         position: fixed;
         left: 0px;
         top: 0px;
@@ -30,21 +42,55 @@
         background-color: var(--white);
         z-index: var(--z-modal);
 
+        .SessionRecordingPlayer__main {
+            flex: 1;
+        }
+
         .SessionRecordingPlayer__body {
             height: 100%;
             min-height: auto;
-            padding: 0rem;
+            margin: 0rem;
+            border-radius: 0;
+        }
+    }
 
-            .PlayerFrame {
-                border-radius: 0px;
-            }
+    .SessionRecordingPlayer__main,
+    .SessionRecordingPlayer__inspector {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .SessionRecordingPlayer__inspector {
+        border-top: 1px solid var(--border);
+        min-height: 30rem;
+    }
+
+    &--widescreen {
+        flex-direction: row;
+        overflow: hidden;
+
+        .SessionRecordingPlayer__main {
+            flex: 2;
+        }
+
+        .SessionRecordingPlayer__inspector {
+            min-width: 450px;
+            flex: 1;
+            border-left: 1px solid var(--border);
+            border-top: none;
+        }
+
+        .SessionRecordingPlayer__body {
+            // Rough aproximation of the parent elements
+            height: calc(100vh - 20rem);
+            min-height: calc(100vh - 20rem);
         }
     }
 }
 
 .SessionPlayerModal {
     width: 100%;
-    height: calc(100vh - 2rem);
     padding: 0;
 }
 

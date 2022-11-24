@@ -30,7 +30,7 @@ djangorestframework==3.12.2
 djangorestframework-csv==2.1.1
 djangorestframework-dataclasses==1.1.1
 dnspython==2.2.1
-drf-exceptions-hog==0.2.0
+drf-exceptions-hog==0.3.0
 drf-extensions==0.7.0
 drf-spectacular==0.21.1
 geoip2==4.6.0
@@ -69,3 +69,4 @@ toronado==0.1.0
 webdriver_manager==3.8.4
 whitenoise==5.2.0
 mimesis==5.2.1
+more-itertools==9.0.0

@@ -42,14 +42,15 @@ class ExceptionContext(TypedDict):
     request: HttpRequest
 
 
-def exception_reporting(exception: Exception, context: ExceptionContext) -> None:
+def exception_reporting(exception: Exception, context: ExceptionContext) -> Optional[str]:
     """
     Determines which exceptions to report and sends them to Sentry.
     Used through drf-exceptions-hog
     """
     if not isinstance(exception, APIException):
         logger.exception(exception, path=context["request"].path)
-        capture_exception(exception)
+        return capture_exception(exception)
+    return None
 
 
 def generate_exception_response(

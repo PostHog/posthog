@@ -261,6 +261,8 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        queryset = queryset.select_related("organization")
+
         if self.action == "get" or self.action == "list":
             if can_install_plugins(self.organization) or can_configure_plugins(self.organization):
                 return queryset
@@ -702,7 +704,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:
     # A set of keys for config fields that have secret = true
-    secret_fields = set([field["key"] for field in plugin.config_schema if "secret" in field and field["secret"]])
+    secret_fields = {field["key"] for field in plugin.config_schema if "secret" in field and field["secret"]}
     return secret_fields
 
 

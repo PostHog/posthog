@@ -24,21 +24,27 @@
         cursor: not-allowed;
     }
 
+    .LemonButton__content {
+        flex: 1;
+        line-height: initial;
+    }
+
     &.LemonButton--full-width {
         width: 100%;
         padding-left: 0.5rem;
         padding-right: 0.5rem;
-    }
+        overflow: hidden;
 
-    .LemonButton__content {
-        flex: 1;
-        line-height: initial;
+        .LemonButton__content {
+            overflow: hidden;
+        }
     }
 
     &.LemonButton--centered {
         justify-content: center;
         .LemonButton__content {
             flex: initial;
+            text-align: center;
         }
     }
 
@@ -139,7 +145,7 @@
         }
     }
 
-    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted') {
+    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted', 'muted-alt') {
         &.LemonButton--status-#{$status} {
             color: var(--#{$status}, var(--primary));
 
@@ -149,7 +155,7 @@
             }
             &:not(:disabled):active {
                 color: var(--#{$status}-dark, var(--primary-dark));
-                .LemonIcon {
+                .LemonButton__icon {
                     color: var(--#{$status}-dark, var(--primary-dark));
                 }
             }

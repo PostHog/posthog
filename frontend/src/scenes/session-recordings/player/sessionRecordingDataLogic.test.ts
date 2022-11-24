@@ -46,7 +46,7 @@ describe('sessionRecordingDataLogic', () => {
                 sessionRecordingId: null,
                 sessionPlayerData: {
                     bufferedTo: null,
-                    metadata: { recordingDurationMs: 0, segments: [], startAndEndTimesByWindowId: {} },
+                    metadata: { recordingDurationMs: 0, segments: [], playlists: [], startAndEndTimesByWindowId: {} },
                     next: undefined,
                     person: null,
                     snapshotsByWindowId: {},
@@ -96,7 +96,12 @@ describe('sessionRecordingDataLogic', () => {
                 .toMatchValues({
                     sessionPlayerData: {
                         bufferedTo: null,
-                        metadata: { recordingDurationMs: 0, segments: [], startAndEndTimesByWindowId: {} },
+                        metadata: {
+                            recordingDurationMs: 0,
+                            segments: [],
+                            playlists: [],
+                            startAndEndTimesByWindowId: {},
+                        },
                         next: undefined,
                         person: null,
                         snapshotsByWindowId: recordingSnapshotsJson.snapshot_data_by_window_id,

@@ -10,7 +10,6 @@ import {
     EventType,
     ExportedAssetType,
     FeatureFlagType,
-    FilterType,
     InsightModel,
     IntegrationType,
     LicenseType,
@@ -28,6 +27,14 @@ import {
     MediaUploadResponse,
     SessionRecordingsResponse,
     SessionRecordingPropertiesType,
+    EventsListQueryParams,
+    SessionRecordingPlaylistType,
+    RoleType,
+    RoleMemberType,
+    OrganizationResourcePermissionType,
+    RolesListParams,
+    FeatureFlagAssociatedRoleType,
+    SessionRecordingType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -38,6 +45,8 @@ import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventD
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
+import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { UpdatedRecordingResponse } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -50,6 +59,10 @@ export interface PaginatedResponse<T> {
 
 export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
     total_count: number
+}
+
+export interface ApiMethodOptions {
+    signal?: AbortSignal
 }
 
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
@@ -69,7 +82,7 @@ export function getCookie(name: string): string | null {
     return cookieValue
 }
 
-async function getJSONOrThrow(response: Response): Promise<any> {
+export async function getJSONOrThrow(response: Response): Promise<any> {
     try {
         return await response.json()
     } catch (e) {
@@ -132,6 +145,14 @@ class ApiRequest {
 
     public organizationsDetail(id: OrganizationType['id'] = getCurrentOrganizationId()): ApiRequest {
         return this.organizations().addPathComponent(id)
+    }
+
+    public organizationResourceAccess(): ApiRequest {
+        return this.organizations().current().addPathComponent('resource_access')
+    }
+
+    public organizationResourceAccessDetail(id: OrganizationResourcePermissionType['id']): ApiRequest {
+        return this.organizationResourceAccess().addPathComponent(id)
     }
 
     // # Projects
@@ -240,8 +261,22 @@ class ApiRequest {
     }
 
     // Recordings
+    public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('session_recordings').addPathComponent(recordingId)
+    }
     public recordings(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('session_recordings')
+    }
+    public recordingPlaylists(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('session_recording_playlists')
+    }
+    public recordingPlaylist(
+        playlistId?: SessionRecordingPlaylistType['short_id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('session_recording_playlists')
+            .addPathComponent(String(playlistId))
     }
 
     // # Dashboards
@@ -267,6 +302,24 @@ class ApiRequest {
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
+    }
+
+    // # Roles
+
+    public roles(): ApiRequest {
+        return this.organizations().current().addPathComponent('roles')
+    }
+
+    public rolesDetail(roleId: RoleType['id']): ApiRequest {
+        return this.roles().addPathComponent(roleId)
+    }
+
+    public roleMemberships(roleId: RoleType['id']): ApiRequest {
+        return this.rolesDetail(roleId).addPathComponent('role_memberships')
+    }
+
+    public roleMembershipsDetail(roleId: RoleType['id'], userUuid: UserType['uuid']): ApiRequest {
+        return this.roleMemberships(roleId).addPathComponent(userUuid)
     }
 
     // # Persons
@@ -348,14 +401,27 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
     }
 
-    // Request finalization
+    // Resource Access Permissions
 
-    public async get(options?: { signal?: AbortSignal }): Promise<any> {
-        return await api.get(this.assembleFullUrl(), options?.signal)
+    public featureFlagAccessPermissions(flagId: FeatureFlagType['id']): ApiRequest {
+        return this.featureFlag(flagId, getCurrentTeamId()).addPathComponent('role_access')
     }
 
-    public async getRaw(options?: { signal?: AbortSignal }): Promise<Response> {
-        return await api.getRaw(this.assembleFullUrl(), options?.signal)
+    public featureFlagAccessPermissionsDetail(
+        flagId: FeatureFlagType['id'],
+        id: FeatureFlagAssociatedRoleType['id']
+    ): ApiRequest {
+        return this.featureFlagAccessPermissions(flagId).addPathComponent(id)
+    }
+
+    // Request finalization
+
+    public async get(options?: ApiMethodOptions): Promise<any> {
+        return await api.get(this.assembleFullUrl(), options)
+    }
+
+    public async getResponse(options?: ApiMethodOptions): Promise<Response> {
+        return await api.getResponse(this.assembleFullUrl(), options)
     }
 
     public async update(options?: { data: any }): Promise<any> {
@@ -492,19 +558,19 @@ const api = {
             return await apiRequest.get()
         },
         async list(
-            filters: Partial<FilterType>,
+            filters: EventsListQueryParams,
             limit: number = 10,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): Promise<PaginatedResponse<EventType[]>> {
-            const params: Record<string, any> = { ...filters, limit, orderBy: ['-timestamp'] }
+            const params: EventsListQueryParams = { ...filters, limit, orderBy: ['-timestamp'] }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).get()
         },
         determineListEndpoint(
-            filters: Partial<FilterType>,
+            filters: EventsListQueryParams,
             limit: number = 10,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): string {
-            const params: Record<string, any> = { ...filters, limit, orderBy: ['-timestamp'] }
+            const params: EventsListQueryParams = { ...filters, limit, orderBy: ['-timestamp'] }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).assembleFullUrl()
         },
     },
@@ -680,6 +746,72 @@ const api = {
         },
     },
 
+    resourceAccessPermissions: {
+        featureFlags: {
+            async create(featureFlagId: number, roleId: RoleType['id']): Promise<FeatureFlagAssociatedRoleType> {
+                return await new ApiRequest().featureFlagAccessPermissions(featureFlagId).create({
+                    data: {
+                        role_id: roleId,
+                    },
+                })
+            },
+            async list(featureFlagId: number): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
+                return await new ApiRequest().featureFlagAccessPermissions(featureFlagId).get()
+            },
+
+            async delete(
+                featureFlagId: number,
+                id: FeatureFlagAssociatedRoleType['id']
+            ): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
+                return await new ApiRequest().featureFlagAccessPermissionsDetail(featureFlagId, id).delete()
+            },
+        },
+    },
+
+    roles: {
+        async get(roleId: RoleType['id']): Promise<RoleType> {
+            return await new ApiRequest().rolesDetail(roleId).get()
+        },
+        async list(params: RolesListParams = {}): Promise<PaginatedResponse<RoleType>> {
+            return await new ApiRequest().roles().withQueryString(toParams(params)).get()
+        },
+        async delete(roleId: RoleType['id']): Promise<void> {
+            return await new ApiRequest().rolesDetail(roleId).delete()
+        },
+        async create(
+            roleName: RoleType['name'],
+            featureFlagAccessLevel: RoleType['feature_flags_access_level']
+        ): Promise<RoleType> {
+            return await new ApiRequest().roles().create({
+                data: {
+                    name: roleName,
+                    feature_flags_access_level: featureFlagAccessLevel,
+                },
+            })
+        },
+        async update(roleId: RoleType['id'], roleData: Partial<RoleType>): Promise<ActionType> {
+            return await new ApiRequest().rolesDetail(roleId).update({ data: roleData })
+        },
+        members: {
+            async list(roleId: RoleType['id']): Promise<PaginatedResponse<RoleMemberType>> {
+                return await new ApiRequest().roleMemberships(roleId).get()
+            },
+            async create(roleId: RoleType['id'], userUuid: UserType['uuid']): Promise<RoleMemberType> {
+                return await new ApiRequest().roleMemberships(roleId).create({
+                    data: {
+                        user_uuid: userUuid,
+                    },
+                })
+            },
+            async get(roleId: RoleType['id'], userUuid: UserType['uuid']): Promise<void> {
+                return await new ApiRequest().roleMembershipsDetail(roleId, userUuid).get()
+            },
+            async delete(roleId: RoleType['id'], userUuid: UserType['uuid']): Promise<void> {
+                return await new ApiRequest().roleMembershipsDetail(roleId, userUuid).delete()
+            },
+        },
+    },
+
     persons: {
         async getProperties(): Promise<PersonProperty[]> {
             return new ApiRequest().persons().withAction('properties').get()
@@ -825,6 +957,28 @@ const api = {
         async listProperties(params: string): Promise<PaginatedResponse<SessionRecordingPropertiesType>> {
             return await new ApiRequest().recordings().withAction('properties').withQueryString(params).get()
         },
+        async updateRecording(
+            recordingId: SessionRecordingType['id'],
+            recording: Partial<SessionRecordingType>,
+            params?: string
+        ): Promise<UpdatedRecordingResponse> {
+            return await new ApiRequest().recording(recordingId).withQueryString(params).update({ data: recording })
+        },
+        async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {
+            return await new ApiRequest().recordingPlaylists().withQueryString(params).get()
+        },
+        async getPlaylist(playlistId: SessionRecordingPlaylistType['short_id']): Promise<SessionRecordingPlaylistType> {
+            return await new ApiRequest().recordingPlaylist(playlistId).get()
+        },
+        async createPlaylist(playlist: Partial<SessionRecordingPlaylistType>): Promise<SessionRecordingPlaylistType> {
+            return await new ApiRequest().recordingPlaylists().create({ data: playlist })
+        },
+        async updatePlaylist(
+            playlistId: SessionRecordingPlaylistType['short_id'],
+            playlist: Partial<SessionRecordingPlaylistType>
+        ): Promise<SessionRecordingPlaylistType> {
+            return await new ApiRequest().recordingPlaylist(playlistId).update({ data: playlist })
+        },
     },
 
     subscriptions: {
@@ -875,24 +1029,41 @@ const api = {
         },
     },
 
+    resourcePermissions: {
+        async list(): Promise<PaginatedResponse<OrganizationResourcePermissionType>> {
+            return await new ApiRequest().organizationResourceAccess().get()
+        },
+        async create(data: Partial<OrganizationResourcePermissionType>): Promise<OrganizationResourcePermissionType> {
+            return await new ApiRequest().organizationResourceAccess().create({ data })
+        },
+        async update(
+            resourceId: OrganizationResourcePermissionType['id'],
+            data: Partial<OrganizationResourcePermissionType>
+        ): Promise<OrganizationResourcePermissionType> {
+            return await new ApiRequest().organizationResourceAccessDetail(resourceId).update({
+                data,
+            })
+        },
+    },
+
     media: {
         async upload(data: FormData): Promise<MediaUploadResponse> {
             return await new ApiRequest().media().create({ data })
         },
     },
 
-    async get(url: string, signal?: AbortSignal): Promise<any> {
-        const res = await api.getRaw(url, signal)
+    async get(url: string, options?: ApiMethodOptions): Promise<any> {
+        const res = await api.getResponse(url, options)
         return await getJSONOrThrow(res)
     },
 
-    async getRaw(url: string, signal?: AbortSignal): Promise<Response> {
+    async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         let response
         const startTime = new Date().getTime()
         try {
-            response = await fetch(url, { signal })
+            response = await fetch(url, { signal: options?.signal })
         } catch (e) {
             throw { status: 0, message: e }
         }
@@ -905,7 +1076,7 @@ const api = {
         return response
     },
 
-    async update(url: string, data: any): Promise<any> {
+    async update(url: string, data: any, options?: ApiMethodOptions): Promise<any> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
@@ -917,6 +1088,7 @@ const api = {
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: isFormData ? data : JSON.stringify(data),
+            signal: options?.signal,
         })
 
         if (!response.ok) {
@@ -930,7 +1102,12 @@ const api = {
         return await getJSONOrThrow(response)
     },
 
-    async create(url: string, data?: any, signal?: AbortSignal): Promise<any> {
+    async create(url: string, data?: any, options?: ApiMethodOptions): Promise<any> {
+        const res = await api.createResponse(url, data, options)
+        return await getJSONOrThrow(res)
+    },
+
+    async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
@@ -942,7 +1119,7 @@ const api = {
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
-            signal,
+            signal: options?.signal,
         })
 
         if (!response.ok) {
@@ -953,7 +1130,7 @@ const api = {
             }
             throw { status: response.status, ...jsonData }
         }
-        return await getJSONOrThrow(response)
+        return response
     },
 
     async delete(url: string): Promise<any> {

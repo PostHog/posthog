@@ -10,6 +10,7 @@ import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/components/Tooltip'
 import { IconCalculate } from 'lib/components/icons'
+import { isFilterWithDisplay, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))
@@ -23,11 +24,11 @@ export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
-        ...(filters.insight === InsightType.TRENDS ? [TaxonomicFilterGroupType.Sessions] : []),
+        ...(isTrendsFilter(filters) ? [TaxonomicFilterGroupType.Sessions] : []),
     ]
     return (
         <>
-            {filters.insight === InsightType.LIFECYCLE && (
+            {isLifecycleFilter(filters) && (
                 <div className="mb-2">
                     Showing <b>Unique users</b> who did
                 </div>
@@ -40,15 +41,18 @@ export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
                 showSeriesIndicator
                 showNestedArrow
                 entitiesLimit={
-                    filters.insight === InsightType.LIFECYCLE ||
-                    (filters.display && SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) && !isFormulaOn)
+                    (isFilterWithDisplay(filters) &&
+                        filters.display &&
+                        SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) &&
+                        !isFormulaOn) ||
+                    isLifecycleFilter(filters)
                         ? 1
                         : alphabet.length
                 }
                 mathAvailability={
-                    filters.insight === InsightType.LIFECYCLE
+                    isLifecycleFilter(filters)
                         ? MathAvailability.None
-                        : filters.insight === InsightType.STICKINESS
+                        : isStickinessFilter(filters)
                         ? MathAvailability.ActorsOnly
                         : MathAvailability.All
                 }
@@ -64,6 +68,7 @@ export function TrendsSeriesLabel({ insightProps }: EditorFilterProps): JSX.Elem
 
     const formulaModeButtonDisabled: boolean =
         isFormulaOn &&
+        isTrendsFilter(filters) &&
         !!filters.display &&
         SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) &&
         localFilters.length > 1

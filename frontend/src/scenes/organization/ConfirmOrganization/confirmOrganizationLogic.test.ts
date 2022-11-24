@@ -18,6 +18,7 @@ describe('confirmOrganizationLogic', () => {
                 email: 'spike@spike.com',
                 first_name: 'Spike',
                 organization_name: 'Spikes Inc',
+                role_at_organization: 'engineering',
             })
 
             expectLogic(logic)
@@ -26,6 +27,7 @@ describe('confirmOrganizationLogic', () => {
                     confirmOrganization: {
                         first_name: 'Spike',
                         organization_name: 'Spikes Inc',
+                        role_at_organization: 'engineering',
                     },
                     email: 'spike@spike.com',
                 })
@@ -33,13 +35,14 @@ describe('confirmOrganizationLogic', () => {
     })
 
     describe('form', () => {
-        it('requires org name and first name to be set', async () => {
+        it('requires org name, first name, and role to be set', async () => {
             await expectLogic(logic, () => {
                 logic.actions.submitConfirmOrganization()
             }).toMatchValues({
                 confirmOrganizationValidationErrors: {
                     first_name: 'Please enter your name',
                     organization_name: 'Please enter your organization name',
+                    role_at_organization: 'Please enter your role',
                 },
             })
         })

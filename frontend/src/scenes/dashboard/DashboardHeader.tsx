@@ -14,7 +14,7 @@ import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { userLogic } from 'scenes/userLogic'
-import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
+import { privilegeLevelToName } from 'lib/constants'
 import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/components/icons'
@@ -24,9 +24,12 @@ import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscription
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { isLemonSelectSection } from 'lib/components/LemonSelect'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
+import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
+import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
+import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
+import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 
 export function DashboardHeader(): JSX.Element | null {
     const {
@@ -42,15 +45,14 @@ export function DashboardHeader(): JSX.Element | null {
     } = useValues(dashboardLogic)
     const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
-    const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } =
-        useActions(dashboardsModel)
+    const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
 
     const { hasAvailableFeature } = useValues(userLogic)
 
-    const { push } = useActions(router)
+    const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
+    const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showTextCards = featureFlags[FEATURE_FLAGS.TEXT_CARDS]
+    const { push } = useActions(router)
 
     return dashboard || dashboardLoading ? (
         <>
@@ -70,7 +72,7 @@ export function DashboardHeader(): JSX.Element | null {
                         closeModal={() => push(urls.dashboard(dashboard.id))}
                         dashboardId={dashboard.id}
                     />
-                    {showTextCards && (
+                    {canEditDashboard && (
                         <TextCardModal
                             isOpen={showTextTileModal}
                             onClose={() => push(urls.dashboard(dashboard.id))}
@@ -78,6 +80,8 @@ export function DashboardHeader(): JSX.Element | null {
                             textTileId={textTileId}
                         />
                     )}
+                    {canEditDashboard && <DeleteDashboardModal />}
+                    {canEditDashboard && <DuplicateDashboardModal />}
                 </>
             )}
 
@@ -218,13 +222,9 @@ export function DashboardHeader(): JSX.Element | null {
                                             />
                                             <LemonDivider />
                                             <LemonButton
-                                                onClick={() =>
-                                                    duplicateDashboard({
-                                                        id: dashboard.id,
-                                                        name: dashboard.name,
-                                                        show: true,
-                                                    })
-                                                }
+                                                onClick={() => {
+                                                    showDuplicateDashboardModal(dashboard.id, dashboard.name)
+                                                }}
                                                 status="stealth"
                                                 fullWidth
                                             >
@@ -232,9 +232,9 @@ export function DashboardHeader(): JSX.Element | null {
                                             </LemonButton>
                                             {canEditDashboard && (
                                                 <LemonButton
-                                                    onClick={() =>
-                                                        deleteDashboard({ id: dashboard.id, redirect: true })
-                                                    }
+                                                    onClick={() => {
+                                                        showDeleteDashboardModal(dashboard.id)
+                                                    }}
                                                     status="danger"
                                                     fullWidth
                                                 >
@@ -261,53 +261,37 @@ export function DashboardHeader(): JSX.Element | null {
                                     </LemonButton>
                                 </>
                             )}
-                            {dashboard && canEditDashboard ? (
-                                showTextCards && hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) ? (
-                                    <LemonButtonWithSideAction
-                                        to={urls.insightNew(undefined, dashboard.id)}
-                                        type="primary"
-                                        data-attr="dashboard-add-graph-header"
-                                        sideAction={{
-                                            popup: {
-                                                placement: 'bottom-end',
-                                                overlay: (
-                                                    <>
-                                                        {showTextCards &&
-                                                            hasAvailableFeature(
-                                                                AvailableFeature.DASHBOARD_COLLABORATION
-                                                            ) && (
-                                                                <LemonButton
-                                                                    status="stealth"
-                                                                    fullWidth
-                                                                    onClick={() => {
-                                                                        push(
-                                                                            urls.dashboardTextTile(dashboard.id, 'new')
-                                                                        )
-                                                                    }}
-                                                                    data-attr="add-text-tile-to-dashboard"
-                                                                >
-                                                                    Add text card &nbsp;
-                                                                    <LemonTag type="warning">BETA</LemonTag>
-                                                                </LemonButton>
-                                                            )}
-                                                    </>
-                                                ),
-                                            },
-                                            disabled: false,
-                                            'data-attr': 'dashboard-add-dropdown',
-                                        }}
-                                    >
-                                        Add insight
-                                    </LemonButtonWithSideAction>
-                                ) : (
-                                    <LemonButton
-                                        to={urls.insightNew(undefined, dashboard?.id)}
-                                        type="primary"
-                                        data-attr="dashboard-add-graph-header"
-                                    >
-                                        Add insight
-                                    </LemonButton>
-                                )
+                            {dashboard ? (
+                                <LemonButtonWithSideAction
+                                    to={urls.insightNew(undefined, dashboard.id)}
+                                    type="primary"
+                                    data-attr="dashboard-add-graph-header"
+                                    disabled={!canEditDashboard}
+                                    sideAction={{
+                                        popup: {
+                                            placement: 'bottom-end',
+                                            overlay: (
+                                                <>
+                                                    <LemonButton
+                                                        status="stealth"
+                                                        fullWidth
+                                                        onClick={() => {
+                                                            push(urls.dashboardTextTile(dashboard.id, 'new'))
+                                                        }}
+                                                        data-attr="add-text-tile-to-dashboard"
+                                                    >
+                                                        Add text card &nbsp;
+                                                        <LemonTag type="warning">BETA</LemonTag>
+                                                    </LemonButton>
+                                                </>
+                                            ),
+                                        },
+                                        disabled: false,
+                                        'data-attr': 'dashboard-add-dropdown',
+                                    }}
+                                >
+                                    Add insight
+                                </LemonButtonWithSideAction>
                             ) : null}
                         </>
                     )

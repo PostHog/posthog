@@ -13,8 +13,8 @@ import { FunnelStepsPicker } from 'scenes/insights/views/Funnels/FunnelStepsPick
 import React from 'react'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
-    const { insightProps, filters, activeView } = useValues(insightLogic)
-    const { conversionMetrics, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
+    const { insightProps, activeView } = useValues(insightLogic)
+    const { conversionMetrics, filters, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
     const { setChartFilter } = useActions(chartFilterLogic(insightProps))
 
     if (activeView !== InsightType.FUNNELS) {
