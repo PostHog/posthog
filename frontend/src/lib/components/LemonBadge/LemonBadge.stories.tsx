@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { LemonBadge, LemonBadgeProps } from './LemonBadge'
+import { LemonBadge, LemonBadgeNumberProps } from './LemonBadge'
 import { LemonButton } from '../LemonButton'
 
 export default {
@@ -9,16 +9,16 @@ export default {
     parameters: {
         chromatic: { disableSnapshot: false },
     },
-} as ComponentMeta<typeof LemonBadge>
+} as ComponentMeta<typeof LemonBadge.Number>
 
-const Template: ComponentStory<typeof LemonBadge> = ({ count, ...props }: LemonBadgeProps) => {
+const Template: ComponentStory<typeof LemonBadge.Number> = ({ count, ...props }: LemonBadgeNumberProps) => {
     const [countOverride, setCount] = useState(count as number)
 
     return (
         <>
             <div className="flex items-center min-h-6">
                 <div>Count: </div>
-                <LemonBadge count={countOverride} {...props} />
+                <LemonBadge.Number count={countOverride} {...props} />
             </div>
             <br />
             <div className="flex space-x-1">
@@ -42,54 +42,54 @@ MultipleDigits.args = { count: 975, maxDigits: 3 }
 export const ShowZero = Template.bind({})
 ShowZero.args = { count: 0, showZero: true }
 
-export const Positioning: ComponentStory<typeof LemonBadge> = () => {
+export const Positioning: ComponentStory<typeof LemonBadge.Number> = () => {
     return (
         <div className="space-y-4">
             <LemonButton type="secondary">
                 top-right
-                <LemonBadge count={4} position="top-right" />
+                <LemonBadge.Number count={4} position="top-right" />
             </LemonButton>
 
             <LemonButton type="secondary">
                 top-left
-                <LemonBadge count={4} position="top-left" />
+                <LemonBadge.Number count={4} position="top-left" />
             </LemonButton>
 
             <LemonButton type="secondary">
                 bottom-right
-                <LemonBadge count={4} position="bottom-right" />
+                <LemonBadge.Number count={4} position="bottom-right" />
             </LemonButton>
 
             <LemonButton type="secondary">
                 bottom-left
-                <LemonBadge count={4} position="bottom-left" />
+                <LemonBadge.Number count={4} position="bottom-left" />
             </LemonButton>
         </div>
     )
 }
 
-export const Sizes: ComponentStory<typeof LemonBadge> = () => {
+export const Sizes: ComponentStory<typeof LemonBadge.Number> = () => {
     return (
         <div className="flex space-x-2 items-center">
             <span>small:</span>
-            <LemonBadge count={4} size="small" />
+            <LemonBadge.Number count={4} size="small" />
             <span>medium:</span>
-            <LemonBadge count={4} size="medium" />
+            <LemonBadge.Number count={4} size="medium" />
             <span>large:</span>
-            <LemonBadge count={4} size="large" />
+            <LemonBadge.Number count={4} size="large" />
         </div>
     )
 }
 
-export const Status: ComponentStory<typeof LemonBadge> = () => {
+export const Status: ComponentStory<typeof LemonBadge.Number> = () => {
     return (
         <div className="flex space-x-2 items-center">
             <span>primary:</span>
-            <LemonBadge count={4} status="primary" />
+            <LemonBadge.Number count={4} status="primary" />
             <span>danger:</span>
-            <LemonBadge count={4} status="danger" />
+            <LemonBadge.Number count={4} status="danger" />
             <span>muted:</span>
-            <LemonBadge count={4} status="muted" />
+            <LemonBadge.Number count={4} status="muted" />
         </div>
     )
 }
