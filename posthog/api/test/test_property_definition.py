@@ -3,9 +3,8 @@ from typing import Dict, List, Optional, Union
 
 from rest_framework import status
 
-from posthog.constants import AvailableFeature
 from posthog.demo import create_demo_team
-from posthog.models import EventProperty, Organization, PropertyDefinition, Tag, TaggedItem, Team
+from posthog.models import EventProperty, Organization, PropertyDefinition, Team
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
 
@@ -189,27 +188,3 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["name"], "plan")
-
-    def test_get_all_tags(self):
-        self.organization.available_features = [AvailableFeature.TAGGING]
-        self.organization.save()
-
-        org = Organization.objects.create(name="Separate Org")
-        other_team = Team.objects.create(organization=org, name="Default Project")
-
-        other_team_property_definition = PropertyDefinition.objects.create(team=other_team, name="should_be_invisible")
-        add_tags_to_property_definition(other_team_property_definition, ["should_be_invisible"], other_team.pk)
-
-        for prop, tags in [("a", ["analytics"]), ("b", ["app tracking", "marketing"])]:
-            add_tags_to_property_definition(
-                PropertyDefinition.objects.create(team=self.demo_team, name=prop), tags, self.demo_team.pk
-            )
-
-        response = self.client.get(f"/api/projects/{self.demo_team.pk}/property_definitions/tags")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), ["analytics", "app tracking", "marketing"])
-
-
-def add_tags_to_property_definition(definition: PropertyDefinition, tags: List[str], team_id: int) -> None:
-    for tag in tags:
-        TaggedItem.objects.create(property_definition=definition, tag=Tag.objects.create(name=tag, team_id=team_id))

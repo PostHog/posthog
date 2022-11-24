@@ -221,13 +221,13 @@ class ApiRequest {
         return this.events(teamId).addPathComponent(id)
     }
 
+    public tags(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('tags')
+    }
+
     // # Data management
     public eventDefinitions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('event_definitions')
-    }
-
-    public eventDefinitionsTags(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('event_definitions').addPathComponent('tags')
     }
 
     public eventDefinitionDetail(eventDefinitionId: EventDefinition['id'], teamId?: TeamType['id']): ApiRequest {
@@ -236,10 +236,6 @@ class ApiRequest {
 
     public propertyDefinitions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('property_definitions')
-    }
-
-    public propertyDefinitionsTags(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('property_definitions').addPathComponent('tags')
     }
 
     public propertyDefinitionDetail(
@@ -575,6 +571,12 @@ const api = {
         },
     },
 
+    tags: {
+        async list(teamId: TeamType['id'] = getCurrentTeamId()): Promise<string[]> {
+            return new ApiRequest().tags(teamId).get()
+        },
+    },
+
     eventDefinitions: {
         async get({ eventDefinitionId }: { eventDefinitionId: EventDefinition['id'] }): Promise<EventDefinition> {
             return new ApiRequest().eventDefinitionDetail(eventDefinitionId).get()
@@ -602,9 +604,6 @@ const api = {
                 .eventDefinitions(teamId)
                 .withQueryString(toParams({ limit, ...params }))
                 .get()
-        },
-        async list_tags(teamId: TeamType['id'] = getCurrentTeamId()): Promise<string[]> {
-            return new ApiRequest().eventDefinitionsTags(teamId).get()
         },
         determineListEndpoint({
             limit = EVENT_DEFINITIONS_PER_PAGE,
@@ -665,9 +664,6 @@ const api = {
                     })
                 )
                 .get()
-        },
-        async list_tags(teamId: TeamType['id'] = getCurrentTeamId()): Promise<string[]> {
-            return new ApiRequest().propertyDefinitionsTags(teamId).get()
         },
         determineListEndpoint({
             limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,

@@ -11,8 +11,7 @@ from rest_framework import status
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.constants import AvailableFeature
-from posthog.models import Action, EventDefinition, Organization, Tag, TaggedItem, Team
+from posthog.models import Action, EventDefinition, Organization, Team
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
 
@@ -23,12 +22,12 @@ class TestEventDefinitionAPI(APIBaseTest):
     demo_team: Team = None  # type: ignore
 
     EXPECTED_EVENT_DEFINITIONS: List[Dict[str, Any]] = [
-        {"name": "installed_app", "volume_30_day": 1, "query_usage_30_day": None, "tags": ["app tracking"]},
-        {"name": "rated_app", "volume_30_day": 2, "query_usage_30_day": None, "tags": ["marketing"]},
-        {"name": "purchase", "volume_30_day": 3, "query_usage_30_day": None, "tags": []},
-        {"name": "entered_free_trial", "volume_30_day": 7, "query_usage_30_day": None, "tags": []},
-        {"name": "watched_movie", "volume_30_day": 8, "query_usage_30_day": None, "tags": []},
-        {"name": "$pageview", "volume_30_day": 9, "query_usage_30_day": None, "tags": ["analytics"]},
+        {"name": "installed_app", "volume_30_day": 1, "query_usage_30_day": None},
+        {"name": "rated_app", "volume_30_day": 2, "query_usage_30_day": None},
+        {"name": "purchase", "volume_30_day": 3, "query_usage_30_day": None},
+        {"name": "entered_free_trial", "volume_30_day": 7, "query_usage_30_day": None},
+        {"name": "watched_movie", "volume_30_day": 8, "query_usage_30_day": None},
+        {"name": "$pageview", "volume_30_day": 9, "query_usage_30_day": None},
     ]
 
     @classmethod
@@ -171,20 +170,6 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["name"], "$pageview")
 
-    def test_get_all_tags(self):
-        self.organization.available_features = [AvailableFeature.TAGGING]
-        self.organization.save()
-
-        org = Organization.objects.create(name="Separate Org")
-        other_team = Team.objects.create(organization=org, name="Default Project")
-
-        other_team_event_definition = EventDefinition.objects.create(team=other_team, name="should_be_invisible")
-        add_tags_to_event_definition(other_team_event_definition, ["should_be_invisible"], other_team.pk)
-
-        response = self.client.get(f"/api/projects/{self.demo_team.pk}/event_definitions/tags")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), ["analytics", "app tracking", "marketing"])
-
 
 @dataclasses.dataclass
 class EventData:
@@ -224,11 +209,5 @@ def create_event_definitions(event_definition: Dict, team_id: int) -> EventDefin
     Create event definition for a team.
     """
     created_definition = EventDefinition.objects.create(name=event_definition["name"], team_id=team_id)
-    add_tags_to_event_definition(created_definition, event_definition.get("tags", []), team_id)
 
     return created_definition
-
-
-def add_tags_to_event_definition(event_definition: EventDefinition, tags: List[str], team_id: int) -> None:
-    for tag in tags:
-        TaggedItem.objects.create(event_definition=event_definition, tag=Tag.objects.create(name=tag, team_id=team_id))

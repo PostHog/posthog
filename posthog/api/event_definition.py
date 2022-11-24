@@ -1,8 +1,7 @@
 from typing import Type
 
 from django.db.models import Prefetch
-from rest_framework import mixins, permissions, request, response, serializers, status, viewsets
-from rest_framework.decorators import action
+from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -122,14 +121,3 @@ class EventDefinitionViewSet(
 
             serializer_class = EnterpriseEventDefinitionSerializer  # type: ignore
         return serializer_class
-
-    @action(methods=["GET"], detail=False)
-    def tags(self, request: request.Request, **kwargs) -> response.Response:
-        if not self.is_licensed():
-            return response.Response([], status=status.HTTP_402_PAYMENT_REQUIRED)
-
-        return response.Response(
-            TaggedItem.objects.filter(tag__team=self.team, event_definition__isnull=False)
-            .values_list("tag__name", flat=True)
-            .distinct()
-        )
