@@ -1134,6 +1134,7 @@
             "enum": [
                 "ActionsLineGraph",
                 "ActionsLineGraphCumulative",
+                "ActionsAreaGraph",
                 "ActionsTable",
                 "ActionsPie",
                 "ActionsBar",
