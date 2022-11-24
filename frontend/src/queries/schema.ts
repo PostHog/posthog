@@ -34,6 +34,10 @@ export interface EventsNode extends DataNode {
     event?: string
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     limit?: number
+    /** Only fetch events that happened before this timestamp */
+    before?: string
+    /** Only fetch events that happened after this timestamp */
+    after?: string
     response?: {
         results: EventType[]
         next?: string

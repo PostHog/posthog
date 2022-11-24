@@ -1,6 +1,6 @@
 import { DataTableColumn, DataTableNode, DataTableStringColumn, EventsNode } from '~/queries/schema'
 import { useState } from 'react'
-import { useValues, BindLogic } from 'kea'
+import { useValues, BindLogic, useActions } from 'kea'
 import { dataNodeLogic } from '~/queries/nodes/dataNodeLogic'
 import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import { EventType, PropertyFilterType } from '~/types'
@@ -17,6 +17,7 @@ import { EventDetails } from 'scenes/events'
 import { EventActions } from '~/queries/nodes/DataTable/EventActions'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
 import { ReloadQuery } from '~/queries/nodes/DataTable/ReloadQuery'
+import { LemonButton } from 'lib/components/LemonButton'
 
 interface DataTableProps {
     query: DataTableNode
@@ -102,7 +103,8 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     const [id] = useState(() => uniqueNode++)
     const dataNodeLogicProps = { query: query.source, key: `DataTable.${id}` }
     const logic = dataNodeLogic(dataNodeLogicProps)
-    const { response, responseLoading } = useValues(logic)
+    const { response, responseLoading, canLoadNextData } = useValues(logic)
+    const { loadNextData } = useActions(logic)
     const rows = (response as null | EventsNode['response'])?.results ?? []
     const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = columns.map(({ type, key }) => ({
         dataIndex: `${type}.${key}` as any,
@@ -155,6 +157,11 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
                         : undefined
                 }
             />
+            {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && (
+                <LemonButton type="primary" onClick={loadNextData} loading={responseLoading} className="my-8 mx-auto">
+                    Load more events
+                </LemonButton>
+            )}
         </BindLogic>
     )
 }
