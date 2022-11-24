@@ -205,7 +205,6 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
-    teamIdsToBufferAnonymousEventsFor: Set<number>
 }
 
 export interface PluginServerCapabilities {

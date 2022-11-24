@@ -298,10 +298,6 @@ export async function createHub(
     hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
     hub.appMetrics = new AppMetrics(hub as Hub)
 
-    hub.teamIdsToBufferAnonymousEventsFor = hub.ANONYMOUS_EVENTS_BUFFER_ENABLED_TEAMS
-        ? new Set(hub.ANONYMOUS_EVENTS_BUFFER_ENABLED_TEAMS?.split(',').map(Number))
-        : new Set()
-
     if (serverConfig.CAPTURE_INTERNAL_METRICS) {
         hub.internalMetrics = new InternalMetrics(hub as Hub)
     }
