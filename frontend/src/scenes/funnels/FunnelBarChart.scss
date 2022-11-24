@@ -112,6 +112,9 @@
     width: 100%;
     border-radius: var(--radius);
     cursor: pointer;
+    .InsightCard & {
+        cursor: default;
+    }
 }
 
 .StepBar__backdrop {
