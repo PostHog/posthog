@@ -8,10 +8,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.dashboard import DashboardSerializer
 from posthog.async_migrations.status import async_migrations_ok
 from posthog.gitsha import GIT_SHA
-from posthog.internal_metrics.team import get_internal_metrics_dashboards
 from posthog.permissions import OrganizationAdminAnyPermissions, SingleTenancyOrAdmin
 from posthog.storage import object_storage
 from posthog.utils import (
@@ -140,15 +138,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                 {"key": "object_storage", "metric": "Object Storage healthy", "value": object_storage.health_check()}
             )
 
-        # NOTE: This is hacky but needed for the dashboard serializer
-        self.action = "retrieve"
-        dashboard_context = {"view": self, "request": request}
-        dashboards = get_internal_metrics_dashboards()
-        dashboards_serialized = {
-            key: DashboardSerializer(dashboards[key], context=dashboard_context).data for key in dashboards
-        }
-
-        return Response({"results": {"overview": metrics, "internal_metrics": dashboards_serialized}})
+        return Response({"results": {"overview": metrics}})
 
     # Used to capture internal metrics shown on dashboards
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
