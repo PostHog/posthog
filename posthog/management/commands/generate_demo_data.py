@@ -76,12 +76,12 @@ class Command(BaseCommand):
                 print(
                     "Master project reset!"
                     if options["reset_master"]
-                    else "\nDemo data ready!\n\n"
-                    "If running DEMO mode locally, log in instantly with this link:\n"
-                    f"http://localhost:8000/signup?email={email}\n\n"
-                    "If running NON-DEMO mode locally, pre-fill the log in with this link:\n"
+                    else f"\nDemo data ready for {email}!\n\n"
+                    "Pre-fill the login form with this link:\n"
                     f"http://localhost:8000/login?email={email}\n"
-                    f"Log in as {email} with password {password}.\n"
+                    f"The password is {password}.\n\n"
+                    "If running demo mode (DEMO=1), log in instantly with this link:\n"
+                    f"http://localhost:8000/signup?email={email}\n"
                 )
         else:
             print("Dry run - not saving results.")
