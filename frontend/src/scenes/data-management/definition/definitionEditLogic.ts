@@ -1,4 +1,4 @@
-import { afterMount, beforeUnmount, connect, kea, key, path, props } from 'kea'
+import { beforeUnmount, connect, kea, key, path, props } from 'kea'
 import { Definition, EventDefinition, PropertyDefinition } from '~/types'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -46,15 +46,6 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
         },
     })),
     loaders(({ values, props, actions }) => ({
-        tags: {
-            loadTags: async () => {
-                if (values.isEvent) {
-                    return await api.eventDefinitions.list_tags()
-                } else {
-                    return await api.propertyDefinitions.list_tags()
-                }
-            },
-        },
         definition: [
             { ...props.definition } as Definition,
             {
@@ -103,8 +94,5 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
     })),
     beforeUnmount(({ actions }) => {
         actions.setPageMode(DefinitionPageMode.View)
-    }),
-    afterMount(({ actions }) => {
-        actions.loadTags()
     }),
 ])

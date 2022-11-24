@@ -2,7 +2,6 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { ActionType } from '~/types'
 import type { actionsModelType } from './actionsModelType'
-import { uniqueBy } from 'lib/utils'
 
 export interface ActionsModelProps {
     params?: string
@@ -43,15 +42,6 @@ export const actionsModel = kea<actionsModelType>({
             (s) => [s.actions],
             (actions): Partial<Record<string | number, ActionType>> =>
                 Object.fromEntries(actions.map((action) => [action.id, action])),
-        ],
-        actionsTags: [
-            (s) => [s.actions],
-            (actions): string[] => {
-                return uniqueBy(
-                    actions.flatMap(({ tags }) => tags || ''),
-                    (item) => item
-                ).sort()
-            },
         ],
     }),
 

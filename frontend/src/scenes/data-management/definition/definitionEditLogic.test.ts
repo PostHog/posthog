@@ -15,18 +15,8 @@ describe('definitionEditLogic', () => {
     beforeEach(async () => {
         useMocks({
             get: {
-                '/api/projects/:team/event_definitions/:id': (req) => {
-                    if (req.params['id'] === 'tags') {
-                        return [200, ['the', 'event', 'tags', 'array']]
-                    }
-                    return [200, mockEventDefinitions[0]]
-                },
-                '/api/projects/:team/property_definitions/:id': (req) => {
-                    if (req.params['id'] === 'tags') {
-                        return [200, ['the', 'property', 'tags', 'array']]
-                    }
-                    return [200, mockEventPropertyDefinition]
-                },
+                '/api/projects/:team/event_definitions/:id': mockEventDefinitions[0],
+                '/api/projects/:team/property_definitions/:id': mockEventPropertyDefinition,
                 '/api/projects/@current/event_definitions/': {
                     results: mockEventDefinitions,
                     count: mockEventDefinitions.length,
@@ -42,71 +32,22 @@ describe('definitionEditLogic', () => {
             },
         })
         initKeaTests()
+        await expectLogic(definitionLogic({ id: '1' })).toFinishAllListeners()
+        eventDefinitionsTableLogic.mount()
+        eventPropertyDefinitionsTableLogic.mount()
+        logic = definitionEditLogic({ id: '1', definition: mockEventDefinitions[0] })
+        logic.mount()
     })
 
-    describe('for event definitions', () => {
-        beforeEach(async () => {
-            router.actions.push(urls.eventDefinition('1'))
-            await expectLogic(definitionLogic({ id: '1' })).toFinishAllListeners()
-            eventDefinitionsTableLogic.mount()
-            eventPropertyDefinitionsTableLogic.mount()
-            logic = definitionEditLogic({ id: '1', definition: mockEventDefinitions[0] })
-            logic.mount()
-        })
-
-        it('save definition', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.saveDefinition(mockEventDefinitions[0])
-            }).toDispatchActionsInAnyOrder([
-                'saveDefinition',
-                'setPageMode',
-                'setDefinition',
-                eventDefinitionsTableLogic.actionCreators.setLocalEventDefinition(mockEventDefinitions[0]),
-            ])
-        })
-
-        it('can load tags', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadTags()
-            })
-                .toFinishAllListeners()
-                .toMatchValues({
-                    tags: ['the', 'event', 'tags', 'array'],
-                })
-        })
-    })
-
-    describe('for property definitions', () => {
-        beforeEach(async () => {
-            router.actions.push(urls.eventPropertyDefinition('1'))
-            await expectLogic(definitionLogic({ id: '1' })).toFinishAllListeners()
-            eventDefinitionsTableLogic.mount()
-            eventPropertyDefinitionsTableLogic.mount()
-            logic = definitionEditLogic({ id: '1', definition: mockEventDefinitions[0] })
-            logic.mount()
-        })
-
-        it('save definition', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.saveDefinition(mockEventPropertyDefinition)
-            }).toDispatchActionsInAnyOrder([
-                'saveDefinition',
-                'setPageMode',
-                'setDefinition',
-                eventPropertyDefinitionsTableLogic.actionCreators.setLocalEventPropertyDefinition(
-                    mockEventPropertyDefinition
-                ),
-            ])
-        })
-
-        it('can load tags', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadTags()
-            })
-                .toFinishAllListeners()
-                .toMatchValues({
-                    tags: ['the', 'property', 'tags', 'array'],
-                })
-        })
+    it('save definition', async () => {
+        router.actions.push(urls.eventDefinition('1'))
+        await expectLogic(logic, () => {
+            logic.actions.saveDefinition(mockEventDefinitions[0])
+        }).toDispatchActionsInAnyOrder([
+            'saveDefinition',
+            'setPageMode',
+            'setDefinition',
+            eventDefinitionsTableLogic.actionCreators.setLocalEventDefinition(mockEventDefinitions[0]),
+        ])
     })
 })

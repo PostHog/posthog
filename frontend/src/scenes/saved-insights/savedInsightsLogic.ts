@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { objectDiffShallow, objectsEqual, toParams, uniqueBy } from 'lib/utils'
+import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { InsightModel, LayoutView, SavedInsightsTabs } from '~/types'
 import type { savedInsightsLogicType } from './savedInsightsLogicType'
 import { dayjs } from 'lib/dayjs'
@@ -144,14 +144,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
         ],
     },
     selectors: ({ actions }) => ({
-        insightsTags: [
-            (s) => [s.insights],
-            (insights) =>
-                uniqueBy(
-                    insights.results.flatMap(({ tags }) => tags || ''),
-                    (item) => item
-                ).sort(),
-        ],
         filters: [(s) => [s.rawFilters], (rawFilters): SavedInsightFilters => cleanFilters(rawFilters || {})],
         count: [(s) => [s.insights], (insights) => insights.count],
         usingFilters: [

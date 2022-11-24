@@ -13,7 +13,7 @@ import { DeleteDashboardForm, deleteDashboardLogic } from 'scenes/dashboard/dele
 
 jest.spyOn(api, 'create')
 
-const createInsight = (id: number, string = 'hi', tags: string[] = []): InsightModel =>
+const createInsight = (id: number, string = 'hi'): InsightModel =>
     ({
         id: id || 1,
         name: `${string} ${id || 1}`,
@@ -26,7 +26,6 @@ const createInsight = (id: number, string = 'hi', tags: string[] = []): InsightM
         is_sample: false,
         updated_at: 'now',
         result: {},
-        tags: tags,
         color: null,
         created_at: 'now',
         dashboard: null,
@@ -37,11 +36,7 @@ const createInsight = (id: number, string = 'hi', tags: string[] = []): InsightM
     } as any as InsightModel)
 const createSavedInsights = (string = 'hello'): InsightsResult => ({
     count: 3,
-    results: [
-        createInsight(1, string, ['marketing', 'vip']),
-        createInsight(2, string, ['seo']),
-        createInsight(3, string),
-    ],
+    results: [createInsight(1, string), createInsight(2, string), createInsight(3, string)],
 })
 
 describe('savedInsightsLogic', () => {
@@ -211,9 +206,5 @@ describe('savedInsightsLogic', () => {
         await expectLogic(logic, () => {
             deleteDashboardLogic.actions.submitDeleteDashboardSuccess({ deleteInsights: true } as DeleteDashboardForm)
         }).toDispatchActions(['loadInsights'])
-    })
-
-    it('gathers tags from loaded insights', async () => {
-        await expectLogic(logic).toMatchValues({ insightsTags: ['marketing', 'seo', 'vip'] })
     })
 })
