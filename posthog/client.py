@@ -21,12 +21,12 @@ from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 from dataclasses_json import dataclass_json
 from django.conf import settings as app_settings
+from statshog.defaults.django import statsd
 
 from posthog import redis
 from posthog.celery import enqueue_clickhouse_execute_with_progress
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.errors import wrap_query_error
-from posthog.internal_metrics import incr, timing
 from posthog.settings import (
     CLICKHOUSE_CA,
     CLICKHOUSE_CONN_POOL_MAX,
@@ -164,14 +164,14 @@ def sync_execute(
             )
         except Exception as err:
             err = wrap_query_error(err)
-            incr("clickhouse_sync_execution_failure", tags={"failed": True, "reason": type(err).__name__})
+            statsd.incr("clickhouse_sync_execution_failure", tags={"failed": True, "reason": type(err).__name__})
 
             raise err
         finally:
             execution_time = perf_counter() - start_time
 
             QUERY_TIMEOUT_THREAD.cancel(timeout_task)
-            timing("clickhouse_sync_execution_time", execution_time * 1000.0)
+            statsd.timing("clickhouse_sync_execution_time", execution_time * 1000.0)
 
             if app_settings.SHELL_PLUS_PRINT_SQL:
                 print("Execution time: %.6fs" % (execution_time,))
@@ -300,7 +300,7 @@ def execute_with_progress(
         err = wrap_query_error(err)
         tags["failed"] = True
         tags["reason"] = type(err).__name__
-        incr("clickhouse_sync_execution_failure")
+        statsd.incr("clickhouse_sync_execution_failure")
         query_status = QueryStatus(
             team_id=team_id,
             num_rows=query_status.num_rows,
@@ -322,7 +322,7 @@ def execute_with_progress(
         execution_time = perf_counter() - start_time
 
         QUERY_TIMEOUT_THREAD.cancel(timeout_task)
-        timing("clickhouse_sync_execution_time", execution_time * 1000.0)
+        statsd.timing("clickhouse_sync_execution_time", execution_time * 1000.0)
 
         if app_settings.SHELL_PLUS_PRINT_SQL:
             print("Execution time: %.6fs" % (execution_time,))
@@ -514,7 +514,7 @@ def _annotate_tagged_query(query, args):
 
 
 def _notify_of_slow_query_failure():
-    incr("clickhouse_sync_execution_failure", tags={"failed": True, "reason": "timeout"})
+    statsd.incr("clickhouse_sync_execution_failure", tags={"failed": True, "reason": "timeout"})
 
 
 def format_sql(rendered_sql, colorize=True):
