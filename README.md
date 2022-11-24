@@ -113,7 +113,7 @@ This repo is available under the [MIT expat license](https://github.com/PostHog/
 
 Need *absolutely 💯% FOSS*? Check out our [posthog-foss](https://github.com/PostHog/posthog-foss) repository, which is purged of all proprietary code and features.
 
-Premium features (contained in the `ee` directory) require a PostHog license. [Book a demo](https://posthog.com/book-a-demo) or see our [pricing page](https://posthog.com/pricing).
+Using premium features (contained in the `ee` directory) with a self-hosted instance require a PostHog license. To learn more, [book a demo](https://posthog.com/book-a-demo) or see our [pricing page](https://posthog.com/pricing).
 
 ### We’re hiring!
 
