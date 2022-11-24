@@ -104,7 +104,12 @@ export function shouldSendEventToBuffer(
         !!event.properties &&
         ['posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'].includes(event.properties['$lib'])
 
-    const sendToBuffer = !isMobileLibrary && !person && !isAnonymousEvent && !isIdentifyingEvent
+    const shouldBufferAnonymousEvents = teamId <= hub.MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR
+
+    const processEventImmediately =
+        isMobileLibrary || person || isIdentifyingEvent || (isAnonymousEvent && !shouldBufferAnonymousEvents)
+
+    const sendToBuffer = !processEventImmediately
 
     if (sendToBuffer) {
         hub.statsd?.increment('conversion_events_buffer_size', { teamId: event.team_id.toString() })
