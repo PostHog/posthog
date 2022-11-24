@@ -57,19 +57,27 @@ const Task = ({ id, name, description, completed, canSkip, skipped, url }: Task)
 
 const ActivationSidebar = (): JSX.Element => {
     const { isActivationSideBarShown } = useValues(navigationLogic)
+    const { hideActivationSideBar } = useActions(navigationLogic)
     const { activeTasks, completedTasks, completionPercent, showSessionRecordingConfig } = useValues(activationLogic)
     const { setShowSessionRecordingConfig } = useActions(activationLogic)
 
     return (
         <div className={clsx('ActivationSideBar', !isActivationSideBarShown && 'ActivationSideBar--hidden')}>
             <div className="ActivationSideBar__content px-4 pb-16">
+                <div className="ActivationSideBar__close_button">
+                    <LemonButton
+                        icon={<IconClose />}
+                        onClick={() => {
+                            if (showSessionRecordingConfig) {
+                                setShowSessionRecordingConfig(false)
+                            } else {
+                                hideActivationSideBar()
+                            }
+                        }}
+                    />
+                </div>
                 {showSessionRecordingConfig ? (
-                    <>
-                        <div className="ActivationSideBar__close_button">
-                            <LemonButton icon={<IconClose />} onClick={() => setShowSessionRecordingConfig(false)} />
-                        </div>
-                        <SessionRecordingConfig />
-                    </>
+                    <SessionRecordingConfig />
                 ) : (
                     <>
                         <h2 className="subtitle">Quick Start</h2>
