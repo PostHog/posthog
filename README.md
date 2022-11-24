@@ -64,10 +64,10 @@ We bring together all the tools and data in one place to help you build better p
 - **User and group tracking:** understand the [people](https://posthog.com/manual/persons) and [groups](https://posthog.com/manual/group-analytics) behind the events and track properties about them
 - **Data visualizations:** create and share [graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [paths](https://posthog.com/docs/features/paths), [retention](https://posthog.com/docs/features/retention), and [dashboards](https://posthog.com/docs/features/dashboards)
 - **Session recording:** [watch videos](https://posthog.com/docs/features/session-recording) of your users' behavior, with fine-grained filters and privacy controls
-- **A/B testing:** run changes as experiments and get automatic significance calculations
-- **Feature flags:** test and manage the rollout of new features
 - **Heatmaps:** see where users are using your product with the [PostHog Toolbar](https://posthog.com/docs/features/toolbar)
-- **Automated analysis:** find [correlations](https://posthog.com/docs/user-guides/correlation) between successful users and their behaviors or attributes
+- **Feature flags:** test and manage the rollout of new features, target specific users and groups
+- **A/B and multi-variate testing:** run simple or complex changes as [experiments](https://posthog.com/manual/experimentation) and get automatic significance calculations
+- **Correlation analysis:** discover what events and properties [correlate](https://posthog.com/manual/correlation) with success and failure
 
 ### Data and infrastructure tools
 
@@ -109,9 +109,11 @@ PostHog operates in public as much as possible. We detail how we work and our le
 
 ## Open-source vs. paid
 
-This repo is entirely [MIT licensed](https://www.notion.so/LICENSE), except for the `ee` directory (if applicable). Need *absolutely 💯% FOSS*? Check out our [posthog-foss](https://github.com/PostHog/posthog-foss) repository, which is purged of all proprietary code and features.
+This repo is available under the [MIT expat license](https://github.com/PostHog/posthog/blob/master/LICENSE), except for the `ee` directory (which has it's [license here](https://github.com/PostHog/posthog/blob/master/ee/LICENSE)) if applicable. 
 
-Premium features (contained in the `ee` directory) require a PostHog license. Contact us at [sales@posthog.com](mailto:sales@posthog.com) for more information, or see our [pricing page](https://posthog.com/pricing).
+Need *absolutely 💯% FOSS*? Check out our [posthog-foss](https://github.com/PostHog/posthog-foss) repository, which is purged of all proprietary code and features.
+
+Premium features (contained in the `ee` directory) require a PostHog license. [Book a demo](https://posthog.com/book-a-demo) or see our [pricing page](https://posthog.com/pricing).
 
 ### We’re hiring!
 
