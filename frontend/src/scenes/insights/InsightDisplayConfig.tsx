@@ -56,21 +56,15 @@ const showDateFilter = {
 }
 
 const showCompareFilter = function (filters: Partial<FilterType>): boolean {
-    if (!filters.insight) {
-        return false
-    }
-
     if (isTrendsFilter(filters)) {
         return !isAreaChartDisplay(filters)
     }
 
-    return {
-        [`${InsightType.STICKINESS}`]: true,
-        [`${InsightType.LIFECYCLE}`]: false,
-        [`${InsightType.FUNNELS}`]: false,
-        [`${InsightType.RETENTION}`]: false,
-        [`${InsightType.PATHS}`]: false,
-    }[filters.insight]
+    if (isStickinessFilter(filters)) {
+        return true
+    }
+
+    return false
 }
 
 const isFunnelEmpty = (filters: FilterType): boolean => {
