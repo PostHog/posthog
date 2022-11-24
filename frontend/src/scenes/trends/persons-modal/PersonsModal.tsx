@@ -322,7 +322,7 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
                 <Tooltip title={`${name}'s count of events for this data point.`}>
                     <LemonBadge
                         count={actor.value_at_data_point}
-                        maxDigits={0}
+                        maxDigits={Infinity}
                         position="top-right"
                         style={{ pointerEvents: 'auto' }}
                     />

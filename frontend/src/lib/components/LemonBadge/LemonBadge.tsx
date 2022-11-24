@@ -6,10 +6,9 @@ export interface LemonBadgeProps {
     count?: number | JSX.Element
     size?: 'small' | 'medium' | 'large'
     position?: 'none' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
-    /** How many digits can be shown at once at most. Default value: 1 (so all numbers above 9 are shown as "9+"). */
+    /** Maximum number of digits shown at once. Default value: 1 (so all numbers above 9 are shown as "9+"). */
     maxDigits?: number
     showZero?: boolean
-    borderless?: boolean
     className?: string
     status?: 'primary' | 'danger' | 'muted'
     style?: React.CSSProperties
@@ -36,7 +35,7 @@ export function LemonBadge({
         typeof count === 'object'
             ? count
             : typeof count === 'number' && count !== 0
-            ? !maxDigits || count < Math.pow(10, maxDigits)
+            ? count < Math.pow(10, maxDigits)
                 ? String(count)
                 : `${'9'.repeat(maxDigits)}+`
             : showZero
