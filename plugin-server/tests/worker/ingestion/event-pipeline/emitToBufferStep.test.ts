@@ -248,12 +248,10 @@ describe('shouldSendEventToBuffer()', () => {
     })
 
     it('handles teamIdsToBufferAnonymousEventsFor', () => {
-        runner.hub.teamIdsToBufferAnonymousEventsFor = new Set([2])
+        runner.hub.MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR = 2
 
-        // we send this anonymous event to the buffer because team ID 2 is in teamIdsToBufferAnonymousEventsFor
+        expect(shouldSendEventToBuffer(runner.hub, anonEvent, undefined, 1)).toEqual(true)
         expect(shouldSendEventToBuffer(runner.hub, anonEvent, undefined, 2)).toEqual(true)
-
-        // we don't send this anonymous event to the buffer because team ID 3 is not in teamIdsToBufferAnonymousEventsFor
         expect(shouldSendEventToBuffer(runner.hub, anonEvent, undefined, 3)).toEqual(false)
     })
 })

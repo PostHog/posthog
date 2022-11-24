@@ -104,7 +104,7 @@ export function shouldSendEventToBuffer(
         !!event.properties &&
         ['posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'].includes(event.properties['$lib'])
 
-    const shouldBufferAnonymousEvents = hub.teamIdsToBufferAnonymousEventsFor.has(teamId)
+    const shouldBufferAnonymousEvents = teamId <= hub.MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR
 
     const processEventImmediately =
         isMobileLibrary || person || isIdentifyingEvent || (isAnonymousEvent && !shouldBufferAnonymousEvents)
