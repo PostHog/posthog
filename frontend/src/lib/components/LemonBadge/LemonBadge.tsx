@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { compactNumber } from 'lib/utils'
+import { compactNumber, humanFriendlyNumber } from 'lib/utils'
 import { CSSTransition } from 'react-transition-group'
 import './LemonBadge.scss'
 
@@ -52,7 +52,7 @@ export function LemonBadge({
                     `LemonBadge--position-${position}`,
                     className
                 )}
-                title={count?.toString()}
+                title={typeof count === 'number' ? humanFriendlyNumber(count) : undefined}
                 {...spanProps}
             >
                 {text}
