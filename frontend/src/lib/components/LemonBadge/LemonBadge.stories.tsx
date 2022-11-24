@@ -16,11 +16,12 @@ const Template: ComponentStory<typeof LemonBadge> = ({ count, ...props }: LemonB
 
     return (
         <>
-            <div className="flex space-x-4">
-                Count: <LemonBadge count={countOverride} {...props} />
+            <div className="flex items-center min-h-6">
+                <div>Count: </div>
+                <LemonBadge count={countOverride} {...props} />
             </div>
             <br />
-            <div className="flex space-x-4">
+            <div className="flex space-x-1">
                 <LemonButton type="primary" onClick={() => setCount((countOverride || 0) + 1)}>
                     Increment
                 </LemonButton>
@@ -35,8 +36,8 @@ const Template: ComponentStory<typeof LemonBadge> = ({ count, ...props }: LemonB
 export const Standard = Template.bind({})
 Standard.args = { count: 1 }
 
-export const OverNine = Template.bind({})
-OverNine.args = { count: 10 }
+export const MultipleDigits = Template.bind({})
+MultipleDigits.args = { count: 975, maxDigits: 3 }
 
 export const ShowZero = Template.bind({})
 ShowZero.args = { count: 0, showZero: true }
