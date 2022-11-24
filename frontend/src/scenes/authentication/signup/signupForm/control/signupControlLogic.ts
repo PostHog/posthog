@@ -59,8 +59,8 @@ export const signupControlLogic = kea<signupControlLogicType>([
             },
         },
     })),
-    urlToAction(({ actions }) => ({
-        '/signup': ({}, { email, values }) => {
+    urlToAction(({ actions, values }) => ({
+        '/signup': ({}, { email }) => {
             if (email) {
                 if (values.preflight?.demo) {
                     // In demo mode no password is needed, so we can log in right away
@@ -71,6 +71,7 @@ export const signupControlLogic = kea<signupControlLogicType>([
                         first_name: 'X',
                         organization_name: 'Y',
                     })
+                    actions.submitSignup()
                 } else {
                     actions.setSignupValue('email', email)
                 }

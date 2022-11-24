@@ -13,6 +13,7 @@ export interface PayGateMiniProps {
         | AvailableFeature.DASHBOARD_PERMISSIONING
         | AvailableFeature.SSO_ENFORCEMENT
         | AvailableFeature.DASHBOARD_COLLABORATION
+        | AvailableFeature.ROLE_BASED_ACCESS
     style?: React.CSSProperties
     children: React.ReactNode
     overrideShouldShowGate?: boolean
@@ -21,7 +22,8 @@ export interface PayGateMiniProps {
 const FEATURE_SUMMARIES: Record<
     | AvailableFeature.DASHBOARD_PERMISSIONING
     | AvailableFeature.SSO_ENFORCEMENT
-    | AvailableFeature.DASHBOARD_COLLABORATION,
+    | AvailableFeature.DASHBOARD_COLLABORATION
+    | AvailableFeature.ROLE_BASED_ACCESS,
     {
         icon: React.ReactElement
         description: string
@@ -44,6 +46,11 @@ const FEATURE_SUMMARIES: Record<
         icon: <IconPremium />,
         description: 'Make sense of insights your team has learned, using tags, descriptions, and text cards.',
         umbrella: 'advanced collaboration',
+    },
+    [AvailableFeature.ROLE_BASED_ACCESS]: {
+        icon: <IconPremium />,
+        description: 'Create custom roles to give you precise access control for your organization.',
+        umbrella: 'advanced permissioning',
     },
 }
 
