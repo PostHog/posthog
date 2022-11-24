@@ -1,5 +1,5 @@
 // This file contains example queries, used in storybook and in the /query interface.
-import { EventsNode, DataTableNode, LegacyQuery, Node, NodeKind } from '~/queries/schema'
+import { EventsNode, DataTableNode, LegacyQuery, Node, NodeKind, TrendsQuery } from '~/queries/schema'
 import { ChartDisplayType, InsightType, PropertyFilterType, PropertyOperator } from '~/types'
 import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/DataTable'
 
@@ -28,10 +28,15 @@ const LegacyTrendsQuery: LegacyQuery = {
     },
 }
 
+const TrendsQuery: TrendsQuery = {
+    kind: NodeKind.TrendsQuery,
+}
+
 export const examples: Record<string, Node> = {
     Events,
     EventsTable,
     LegacyTrendsQuery,
+    TrendsQuery,
 }
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(

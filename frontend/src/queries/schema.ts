@@ -1,4 +1,11 @@
-import { AnyPartialFilterType, AnyPropertyFilter, EventType, PropertyFilterType, PropertyGroupFilter } from '~/types'
+import {
+    AnyPartialFilterType,
+    AnyPropertyFilter,
+    EventType,
+    PropertyFilterType,
+    PropertyGroupFilter,
+    IntervalType,
+} from '~/types'
 
 export enum NodeKind {
     // Data nodes
@@ -7,6 +14,9 @@ export enum NodeKind {
     // Interface nodes
     DataTableNode = 'DataTableNode',
     LegacyQuery = 'LegacyQuery',
+
+    // New queries, not yet implemented
+    TrendsQuery = 'TrendsQuery',
 }
 
 export type QuerySchema =
@@ -16,6 +26,9 @@ export type QuerySchema =
     // Interface nodes
     | DataTableNode
     | LegacyQuery
+
+    // New queries, not yet implemented
+    | TrendsQuery
 
 /** Node base class, everything else inherits from here */
 export interface Node {
@@ -65,6 +78,15 @@ export interface DataTableColumn {
     key: string
 }
 
+// Base class should not be used directly
+interface InsightsQueryBase extends Node {
+    dateRange?: DateRange
+}
+
+export interface TrendsQuery extends InsightsQueryBase {
+    kind: NodeKind.TrendsQuery
+}
+
 // TODO: not supported by "ts-json-schema-generator" nor "typescript-json-schema" :(
 // export type PropertyColumnString = `${PropertyFilterType}.${string}`
 export type PropertyColumnString = string
@@ -75,4 +97,12 @@ export type DataTableStringColumn = PropertyColumnString | 'person'
 export interface LegacyQuery extends Node {
     kind: NodeKind.LegacyQuery
     filters: AnyPartialFilterType
+}
+
+// Various utility types below
+
+export interface DateRange {
+    date_from?: string | null
+    date_to?: string | null
+    interval?: IntervalType
 }

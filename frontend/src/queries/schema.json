@@ -894,9 +894,6 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "group_type_index": {
-                            "type": ["number", "null"]
-                        },
                         "key": {
                             "type": "string"
                         },
@@ -920,9 +917,6 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "group_type_index": {
-                            "type": ["number", "null"]
-                        },
                         "key": {
                             "type": "string"
                         },
@@ -946,9 +940,6 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "group_type_index": {
-                            "type": ["number", "null"]
-                        },
                         "key": {
                             "enum": ["tag_name", "text", "href", "selector"],
                             "type": "string"
@@ -972,9 +963,6 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "group_type_index": {
-                            "type": ["number", "null"]
-                        },
                         "key": {
                             "const": "$session_duration",
                             "type": "string"
@@ -998,9 +986,6 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "group_type_index": {
-                            "type": ["number", "null"]
-                        },
                         "key": {
                             "const": "id",
                             "type": "string"
@@ -1021,9 +1006,6 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "group_type_index": {
-                            "type": ["number", "null"]
-                        },
                         "key": {
                             "const": "duration",
                             "type": "string"
@@ -1040,6 +1022,54 @@
                         },
                         "value": {
                             "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "group_type_index": {
+                            "type": ["number", "null"]
+                        },
+                        "key": {
+                            "type": "string"
+                        },
+                        "label": {
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/PropertyOperator"
+                        },
+                        "type": {
+                            "const": "group",
+                            "type": "string"
+                        },
+                        "value": {
+                            "$ref": "#/definitions/PropertyFilterValue"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "type": "string"
+                        },
+                        "label": {
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/PropertyOperator"
+                        },
+                        "type": {
+                            "const": "feature",
+                            "description": "Event property with \"$feature/\" prepended",
+                            "type": "string"
+                        },
+                        "value": {
+                            "$ref": "#/definitions/PropertyFilterValue"
                         }
                     },
                     "type": "object"
@@ -1104,6 +1134,7 @@
             "enum": [
                 "ActionsLineGraph",
                 "ActionsLineGraphCumulative",
+                "ActionsAreaGraph",
                 "ActionsTable",
                 "ActionsPie",
                 "ActionsBar",
@@ -1188,6 +1219,21 @@
                     "type": "string"
                 }
             ]
+        },
+        "DateRange": {
+            "additionalProperties": false,
+            "properties": {
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType"
+                }
+            },
+            "type": "object"
         },
         "ElementType": {
             "additionalProperties": false,
@@ -1496,6 +1542,9 @@
                 },
                 {
                     "$ref": "#/definitions/LegacyQuery"
+                },
+                {
+                    "$ref": "#/definitions/TrendsQuery"
                 }
             ]
         },
@@ -1510,6 +1559,20 @@
         "StepOrderValue": {
             "enum": ["strict", "unordered", "ordered"],
             "type": "string"
+        },
+        "TrendsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "TrendsQuery",
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
         }
     }
 }
