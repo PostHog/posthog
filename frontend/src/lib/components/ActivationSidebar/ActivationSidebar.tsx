@@ -2,7 +2,7 @@ import { LemonButton, LemonButtonProps, LemonButtonWithSideAction } from '@posth
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { activationLogic, Task } from './ActivationLogic'
+import { activationLogic, Task } from './activationLogic'
 import './ActivationSidebar.scss'
 import { Progress } from 'antd'
 import { IconCheckmark, IconClose } from '../icons'

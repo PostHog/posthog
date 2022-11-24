@@ -9,7 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { EventDefinitionType } from '~/types'
 
-import type { activationLogicType } from './ActivationLogicType'
+import type { activationLogicType } from './activationLogicType'
 
 export enum ACTIVATION_TASKS {
     INGEST_FIRST_EVENT = 'ingest_first_event',

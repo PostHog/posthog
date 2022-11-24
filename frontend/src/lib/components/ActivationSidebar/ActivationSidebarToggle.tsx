@@ -2,7 +2,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { Progress } from 'antd'
-import { activationLogic } from './ActivationLogic'
+import { activationLogic } from './activationLogic'
 
 const ActivationSidebarToggle = (): JSX.Element | null => {
     const { mobileLayout } = useValues(navigationLogic)
