@@ -56,8 +56,12 @@ export function castingCompare(
     // Clickhouse treats the string "null" as null, while here we treat them as different values
     // Thus, this check special cases the string "null" to be equal to the null value
     // See more: https://github.com/PostHog/posthog/issues/12893
-    if (a === null) {a = 'null'}
-    if (b === null) {b = 'null'}
+    if (a === null) {
+        a = 'null'
+    }
+    if (b === null) {
+        b = 'null'
+    }
 
     // Check basic case first
     switch (operator) {
