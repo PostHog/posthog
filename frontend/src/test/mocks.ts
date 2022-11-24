@@ -27,6 +27,7 @@ export const mockBasicUser: UserBasicType = {
 
 export const mockEvent: EventType = {
     id: 'my_id',
+    distinct_id: 'distinct_id',
     properties: {
         $os: 'Mac OS X',
         $device_type: 'Desktop',
@@ -42,7 +43,6 @@ export const mockEvent: EventType = {
     },
     elements: [],
     elements_chain: '',
-    elements_hash: null,
 }
 
 export const mockEventDefinitions: EventDefinition[] = [

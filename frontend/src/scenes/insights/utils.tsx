@@ -387,7 +387,7 @@ export function sortDates(dates: Array<string | null>): Array<string | null> {
     return dates.sort((a, b) => (dayjs(a).isAfter(dayjs(b)) ? 1 : -1))
 }
 
-// Gets content-length header from an api call with { includeResponseReference: true } for observability purposes
-export function getResponseBytes(apiResponse: any): number {
-    return parseInt((apiResponse as any)?._response?.headers?.get?.('Content-Length') ?? 0)
+// Gets content-length header from a fetch Response
+export function getResponseBytes(apiResponse: Response): number {
+    return parseInt(apiResponse.headers.get('Content-Length') ?? '0')
 }

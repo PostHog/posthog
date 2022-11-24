@@ -160,6 +160,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: number
     HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: number
     APP_METRICS_GATHERED_FOR_ALL: boolean
+    MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -395,6 +396,7 @@ export interface PluginTask {
 export type WorkerMethods = {
     runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
     runEventPipeline: (event: PluginEvent) => Promise<void>
+    runLightweightCaptureEndpointEventPipeline: (event: PipelineEvent) => Promise<void>
 }
 
 export type VMMethods = {
@@ -934,4 +936,9 @@ export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
     Owner = 15,
+}
+
+export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
+    team_id?: number | null
+    token?: string
 }

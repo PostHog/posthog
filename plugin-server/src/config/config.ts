@@ -103,6 +103,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: 10 * 60 * 1000,
         HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: 1.5,
         APP_METRICS_GATHERED_FOR_ALL: false,
+        MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
     }
 }
 

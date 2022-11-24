@@ -14,7 +14,7 @@ import { createHub } from '../../src/utils/db/hub'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
-import { getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
+import { createOrganization, createTeam, getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
 import { plugin60 } from './../helpers/plugins'
 
 jest.mock('../../src/utils/status')
@@ -1183,6 +1183,56 @@ describe('DB', () => {
 
             await hub.db.addPersonToCohort(cohort2.id, person.id, null)
             expect(await hub.db.doesPersonBelongToCohort(cohort2.id, person)).toEqual(true)
+        })
+    })
+
+    describe('fetchTeam()', () => {
+        it('fetches a team by id', async () => {
+            const organizationId = await createOrganization(db.postgres)
+            const teamId = await createTeam(db.postgres, organizationId, 'token1')
+
+            const fetchedTeam = await hub.db.fetchTeam(teamId)
+            expect(fetchedTeam).toEqual({
+                anonymize_ips: false,
+                api_token: 'token1',
+                id: teamId,
+                ingested_event: true,
+                name: 'TEST PROJECT',
+                organization_id: organizationId,
+                session_recording_opt_in: true,
+                slack_incoming_webhook: null,
+                uuid: expect.any(String),
+            })
+        })
+
+        it('returns null if the team does not exist', async () => {
+            const fetchedTeam = await hub.db.fetchTeam(99999)
+            expect(fetchedTeam).toEqual(null)
+        })
+    })
+
+    describe('fetchTeamByToken()', () => {
+        it('fetches a team by token', async () => {
+            const organizationId = await createOrganization(db.postgres)
+            const teamId = await createTeam(db.postgres, organizationId, 'token2')
+
+            const fetchedTeam = await hub.db.fetchTeamByToken('token2')
+            expect(fetchedTeam).toEqual({
+                anonymize_ips: false,
+                api_token: 'token2',
+                id: teamId,
+                ingested_event: true,
+                name: 'TEST PROJECT',
+                organization_id: organizationId,
+                session_recording_opt_in: true,
+                slack_incoming_webhook: null,
+                uuid: expect.any(String),
+            })
+        })
+
+        it('returns null if the team does not exist', async () => {
+            const fetchedTeam = await hub.db.fetchTeamByToken('token2')
+            expect(fetchedTeam).toEqual(null)
         })
     })
 })

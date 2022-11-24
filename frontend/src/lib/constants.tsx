@@ -133,6 +133,8 @@ export const FEATURE_FLAGS = {
     ONBOARDING_V2_EXPERIMENT: 'onboarding-v2-experiment', // owner: #team-growth
     RECORDING_AUTOPLAY: 'recording-autoplay', // owner: #team-session-recordings
     SIGNUP_FORM_EXPERIMENT: 'signup-form-experiment', // owner: #team-growth
+    SIGNUP_PRODUCT_BENEFITS_EXPERIMENT: 'signup-product-benefits-experiment', // owner: #team-growth
+    ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
     DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra
 }
 
@@ -159,6 +161,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
     [AvailableFeature.APP_METRICS]: LicensePlan.Scale,
     [AvailableFeature.RECORDINGS_PLAYLISTS]: LicensePlan.Scale,
+    [AvailableFeature.ROLE_BASED_ACCESS]: LicensePlan.Enterprise,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
@@ -204,3 +207,6 @@ export const CLOUD_HOSTNAMES = {
 }
 
 export const SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
+
+// If _any_ item on a dashboard is older than this, dashboard is automatically reloaded
+export const AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS = 20

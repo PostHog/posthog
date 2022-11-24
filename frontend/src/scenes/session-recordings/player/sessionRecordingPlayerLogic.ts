@@ -26,7 +26,6 @@ import { fromParamsGivenUrl } from 'lib/utils'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
-export const NEXT_UP_ENDING_MS = 10000
 
 export interface Player {
     replayer: Replayer
@@ -212,6 +211,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         matchingEvents: [
             (s) => [s.matching],
             (matching) => (matching ?? []).map((filterMatches) => filterMatches.events).flat(),
+        ],
+        recordingStartTime: [
+            () => [(_, props) => props.recordingStartTime],
+            (recordingStartTime) => recordingStartTime ?? null,
         ],
     }),
     listeners(({ values, actions, cache }) => ({

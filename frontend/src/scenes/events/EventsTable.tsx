@@ -9,7 +9,7 @@ import { autoCaptureEventToDescription } from 'lib/utils'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
-import { TZLabel } from 'lib/components/TimezoneAware'
+import { TZLabel } from 'lib/components/TZLabel'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import {
     ActionType,

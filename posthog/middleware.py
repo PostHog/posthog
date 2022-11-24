@@ -10,6 +10,7 @@ from django.urls.base import resolve
 from django.utils.cache import add_never_cache_headers
 
 from posthog.api.decide import get_decide
+from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.internal_metrics import incr
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 
@@ -159,18 +160,27 @@ class CHQueries:
         If monkey-patch has not been run in for this process (assuming multiple preforked processes),
         then do it now.
         """
-        from posthog import client
-
         route = resolve(request.path)
         route_id = f"{route.route} ({route.func.__name__})"
-        client._request_information = {"user_id": request.user.pk, "kind": "request", "id": request.path}
+
+        user = cast(User, request.user)
+
+        tag_queries(
+            user_id=user.pk,
+            kind="request",
+            id=request.path,
+            route_id=route.route,
+        )
+
+        if hasattr(user, "current_team_id") and user.current_team_id:
+            tag_queries(team_id=user.current_team_id)
 
         response: HttpResponse = self.get_response(request)
 
         if "api/" in request.path and "capture" not in request.path:
             incr("http_api_request_response", tags={"id": route_id, "status_code": response.status_code})
 
-        client._request_information = None
+        reset_query_tags()
 
         return response
 

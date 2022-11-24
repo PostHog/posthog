@@ -647,7 +647,7 @@ class TestInviteSignupAPI(APIBaseTest):
             response.json(),
             {
                 "id": str(invite.id),
-                "target_email": "t*****9@posthog.com",
+                "target_email": "test+19@posthog.com",
                 "first_name": "",
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
             },
@@ -664,7 +664,7 @@ class TestInviteSignupAPI(APIBaseTest):
             response.json(),
             {
                 "id": str(invite.id),
-                "target_email": "t*****8@posthog.com",
+                "target_email": "test+58@posthog.com",
                 "first_name": "Jane",
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
             },
@@ -684,7 +684,7 @@ class TestInviteSignupAPI(APIBaseTest):
             response.json(),
             {
                 "id": str(invite.id),
-                "target_email": "t*****9@posthog.com",
+                "target_email": "test+29@posthog.com",
                 "first_name": "",
                 "organization_name": "Test, Inc",
             },
@@ -719,8 +719,7 @@ class TestInviteSignupAPI(APIBaseTest):
             {
                 "type": "validation_error",
                 "code": "invalid_recipient",
-                "detail": "This invite is intended for another email address: t*****9@posthog.com."
-                " You tried to sign up with test+39@posthog.com.",
+                "detail": "This invite is intended for another email address.",
                 "attr": None,
             },
         )

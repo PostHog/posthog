@@ -7,7 +7,7 @@ import { UUIDT } from '../../../../src/utils/utils'
 import {
     emitToBufferStep,
     shouldSendEventToBuffer,
-} from '../../../../src/worker/ingestion/event-pipeline/1-emitToBufferStep'
+} from '../../../../src/worker/ingestion/event-pipeline/2-emitToBufferStep'
 import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
 
 const now = DateTime.fromISO('2020-01-01T12:00:05.200Z')
@@ -22,6 +22,12 @@ const pluginEvent: PluginEvent = {
     ip: null,
     site_url: 'https://example.com',
     uuid: new UUIDT().toString(),
+}
+
+const anonEvent = {
+    ...pluginEvent,
+    distinct_id: '$some_device_id',
+    properties: { $device_id: '$some_device_id' },
 }
 
 const existingPerson: Person = {
@@ -133,12 +139,6 @@ describe('shouldSendEventToBuffer()', () => {
     })
 
     it('returns false for recently created anonymous person', () => {
-        const anonEvent = {
-            ...pluginEvent,
-            distinct_id: '$some_device_id',
-            properties: { $device_id: '$some_device_id' },
-        }
-
         const person = {
             ...existingPerson,
             created_at: now.minus({ seconds: 5 }),
@@ -245,5 +245,13 @@ describe('shouldSendEventToBuffer()', () => {
 
         runner.hub.CONVERSION_BUFFER_ENABLED = true
         expect(shouldSendEventToBuffer(runner.hub, pluginEvent, undefined, 3)).toEqual(true)
+    })
+
+    it('handles teamIdsToBufferAnonymousEventsFor', () => {
+        runner.hub.MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR = 2
+
+        expect(shouldSendEventToBuffer(runner.hub, anonEvent, undefined, 1)).toEqual(true)
+        expect(shouldSendEventToBuffer(runner.hub, anonEvent, undefined, 2)).toEqual(true)
+        expect(shouldSendEventToBuffer(runner.hub, anonEvent, undefined, 3)).toEqual(false)
     })
 })

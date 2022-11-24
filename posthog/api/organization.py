@@ -99,7 +99,9 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Organization:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
-        organization, _, _ = Organization.objects.bootstrap(self.context["request"].user, **validated_data)
+        user = self.context["request"].user
+        organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
+
         return organization
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
@@ -175,11 +177,14 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         user = cast(User, self.request.user)
         report_organization_deleted(user, organization)
         team_ids = [team.pk for team in organization.teams.all()]
-        for team_id in team_ids:
-            AsyncDeletion.objects.create(
-                deletion_type=DeletionType.Team, team_id=team_id, key=str(team_id), created_by=user
-            )
-
         delete_bulky_postgres_data(team_ids=team_ids)
         with mute_selected_signals():
             super().perform_destroy(organization)
+        # Once the organization is deleted, queue deletion of associated data
+        AsyncDeletion.objects.bulk_create(
+            [
+                AsyncDeletion(deletion_type=DeletionType.Team, team_id=team_id, key=str(team_id), created_by=user)
+                for team_id in team_ids
+            ],
+            ignore_conflicts=True,
+        )
