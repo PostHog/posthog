@@ -33,7 +33,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         self.assertEqual(ch_persons, [(person.uuid, self.team.pk, '{"a": 1234}', True, 0, False)])
 
     def test_persons_deleted(self):
-        uuid = create_person(uuid=str(uuid4()), team_id=self.team.pk, version=5, properties='{"abc":123}', sync=True)
+        uuid = create_person(uuid=str(uuid4()), team_id=self.team.pk, version=5, properties={"abc": 123}, sync=True)
 
         run_person_sync(self.team.pk, live_run=True, deletes=True, sync=True)
 
