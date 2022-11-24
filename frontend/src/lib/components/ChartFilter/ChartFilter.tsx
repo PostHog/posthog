@@ -4,6 +4,7 @@ import {
     IconShowChart,
     IconCumulativeChart,
     IconBarChart,
+    IconAreaChart,
     Icon123,
     IconPieChart,
     IconTableChart,
@@ -79,6 +80,10 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                     value: ChartDisplayType.ActionsBar,
                     label: <Label icon={<IconBarChart />}>Bar</Label>,
                     disabled: barDisabled,
+                },
+                {
+                    value: ChartDisplayType.ActionsAreaGraph,
+                    label: <Label icon={<IconAreaChart />}>Area</Label>,
                 },
             ],
         },

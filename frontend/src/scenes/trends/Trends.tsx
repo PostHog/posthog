@@ -26,6 +26,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
             !display ||
             display === ChartDisplayType.ActionsLineGraph ||
             display === ChartDisplayType.ActionsLineGraphCumulative ||
+            display === ChartDisplayType.ActionsAreaGraph ||
             display === ChartDisplayType.ActionsBar
         ) {
             return <ActionsLineGraph />
