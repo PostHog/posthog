@@ -62,7 +62,6 @@ export async function ingestEvent(
     }
 
     server.statsd?.timing('kafka_queue.each_event', eachEventStartTimer)
-    server.internalMetrics?.incr('$$plugin_server_events_processed')
 
     countAndLogEvents()
 }
