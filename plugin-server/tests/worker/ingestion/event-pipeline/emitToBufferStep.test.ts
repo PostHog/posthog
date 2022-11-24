@@ -24,6 +24,12 @@ const pluginEvent: PluginEvent = {
     uuid: new UUIDT().toString(),
 }
 
+const anonEvent = {
+    ...pluginEvent,
+    distinct_id: '$some_device_id',
+    properties: { $device_id: '$some_device_id' },
+}
+
 const existingPerson: Person = {
     id: 123,
     team_id: 2,
@@ -133,12 +139,6 @@ describe('shouldSendEventToBuffer()', () => {
     })
 
     it('returns false for recently created anonymous person', () => {
-        const anonEvent = {
-            ...pluginEvent,
-            distinct_id: '$some_device_id',
-            properties: { $device_id: '$some_device_id' },
-        }
-
         const person = {
             ...existingPerson,
             created_at: now.minus({ seconds: 5 }),
@@ -245,5 +245,15 @@ describe('shouldSendEventToBuffer()', () => {
 
         runner.hub.CONVERSION_BUFFER_ENABLED = true
         expect(shouldSendEventToBuffer(runner.hub, pluginEvent, undefined, 3)).toEqual(true)
+    })
+
+    it('handles teamIdsToBufferAnonymousEventsFor', () => {
+        runner.hub.teamIdsToBufferAnonymousEventsFor = new Set([2])
+
+        // we send this anonymous event to the buffer because team ID 2 is in teamIdsToBufferAnonymousEventsFor
+        expect(shouldSendEventToBuffer(runner.hub, anonEvent, undefined, 2)).toEqual(true)
+
+        // we don't send this anonymous event to the buffer because team ID 3 is not in teamIdsToBufferAnonymousEventsFor
+        expect(shouldSendEventToBuffer(runner.hub, anonEvent, undefined, 3)).toEqual(false)
     })
 })
