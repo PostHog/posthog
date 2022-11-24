@@ -12,11 +12,13 @@ import { isPostHogProp } from 'lib/components/PropertyKeyInfo'
 import { VerifiedEventCheckbox } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { Form } from 'kea-forms'
+import { tagsModel } from '~/models/tagsModel'
 
 export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
     const logic = definitionEditLogic(props)
-    const { definitionLoading, definition, hasTaxonomyFeatures, isEvent, tags, tagsLoading } = useValues(logic)
+    const { definitionLoading, definition, hasTaxonomyFeatures, isEvent } = useValues(logic)
     const { setPageMode, saveDefinition } = useActions(logic)
+    const { tags, tagsLoading } = useValues(tagsModel)
 
     return (
         <Form logic={definitionEditLogic} props={props} formKey="definition">
