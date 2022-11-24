@@ -860,15 +860,8 @@ export const insightLogic = kea<insightLogicType>([
             )
             actions.setIsLoading(true)
         },
-        abortQuery: ({ queryId, view, scene, exception }) => {
+        abortQuery: ({ queryId }) => {
             const { currentTeamId } = values
-            const duration = performance.now() - values.queryStartTimes[queryId]
-            const tags = {
-                insight: view,
-                scene: scene,
-                success: !exception,
-                ...exception,
-            }
 
             if (values.featureFlags[FEATURE_FLAGS.CANCEL_RUNNING_QUERIES]) {
                 api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId })
