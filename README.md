@@ -24,6 +24,15 @@
 - Keep control over your data by deploying PostHog on your infrastructure
 - Use apps to connect to external services and manage data flows
 
+## Table of Contents
+
+- [Get started for free](#get-started-for-free)
+- [Features](#features)
+- [Docs and support](#docs-and-support)
+- [Contributing](#contributing)
+- [Philosophy](#philosophy)
+- [Open-source vs paid](#open-source-vs-paid)
+
 ## Get started for free
 
 ### PostHog Cloud
@@ -43,14 +52,6 @@ Good for <100K events ingested monthly. See our [docs for more info and limitati
 ### Enterprise self-hosted
 
 See our [enterprise self-hosted docs](https://posthog.com/docs/self-host/enterprise/overview) to deploy a scalable, production-ready instance with support from our team.
-
-## Table of Contents
-
-- [Features](#features)
-- [Docs and support](#docs-and-support)
-- [Contributing](#contributing)
-- [Philosophy](#philosophy)
-- [Open-source vs paid](#open-source-vs-paid)
 
 ## Features
 ![ui-demo](https://user-images.githubusercontent.com/85295485/144591577-fe97e4a5-5631-4a60-a684-45caf421507f.gif)
