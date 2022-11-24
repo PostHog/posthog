@@ -9,7 +9,6 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import { userLogic } from 'scenes/userLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
@@ -21,7 +20,6 @@ export const DashboardTemplatesTable = (): JSX.Element => {
     const { showNewDashboardModal, setNewDashboardValue } = useActions(newDashboardLogic)
     const { renameDashboardTemplate, deleteDashboardTemplate } = useActions(dashboardTemplateLogic)
     const { dashboardTemplatesLoading } = useValues(dashboardTemplateLogic)
-    const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
 
     return (
@@ -63,10 +61,10 @@ export const DashboardTemplatesTable = (): JSX.Element => {
                     {
                         width: 0,
                         render: function RenderActions(_, { id, template_name, scope }: DashboardTemplateListing) {
+                            const canEverEdit = scope !== 'global'
                             const disabled =
-                                (scope === 'global' && !user?.is_staff) ||
-                                (scope === 'organization' &&
-                                    currentTeam?.effective_membership_level === OrganizationMembershipLevel.Member)
+                                scope === 'organization' &&
+                                currentTeam?.effective_membership_level === OrganizationMembershipLevel.Member
                             return (
                                 <More
                                     overlay={
@@ -94,29 +92,33 @@ export const DashboardTemplatesTable = (): JSX.Element => {
                                                     },
                                                 ]}
                                             />
-                                            <LemonButton
-                                                status="stealth"
-                                                onClick={() => {
-                                                    renameDashboardTemplate(id, template_name)
-                                                }}
-                                                disabled={disabled}
-                                                fullWidth
-                                            >
-                                                Rename template
-                                            </LemonButton>
+                                            {canEverEdit && (
+                                                <>
+                                                    <LemonButton
+                                                        status="stealth"
+                                                        onClick={() => {
+                                                            renameDashboardTemplate(id, template_name)
+                                                        }}
+                                                        disabled={disabled}
+                                                        fullWidth
+                                                    >
+                                                        Rename template
+                                                    </LemonButton>
 
-                                            <LemonDivider />
+                                                    <LemonDivider />
 
-                                            <LemonButton
-                                                onClick={() => {
-                                                    deleteDashboardTemplate(id)
-                                                }}
-                                                disabled={disabled}
-                                                fullWidth
-                                                status="danger"
-                                            >
-                                                Delete dashboard template
-                                            </LemonButton>
+                                                    <LemonButton
+                                                        onClick={() => {
+                                                            deleteDashboardTemplate(id)
+                                                        }}
+                                                        disabled={disabled}
+                                                        fullWidth
+                                                        status="danger"
+                                                    >
+                                                        Delete dashboard template
+                                                    </LemonButton>
+                                                </>
+                                            )}
                                         </div>
                                     }
                                 />

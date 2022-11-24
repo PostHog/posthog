@@ -45,13 +45,13 @@ class TestDashboardTemplates(APIBaseTest, QueryMatchingTest):
             email="team_two_user@posthog.com", password="1234", organization=self.another_organization
         )
 
-    def test_create_defaults_does_not_duplicate(self) -> None:
+    def test_create_defaults_overwrites_not_duplicates(self) -> None:
         create_global_templates([{"name": "a"}, {"name": "b"}])
         create_global_templates([{"name": "a"}, {"name": "b"}])
 
         assert len(self.client.get("/api/projects/@current/dashboard_templates/?basic=true").json()["results"]) == 2
 
-    def test_create_does_not_duplicate(self) -> None:
+    def test_create_refuses_to_duplicate(self) -> None:
         self._create_template()
         self._create_template(expected_status=status.HTTP_400_BAD_REQUEST)
 
