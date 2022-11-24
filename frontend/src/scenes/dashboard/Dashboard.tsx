@@ -104,7 +104,6 @@ function DashboardScene(): JSX.Element {
                         {![
                             DashboardPlacement.Public,
                             DashboardPlacement.Export,
-                            DashboardPlacement.InternalMetrics,
                         ].includes(placement) && (
                             <div className="flex space-x-4">
                                 <div className="flex items-center h-8">
@@ -135,7 +134,7 @@ function DashboardScene(): JSX.Element {
                                     className="left-item"
                                     style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
                                 >
-                                    {[DashboardPlacement.Public, DashboardPlacement.InternalMetrics].includes(
+                                    {[DashboardPlacement.Public].includes(
                                         placement
                                     ) ? (
                                         <LastRefreshText />
