@@ -1207,6 +1207,7 @@ export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
 export enum ChartDisplayType {
     ActionsLineGraph = 'ActionsLineGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
+    ActionsAreaGraph = 'ActionsAreaGraph',
     ActionsTable = 'ActionsTable',
     ActionsPie = 'ActionsPie',
     ActionsBar = 'ActionsBar',
