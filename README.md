@@ -12,7 +12,9 @@
   <img alt="GitHub closed issues" src="https://img.shields.io/github/issues-closed/posthog/posthog"/>
 </p>
 
-[Docs](https://posthog.com/docs) - [Using PostHog](https://posthog.com/using-posthog) - [Support community](https://posthog.com/slack) - [Roadmap](https://posthog.com/roadmap) - [Bug report](https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&template=bug_report.md)
+<p align="center">
+  <a href="https://posthog.com/docs">Docs</a> - <a href="https://posthog.com/using-posthog">Using PostHog</a> - <a href="https://posthog.com/slack">Support community</a> - <a href="https://posthog.com/roadmap">Roadmap</a> - <a href="https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&template=bug_report.md">Bug report</a>
+</p>
 
 ## PostHog is an open-source suite of product and data tools, built for engineers
 
