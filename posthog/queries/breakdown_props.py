@@ -169,7 +169,7 @@ def get_breakdown_prop_values(
             null_person_filter=null_person_filter,
             **entity_format_params,
         )
-    return insight_sync_execute(
+    wat = insight_sync_execute(
         elements_query,
         {
             "key": filter.breakdown,
@@ -188,6 +188,8 @@ def get_breakdown_prop_values(
         query_type="get_breakdown_prop_values",
         filter=filter,
     )[0][0]
+
+    return wat
 
 
 def _to_value_expression(

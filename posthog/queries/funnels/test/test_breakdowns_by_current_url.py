@@ -105,6 +105,7 @@ class TestBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
                     "insight": "FUNNELS",
                     "date_from": "2020-01-02T00:00:00Z",
                     "date_to": "2020-01-12T00:00:00Z",
+                    "breakdown_limit": 100,  # never have other
                     **extra,
                 }
             ),
