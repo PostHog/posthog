@@ -16,7 +16,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { urls } from 'scenes/urls'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { windowValues } from 'kea-window-values'
@@ -209,7 +208,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
             const isBillingPage = router.values.location.pathname == '/ingestion/billing'
             const isVerifyPage = !values.showBillingStep && router.values.location.pathname == '/ingestion/verify'
             if (isBillingPage || isVerifyPage) {
-                return urls.events()
+                return '/events?onboarding_completed=true'
             }
         },
     })),

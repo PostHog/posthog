@@ -1,0 +1,32 @@
+import { LemonButton } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { Progress } from 'antd'
+import { activationLogic } from './ActivationLogic'
+
+const ActivationSidebarToggle = (): JSX.Element | null => {
+    const { mobileLayout } = useValues(navigationLogic)
+    const { toggleActivationSideBar } = useActions(navigationLogic)
+    const { activeTasks, completionPercent, isReady, hasCompletedAllTasks } = useValues(activationLogic)
+    if (!isReady || hasCompletedAllTasks) {
+        return null
+    }
+    return (
+        <LemonButton
+            center
+            size="small"
+            type="tertiary"
+            onClick={toggleActivationSideBar}
+            icon={<Progress type="circle" percent={completionPercent} width={40} format={() => activeTasks.length} />}
+        >
+            {!mobileLayout && (
+                <div className="pl-2 text-left">
+                    <p className="m-0">Quick Start</p>
+                    <p className="m-0 text-xs text-muted">{activeTasks.length} remaining tasks</p>
+                </div>
+            )}
+        </LemonButton>
+    )
+}
+
+export default ActivationSidebarToggle
