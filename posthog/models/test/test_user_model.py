@@ -36,6 +36,7 @@ class TestUser(BaseTest):
                     "joined_at": user.date_joined,
                     "has_social_auth": False,
                     "social_providers": [],
+                    "instance_url": "http://localhost:8000",
                 },
             )
 
@@ -68,5 +69,6 @@ class TestUser(BaseTest):
                     "joined_at": user_2.date_joined,
                     "has_social_auth": False,
                     "social_providers": [],
+                    "instance_url": "http://localhost:8000",
                 },
             )
