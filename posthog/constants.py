@@ -27,6 +27,7 @@ class AvailableFeature(str, Enum):
     SUBSCRIPTIONS = "subscriptions"
     APP_METRICS = "app_metrics"
     RECORDINGS_PLAYLISTS = "recordings_playlists"
+    ROLE_BASED_ACCESS = "role_based_access"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

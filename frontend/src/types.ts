@@ -50,6 +50,7 @@ export enum AvailableFeature {
     SUBSCRIPTIONS = 'subscriptions',
     APP_METRICS = 'app_metrics',
     RECORDINGS_PLAYLISTS = 'recordings_playlists',
+    ROLE_BASED_ACCESS = 'role_based_access',
 }
 
 export enum LicensePlan {
@@ -1694,6 +1695,7 @@ export interface FeatureFlagType {
     experiment_set: string[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
+    can_edit: boolean
 }
 
 export interface FeatureFlagRollbackConditions {
@@ -2348,4 +2350,51 @@ export interface MediaUploadResponse {
 export enum RolloutConditionType {
     Insight = 'insight',
     Sentry = 'sentry',
+}
+
+export enum Resource {
+    FEATURE_FLAGS = 'feature flags',
+}
+
+export enum AccessLevel {
+    READ = 21,
+    WRITE = 37,
+}
+
+export interface RoleType {
+    id: string
+    name: string
+    feature_flags_access_level: AccessLevel
+    created_at: string
+    created_by: UserBasicType | null
+}
+
+export interface RolesListParams {
+    feature_flags_access_level?: AccessLevel
+}
+
+export interface FeatureFlagAssociatedRoleType {
+    id: string
+    feature_flag: FeatureFlagType
+    role: RoleType
+    updated_at: string
+    added_at: string
+}
+
+export interface RoleMemberType {
+    id: string
+    user: UserBaseType
+    role_id: string
+    joined_at: string
+    updated_at: string
+    user_uuid: string
+}
+
+export interface OrganizationResourcePermissionType {
+    id: string
+    resource: Resource
+    access_level: AccessLevel
+    created_at: string
+    updated_at: string
+    created_by: UserBaseType | null
 }

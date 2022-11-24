@@ -1,12 +1,13 @@
-import unittest
+from typing import Optional
 
 from dateutil import parser
 
 from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Change, changes_between
+from posthog.test.base import APIBaseTest
 
 
-class TestChangesBetweenFeatureFlags(unittest.TestCase):
+class TestChangesBetweenFeatureFlags(APIBaseTest):
     def test_comparing_two_nothings_results_in_no_changes(self) -> None:
         actual = changes_between(model_type="FeatureFlag", previous=None, current=None)
         assert actual == []
@@ -85,20 +86,21 @@ class TestChangesBetweenFeatureFlags(unittest.TestCase):
     def test_can_exclude_changed_fields_in_feature_flags(self) -> None:
         actual = changes_between(
             model_type="FeatureFlag",
-            previous=self._a_feature_flag_with(
-                id="before", created_at="before", created_by="before", is_simple_flag=True
-            ),
-            current=self._a_feature_flag_with(id="after", created_at="after", created_by="after", is_simple_flag=False),
+            previous=self._a_feature_flag_with(created_at="before", created_by="before", is_simple_flag=True),
+            current=self._a_feature_flag_with(created_at="after", created_by="after", is_simple_flag=False),
         )
         self.assertEqual(actual, [])
 
     @staticmethod
-    def _a_feature_flag_with(**kwargs) -> FeatureFlag:
+    def _a_feature_flag_with(id: Optional[int] = None, **kwargs) -> FeatureFlag:
+        if not id:
+            id = 2
+
         return FeatureFlag(
             deleted=kwargs.get("deleted", False),
             rollout_percentage=kwargs.get("rollout_percentage", None),
             active=kwargs.get("active", True),
-            id=kwargs.get("id", 2),
+            id=id,
             key=kwargs.get("key", "the-key"),
             name=kwargs.get("name", "a"),
             filters=kwargs.get("filters", None),
