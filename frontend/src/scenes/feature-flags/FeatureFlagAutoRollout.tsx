@@ -8,7 +8,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Field } from 'lib/forms/Field'
 import { capitalizeFirstLetter, genericOperatorMap, humanFriendlyNumber } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/MathSelector'
 
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
