@@ -19,9 +19,12 @@ describe('activationLogic', () => {
 
     afterEach(() => logic.unmount())
 
-    describe('loadCustomEvents', () => {
-        it('should load custom events on mount', async () => {
-            expectLogic(logic).toDispatchActions(['loadCustomEvents'])
-        })
+    it('should load custom events on mount', async () => {
+        expectLogic(logic).toDispatchActions(['loadCustomEvents'])
+    })
+
+    it('should report activation sidebar shown', async () => {
+        navigationLogic.actions.showActivationSideBar()
+        expectLogic(logic).toDispatchActions(['reportActivationSidebarShown'])
     })
 })

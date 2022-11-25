@@ -2,14 +2,14 @@ import { LemonButton, LemonButtonProps, LemonButtonWithSideAction } from '@posth
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { activationLogic, Task } from './activationLogic'
+import { activationLogic, ActivationTaskType } from './activationLogic'
 import './ActivationSidebar.scss'
 import { Progress } from 'antd'
 import { IconCheckmark, IconClose } from '../icons'
 import { SessionRecording as SessionRecordingConfig } from 'scenes/project/Settings/SessionRecording'
 import { ProfessorHog } from '../hedgehogs'
 
-const Task = ({ id, name, description, completed, canSkip, skipped, url }: Task): JSX.Element => {
+const Task = ({ id, name, description, completed, canSkip, skipped, url }: ActivationTaskType): JSX.Element => {
     const displaySideAction = !completed && !skipped && canSkip
     const { runTask, skipTask } = useActions(activationLogic)
 
@@ -81,7 +81,7 @@ const ActivationSidebar = (): JSX.Element => {
                 ) : (
                     <>
                         <h2 className="subtitle">Quick Start</h2>
-                        <p>Learn how to get the most out of PostHog, straigth away.</p>
+                        <p>Learn how to get the most out of PostHog, straight away.</p>
                         <div className="my-4 flex items-center justify-center">
                             <div className="flex flex-col items-center">
                                 <Progress
@@ -90,7 +90,7 @@ const ActivationSidebar = (): JSX.Element => {
                                     percent={completionPercent}
                                     format={() => activeTasks.length}
                                 />
-                                <p className="text-muted mt-2">Remaining tasks</p>
+                                <p className="text-muted mt-2">still to go</p>
                             </div>
                             <div className="ActivationSideBar__hog">
                                 <ProfessorHog className="max-h-full w-auto object-contain" />
@@ -98,9 +98,9 @@ const ActivationSidebar = (): JSX.Element => {
                         </div>
                         {activeTasks.length > 0 && (
                             <div className="mt-4">
-                                <div className="text-muted uppercase text-xs">Next tasks</div>
+                                <div className="text-muted uppercase text-xs">What's next?</div>
                                 <ul>
-                                    {activeTasks.map((task: Task) => (
+                                    {activeTasks.map((task: ActivationTaskType) => (
                                         <Task key={task.id} {...task} />
                                     ))}
                                 </ul>
@@ -110,7 +110,7 @@ const ActivationSidebar = (): JSX.Element => {
                             <div className="mt-4">
                                 <div className="text-muted uppercase text-xs">Completed</div>
                                 <ul>
-                                    {completedTasks.map((task: Task) => (
+                                    {completedTasks.map((task: ActivationTaskType) => (
                                         <Task key={task.id} {...task} />
                                     ))}
                                 </ul>

@@ -22,7 +22,7 @@ const ActivationSidebarToggle = (): JSX.Element | null => {
             {!mobileLayout && (
                 <div className="pl-2 text-left">
                     <p className="m-0">Quick Start</p>
-                    <p className="m-0 text-xs text-muted">{activeTasks.length} remaining tasks</p>
+                    <p className="m-0 text-xs text-muted">{activeTasks.length} still to go</p>
                 </div>
             )}
         </LemonButton>

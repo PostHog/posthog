@@ -24,6 +24,7 @@ export const navigationLogic = kea<navigationLogicType>({
         toggleSideBarBase: true,
         toggleSideBarMobile: true,
         toggleActivationSideBar: true,
+        showActivationSideBar: true,
         hideActivationSideBar: true,
         hideSideBarMobile: true,
         openSitePopover: true,
@@ -60,7 +61,7 @@ export const navigationLogic = kea<navigationLogicType>({
         isActivationSideBarShownBase: [
             false,
             {
-                toggleActivationSideBar: (state) => !state,
+                showActivationSideBar: () => true,
                 hideActivationSideBar: () => false,
             },
         ],
@@ -263,9 +264,16 @@ export const navigationLogic = kea<navigationLogicType>({
             },
         ],
     },
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         closeProjectNotice: ({ projectNoticeVariant }) => {
             actions.reportProjectNoticeDismissed(projectNoticeVariant)
+        },
+        toggleActivationSideBar: () => {
+            if (values.isActivationSideBarShown) {
+                actions.hideActivationSideBar()
+            } else {
+                actions.showActivationSideBar()
+            }
         },
     }),
     events: ({ actions }) => ({

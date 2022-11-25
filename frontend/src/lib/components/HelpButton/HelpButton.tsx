@@ -156,7 +156,7 @@ export function HelpButton({
                                 hideHelp()
                             }}
                         >
-                            Quick Start using PostHog
+                            Quick Start
                         </LemonButton>
                         {validProductTourSequences.length > 0 && (
                             <LemonButton
