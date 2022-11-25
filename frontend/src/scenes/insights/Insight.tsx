@@ -37,6 +37,7 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import clsx from 'clsx'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { tagsModel } from '~/models/tagsModel'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
@@ -66,6 +67,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
+
+    const { tags } = useValues(tagsModel)
 
     useEffect(() => {
         reportInsightViewedForRecentInsights()
@@ -255,7 +258,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 tags={insight.tags ?? []}
                                 onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
                                 saving={tagLoading}
-                                tagsAvailable={[]}
+                                tagsAvailable={tags}
                                 className="insight-metadata-tags"
                                 data-attr="insight-tags"
                             />

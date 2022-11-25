@@ -11,7 +11,6 @@ import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { AvailableFeature, DashboardMode, DashboardType, ExporterFormat } from '~/types'
 import { dashboardLogic } from './dashboardLogic'
-import { dashboardsLogic } from './dashboards/dashboardsLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { userLogic } from 'scenes/userLogic'
 import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
@@ -33,6 +32,7 @@ import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogi
 import { saveDashboardTemplateLogic } from 'scenes/dashboard/dashboardTemplates/saveDashboardTemplateLogic'
 import { SaveDashboardTemplateModal } from 'scenes/dashboard/dashboardTemplates/SaveAsDashboardTemplateModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tagsModel } from '~/models/tagsModel'
 
 export function DashboardHeader(): JSX.Element | null {
     const {
@@ -47,7 +47,6 @@ export function DashboardHeader(): JSX.Element | null {
         textTileId,
     } = useValues(dashboardLogic)
     const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
-    const { dashboardTags } = useValues(dashboardsLogic)
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
 
     const { hasAvailableFeature } = useValues(userLogic)
@@ -58,6 +57,8 @@ export function DashboardHeader(): JSX.Element | null {
 
     const { featureFlags } = useValues(featureFlagLogic)
     const allowSaveAsTemplate = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
+
+    const { tags } = useValues(tagsModel)
 
     const { push } = useActions(router)
 
@@ -342,7 +343,7 @@ export function DashboardHeader(): JSX.Element | null {
                                         tags={dashboard.tags}
                                         onChange={(_, tags) => triggerDashboardUpdate({ tags })}
                                         saving={dashboardLoading}
-                                        tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags?.includes(tag))}
+                                        tagsAvailable={tags.filter((tag) => !dashboard.tags?.includes(tag))}
                                         className="insight-metadata-tags"
                                     />
                                 ) : dashboard.tags.length ? (

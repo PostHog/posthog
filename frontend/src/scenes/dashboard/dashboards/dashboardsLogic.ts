@@ -3,7 +3,6 @@ import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import type { dashboardsLogicType } from './dashboardsLogicType'
 import { DashboardType } from '~/types'
-import { uniqueBy } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 import { dashboardTemplateLogic } from 'scenes/dashboard/dashboardTemplates/dashboardTemplateLogic'
 
@@ -87,14 +86,6 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
                     .search(searchTerm)
                     .map((result) => result.item)
             },
-        ],
-        dashboardTags: [
-            () => [dashboardsModel.selectors.nameSortedDashboards],
-            (dashboards: DashboardType[]): string[] =>
-                uniqueBy(
-                    dashboards.flatMap(({ tags }) => tags || ''),
-                    (item) => item
-                ).sort(),
         ],
     },
 })
