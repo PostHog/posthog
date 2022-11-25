@@ -108,7 +108,9 @@ export function shouldSendEventToBuffer(
 
     const processEventImmediately = isMobileLibrary || person || isIdentifyingEvent || isAnonymousEvent
 
-    const sendToBuffer = shouldBufferAnonymousEvents || !processEventImmediately
+    // shouldBufferAnonymousEvents indicated buffering should happen
+    // for all anonymous events, irrespective of the person existing or not
+    const sendToBuffer = (shouldBufferAnonymousEvents && isAnonymousEvent) || !processEventImmediately
 
     if (sendToBuffer) {
         hub.statsd?.increment('conversion_events_buffer_size', { teamId: event.team_id.toString() })
