@@ -1,6 +1,6 @@
 import { kea, path, actions, selectors, connect, reducers, listeners, events } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
@@ -252,6 +252,15 @@ export const activationLogic = kea<activationLogicType>([
     events(({ actions }) => ({
         afterMount: () => {
             actions.loadCustomEvents()
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        '*': (_, params) => {
+            if (params?.onboarding_completed && !values.hasCompletedAllTasks) {
+                actions.toggleActivationSideBar()
+            } else {
+                actions.hideActivationSideBar()
+            }
         },
     })),
 ])
