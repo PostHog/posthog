@@ -45,7 +45,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                 },
                 loadNextData: async () => {
-                    if (!values.canLoadNewData) {
+                    if (!values.canLoadNextData) {
                         return
                     }
                     const oldResponse = values.response as EventsNode['response'] | null
