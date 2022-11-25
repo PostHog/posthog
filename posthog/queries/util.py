@@ -51,18 +51,22 @@ def format_ch_timestamp(timestamp: datetime, convert_to_timezone: Optional[str] 
 
 
 def get_earliest_timestamp(team_id: int) -> datetime:
-    def query_for_earliest_timestamp():
-        results = insight_sync_execute(
-            GET_EARLIEST_TIMESTAMP_SQL,
-            {"team_id": team_id, "earliest_timestamp": EARLIEST_TIMESTAMP},
-            query_type="get_earliest_timestamp",
-        )
-        if len(results) > 0:
-            return results[0][0]
-        else:
-            return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
+    cache_key = f"earliest_timestamp_lookup_cache_{team_id}"
+    cached_results = cache.get(cache_key)
+    if cached_results:
+        return cached_results
 
-    return cache.get_or_set(f"earliest_timestamp_lookup_cache_{team_id}", query_for_earliest_timestamp, 1)
+    results = insight_sync_execute(
+        GET_EARLIEST_TIMESTAMP_SQL,
+        {"team_id": team_id, "earliest_timestamp": EARLIEST_TIMESTAMP},
+        query_type="get_earliest_timestamp",
+    )
+    if len(results) > 0:
+        timestamp = results[0][0]
+        cache.set(cache_key, timestamp, 1)
+        return timestamp
+    else:
+        return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
 
 
 def get_trunc_func_ch(period: Optional[str]) -> str:

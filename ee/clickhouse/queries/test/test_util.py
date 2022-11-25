@@ -36,15 +36,30 @@ def test_get_earliest_timestamp_with_no_events(db, team):
 def test_get_earliest_timestamp_has_a_short_lived_cache(db, team):
     with freeze_time("2021-01-21") as frozen_time:
         with patch("posthog.queries.util.insight_sync_execute") as patched_sync_execute:
+            patched_sync_execute.return_value = [[datetime(2020, 1, 4, 14, 10, tzinfo=pytz.UTC)]]
+
             # returns the no events value because insight_sync_execute is patched
-            assert get_earliest_timestamp(team.id) == datetime(2021, 1, 14, tzinfo=pytz.UTC)
+            assert get_earliest_timestamp(team.id) == datetime(2020, 1, 4, 14, 10, tzinfo=pytz.UTC)
             frozen_time.tick(timedelta(milliseconds=900))
 
-            assert get_earliest_timestamp(team.id) == datetime(2021, 1, 14, tzinfo=pytz.UTC)
+            assert get_earliest_timestamp(team.id) == datetime(2020, 1, 4, 14, 10, tzinfo=pytz.UTC)
             patched_sync_execute.assert_called_once()
 
             frozen_time.tick(timedelta(milliseconds=100))
-            assert get_earliest_timestamp(team.id) == datetime(2021, 1, 14, 0, 0, 1, tzinfo=pytz.UTC)
+            assert get_earliest_timestamp(team.id) == datetime(2020, 1, 4, 14, 10, tzinfo=pytz.UTC)
+            assert patched_sync_execute.call_count == 2
+
+
+def test_does_not_cache_the_default_case(db, team):
+    with freeze_time("2021-01-21") as frozen_time:
+        with patch("posthog.queries.util.insight_sync_execute") as patched_sync_execute:
+            # returns the no events value because insight_sync_execute is patched
+            assert get_earliest_timestamp(team.id) == datetime(2021, 1, 14, 0, 0, tzinfo=pytz.UTC)
+            assert patched_sync_execute.call_count == 1
+
+            frozen_time.tick(timedelta(milliseconds=900))
+
+            assert get_earliest_timestamp(team.id) == datetime(2021, 1, 14, 0, 0, 0, 900000, tzinfo=pytz.UTC)
             assert patched_sync_execute.call_count == 2
 
 
