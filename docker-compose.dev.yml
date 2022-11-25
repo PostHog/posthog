@@ -28,9 +28,15 @@ services:
             - '6379:6379'
 
     clickhouse:
-        extends:
-            file: docker-compose.base.yml
-            service: clickhouse
+        #
+        # Note: please keep the default version in sync across
+        #       `posthog` and the `charts-clickhouse` repos
+        #
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:22.8}
+        restart: on-failure
+        depends_on:
+            - kafka
+            - zookeeper
         ports:
             - '8123:8123'
             - '9000:9000'

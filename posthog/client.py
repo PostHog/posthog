@@ -57,8 +57,10 @@ def default_settings() -> Dict:
     # On CH 22.3 we need to disable optimize_move_to_prewhere due to a bug. This is verified fixed on 22.8 (LTS),
     # so we only disable on versions below that.
     # This is calculated once per deploy
-    clickhouse_at_least_228 = ServiceVersionRequirement(service="clickhouse", supported_version=">=22.8.0")
-    if clickhouse_at_least_228.is_service_in_accepted_version():
+    clickhouse_at_least_228, _ = ServiceVersionRequirement(
+        service="clickhouse", supported_version=">=22.8.0"
+    ).is_service_in_accepted_version()
+    if clickhouse_at_least_228:
         return {}
     else:
         return {"optimize_move_to_prewhere": 0}
