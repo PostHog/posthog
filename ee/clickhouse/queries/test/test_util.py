@@ -36,15 +36,16 @@ def test_get_earliest_timestamp_with_no_events(db, team):
 def test_get_earliest_timestamp_has_a_short_lived_cache(db, team):
     with freeze_time("2021-01-21") as frozen_time:
         with patch("posthog.queries.util.insight_sync_execute") as patched_sync_execute:
-            _create_event(team=team, event="sign up", distinct_id="1", timestamp="2020-01-04T14:10:00Z")
-            _create_event(team=team, event="sign up", distinct_id="1", timestamp="2020-01-06T14:10:00Z")
-
-            assert get_earliest_timestamp(team.id)
+            # returns the no events value because insight_sync_execute is patched
+            assert get_earliest_timestamp(team.id) == datetime(2021, 1, 14, tzinfo=pytz.UTC)
             frozen_time.tick(timedelta(milliseconds=900))
 
-            assert get_earliest_timestamp(team.id)
-
+            assert get_earliest_timestamp(team.id) == datetime(2021, 1, 14, tzinfo=pytz.UTC)
             patched_sync_execute.assert_called_once()
+
+            frozen_time.tick(timedelta(milliseconds=100))
+            assert get_earliest_timestamp(team.id) == datetime(2021, 1, 14, 0, 0, 1, tzinfo=pytz.UTC)
+            assert patched_sync_execute.call_count == 2
 
 
 def test_parse_breakdown_cohort_query(db, team):
