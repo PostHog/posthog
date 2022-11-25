@@ -57,10 +57,8 @@ def default_settings() -> Dict:
     # On CH 22.3 we need to disable optimize_move_to_prewhere due to a bug. This is verified fixed on 22.8 (LTS),
     # so we only disable on versions below that.
     # This is calculated once per deploy
-    clickhouse_at_least_228, _ = ServiceVersionRequirement(
-        service="clickhouse", supported_version=">=22.8.0"
-    ).is_service_in_accepted_version()
-    if clickhouse_at_least_228:
+    clickhouse_at_least_228 = ServiceVersionRequirement(service="clickhouse", supported_version=">=22.8.0")
+    if clickhouse_at_least_228.is_service_in_accepted_version():
         return {}
     else:
         return {"optimize_move_to_prewhere": 0}
@@ -158,6 +156,8 @@ def sync_execute(
         start_time = perf_counter()
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args)
+
+        timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure)
 
         settings = {**default_settings(), **(settings or {}), "log_comment": json.dumps(tags, separators=(",", ":"))}
 
