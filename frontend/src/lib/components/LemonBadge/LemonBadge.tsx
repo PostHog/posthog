@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { humanFriendlyNumber } from 'lib/utils'
+import { compactNumber, humanFriendlyNumber } from 'lib/utils'
 import { CSSTransition } from 'react-transition-group'
 import './LemonBadge.scss'
 
@@ -64,13 +64,17 @@ function LemonBadgeNumber({
     showZero = false,
     ...badgeProps
 }: LemonBadgeNumberProps): JSX.Element {
+    if (maxDigits < 1) {
+        throw new Error('maxDigits must be at least 1')
+    }
+
     // NOTE: We use 1 for the text if not showing so the fade out animation looks right
     const text =
         typeof count === 'object'
             ? count
             : typeof count === 'number' && count !== 0
             ? count < Math.pow(10, maxDigits)
-                ? String(count)
+                ? compactNumber(count)
                 : `${'9'.repeat(maxDigits)}+`
             : showZero
             ? '0'
