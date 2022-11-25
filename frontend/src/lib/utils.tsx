@@ -1181,7 +1181,7 @@ export function compactNumber(value: number | null): string {
         magnitude++
         value /= 1000
     }
-    return `${value} ${COMPACT_NUMBER_MAGNITUDES[magnitude]}`
+    return magnitude > 0 ? `${value} ${COMPACT_NUMBER_MAGNITUDES[magnitude]}` : value.toString()
 }
 
 export function roundToDecimal(value: number | null, places: number = 2): string {
