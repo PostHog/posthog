@@ -522,33 +522,37 @@ export const dashboardLogic = kea<dashboardLogicType>({
             (s) => [s.allItems],
             (dashboard: DashboardType): string => {
                 return dashboard
-                    ? JSON.stringify({
-                          template_name: dashboard.name,
-                          description: dashboard.description,
-                          dashboard_filters: dashboard.filters,
-                          tags: dashboard.tags || [],
-                          tiles: dashboard.tiles.map((tile) => {
-                              if (!!tile.text) {
-                                  return {
-                                      type: 'TEXT',
-                                      body: tile.text.body,
-                                      layouts: tile.layouts,
-                                      color: tile.color,
+                    ? JSON.stringify(
+                          {
+                              template_name: dashboard.name,
+                              description: dashboard.description,
+                              dashboard_filters: dashboard.filters,
+                              tags: dashboard.tags || [],
+                              tiles: dashboard.tiles.map((tile) => {
+                                  if (!!tile.text) {
+                                      return {
+                                          type: 'TEXT',
+                                          body: tile.text.body,
+                                          layouts: tile.layouts,
+                                          color: tile.color,
+                                      }
                                   }
-                              }
-                              if (!!tile.insight) {
-                                  return {
-                                      type: 'INSIGHT',
-                                      name: tile.insight.name,
-                                      description: tile.insight.description || '',
-                                      filters: tile.insight.filters,
-                                      layouts: tile.layouts,
-                                      color: tile.color,
+                                  if (!!tile.insight) {
+                                      return {
+                                          type: 'INSIGHT',
+                                          name: tile.insight.name,
+                                          description: tile.insight.description || '',
+                                          filters: tile.insight.filters,
+                                          layouts: tile.layouts,
+                                          color: tile.color,
+                                      }
                                   }
-                              }
-                              throw new Error('Unknown tile type')
-                          }),
-                      })
+                                  throw new Error('Unknown tile type')
+                              }),
+                          },
+                          undefined,
+                          4
+                      )
                     : ''
             },
         ],
