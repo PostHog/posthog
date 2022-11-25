@@ -1,6 +1,5 @@
 import clsx from 'clsx'
 import { humanFriendlyNumber } from 'lib/utils'
-import { ReactNode } from 'react'
 import { CSSTransition } from 'react-transition-group'
 import './LemonBadge.scss'
 
@@ -14,7 +13,7 @@ interface LemonBadgePropsBase {
 }
 
 export interface LemonBadgeProps extends LemonBadgePropsBase {
-    content: ReactNode
+    content: string | JSX.Element
     visible?: boolean
 }
 
@@ -28,7 +27,7 @@ export interface LemonBadgeNumberProps extends LemonBadgePropsBase {
 /** An icon-sized badge. */
 export function LemonBadge({
     content,
-    visible,
+    visible = true,
     size = 'medium',
     position = 'none',
     className,

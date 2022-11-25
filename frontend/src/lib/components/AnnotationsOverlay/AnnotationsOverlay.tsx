@@ -161,7 +161,7 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
                 />
             ) : (
                 <LemonBadge
-                    content={<IconPlusMini className="w-full h-full" />}
+                    content={<IconPlusMini />}
                     size="small"
                     style={active && isDateLocked ? { outline: '0.125rem solid var(--primary)' } : undefined}
                 />
