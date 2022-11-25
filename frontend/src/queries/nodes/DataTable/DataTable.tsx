@@ -18,6 +18,8 @@ import { EventActions } from '~/queries/nodes/DataTable/EventActions'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
 import { ReloadQuery } from '~/queries/nodes/DataTable/ReloadQuery'
 import { LemonButton } from 'lib/components/LemonButton'
+import { Spinner } from 'lib/components/Spinner/Spinner'
+import { IconRefresh } from 'lib/components/icons'
 
 interface DataTableProps {
     query: DataTableNode
@@ -103,8 +105,8 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     const [id] = useState(() => uniqueNode++)
     const dataNodeLogicProps = { query: query.source, key: `DataTable.${id}` }
     const logic = dataNodeLogic(dataNodeLogicProps)
-    const { response, responseLoading, canLoadNextData } = useValues(logic)
-    const { loadNextData } = useActions(logic)
+    const { response, responseLoading, canLoadNextData, canLoadNewData } = useValues(logic)
+    const { loadNextData, loadNewData } = useActions(logic)
 
     const rows = (response as null | EventsNode['response'])?.results ?? []
     const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = columns.map(({ type, key }) => ({
@@ -129,7 +131,19 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             {(showPropertyFilter || showEventFilter || showExport) && (
                 <div className="flex space-x-4 mb-4">
-                    {showReload && <ReloadQuery />}
+                    {showReload &&
+                        (canLoadNewData ? (
+                            <LemonButton
+                                type="secondary"
+                                onClick={loadNewData}
+                                loading={responseLoading}
+                                icon={responseLoading ? <Spinner /> : <IconRefresh />}
+                            >
+                                Load new events
+                            </LemonButton>
+                        ) : (
+                            <ReloadQuery />
+                        ))}
                     {showEventFilter && (
                         <EventName query={query.source} setQuery={(source) => setQuery?.({ ...query, source })} />
                     )}
