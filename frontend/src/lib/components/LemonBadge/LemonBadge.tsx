@@ -64,6 +64,10 @@ function LemonBadgeNumber({
     showZero = false,
     ...badgeProps
 }: LemonBadgeNumberProps): JSX.Element {
+    if (maxDigits < 1) {
+        throw new Error('maxDigits must be at least 1')
+    }
+
     // NOTE: We use 1 for the text if not showing so the fade out animation looks right
     const text =
         typeof count === 'object'

@@ -320,7 +320,7 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
 
             {actor.value_at_data_point !== null && (
                 <Tooltip title={`${name}'s value for this data point.`}>
-                    <LemonBadge
+                    <LemonBadge.Number
                         count={actor.value_at_data_point}
                         maxDigits={Infinity}
                         position="top-right"
