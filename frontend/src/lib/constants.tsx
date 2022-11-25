@@ -135,6 +135,7 @@ export const FEATURE_FLAGS = {
     SIGNUP_FORM_EXPERIMENT: 'signup-form-experiment', // owner: #team-growth
     SIGNUP_PRODUCT_BENEFITS_EXPERIMENT: 'signup-product-benefits-experiment', // owner: #team-growth
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
+    DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
