@@ -19,7 +19,7 @@ export function IconWithCount({
     return (
         <span style={{ position: 'relative', display: 'inline-flex' }}>
             {children}
-            <LemonBadge count={count} size="small" position="top-right" showZero={showZero} status={status} />
+            <LemonBadge.Number count={count} size="small" position="top-right" showZero={showZero} status={status} />
         </span>
     )
 }

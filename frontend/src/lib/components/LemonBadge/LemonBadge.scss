@@ -13,15 +13,21 @@
     height: var(--lemon-badge-size);
     font-size: var(--lemon-badge-font-size);
     line-height: var(--lemon-badge-size);
-    padding: calc(
-        var(--lemon-badge-size) / 8
-    ); // Just enough so the overall size is unaffected with a single digit (i.e. badge stays round)
+    // Just enough so the overall size is unaffected with a single digit (i.e. badge stays round)
+    padding: calc(var(--lemon-badge-size) / 8);
     border-radius: calc(var(--lemon-badge-size) / 2);
     user-select: none;
     pointer-events: none;
     position: absolute;
     font-weight: 700;
     z-index: 1; // Make sure it is at least in front of non-absolute items
+
+    > * {
+        // For non-text content, make sure that content fills up the whole badge, and that the badge stays round
+        width: calc(var(--lemon-badge-size) - 0.25rem);
+        height: calc(var(--lemon-badge-size) - 0.25rem);
+        margin: calc(-1 * var(--lemon-badge-size) / 8);
+    }
 
     &.LemonBadge--primary {
         background: var(--primary);
