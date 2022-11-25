@@ -3,6 +3,7 @@ import json
 import time
 import types
 from dataclasses import dataclass
+from functools import lru_cache
 from time import perf_counter
 from typing import (
     Any,
@@ -51,10 +52,18 @@ SLOW_QUERY_THRESHOLD_MS = 15000
 QUERY_TIMEOUT_THREAD = get_timer_thread("posthog.client", SLOW_QUERY_THRESHOLD_MS)
 
 
-# Optimize_move_to_prewhere setting is set because of this regression test
-# test_ilike_regression_with_current_clickhouse_version
-# https://github.com/PostHog/posthog/blob/master/ee/clickhouse/queries/test/test_trends.py#L1566
-settings_override = {"optimize_move_to_prewhere": 0}
+@lru_cache(maxsize=1)
+def default_settings() -> Dict:
+    from posthog.version_requirement import ServiceVersionRequirement
+
+    # On CH 22.3 we need to disable optimize_move_to_prewhere due to a bug. This is verified fixed on 22.8 (LTS),
+    # so we only disable on versions below that.
+    # This is calculated once per deploy
+    clickhouse_at_least_228 = ServiceVersionRequirement(service="clickhouse", supported_version=">=22.8.0")
+    if clickhouse_at_least_228.is_service_in_accepted_version():
+        return {}
+    else:
+        return {"optimize_move_to_prewhere": 0}
 
 
 def default_client():
@@ -152,7 +161,7 @@ def sync_execute(
 
         timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure)
 
-        settings = {**settings_override, **(settings or {}), "log_comment": json.dumps(tags, separators=(",", ":"))}
+        settings = {**default_settings(), **(settings or {}), "log_comment": json.dumps(tags, separators=(",", ":"))}
 
         try:
             result = client.execute(
