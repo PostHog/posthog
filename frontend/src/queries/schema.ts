@@ -1,11 +1,11 @@
-import { AnyPartialFilterType, AnyPropertyFilter, EventType, PropertyGroupFilter } from '~/types'
+import { AnyPartialFilterType, AnyPropertyFilter, EventType, PropertyFilterType, PropertyGroupFilter } from '~/types'
 
 export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
 
     // Interface nodes
-    EventsTableNode = 'EventsTableNode',
+    DataTableNode = 'DataTableNode',
     LegacyQuery = 'LegacyQuery',
 }
 
@@ -14,7 +14,7 @@ export type QuerySchema =
     | EventsNode
 
     // Interface nodes
-    | EventsTableNode
+    | DataTableNode
     | LegacyQuery
 
 /** Node base class, everything else inherits from here */
@@ -33,21 +33,46 @@ export interface EventsNode extends DataNode {
     kind: NodeKind.EventsNode
     event?: string
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
+    limit?: number
     response?: {
         results: EventType[]
         next?: string
     }
 }
 
-// Interface nodes
+// Data table node
+
+export interface DataTableNode extends Node {
+    kind: NodeKind.DataTableNode
+    /** Source of the events */
+    source: EventsNode
+    /** Columns shown in the table  */
+    columns?: DataTableColumn[] | DataTableStringColumn[]
+    /** Include an event filter above the table (default: true) */
+    showEventFilter?: boolean
+    /** Include a property filter above the table (default: true) */
+    showPropertyFilter?: boolean
+    /** Show the "..." menu at the end of the row */
+    showMore?: boolean
+    /** Show the export button */
+    showExport?: boolean
+    /** Can expand row to show raw event data (default: true) */
+    expandable?: boolean
+}
+
+export interface DataTableColumn {
+    type: PropertyFilterType
+    key: string
+}
+
+// TODO: not supported by "ts-json-schema-generator" nor "typescript-json-schema" :(
+// export type PropertyColumnString = `${PropertyFilterType}.${string}`
+export type PropertyColumnString = string
+export type DataTableStringColumn = PropertyColumnString | 'person'
+
+// Legacy queries
 
 export interface LegacyQuery extends Node {
     kind: NodeKind.LegacyQuery
     filters: AnyPartialFilterType
-}
-
-export interface EventsTableNode extends Node {
-    kind: NodeKind.EventsTableNode
-    events: EventsNode
-    columns?: string[]
 }

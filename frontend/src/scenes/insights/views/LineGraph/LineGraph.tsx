@@ -15,10 +15,11 @@ import {
     TickOptions,
     TooltipModel,
     TooltipOptions,
+    ScriptableLineSegmentContext,
 } from 'chart.js'
 import { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs-3'
-import { areObjectValuesEmpty, lightenDarkenColor } from '~/lib/utils'
+import { areObjectValuesEmpty, lightenDarkenColor, hexToRGBA } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType, InsightType, TrendsFilterType } from '~/types'
@@ -47,6 +48,7 @@ export interface LineGraphProps {
     tooltip?: TooltipConfig
     isCompare?: boolean
     inCardView?: boolean
+    isArea?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
     labelGroupType: number | 'people' | 'none'
     filters?: Partial<TrendsFilterType>
@@ -187,6 +189,35 @@ export const filterNestedDataset = (
     })
 }
 
+function createPinstripePattern(color: string): CanvasPattern {
+    const stripeWidth = 8 // 0.5rem
+    const stripeAngle = -22.5
+
+    // create the canvas and context
+    const canvas = document.createElement('canvas')
+    canvas.width = 1
+    canvas.height = stripeWidth * 2
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const ctx = canvas.getContext('2d')!
+
+    // fill the canvas with given color
+    ctx.fillStyle = color
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    // overlay half-transparent white stripe
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)'
+    ctx.fillRect(0, stripeWidth, 1, 2 * stripeWidth)
+
+    // create a canvas pattern and rotate it
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const pattern = ctx.createPattern(canvas, 'repeat')!
+    const xAx = Math.cos(stripeAngle)
+    const xAy = Math.sin(stripeAngle)
+    pattern.setTransform(new DOMMatrix([xAx, xAy, -xAy, xAx, 0, 0]))
+
+    return pattern
+}
+
 export function LineGraph_({
     datasets: _datasets,
     hiddenLegendKeys,
@@ -198,6 +229,7 @@ export function LineGraph_({
     showPersonsModal = true,
     isCompare = false,
     inCardView,
+    isArea = false,
     incompletenessOffsetFromEnd = -1,
     tooltip: tooltipConfig,
     labelGroupType,
@@ -239,16 +271,48 @@ export function LineGraph_({
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
         const mainColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
-            : getSeriesColor(dataset.id, isCompare)
+            : getSeriesColor(dataset.id, isCompare && !isArea)
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
+        const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
+        const areaIncompletePattern = createPinstripePattern(areaBackgroundColor)
+        let backgroundColor: string | undefined = undefined
+        if (isBackgroundBasedGraphType) {
+            backgroundColor = mainColor
+        } else if (isArea) {
+            backgroundColor = areaBackgroundColor
+        }
 
         // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overridden in spread of `dataset` below
         return {
             borderColor: mainColor,
             hoverBorderColor: isBackgroundBasedGraphType ? lightenDarkenColor(mainColor, -20) : hoverColor,
             hoverBackgroundColor: isBackgroundBasedGraphType ? lightenDarkenColor(mainColor, -20) : undefined,
-            backgroundColor: isBackgroundBasedGraphType ? mainColor : undefined,
-            fill: false,
+            fill: isArea ? 'origin' : false,
+            backgroundColor,
+            segment: {
+                borderDash: (ctx: ScriptableLineSegmentContext) => {
+                    // If chart is line graph, show dotted lines for incomplete data
+                    if (!(type === GraphType.Line && isInProgress)) {
+                        return undefined
+                    }
+
+                    const isIncomplete = ctx.p1DataIndex >= dataset.data.length + incompletenessOffsetFromEnd
+                    const isActive = !dataset.compare || dataset.compare_label != 'previous'
+                    // if last date is still active show dotted line
+                    return isIncomplete && isActive ? [10, 10] : undefined
+                },
+                backgroundColor: (ctx: ScriptableLineSegmentContext) => {
+                    // If chart is area graph, show pinstripe pattern for incomplete data
+                    if (!(type === GraphType.Line && isInProgress && isArea)) {
+                        return undefined
+                    }
+
+                    const isIncomplete = ctx.p1DataIndex >= dataset.data.length + incompletenessOffsetFromEnd
+                    const isActive = !dataset.compare || dataset.compare_label != 'previous'
+                    // if last date is still active show dotted line
+                    return isIncomplete && isActive ? areaIncompletePattern : undefined
+                },
+            },
             borderWidth: isBar ? 0 : 2,
             pointRadius: 0,
             hitRadius: 0,
@@ -272,40 +336,7 @@ export function LineGraph_({
             }
         }
 
-        // If chart is line graph, make duplicate lines and overlay to show dotted lines
-        if (type === GraphType.Line && isInProgress) {
-            datasets = [
-                ...datasets.map((dataset) => {
-                    const sliceTo = incompletenessOffsetFromEnd
-                    const datasetCopy = Object.assign({}, dataset, {
-                        data: [
-                            ...[...(dataset.data || [])].slice(0, sliceTo),
-                            ...(dataset.data?.slice(sliceTo).map(() => null) ?? []),
-                        ],
-                    })
-                    return processDataset(datasetCopy)
-                }),
-                ...datasets.map((dataset) => {
-                    const datasetCopy = Object.assign({}, dataset)
-                    datasetCopy.dotted = true
-
-                    // if last date is still active show dotted line
-                    if (!dataset.compare || dataset.compare_label != 'previous') {
-                        datasetCopy['borderDash'] = [10, 10]
-                    }
-
-                    // Nullify dates that don't have dotted line
-                    const sliceFrom = incompletenessOffsetFromEnd - 1
-                    datasetCopy.data = [
-                        ...(datasetCopy.data?.slice(0, sliceFrom).map(() => null) ?? []),
-                        ...(datasetCopy.data?.slice(sliceFrom) ?? []),
-                    ] as number[]
-                    return processDataset(datasetCopy)
-                }),
-            ]
-        } else {
-            datasets = datasets.map((dataset) => processDataset(dataset))
-        }
+        datasets = datasets.map((dataset) => processDataset(dataset))
 
         const seriesMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n))
         const precision = seriesMax < 5 ? 1 : seriesMax < 2 ? 2 : 0
@@ -482,6 +513,7 @@ export function LineGraph_({
                 y: {
                     beginAtZero: true,
                     display: true,
+                    stacked: isArea,
                     ticks: {
                         precision,
                         ...tickOptions,

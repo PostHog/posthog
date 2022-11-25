@@ -95,7 +95,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (s) => [s.playlist],
             (playlist): Breadcrumb[] => [
                 {
-                    name: 'Saved Playlists',
+                    name: 'Playlists',
                     path: urls.sessionRecordings(SessionRecordingsTabs.Playlists),
                 },
                 {

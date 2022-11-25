@@ -50,6 +50,7 @@ export enum AvailableFeature {
     SUBSCRIPTIONS = 'subscriptions',
     APP_METRICS = 'app_metrics',
     RECORDINGS_PLAYLISTS = 'recordings_playlists',
+    ROLE_BASED_ACCESS = 'role_based_access',
 }
 
 export enum LicensePlan {
@@ -398,9 +399,14 @@ export enum ExperimentStatus {
 }
 
 export enum PropertyFilterType {
+    /** Event metadata and fields on the clickhouse events table */
+    Meta = 'meta',
+    /** Event properties */
     Event = 'event',
+    /** Person properties */
     Person = 'person',
     Element = 'element',
+    /** Event property with "$feature/" prepended */
     Feature = 'feature',
     Session = 'session',
     Cohort = 'cohort',
@@ -414,7 +420,6 @@ interface BasePropertyFilter {
     value: PropertyFilterValue
     label?: string
     type?: PropertyFilterType
-    group_type_index?: number | null
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -449,6 +454,17 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     value: number
 }
 
+export interface GroupPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Group
+    group_type_index?: number | null
+    operator: PropertyOperator
+}
+
+export interface FeaturePropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Feature
+    operator: PropertyOperator
+}
+
 export type PropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
@@ -456,6 +472,8 @@ export type PropertyFilter =
     | SessionPropertyFilter
     | CohortPropertyFilter
     | RecordingDurationFilter
+    | GroupPropertyFilter
+    | FeaturePropertyFilter
 
 export type AnyPropertyFilter =
     | Partial<EventPropertyFilter>
@@ -464,6 +482,8 @@ export type AnyPropertyFilter =
     | Partial<SessionPropertyFilter>
     | Partial<CohortPropertyFilter>
     | Partial<RecordingDurationFilter>
+    | Partial<GroupPropertyFilter>
+    | Partial<FeaturePropertyFilter>
 
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
@@ -841,6 +861,9 @@ export interface SessionRecordingType {
     person?: PersonType
     /** List of static playlists that this recording is referenced on */
     playlists?: SessionRecordingPlaylistType['id'][]
+    click_count?: number
+    keypress_count?: number
+    urls?: string[]
 }
 
 export interface SessionRecordingPropertiesType {
@@ -1184,6 +1207,7 @@ export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
 export enum ChartDisplayType {
     ActionsLineGraph = 'ActionsLineGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
+    ActionsAreaGraph = 'ActionsAreaGraph',
     ActionsTable = 'ActionsTable',
     ActionsPie = 'ActionsPie',
     ActionsBar = 'ActionsBar',
@@ -1672,6 +1696,7 @@ export interface FeatureFlagType {
     experiment_set: string[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
+    can_edit: boolean
 }
 
 export interface FeatureFlagRollbackConditions {
@@ -2326,4 +2351,51 @@ export interface MediaUploadResponse {
 export enum RolloutConditionType {
     Insight = 'insight',
     Sentry = 'sentry',
+}
+
+export enum Resource {
+    FEATURE_FLAGS = 'feature flags',
+}
+
+export enum AccessLevel {
+    READ = 21,
+    WRITE = 37,
+}
+
+export interface RoleType {
+    id: string
+    name: string
+    feature_flags_access_level: AccessLevel
+    created_at: string
+    created_by: UserBasicType | null
+}
+
+export interface RolesListParams {
+    feature_flags_access_level?: AccessLevel
+}
+
+export interface FeatureFlagAssociatedRoleType {
+    id: string
+    feature_flag: FeatureFlagType
+    role: RoleType
+    updated_at: string
+    added_at: string
+}
+
+export interface RoleMemberType {
+    id: string
+    user: UserBaseType
+    role_id: string
+    joined_at: string
+    updated_at: string
+    user_uuid: string
+}
+
+export interface OrganizationResourcePermissionType {
+    id: string
+    resource: Resource
+    access_level: AccessLevel
+    created_at: string
+    updated_at: string
+    created_by: UserBaseType | null
 }

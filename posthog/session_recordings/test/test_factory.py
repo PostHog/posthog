@@ -6,7 +6,7 @@ from uuid import uuid4
 import structlog
 
 from posthog.client import sync_execute
-from posthog.helpers.session_recording import FULL_SNAPSHOT, compress_and_chunk_snapshots
+from posthog.helpers.session_recording import RRWEB_MAP_EVENT_TYPE, compress_and_chunk_snapshots
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.models.session_recording_event.sql import INSERT_SESSION_RECORDING_EVENT_SQL
@@ -65,7 +65,7 @@ def create_session_recording_events(
     if not snapshots:
         snapshots = [
             {
-                "type": FULL_SNAPSHOT,
+                "type": RRWEB_MAP_EVENT_TYPE.FullSnapshot,
                 "data": {},
                 "timestamp": round(timestamp.timestamp() * 1000),  # NOTE: rrweb timestamps are milliseconds
             }
@@ -137,7 +137,8 @@ def create_snapshot(
     snapshot_data = {
         "data": {**data},
         "timestamp": round(timestamp.timestamp() * 1000),  # NOTE: rrweb timestamps are milliseconds
-        "type": type or (2 if has_full_snapshot else 3),
+        "type": type
+        or (RRWEB_MAP_EVENT_TYPE.FullSnapshot if has_full_snapshot else RRWEB_MAP_EVENT_TYPE.IncrementalSnapshot),
     }
 
     return create_session_recording_events(

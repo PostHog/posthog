@@ -711,7 +711,11 @@ class ClickhouseFunnelBase(ABC):
                 )
         elif self._filter.breakdown_type == "event":
             basic_prop_selector = get_single_or_multi_property_string_expr(
-                self._filter.breakdown, table="events", query_alias="prop_basic", column="properties"
+                self._filter.breakdown,
+                table="events",
+                query_alias="prop_basic",
+                column="properties",
+                normalize_url=self._filter.breakdown_normalize_url,
             )
         elif self._filter.breakdown_type == "cohort":
             basic_prop_selector = "value AS prop_basic"

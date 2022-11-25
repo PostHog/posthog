@@ -21,6 +21,7 @@ import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { Form } from 'kea-forms'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { IconPlayCircle } from 'lib/components/icons'
+import { tagsModel } from '~/models/tagsModel'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
@@ -34,6 +35,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
     const { submitAction, deleteAction } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { tags } = useValues(tagsModel)
 
     const slackEnabled = currentTeam?.slack_incoming_webhook
 
@@ -132,6 +134,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                         onChange={(_, newTags) => onChange(newTags)}
                                         className="action-tags"
                                         saving={actionLoading}
+                                        tagsAvailable={tags.filter((tag) => !action.tags?.includes(tag))}
                                     />
                                 )}
                             </Field>

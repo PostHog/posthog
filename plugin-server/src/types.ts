@@ -160,6 +160,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: number
     HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: number
     APP_METRICS_GATHERED_FOR_ALL: boolean
+    MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
 }
 
 export interface Hub extends PluginsServerConfig {

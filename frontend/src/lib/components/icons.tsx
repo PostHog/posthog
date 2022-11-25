@@ -19,7 +19,7 @@ export function IconWithCount({
     return (
         <span style={{ position: 'relative', display: 'inline-flex' }}>
             {children}
-            <LemonBadge count={count} size="small" position="top-right" showZero={showZero} status={status} />
+            <LemonBadge.Number count={count} size="small" position="top-right" showZero={showZero} status={status} />
         </span>
     )
 }
@@ -577,6 +577,18 @@ export function IconBarChart(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
             <path d="m5 9.2h3v9.8h-3zm5.6-4.2h2.8v14h-2.8zm5.6 8h2.8v6h-2.8z" fill="currentColor" />
+        </SvgIcon>
+    )
+}
+
+/** Material Design Area Chart icon. */
+export function IconAreaChart(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="M3 20V7l4 3 5-7 5 4h4v13Zm5-3 4-5.5 7 5.45V9h-2.7l-3.9-3.125-4.95 6.95L5 11v3.6Z"
+                fill="currentColor"
+            />
         </SvgIcon>
     )
 }

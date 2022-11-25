@@ -546,6 +546,7 @@ def get_single_or_multi_property_string_expr(
     column: str,
     allow_denormalized_props=True,
     materialised_table_column: str = "properties",
+    normalize_url: bool = False,
 ):
     """
     When querying for breakdown properties:
@@ -570,6 +571,8 @@ def get_single_or_multi_property_string_expr(
             allow_denormalized_props,
             materialised_table_column=materialised_table_column,
         )
+
+        expression = normalize_url_breakdown(expression, normalize_url)
     else:
         expressions = []
         for b in breakdown:
@@ -581,7 +584,7 @@ def get_single_or_multi_property_string_expr(
                 allow_denormalized_props,
                 materialised_table_column=materialised_table_column,
             )
-            expressions.append(expr)
+            expressions.append(normalize_url_breakdown(expr, normalize_url))
 
         expression = f"array({','.join(expressions)})"
 
@@ -589,6 +592,15 @@ def get_single_or_multi_property_string_expr(
         return expression
 
     return f"{expression} AS {query_alias}"
+
+
+def normalize_url_breakdown(breakdown_value, breakdown_normalize_url: bool = True):
+    if breakdown_normalize_url:
+        return (
+            f"if( empty(trim(TRAILING '/?#' from {breakdown_value})), '/', trim(TRAILING '/?#' from {breakdown_value}))"
+        )
+
+    return breakdown_value
 
 
 def get_property_string_expr(
