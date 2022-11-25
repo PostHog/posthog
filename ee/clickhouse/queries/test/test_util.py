@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+from unittest.mock import patch
 
 import pytz
 from freezegun.api import freeze_time
@@ -12,23 +13,38 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.test.base import _create_event
 
 
-@freeze_time("2021-01-21")
 def test_get_earliest_timestamp(db, team):
-    _create_event(team=team, event="sign up", distinct_id="1", timestamp="2020-01-04T14:10:00Z")
-    _create_event(team=team, event="sign up", distinct_id="1", timestamp="2020-01-06T14:10:00Z")
+    with freeze_time("2021-01-21") as frozen_time:
+        _create_event(team=team, event="sign up", distinct_id="1", timestamp="2020-01-04T14:10:00Z")
+        _create_event(team=team, event="sign up", distinct_id="1", timestamp="2020-01-06T14:10:00Z")
 
-    assert get_earliest_timestamp(team.id) == datetime(2020, 1, 4, 14, 10, tzinfo=pytz.UTC)
+        assert get_earliest_timestamp(team.id) == datetime(2020, 1, 4, 14, 10, tzinfo=pytz.UTC)
 
-    _create_event(team=team, event="sign up", distinct_id="1", timestamp="1984-01-06T14:10:00Z")
-    _create_event(team=team, event="sign up", distinct_id="1", timestamp="2014-01-01T01:00:00Z")
-    _create_event(team=team, event="sign up", distinct_id="1", timestamp="2015-01-01T01:00:00Z")
+        frozen_time.tick(timedelta(seconds=1))
+        _create_event(team=team, event="sign up", distinct_id="1", timestamp="1984-01-06T14:10:00Z")
+        _create_event(team=team, event="sign up", distinct_id="1", timestamp="2014-01-01T01:00:00Z")
+        _create_event(team=team, event="sign up", distinct_id="1", timestamp="2015-01-01T01:00:00Z")
 
-    assert get_earliest_timestamp(team.id) == datetime(2015, 1, 1, 1, tzinfo=pytz.UTC)
+        assert get_earliest_timestamp(team.id) == datetime(2015, 1, 1, 1, tzinfo=pytz.UTC)
 
 
 @freeze_time("2021-01-21")
 def test_get_earliest_timestamp_with_no_events(db, team):
     assert get_earliest_timestamp(team.id) == datetime(2021, 1, 14, tzinfo=pytz.UTC)
+
+
+def test_get_earliest_timestamp_has_a_short_lived_cache(db, team):
+    with freeze_time("2021-01-21") as frozen_time:
+        with patch("posthog.queries.util.insight_sync_execute") as patched_sync_execute:
+            _create_event(team=team, event="sign up", distinct_id="1", timestamp="2020-01-04T14:10:00Z")
+            _create_event(team=team, event="sign up", distinct_id="1", timestamp="2020-01-06T14:10:00Z")
+
+            assert get_earliest_timestamp(team.id)
+            frozen_time.tick(timedelta(milliseconds=900))
+
+            assert get_earliest_timestamp(team.id)
+
+            patched_sync_execute.assert_called_once()
 
 
 def test_parse_breakdown_cohort_query(db, team):
