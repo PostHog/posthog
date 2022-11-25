@@ -56,8 +56,8 @@ export interface DataTableNode extends Node {
     showEventFilter?: boolean
     /** Include a property filter above the table (default: true) */
     showPropertyFilter?: boolean
-    /** Show the "..." menu at the end of the row */
-    showMore?: boolean
+    /** Show the kebab menu at the end of the row */
+    showActions?: boolean
     /** Show the export button */
     showExport?: boolean
     /** Show a reload button */

@@ -95,7 +95,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     const columns = query.columns ? normalizeDataTableColumns(query.columns) : defaultDataTableColumns
     const showPropertyFilter = query.showPropertyFilter ?? true
     const showEventFilter = query.showEventFilter ?? true
-    const showMore = query.showMore ?? true
+    const showActions = query.showActions ?? true
     const showExport = query.showExport ?? true
     const showReload = query.showReload ?? true
     const expandable = query.expandable ?? true
@@ -105,6 +105,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     const logic = dataNodeLogic(dataNodeLogicProps)
     const { response, responseLoading, canLoadNextData } = useValues(logic)
     const { loadNextData } = useActions(logic)
+
     const rows = (response as null | EventsNode['response'])?.results ?? []
     const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = columns.map(({ type, key }) => ({
         dataIndex: `${type}.${key}` as any,
@@ -114,7 +115,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
         },
     }))
 
-    if (showMore) {
+    if (showActions) {
         lemonColumns.push({
             dataIndex: 'more' as any,
             title: '',
