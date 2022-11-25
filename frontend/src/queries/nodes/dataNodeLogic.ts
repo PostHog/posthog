@@ -1,14 +1,17 @@
-import { kea, path, props, key, afterMount, selectors, propsChanged, reducers } from 'kea'
+import { kea, path, props, key, afterMount, selectors, propsChanged, reducers, actions, beforeUnmount } from 'kea'
 import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
 import { DataNode, EventsNode } from '~/queries/schema'
 import { query } from '~/queries/query'
 import { isEventsNode } from '~/queries/utils'
+import { subscriptions } from 'kea-subscriptions'
 
 export interface DataNodeLogicProps {
     key: string
     query: DataNode
 }
+
+const AUTOLOAD_INTERVAL = 5000
 
 export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),
@@ -18,6 +21,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (JSON.stringify(props.query) !== JSON.stringify(oldProps.query)) {
             actions.loadData()
         }
+    }),
+    actions({
+        startAutoLoad: true,
+        stopAutoLoad: true,
+        toggleAutoLoad: true,
     }),
     loaders(({ values }) => ({
         response: [
@@ -74,6 +82,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             false,
             { loadNextData: () => true, loadNextDataSuccess: () => false, loadNextDataFailure: () => false },
         ],
+        autoLoadEnabled: [false, { toggleAutoLoad: (state) => !state }],
+        autoLoadStarted: [false, { startAutoLoad: () => true, stopAutoLoad: () => false }],
     }),
     selectors({
         query: [() => [(_, props) => props.query], (query) => query],
@@ -93,8 +103,33 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 )
             },
         ],
+        autoLoadRunning: [
+            (s) => [s.autoLoadEnabled, s.autoLoadStarted],
+            (autoLoadEnabled, autoLoadStarted) => autoLoadEnabled && autoLoadStarted,
+        ],
     }),
+    subscriptions(({ actions, cache, values }) => ({
+        autoLoadRunning: (autoLoadRunning) => {
+            if (cache.autoLoadInterval) {
+                window.clearInterval(cache.autoLoadInterval)
+                cache.autoLoadInterval = null
+            }
+            if (autoLoadRunning) {
+                actions.loadNewData()
+                cache.autoLoadInterval = window.setInterval(() => {
+                    if (!values.responseLoading) {
+                        actions.loadNewData()
+                    }
+                }, AUTOLOAD_INTERVAL)
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadData()
+    }),
+    beforeUnmount(({ actions, values }) => {
+        if (values.autoLoadRunning) {
+            actions.stopAutoLoad()
+        }
     }),
 ])

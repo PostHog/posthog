@@ -9,11 +9,11 @@ import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFi
 import { EventDetails } from 'scenes/events'
 import { EventActions } from '~/queries/nodes/DataTable/EventActions'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
-import { LoadNew } from '~/queries/nodes/DataTable/LoadNew'
 import { Reload } from '~/queries/nodes/DataTable/Reload'
 import { LoadNext } from '~/queries/nodes/DataTable/LoadNext'
 import { renderTitle } from '~/queries/nodes/DataTable/renderTitle'
 import { renderColumn } from '~/queries/nodes/DataTable/renderColumn'
+import { AutoLoad } from '~/queries/nodes/DataTable/AutoLoad'
 
 interface DataTableProps {
     query: DataTableNode
@@ -73,7 +73,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             {(showPropertyFilter || showEventFilter || showExport) && (
                 <div className="flex space-x-4 mb-4">
-                    {showReload && (canLoadNewData ? <LoadNew /> : <Reload />)}
+                    {showReload && (canLoadNewData ? <AutoLoad /> : <Reload />)}
                     {showEventFilter && (
                         <EventName query={query.source} setQuery={(source) => setQuery?.({ ...query, source })} />
                     )}
