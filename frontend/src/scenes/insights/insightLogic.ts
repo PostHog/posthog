@@ -58,6 +58,7 @@ import { insightsModel } from '~/models/insightsModel'
 import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { loaders } from 'kea-loaders'
 import { legacyInsightQuery } from '~/queries/query'
+import { tagsModel } from '~/models/tagsModel'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -104,6 +105,7 @@ export const insightLogic = kea<insightLogicType>([
             mathsLogic,
             ['mathDefinitions'],
         ],
+        actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel, prompt({ key: `save-as-insight` })],
     }),
 
@@ -263,6 +265,7 @@ export const insightLogic = kea<insightLogicType>([
 
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
                     dashboardsModel.actions.updateDashboardInsight(updatedInsight)
+                    actions.loadTags()
 
                     lemonToast.success(`Updated insight`, {
                         button: {

@@ -2,8 +2,6 @@ import { kea } from 'kea'
 import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import type { dashboardsLogicType } from './dashboardsLogicType'
-import { DashboardType } from '~/types'
-import { uniqueBy } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 
 export enum DashboardsTab {
@@ -60,14 +58,6 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
                     .search(searchTerm)
                     .map((result) => result.item)
             },
-        ],
-        dashboardTags: [
-            () => [dashboardsModel.selectors.nameSortedDashboards],
-            (dashboards: DashboardType[]): string[] =>
-                uniqueBy(
-                    dashboards.flatMap(({ tags }) => tags || ''),
-                    (item) => item
-                ).sort(),
         ],
     },
 })
