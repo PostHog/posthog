@@ -63,7 +63,7 @@ const ActivationSidebar = (): JSX.Element => {
 
     return (
         <div className={clsx('ActivationSideBar', !isActivationSideBarShown && 'ActivationSideBar--hidden')}>
-            <div className="ActivationSideBar__content px-4 pb-16">
+            <div className="ActivationSideBar__content pt-2 px-4 pb-16">
                 <div className="ActivationSideBar__close_button">
                     <LemonButton
                         icon={<IconClose />}

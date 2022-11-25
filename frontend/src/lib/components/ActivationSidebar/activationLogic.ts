@@ -1,6 +1,6 @@
 import { kea, path, actions, selectors, connect, reducers, listeners, events } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
@@ -8,16 +8,16 @@ import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { EventDefinitionType } from '~/types'
-
+import { EventDefinitionType, TeamBasicType } from '~/types'
 import type { activationLogicType } from './activationLogicType'
+import { urls } from 'scenes/urls'
 
 export enum ActivationTasks {
-    INGEST_FIRST_EVENT = 'ingest_first_event',
-    INVITE_TEAM_MEMBER = 'invite_team_member',
-    SETUP_SESSION_RECORDINGS = 'setup_session_recordings',
-    TRACK_CUSTOM_EVENTS = 'track_custom_events',
-    INSTALL_FIRST_APP = 'install_first_app',
+    IngestFirstEvent = 'ingest_first_event',
+    InviteTeamMember = 'invite_team_member',
+    SetupSessionRecordings = 'setup_session_recordings',
+    TrackCustomEvents = 'track_custom_events',
+    InstallFirstApp = 'install_first_app',
 }
 
 export type ActivationTaskType = {
@@ -36,7 +36,7 @@ const CACHE_PREFIX = 'v1'
 
 export const activationLogic = kea<activationLogicType>([
     path(['lib', 'components', 'ActivationSidebar', 'activationLogic']),
-    connect({
+    connect(() => ({
         values: [
             teamLogic,
             ['currentTeam'],
@@ -55,23 +55,21 @@ export const activationLogic = kea<activationLogicType>([
             eventUsageLogic,
             ['reportActivationSideBarShown'],
         ],
-    }),
+    })),
     actions({
         loadCustomEvents: true,
         runTask: (id: string) => ({ id }),
         skipTask: (id: string) => ({ id }),
+        addSkippedTask: (teamId: TeamBasicType['id'], taskId: string) => ({ teamId, taskId }),
         setShowSessionRecordingConfig: (value: boolean) => ({ value }),
     }),
-    reducers(({ values }) => ({
+    reducers(() => ({
         skippedTasks: [
             {} as Record<string, string[]>,
             { persist: true, prefix: CACHE_PREFIX },
             {
-                skipTask: (state, { id }) => {
-                    if (values.currentTeam) {
-                        return { ...state, [values.currentTeam.id]: [...state[values.currentTeam.id], id] }
-                    }
-                    return state
+                addSkippedTask: (state, { teamId, taskId }) => {
+                    return { ...state, [teamId]: [...(state[teamId] ?? []), taskId] }
                 },
             },
         ],
@@ -131,9 +129,9 @@ export const activationLogic = kea<activationLogicType>([
                 const tasks: ActivationTaskType[] = []
                 for (const task of Object.values(ActivationTasks)) {
                     switch (task) {
-                        case ActivationTasks.INGEST_FIRST_EVENT:
+                        case ActivationTasks.IngestFirstEvent:
                             tasks.push({
-                                id: ActivationTasks.INGEST_FIRST_EVENT,
+                                id: ActivationTasks.IngestFirstEvent,
                                 name: 'Ingest your first event',
                                 description: 'Ingest your first event to get started with PostHog',
                                 completed: currentTeam?.ingested_event ?? false,
@@ -141,45 +139,45 @@ export const activationLogic = kea<activationLogicType>([
                                 skipped: false,
                             })
                             break
-                        case ActivationTasks.INVITE_TEAM_MEMBER:
+                        case ActivationTasks.InviteTeamMember:
                             tasks.push({
-                                id: ActivationTasks.INVITE_TEAM_MEMBER,
+                                id: ActivationTasks.InviteTeamMember,
                                 name: 'Invite a team member',
                                 description: 'Everyone in your organization can benefit from PostHog',
                                 completed: members.length > 1 || invites.length > 0,
                                 canSkip: true,
-                                skipped: skippedTasks.includes(ActivationTasks.INVITE_TEAM_MEMBER),
+                                skipped: skippedTasks.includes(ActivationTasks.InviteTeamMember),
                             })
                             break
-                        case ActivationTasks.SETUP_SESSION_RECORDINGS:
+                        case ActivationTasks.SetupSessionRecordings:
                             tasks.push({
-                                id: ActivationTasks.SETUP_SESSION_RECORDINGS,
+                                id: ActivationTasks.SetupSessionRecordings,
                                 name: 'Setup session recordings',
                                 description: 'See how your users are using your product',
                                 completed: currentTeam?.session_recording_opt_in ?? false,
                                 canSkip: true,
-                                skipped: skippedTasks.includes(ActivationTasks.SETUP_SESSION_RECORDINGS),
+                                skipped: skippedTasks.includes(ActivationTasks.SetupSessionRecordings),
                             })
                             break
-                        case ActivationTasks.TRACK_CUSTOM_EVENTS:
+                        case ActivationTasks.TrackCustomEvents:
                             tasks.push({
-                                id: ActivationTasks.TRACK_CUSTOM_EVENTS,
+                                id: ActivationTasks.TrackCustomEvents,
                                 name: 'Track custom events',
                                 description: 'Track custom events to get more insights into your product',
                                 completed: customEventsCount > 0,
                                 canSkip: true,
-                                skipped: skippedTasks.includes(ActivationTasks.TRACK_CUSTOM_EVENTS),
+                                skipped: skippedTasks.includes(ActivationTasks.TrackCustomEvents),
                                 url: 'https://posthog.com/tutorials/event-tracking-guide#setting-up-custom-events',
                             })
                             break
-                        case ActivationTasks.INSTALL_FIRST_APP:
+                        case ActivationTasks.InstallFirstApp:
                             tasks.push({
-                                id: ActivationTasks.INSTALL_FIRST_APP,
+                                id: ActivationTasks.InstallFirstApp,
                                 name: 'Install your first app',
                                 description: `Extend PostHog's core functionality with apps`,
                                 completed: installedPlugins.length > 0,
                                 canSkip: true,
-                                skipped: skippedTasks.includes(ActivationTasks.INSTALL_FIRST_APP),
+                                skipped: skippedTasks.includes(ActivationTasks.InstallFirstApp),
                             })
                             break
                         default:
@@ -219,20 +217,25 @@ export const activationLogic = kea<activationLogicType>([
     listeners(({ actions, values }) => ({
         runTask: async ({ id }) => {
             switch (id) {
-                case ActivationTasks.INGEST_FIRST_EVENT:
-                    window.location.href = '/ingestion'
+                case ActivationTasks.IngestFirstEvent:
+                    router.actions.push(urls.ingestion())
                     break
-                case ActivationTasks.INVITE_TEAM_MEMBER:
+                case ActivationTasks.InviteTeamMember:
                     actions.showInviteModal()
                     break
-                case ActivationTasks.SETUP_SESSION_RECORDINGS:
+                case ActivationTasks.SetupSessionRecordings:
                     actions.setShowSessionRecordingConfig(true)
                     break
-                case ActivationTasks.INSTALL_FIRST_APP:
-                    window.location.href = '/project/apps'
+                case ActivationTasks.InstallFirstApp:
+                    router.actions.push(urls.projectApps())
                     break
                 default:
                     break
+            }
+        },
+        skipTask: ({ id }) => {
+            if (values.currentTeam?.id) {
+                actions.addSkippedTask(values.currentTeam.id, id)
             }
         },
         toggleActivationSideBar: async () => {
@@ -245,20 +248,10 @@ export const activationLogic = kea<activationLogicType>([
                 values.completionPercent
             )
         },
-        [router.actionTypes.locationChanged]: async () => {
-            actions.hideActivationSideBar()
-        },
     })),
     events(({ actions }) => ({
         afterMount: () => {
             actions.loadCustomEvents()
-        },
-    })),
-    urlToAction(({ actions, values }) => ({
-        '*': (_, params) => {
-            if (params?.onboarding_completed && !values.hasCompletedAllTasks) {
-                actions.toggleActivationSideBar()
-            }
         },
     })),
 ])
