@@ -4,18 +4,18 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { IconRefresh } from 'lib/components/icons'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 
-export function ReloadQuery(): JSX.Element {
+export function LoadNew(): JSX.Element {
     const { responseLoading } = useValues(dataNodeLogic)
-    const { loadData } = useActions(dataNodeLogic)
+    const { loadNewData } = useActions(dataNodeLogic)
 
     return (
         <LemonButton
             type="secondary"
-            onClick={loadData}
-            disabled={responseLoading}
+            onClick={loadNewData}
+            loading={responseLoading}
             icon={responseLoading ? <Spinner /> : <IconRefresh />}
         >
-            {responseLoading ? 'Loading' : 'Reload'}
+            Load new events
         </LemonButton>
     )
 }

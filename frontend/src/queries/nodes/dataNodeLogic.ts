@@ -1,4 +1,4 @@
-import { kea, path, props, key, afterMount, selectors, propsChanged } from 'kea'
+import { kea, path, props, key, afterMount, selectors, propsChanged, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
 import { DataNode, EventsNode } from '~/queries/schema'
@@ -30,40 +30,51 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     if (!values.canLoadNewData) {
                         return
                     }
-                    const response = values.response as EventsNode['response'] | null
+                    const oldResponse = values.response as EventsNode['response'] | null
                     const diffQuery: EventsNode =
-                        response && response.results?.length > 0
+                        oldResponse && oldResponse.results?.length > 0
                             ? {
                                   ...values.query,
-                                  after: response.results[0].timestamp,
+                                  after: oldResponse.results[0].timestamp,
                               }
                             : values.query
-                    const results = (await query(diffQuery)) ?? null
+                    const newResponse = (await query(diffQuery)) ?? null
                     return {
-                        results: [...(results?.results ?? []), ...(response?.results ?? [])],
+                        results: [...(newResponse?.results ?? []), ...(oldResponse?.results ?? [])],
+                        next: oldResponse?.next,
                     }
                 },
                 loadNextData: async () => {
                     if (!values.canLoadNewData) {
                         return
                     }
-                    const response = values.response as EventsNode['response'] | null
+                    const oldResponse = values.response as EventsNode['response'] | null
                     const diffQuery: EventsNode =
-                        response && response.results?.length > 0
+                        oldResponse && oldResponse.results?.length > 0
                             ? {
                                   ...values.query,
-                                  before: response.results[response.results.length - 1].timestamp,
+                                  before: oldResponse.results[oldResponse.results.length - 1].timestamp,
                               }
                             : values.query
-                    const results = (await query(diffQuery)) ?? null
+                    const newResponse = (await query(diffQuery)) ?? null
                     return {
-                        results: [...(response?.results ?? []), ...(results?.results ?? [])],
-                        next: response?.next,
+                        results: [...(oldResponse?.results ?? []), ...(newResponse?.results ?? [])],
+                        next: oldResponse?.next,
                     }
                 },
             },
         ],
     })),
+    reducers({
+        newDataLoading: [
+            false,
+            { loadNewData: () => true, loadNewDataSuccess: () => false, loadDataFailure: () => false },
+        ],
+        nextDataLoading: [
+            false,
+            { loadNextData: () => true, loadNextDataSuccess: () => false, loadNextDataFailure: () => false },
+        ],
+    }),
     selectors({
         query: [() => [(_, props) => props.query], (query) => query],
         canLoadNewData: [
@@ -75,7 +86,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         canLoadNextData: [
             (s) => [s.query, s.response],
             (query, response) => {
-                return isEventsNode(query) && response?.next
+                return (
+                    isEventsNode(query) &&
+                    (response as EventsNode['response'])?.next &&
+                    ((response as EventsNode['response'])?.results?.length ?? 0) > 0
+                )
             },
         ],
     }),

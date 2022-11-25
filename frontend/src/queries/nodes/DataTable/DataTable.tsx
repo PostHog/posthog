@@ -1,25 +1,19 @@
 import { DataTableColumn, DataTableNode, DataTableStringColumn, EventsNode } from '~/queries/schema'
 import { useState } from 'react'
-import { useValues, BindLogic, useActions } from 'kea'
+import { useValues, BindLogic } from 'kea'
 import { dataNodeLogic } from '~/queries/nodes/dataNodeLogic'
 import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import { EventType, PropertyFilterType } from '~/types'
-import { autoCaptureEventToDescription } from 'lib/utils'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { urls } from 'scenes/urls'
-import { PersonHeader } from 'scenes/persons/PersonHeader'
-import { Link } from 'lib/components/Link'
-import { Property } from 'lib/components/Property'
-import { TZLabel } from 'lib/components/TZLabel'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { EventDetails } from 'scenes/events'
 import { EventActions } from '~/queries/nodes/DataTable/EventActions'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
-import { ReloadQuery } from '~/queries/nodes/DataTable/ReloadQuery'
-import { LemonButton } from 'lib/components/LemonButton'
-import { Spinner } from 'lib/components/Spinner/Spinner'
-import { IconRefresh } from 'lib/components/icons'
+import { LoadNew } from '~/queries/nodes/DataTable/LoadNew'
+import { Reload } from '~/queries/nodes/DataTable/Reload'
+import { LoadNext } from '~/queries/nodes/DataTable/LoadNext'
+import { renderTitle } from '~/queries/nodes/DataTable/renderTitle'
+import { renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 
 interface DataTableProps {
     query: DataTableNode
@@ -35,62 +29,6 @@ export const defaultDataTableStringColumns: DataTableStringColumn[] = [
 ]
 export const defaultDataTableColumns: DataTableColumn[] = normalizeDataTableColumns(defaultDataTableStringColumns)
 
-function renderTitle(type: PropertyFilterType, key: string): JSX.Element | string {
-    if (type === PropertyFilterType.Meta) {
-        if (key === 'timestamp') {
-            return 'Time'
-        }
-        return key
-    } else if (type === PropertyFilterType.Event || type === PropertyFilterType.Element) {
-        return <PropertyKeyInfo value={key} type={type} disableIcon />
-    } else if (type === PropertyFilterType.Person) {
-        if (key === '') {
-            return 'Person'
-        } else {
-            return <PropertyKeyInfo value={key} type="event" disableIcon />
-        }
-    } else {
-        return String(type)
-    }
-}
-
-function renderColumn(type: PropertyFilterType, key: string, record: EventType): JSX.Element | string {
-    if (type === PropertyFilterType.Meta) {
-        if (key === 'event') {
-            if (record.event === '$autocapture') {
-                return autoCaptureEventToDescription(record)
-            } else {
-                const content = <PropertyKeyInfo value={record.event} type="event" />
-                const url = record.properties.$sentry_url
-                return url ? (
-                    <Link to={url} target="_blank">
-                        {content}
-                    </Link>
-                ) : (
-                    content
-                )
-            }
-        } else if (key === 'timestamp') {
-            return <TZLabel time={record.timestamp} showSeconds />
-        } else {
-            return String(record[key])
-        }
-    } else if (type === PropertyFilterType.Event) {
-        return <Property value={record.properties[key]} />
-    } else if (type === PropertyFilterType.Person) {
-        if (key === '') {
-            return (
-                <Link to={urls.person(record.distinct_id)}>
-                    <PersonHeader noLink withIcon person={record.person} />
-                </Link>
-            )
-        } else {
-            return <Property value={record.person?.properties[key]} />
-        }
-    }
-    return <div>Unknown</div>
-}
-
 let uniqueNode = 0
 
 export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
@@ -105,45 +43,37 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     const [id] = useState(() => uniqueNode++)
     const dataNodeLogicProps = { query: query.source, key: `DataTable.${id}` }
     const logic = dataNodeLogic(dataNodeLogicProps)
-    const { response, responseLoading, canLoadNextData, canLoadNewData } = useValues(logic)
-    const { loadNextData, loadNewData } = useActions(logic)
+    const { response, responseLoading, canLoadNextData, canLoadNewData, nextDataLoading, newDataLoading } =
+        useValues(logic)
 
-    const rows = (response as null | EventsNode['response'])?.results ?? []
-    const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = columns.map(({ type, key }) => ({
-        dataIndex: `${type}.${key}` as any,
-        title: renderTitle(type, key),
-        render: function RenderDataTableColumn(_: any, record: EventType) {
-            return renderColumn(type, key, record)
-        },
-    }))
+    const dataSource = (response as null | EventsNode['response'])?.results ?? []
 
-    if (showActions) {
-        lemonColumns.push({
-            dataIndex: 'more' as any,
-            title: '',
-            render: function RenderMore(_: any, record: EventType) {
-                return <EventActions event={record} />
+    const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = [
+        ...columns.map(({ type, key }) => ({
+            dataIndex: `${type}.${key}` as any,
+            title: renderTitle(type, key),
+            render: function RenderDataTableColumn(_: any, record: EventType) {
+                return renderColumn(type, key, record)
             },
-        })
-    }
+        })),
+        ...(showActions
+            ? [
+                  {
+                      dataIndex: 'more' as any,
+                      title: '',
+                      render: function RenderMore(_: any, record: EventType) {
+                          return <EventActions event={record} />
+                      },
+                  },
+              ]
+            : []),
+    ]
 
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             {(showPropertyFilter || showEventFilter || showExport) && (
                 <div className="flex space-x-4 mb-4">
-                    {showReload &&
-                        (canLoadNewData ? (
-                            <LemonButton
-                                type="secondary"
-                                onClick={loadNewData}
-                                loading={responseLoading}
-                                icon={responseLoading ? <Spinner /> : <IconRefresh />}
-                            >
-                                Load new events
-                            </LemonButton>
-                        ) : (
-                            <ReloadQuery />
-                        ))}
+                    {showReload && (canLoadNewData ? <LoadNew /> : <Reload />)}
                     {showEventFilter && (
                         <EventName query={query.source} setQuery={(source) => setQuery?.({ ...query, source })} />
                     )}
@@ -157,9 +87,9 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
                 </div>
             )}
             <LemonTable
-                loading={responseLoading}
+                loading={responseLoading && !nextDataLoading && !newDataLoading}
                 columns={lemonColumns}
-                dataSource={rows}
+                dataSource={dataSource}
                 expandable={
                     expandable
                         ? {
@@ -172,11 +102,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
                         : undefined
                 }
             />
-            {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && (
-                <LemonButton type="primary" onClick={loadNextData} loading={responseLoading} className="my-8 mx-auto">
-                    Load more events
-                </LemonButton>
-            )}
+            {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && <LoadNext />}
         </BindLogic>
     )
 }
