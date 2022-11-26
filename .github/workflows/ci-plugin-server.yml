@@ -33,6 +33,7 @@ env:
     OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: 'session_recordings'
     OBJECT_STORAGE_BUCKET: 'posthog'
+    CLICKHOUSE_SERVER_IMAGE: 'clickhouse/clickhouse-server:22.8'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
