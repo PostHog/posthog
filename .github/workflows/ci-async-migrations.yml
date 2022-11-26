@@ -16,7 +16,7 @@ env:
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
     TEST: 1
-    CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
+    CLICKHOUSE_SERVER_IMAGE: ${{ github.event.inputs.clickhouseServerVersion || '' }}
 
 jobs:
     async-migrations:
@@ -31,7 +31,7 @@ jobs:
             - name: Start stack with Docker Compose
               shell: bash
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE_VERSION=${{ inputs.clickhouse-server-image-version }}
+                  export CLICKHOUSE_SERVER_IMAGE=${{ inputs.clickhouse-server-image-version }}
                   docker-compose -f docker-compose.dev.yml down
                   docker-compose -f docker-compose.dev.yml up -d
 
