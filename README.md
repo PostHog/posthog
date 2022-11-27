@@ -69,7 +69,7 @@ We help you understand user behavior and build better products without losing co
 
 In our view, third-party analytics tools do not work in a world of cookie deprecation, GDPR, HIPAA, CCPA, and many other four-letter acronyms. PostHog is the alternative to sending all of your customers' personal information and usage data to third-parties.
 
-PostHog is designed to give you every tool you need to understand user behavior, create hypothesis and release changes to make your product more successful.
+PostHog is designed to give you every tool you need to understand user behavior, create a hypothesis and release changes to make your product more successful.
 
 ## What's cool about this?
 
