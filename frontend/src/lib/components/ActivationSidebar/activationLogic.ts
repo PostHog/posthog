@@ -197,7 +197,9 @@ export const activationLogic = kea<activationLogicType>([
                                 id: ActivationTasks.CreateFirstDashboard,
                                 name: 'Create your first dashboard',
                                 description: 'Collect your insights in a dashboard',
-                                completed: dashboards.find((dashboard) => dashboard.created_by !== null) !== undefined,
+                                completed:
+                                    Object.values(dashboards).find((dashboard) => dashboard.created_by !== null) !==
+                                    undefined,
                                 canSkip: true,
                                 skipped: skippedTasks.includes(ActivationTasks.CreateFirstDashboard),
                             })
