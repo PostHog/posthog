@@ -990,6 +990,20 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         expected_dashboards_on_insight = dashboard_two_json["tiles"][0]["insight"]["dashboards"]
         assert expected_dashboards_on_insight == [dashboard_two_id]
 
+    def test_dashboard_items_deprecation(self) -> None:
+        dashboard_id, _ = self._create_dashboard({"name": "items deprecation"})
+        self._create_insight({"dashboards": [dashboard_id]})
+
+        default_dashboard_json = self._get_dashboard(dashboard_id, query_params="")
+
+        assert len(default_dashboard_json["tiles"]) == 1
+        assert len(default_dashboard_json["items"]) == 1
+
+        no_items_dashboard_json = self._get_dashboard(dashboard_id, query_params="?no_items_field")
+
+        assert len(no_items_dashboard_json["tiles"]) == 1
+        assert no_items_dashboard_json["items"] is None
+
     def _soft_delete(
         self,
         model_id: int,
@@ -1037,7 +1051,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response_json = response.json()
         return response_json.get("id", None), response_json
 
-    def _get_dashboard(self, dashboard_id: int) -> Dict:
-        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/")
+    def _get_dashboard(self, dashboard_id: int, query_params="") -> Dict:
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/{query_params}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()
