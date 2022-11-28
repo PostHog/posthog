@@ -2313,6 +2313,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "xvello",
+      "name": "Xavier Vello",
+      "avatar_url": "https://avatars.githubusercontent.com/u/6241083?v=4",
+      "profile": "https://xvello.net",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
