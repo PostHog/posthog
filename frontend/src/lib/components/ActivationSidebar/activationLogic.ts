@@ -13,6 +13,8 @@ import type { activationLogicType } from './activationLogicType'
 import { urls } from 'scenes/urls'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export enum ActivationTasks {
     IngestFirstEvent = 'ingest_first_event',
@@ -54,6 +56,8 @@ export const activationLogic = kea<activationLogicType>([
             ['insights'],
             dashboardsModel,
             ['rawDashboards'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             inviteLogic,
@@ -129,9 +133,14 @@ export const activationLogic = kea<activationLogicType>([
         ],
     })),
     selectors({
+        shouldShowSecondaryOnboarding: [
+            (s) => [s.featureFlags],
+            (featureFlags) => featureFlags[FEATURE_FLAGS.SECONDARY_ONBOARDING_EXPERIMENT] === 'test',
+        ],
         isReady: [
-            (s) => [s.areCustomEventsLoaded, s.areInsightsLoaded],
-            (areCustomEventsLoaded, areInsightsLoaded) => areCustomEventsLoaded && areInsightsLoaded,
+            (s) => [s.areCustomEventsLoaded, s.areInsightsLoaded, s.shouldShowSecondaryOnboarding],
+            (areCustomEventsLoaded, areInsightsLoaded, shouldShowSecondaryOnboarding) =>
+                shouldShowSecondaryOnboarding && areCustomEventsLoaded && areInsightsLoaded,
         ],
         currentTeamSkippedTasks: [
             (s) => [s.skippedTasks, s.currentTeam],
@@ -310,19 +319,21 @@ export const activationLogic = kea<activationLogicType>([
             )
         },
     })),
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => {
-            // we artificially wait for a second so that the UI has time to render before we check for these async values
-            // this prevents the UI from flickering when the values are loaded
-            setTimeout(() => {
-                actions.loadCustomEvents()
-                actions.loadInsights()
-            }, 1000)
+            if (values.shouldShowSecondaryOnboarding) {
+                // we artificially wait for a second so that the UI has time to render before we check for these async values
+                // this prevents the UI from flickering when the values are loaded
+                setTimeout(() => {
+                    actions.loadCustomEvents()
+                    actions.loadInsights()
+                }, 1000)
+            }
         },
     })),
     urlToAction(({ actions, values }) => ({
         '*': (_, params) => {
-            if (params?.onboarding_completed && !values.hasCompletedAllTasks) {
+            if (values.shouldShowSecondaryOnboarding && params?.onboarding_completed && !values.hasCompletedAllTasks) {
                 actions.toggleActivationSideBar()
             } else {
                 actions.hideActivationSideBar()
