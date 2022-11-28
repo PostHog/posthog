@@ -93,7 +93,9 @@ class QueryContext:
         is_filtering_by_event_names = event_names and len(event_names) > 0
 
         if is_filtering_by_event_names or is_event_property is not None:
-            event_property_field = "case when pep.id is null then false else true end"
+            event_property_field = (
+                f"case when {self.posthog_eventproperty_table_join_alias}.id is null then false else true end"
+            )
 
         if is_filtering_by_event_names:
             event_name_join_filter += " AND event in %(event_names)s"
@@ -159,6 +161,7 @@ class QueryContext:
                                {self.event_name_join_filter}
                                group by team_id, property) pep
                         on pep.property = name
+                        {self.event_name_join_filter}
                 """
         return join_on_posthog_event_property
 
