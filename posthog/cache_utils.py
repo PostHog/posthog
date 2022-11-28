@@ -2,23 +2,24 @@ from datetime import timedelta
 from functools import wraps
 from typing import no_type_check
 
+from django.conf import settings
 from django.utils.timezone import now
-
-from posthog.settings import TEST
 
 
 def cache_for(cache_time: timedelta):
     def wrapper(fn):
         @wraps(fn)
         @no_type_check
-        def memoized_fn(*args, use_cache=not TEST):
-            if not use_cache:
-                return fn(*args)
+        def memoized_fn(*args, **kwargs):
+            if settings.TEST:
+                return fn(*args, **kwargs)
 
             current_time = now()
-            if args not in memoized_fn._cache or current_time - memoized_fn._cache[args][0] > cache_time:
-                memoized_fn._cache[args] = (current_time, fn(*args))
-            return memoized_fn._cache[args][1]
+
+            key = (args, frozenset(sorted(kwargs.items())))
+            if key not in memoized_fn._cache or current_time - memoized_fn._cache[key][0] > cache_time:
+                memoized_fn._cache[key] = (current_time, fn(*args, **kwargs))
+            return memoized_fn._cache[key][1]
 
         memoized_fn._cache = {}
         return memoized_fn
