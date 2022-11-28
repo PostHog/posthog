@@ -35,7 +35,7 @@ import { dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { Link } from 'lib/components/Link'
 import { isPathsFilter, isRetentionFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
-import { captureTimeToSeeData } from 'lib/internalMetrics'
+import { captureTimeToSeeData, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { getResponseBytes, sortDates } from '../insights/utils'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
@@ -92,7 +92,12 @@ export const dashboardLogic = kea<dashboardLogicType>({
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
         removeTile: (tile: DashboardTile) => ({ tile }),
-        refreshAllDashboardItems: (payload: { tiles?: DashboardTile[]; action: string }) => payload,
+        refreshAllDashboardItems: (payload: {
+            tiles?: DashboardTile[]
+            action: string
+            initialLoad?: boolean
+            dashboardQueryId?: string
+        }) => payload,
         refreshAllDashboardItemsManual: true,
         resetInterval: true,
         updateAndRefreshDashboard: true,
@@ -124,6 +129,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
         }),
         setTextTileId: (textTileId: number | 'new' | null) => ({ textTileId }),
         duplicateTile: (tile: DashboardTile) => ({ tile }),
+        setInitialLoadTimer: (action: string, dashboardQueryId: string) => ({ action, dashboardQueryId }),
+        setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
     },
 
     loaders: ({ actions, props, values }) => ({
@@ -137,8 +144,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         return null
                     }
 
-                    const refreshStartTime = performance.now()
                     const dashboardQueryId = uuid()
+                    actions.setInitialLoadTimer(action, dashboardQueryId)
 
                     try {
                         // :TODO: Send dashboardQueryId forward as well if refreshing
@@ -146,24 +153,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType = await getJSONOrThrow(dashboardResponse)
 
-                        actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
-                        const lastRefresh = sortDates(dashboard.tiles.map((tile) => tile.last_refresh))
+                        actions.setInitialLoadResponseBytes(getResponseBytes(dashboardResponse))
 
-                        captureTimeToSeeData(values.currentTeamId, {
-                            type: 'dashboard_load',
-                            context: 'dashboard',
-                            action,
-                            dashboard_query_id: dashboardQueryId,
-                            time_to_see_data_ms: Math.floor(performance.now() - refreshStartTime),
-                            api_response_bytes: getResponseBytes(dashboardResponse),
-                            insights_fetched: dashboard.tiles.length,
-                            insights_fetched_cached: dashboard.tiles.reduce(
-                                (acc, curr) => acc + (curr.is_cached ? 1 : 0),
-                                0
-                            ),
-                            min_last_refresh: lastRefresh[0],
-                            max_last_refresh: lastRefresh[lastRefresh.length - 1],
-                        })
+                        actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
+
                         return dashboard
                     } catch (error: any) {
                         if (error.status === 404) {
@@ -418,6 +411,21 @@ export const dashboardLogic = kea<dashboardLogicType>({
             },
         ],
         loadTimer: [null as Date | null, { loadDashboardItems: () => new Date() }],
+        initialLoadTimerData: [
+            { dashboardQueryId: '', action: '', startTime: 0, responseBytes: 0 },
+            {
+                setInitialLoadTimer: (_, { action, dashboardQueryId }) => ({
+                    action,
+                    dashboardQueryId,
+                    startTime: performance.now(),
+                    responseBytes: 0,
+                }),
+                setInitialLoadResponseBytes: (state, { responseBytes }) => ({
+                    ...state,
+                    responseBytes,
+                }),
+            },
+        ],
         refreshStatus: [
             {} as Record<string, RefreshStatus>,
             {
@@ -835,7 +843,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
             actions.resetInterval()
             actions.refreshAllDashboardItems({ action: 'refresh_manual' })
         },
-        refreshAllDashboardItems: async ({ tiles, action }, breakpoint) => {
+        refreshAllDashboardItems: async ({ tiles, action, initialLoad, dashboardQueryId }, breakpoint) => {
             if (!props.id) {
                 // what are we loading the insight card on?!
                 return
@@ -858,8 +866,9 @@ export const dashboardLogic = kea<dashboardLogicType>({
             )
 
             const refreshStartTime = performance.now()
-            const dashboardQueryId = uuid()
+            dashboardQueryId = dashboardQueryId ?? uuid()
             let refreshesFinished = 0
+            let totalResponseBytes = 0
 
             // array of functions that reload each item
             const fetchItemFunctions = insights.map((insight) => async () => {
@@ -909,6 +918,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         insights_fetched_cached: 0,
                         api_url: apiUrl,
                     })
+                    totalResponseBytes += getResponseBytes(refreshedInsightResponse)
                 } catch (e: any) {
                     console.error(e)
                     if (isBreakpoint(e)) {
@@ -920,15 +930,27 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
                 refreshesFinished += 1
                 if (refreshesFinished === insights.length) {
-                    captureTimeToSeeData(values.currentTeamId, {
+                    const payload: TimeToSeeDataPayload = {
                         type: 'dashboard_load',
                         context: 'dashboard',
                         action,
                         dashboard_query_id: dashboardQueryId,
+                        api_response_bytes: totalResponseBytes,
                         time_to_see_data_ms: Math.floor(performance.now() - refreshStartTime),
                         insights_fetched: insights.length,
                         insights_fetched_cached: 0,
-                    })
+                    }
+                    captureTimeToSeeData(values.currentTeamId, payload)
+                    if (initialLoad) {
+                        const { dashboardQueryId, startTime, responseBytes } = values.initialLoadTimerData
+                        captureTimeToSeeData(values.currentTeamId, {
+                            ...payload,
+                            dashboard_query_id: dashboardQueryId,
+                            action: 'initial_load_full',
+                            time_to_see_data_ms: Math.floor(performance.now() - startTime),
+                            api_response_bytes: responseBytes + totalResponseBytes,
+                        })
+                    }
                 }
             })
 
@@ -995,20 +1017,56 @@ export const dashboardLogic = kea<dashboardLogicType>({
         loadDashboardItemsSuccess: function (...args) {
             sharedListeners.reportLoadTiming(...args)
 
+            const dashboard = values.allItems as DashboardType
+            const { action, dashboardQueryId, startTime, responseBytes } = values.initialLoadTimerData
+            const lastRefresh = sortDates(dashboard.tiles.map((tile) => tile.last_refresh))
+
+            const initialLoad = action === 'initial_load'
+            let allLoaded = true
+
             // Initial load of actual data for dashboard items after general dashboard is fetched
             if (
                 values.lastRefreshed &&
                 values.lastRefreshed.isBefore(now().subtract(AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS, 'hours'))
             ) {
-                actions.refreshAllDashboardItems({ action: 'refresh_automatic' })
+                actions.refreshAllDashboardItems({ action: 'refresh_above_threshold', initialLoad, dashboardQueryId })
+                allLoaded = false
             } else {
                 const notYetLoadedItems = values.tiles?.filter(
                     (t): t is DashboardTile => !!t.insight && !t.insight.result
                 )
                 if (notYetLoadedItems && notYetLoadedItems?.length > 0) {
-                    actions.refreshAllDashboardItems({ tiles: notYetLoadedItems, action: 'load_missing' })
+                    actions.refreshAllDashboardItems({
+                        tiles: notYetLoadedItems,
+                        action: 'load_missing',
+                        initialLoad,
+                        dashboardQueryId,
+                    })
+                    allLoaded = false
                 }
             }
+
+            const payload: TimeToSeeDataPayload = {
+                type: 'dashboard_load',
+                context: 'dashboard',
+                action,
+                dashboard_query_id: dashboardQueryId,
+                time_to_see_data_ms: Math.floor(performance.now() - startTime),
+                api_response_bytes: responseBytes,
+                insights_fetched: dashboard.tiles.length,
+                insights_fetched_cached: dashboard.tiles.reduce((acc, curr) => acc + (curr.is_cached ? 1 : 0), 0),
+                min_last_refresh: lastRefresh[0],
+                max_last_refresh: lastRefresh[lastRefresh.length - 1],
+            }
+
+            captureTimeToSeeData(values.currentTeamId, payload)
+            if (initialLoad && allLoaded) {
+                captureTimeToSeeData(values.currentTeamId, {
+                    ...payload,
+                    action: 'initial_load_full',
+                })
+            }
+
             if (values.shouldReportOnAPILoad) {
                 actions.setShouldReportOnAPILoad(false)
                 actions.reportDashboardViewed()
