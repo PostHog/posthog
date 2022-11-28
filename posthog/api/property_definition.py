@@ -40,7 +40,7 @@ class QueryContext:
 
     event_name_join_filter: str = ""
 
-    posthog_eventproperty_table_join_alias = "pep"
+    posthog_eventproperty_table_join_alias = "check_for_matching_event_property"
 
     params: Dict = dataclasses.field(default_factory=dict)
 
@@ -159,8 +159,8 @@ class QueryContext:
                                from posthog_eventproperty
                                where posthog_eventproperty.team_id = {self.team_id}
                                {self.event_name_join_filter}
-                               group by team_id, property) pep
-                        on pep.property = name
+                               group by team_id, property) {self.posthog_eventproperty_table_join_alias}
+                        on {self.posthog_eventproperty_table_join_alias}.property = name
                         {self.event_name_join_filter}
                 """
         return join_on_posthog_event_property
