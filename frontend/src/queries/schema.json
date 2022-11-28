@@ -1655,7 +1655,8 @@
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
-                    "$ref": "#/definitions/DateRange"
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
                     "description": "Exclude internal and test users by applying the respective filters",

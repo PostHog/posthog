@@ -97,13 +97,14 @@ export interface DataTableColumn {
 
 // Base class should not be used directly
 interface InsightsQueryBase extends Node {
+    /** Date range for the query */
     dateRange?: DateRange
+    /** Exclude internal and test users by applying the respective filters */
+    filterTestAccounts?: boolean
 }
 
 export interface TrendsQuery extends InsightsQueryBase {
     kind: NodeKind.TrendsQuery
-    /** Exclude internal and test users by applying the respective filters */
-    filterTestAccounts?: boolean
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
