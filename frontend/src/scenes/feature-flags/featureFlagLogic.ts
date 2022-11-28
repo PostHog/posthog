@@ -30,6 +30,7 @@ import { forms } from 'kea-forms'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dayjs } from 'lib/dayjs'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
+import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -388,6 +389,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 try {
                     if (!updatedFlag.id) {
                         const newFlag = await api.create(`api/projects/${values.currentTeamId}/feature_flags`, flag)
+                        featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(newFlag.id)
                         return newFlag
                     } else {
                         return await api.update(
