@@ -1443,9 +1443,6 @@ export interface SystemStatusRow {
 
 export interface SystemStatus {
     overview: SystemStatusRow[]
-    internal_metrics: {
-        clickhouse?: DashboardType
-    }
 }
 
 export type QuerySummary = { duration: string } & Record<string, string>
@@ -1771,7 +1768,6 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
 
 export enum DashboardPlacement {
     Dashboard = 'dashboard', // When on the standard dashboard page
-    InternalMetrics = 'internal-metrics', // When embedded in /instance/status
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
     Public = 'public', // When viewing the dashboard publicly
     Export = 'export', // When the dashboard is being exported (alike to being printed)

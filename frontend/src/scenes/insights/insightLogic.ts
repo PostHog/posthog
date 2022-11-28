@@ -15,7 +15,7 @@ import {
     SetInsightOptions,
     TrendsFilterType,
 } from '~/types'
-import { captureInternalMetric, captureTimeToSeeData } from 'lib/internalMetrics'
+import { captureTimeToSeeData } from 'lib/internalMetrics'
 import { router } from 'kea-router'
 import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
@@ -858,26 +858,17 @@ export const insightLogic = kea<insightLogicType>([
                             scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
                         }
                         posthog.capture('insight timeout message shown', tags)
-                        captureInternalMetric({ method: 'incr', metric: 'insight_timeout', value: 1, tags })
                     }
                 }, SHOW_TIMEOUT_MESSAGE_AFTER)
             )
             actions.setIsLoading(true)
         },
-        abortQuery: ({ queryId, view, scene, exception }) => {
+        abortQuery: ({ queryId }) => {
             const { currentTeamId } = values
-            const duration = performance.now() - values.queryStartTimes[queryId]
-            const tags = {
-                insight: view,
-                scene: scene,
-                success: !exception,
-                ...exception,
-            }
 
             if (values.featureFlags[FEATURE_FLAGS.CANCEL_RUNNING_QUERIES]) {
                 api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId })
             }
-            captureInternalMetric({ method: 'timing', metric: 'insight_abort_time', value: duration, tags })
         },
         endQuery: ({ queryId, view, lastRefresh, scene, exception, response }) => {
             if (values.timeout) {
@@ -898,7 +889,6 @@ export const insightLogic = kea<insightLogicType>([
                 }
 
                 posthog.capture('insight loaded', { ...tags, duration })
-                captureInternalMetric({ method: 'timing', metric: 'insight_load_time', value: duration, tags })
 
                 captureTimeToSeeData(values.currentTeamId, {
                     type: 'insight_load',

@@ -76,7 +76,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
         STALENESS_RESTART_SECONDS: 0,
         HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
-        CAPTURE_INTERNAL_METRICS: false,
         PISCINA_USE_ATOMICS: true,
         PISCINA_ATOMICS_TIMEOUT: 5000,
         SITE_URL: null,
@@ -161,7 +160,6 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         STALENESS_RESTART_SECONDS: 'trigger a restart if no event ingested for this duration',
         HEALTHCHECK_MAX_STALE_SECONDS:
             'maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails',
-        CAPTURE_INTERNAL_METRICS: 'capture internal metrics for posthog in posthog',
         PISCINA_USE_ATOMICS:
             'corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)',
         PISCINA_ATOMICS_TIMEOUT:
