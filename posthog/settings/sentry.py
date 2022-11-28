@@ -77,6 +77,11 @@ def sentry_init() -> None:
             # Configures the sample rate for error events, in the range of 0.0 to 1.0. The default is 1.0 which means that 100% of error events are sent. If set to 0.1 only 10% of error events will be sent. Events are picked randomly.
             send_default_pii=True,
             traces_sampler=traces_sampler,
+            _experiments={
+                # https://docs.sentry.io/platforms/python/profiling/
+                # The profiles_sample_rate setting is relative to the traces_sample_rate setting.
+                "profiles_sample_rate": 0.1,
+            },
         )
 
 
