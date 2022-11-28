@@ -57,8 +57,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         variants = value.get("feature_flag_variants", [])
 
-        if len(variants) > 4:
-            raise ValidationError("Feature flag variants must be less than 5")
+        if len(variants) >= 11:
+            raise ValidationError("Feature flag variants must be less than 11")
         elif len(variants) > 0:
             if "control" not in [variant["key"] for variant in variants]:
                 raise ValidationError("Feature flag variants must contain a control variant")
