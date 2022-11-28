@@ -1,6 +1,7 @@
 import {
     AnyPartialFilterType,
     AnyPropertyFilter,
+    PropertyGroupFilter,
     EventType,
     PropertyFilterType,
     IntervalType,
@@ -101,6 +102,8 @@ interface InsightsQueryBase extends Node {
     dateRange?: DateRange
     /** Exclude internal and test users by applying the respective filters */
     filterTestAccounts?: boolean
+    /** Property filters for all series */
+    properties?: AnyPropertyFilter[] | PropertyGroupFilter
 }
 
 export interface TrendsQuery extends InsightsQueryBase {

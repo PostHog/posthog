@@ -1,6 +1,13 @@
 // This file contains example queries, used in storybook and in the /query interface.
 import { EventsNode, DataTableNode, LegacyQuery, Node, NodeKind, TrendsQuery } from '~/queries/schema'
-import { ChartDisplayType, InsightType, PropertyFilterType, PropertyOperator, PropertyMathType } from '~/types'
+import {
+    ChartDisplayType,
+    InsightType,
+    PropertyFilterType,
+    PropertyOperator,
+    PropertyMathType,
+    FilterLogicalOperator,
+} from '~/types'
 import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/DataTable'
 
 const Events: EventsNode = {
@@ -73,6 +80,28 @@ const TrendsQuery: TrendsQuery = {
         },
     ],
     filterTestAccounts: false,
+    properties: {
+        type: FilterLogicalOperator.And,
+        values: [
+            {
+                type: FilterLogicalOperator.Or,
+                values: [
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$current_url',
+                        operator: PropertyOperator.Exact,
+                        value: ['https://hedgebox.net/files/'],
+                    },
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$geoip_country_code',
+                        operator: PropertyOperator.Exact,
+                        value: ['US', 'AU'],
+                    },
+                ],
+            },
+        ],
+    },
 }
 
 export const examples: Record<string, Node> = {

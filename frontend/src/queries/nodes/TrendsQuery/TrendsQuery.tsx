@@ -38,7 +38,7 @@ const filtersFromTrendsQuery = (query: TrendsQuery): Partial<FilterType> => {
         interval: query.interval,
         ...query.dateRange,
         ...seriesToActionsAndEvents(query.series),
-        properties: query.globalPropertyFilters,
+        properties: query.properties,
         filter_test_accounts: query.filterTestAccounts,
     }
 }

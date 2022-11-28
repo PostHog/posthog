@@ -1670,6 +1670,20 @@
                     "const": "TrendsQuery",
                     "type": "string"
                 },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
+                },
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
