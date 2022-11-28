@@ -98,13 +98,6 @@ export function Experiment(): JSX.Element {
         archiveExperiment,
     } = useActions(experimentLogic)
 
-    console.log(
-        'experimentData',
-        experimentData?.parameters?.feature_flag_variants?.length,
-        (experimentData?.parameters?.feature_flag_variants?.length || 0) > 4,
-        experimentData
-    )
-
     const [form] = Form.useForm()
 
     const [showWarning, setShowWarning] = useState(true)
