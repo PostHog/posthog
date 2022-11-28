@@ -17,6 +17,7 @@ from posthog.api import (
     decide,
     organizations_router,
     project_dashboards_router,
+    project_feature_flags_router,
     projects_router,
     router,
     sharing,
@@ -41,7 +42,13 @@ try:
 except ImportError:
     pass
 else:
-    extend_api_router(router, projects_router=projects_router, project_dashboards_router=project_dashboards_router)
+    extend_api_router(
+        router,
+        projects_router=projects_router,
+        organizations_router=organizations_router,
+        project_dashboards_router=project_dashboards_router,
+        project_feature_flags_router=project_feature_flags_router,
+    )
 
 
 try:
@@ -54,7 +61,9 @@ else:
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
 admin_urlpatterns = (
-    [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)] if is_cloud() or settings.DEMO else []
+    [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)]
+    if is_cloud() or settings.DEMO or settings.DEBUG
+    else []
 )
 
 

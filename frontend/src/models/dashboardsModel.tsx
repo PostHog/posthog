@@ -8,9 +8,13 @@ import { DashboardType, InsightShortId, DashboardTile, InsightModel } from '~/ty
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
 import { lemonToast } from 'lib/components/lemonToast'
+import { tagsModel } from '~/models/tagsModel'
 
 export const dashboardsModel = kea<dashboardsModelType>({
     path: ['models', 'dashboardsModel'],
+    connect: {
+        actions: [tagsModel, ['loadTags']],
+    },
     actions: () => ({
         delayedDeleteDashboard: (id: number) => ({ id }),
         setDiveSourceId: (id: InsightShortId | null) => ({ id }),
@@ -119,6 +123,9 @@ export const dashboardsModel = kea<dashboardsModelType>({
                         values.rawDashboards[id]?.[updatedAttribute]?.length || 0,
                         payload[updatedAttribute].length
                     )
+                    if (updatedAttribute === 'tags') {
+                        actions.loadTags()
+                    }
                 }
                 if (allowUndo) {
                     lemonToast.success('Dashboard updated', {

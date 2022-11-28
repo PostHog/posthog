@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union, cast
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.materialized_columns import ColumnName
-from posthog.client import sync_execute
 from posthog.constants import (
     FUNNEL_WINDOW_INTERVAL,
     FUNNEL_WINDOW_INTERVAL_UNIT,
@@ -34,10 +33,13 @@ from posthog.queries.breakdown_props import (
 )
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.funnels.sql import FUNNEL_INNER_EVENT_STEPS_QUERY
+from posthog.queries.insight import insight_sync_execute
 from posthog.utils import relative_date_parse
 
 
 class ClickhouseFunnelBase(ABC):
+    QUERY_TYPE = "funnel_base"  # should be overridden in subclasses
+
     _filter: Filter
     _team: Team
     _include_timestamp: Optional[bool]
@@ -243,8 +245,13 @@ class ClickhouseFunnelBase(ABC):
 
     def _exec_query(self) -> List[Tuple]:
         query = self.get_query()
-        return sync_execute(
-            query, self.params, client_query_id=self._filter.client_query_id, client_query_team_id=self._team.pk
+        return insight_sync_execute(
+            query,
+            self.params,
+            query_type=self.QUERY_TYPE,
+            filter=self._filter,
+            client_query_id=self._filter.client_query_id,
+            client_query_team_id=self._team.pk,
         )
 
     def _get_timestamp_outer_select(self) -> str:
@@ -704,7 +711,11 @@ class ClickhouseFunnelBase(ABC):
                 )
         elif self._filter.breakdown_type == "event":
             basic_prop_selector = get_single_or_multi_property_string_expr(
-                self._filter.breakdown, table="events", query_alias="prop_basic", column="properties"
+                self._filter.breakdown,
+                table="events",
+                query_alias="prop_basic",
+                column="properties",
+                normalize_url=self._filter.breakdown_normalize_url,
             )
         elif self._filter.breakdown_type == "cohort":
             basic_prop_selector = "value AS prop_basic"

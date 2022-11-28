@@ -1752,6 +1752,22 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         response = self.client.post(f"/api/projects/{self.team.id}/insights/cancel", {"client_query_id": f"testid"})
         self.assertEqual(response.status_code, 201, response.content)
 
+    @patch("posthog.decorators.get_safe_cache")
+    def test_including_query_id_does_not_affect_cache_key(self, patched_get_safe_cache) -> None:
+        """
+        regression test, by introducing a query_id we were changing the cache key
+        so, if you made the same query twice, the second one would not be cached, only because the query id had changed
+        """
+        self._get_insight_with_client_query_id("b3ef3987-b8e7-4339-b9b8-fa2b65606692")
+        self._get_insight_with_client_query_id("00000000-b8e7-4339-b9b8-fa2b65606692")
+
+        assert patched_get_safe_cache.call_count == 2
+        assert patched_get_safe_cache.call_args_list[0] == patched_get_safe_cache.call_args_list[1]
+
+    def _get_insight_with_client_query_id(self, client_query_id: str) -> None:
+        query_params = f"?events={json.dumps([{'id': '$pageview', }])}&client_query_id={client_query_id}"
+        self.client.get(f"/api/projects/{self.team.id}/insights/trend/{query_params}").json()
+
     def _create_insight(
         self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED
     ) -> Tuple[int, Dict[str, Any]]:

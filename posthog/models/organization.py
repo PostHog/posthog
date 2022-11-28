@@ -26,15 +26,10 @@ from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
 from posthog.models.utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
 from posthog.redis import get_client
-from posthog.utils import absolute_uri, mask_email_address
+from posthog.utils import absolute_uri
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
-
-try:
-    from ee.models.license import License
-except ImportError:
-    License = None  # type: ignore
 
 
 logger = structlog.get_logger(__name__)
@@ -68,6 +63,7 @@ class OrganizationManager(models.Manager):
                 user.current_organization = organization
                 user.current_team = team
                 user.save()
+
         return organization, organization_membership, team
 
 
@@ -142,6 +138,10 @@ class Organization(UUIDModel):
         Obtains details on the billing plan for the organization.
         Returns a tuple with (billing_plan_key, billing_realm)
         """
+        try:
+            from ee.models.license import License
+        except ImportError:
+            License = None  # type: ignore
         # Demo gets all features
         if settings.DEMO or "generate_demo_data" in sys.argv[1:2]:
             return (License.ENTERPRISE_PLAN, "demo")
@@ -174,6 +174,10 @@ class Organization(UUIDModel):
         if not plan:
             self.available_features = []
         elif realm in ("ee", "demo"):
+            try:
+                from ee.models.license import License
+            except ImportError:
+                License = None  # type: ignore
             self.available_features = License.PLANS.get(plan, [])
         else:
             self.available_features = self.billing.available_features  # type: ignore
@@ -313,8 +317,7 @@ class OrganizationInvite(UUIDModel):
 
         if _email and _email != self.target_email:
             raise exceptions.ValidationError(
-                f"This invite is intended for another email address: {mask_email_address(self.target_email)}"
-                f". You tried to sign up with {_email}.",
+                "This invite is intended for another email address.",
                 code="invalid_recipient",
             )
 

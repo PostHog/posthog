@@ -43,6 +43,7 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
+import { isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
 export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
@@ -115,7 +116,12 @@ function flattenProperties(properties: AnyPropertyFilter[]): string[] {
 
 function hasGroupProperties(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): boolean {
     const flattenedProperties = convertPropertyGroupToProperties(properties)
-    return !!flattenedProperties && flattenedProperties.some((property) => property.group_type_index != undefined)
+    return (
+        !!flattenedProperties &&
+        flattenedProperties.some(
+            (property) => isGroupPropertyFilter(property) && property.group_type_index !== undefined
+        )
+    )
 }
 
 function usedCohortFilterIds(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): PropertyFilterValue[] {

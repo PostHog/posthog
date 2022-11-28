@@ -23,7 +23,6 @@ import {
     fetchSessionRecordingsEvents,
     reloadAction,
 } from './api'
-// import { beforeAll, afterAll, test, expect } from 'vitest'
 
 let producer: Producer
 let clickHouseClient: ClickHouse
@@ -452,6 +451,27 @@ test.concurrent(
         expect(persons.length).toBe(1)
     }
 )
+
+test.concurrent(`event ingestion: events without a team_id get processed correctly`, async () => {
+    const teamId = await createTeam(postgres, organizationId, '', 'token1')
+    const personIdentifier = 'test@posthog.com'
+
+    await capture(
+        producer,
+        null, // team_id should be added by the plugin server from the token
+        personIdentifier,
+        new UUIDT().toString(),
+        'test event',
+        {
+            distinct_id: personIdentifier,
+        },
+        'token1'
+    )
+
+    const events = await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
+    expect(events.length).toBe(1)
+    expect(events[0].team_id).toBe(teamId)
+})
 
 test.concurrent(`exports: exporting events on ingestion`, async () => {
     const plugin = await createPlugin(postgres, {
@@ -974,8 +994,7 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
             $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }],
         })
 
-        for (const attempt in Array.from(Array(20).keys())) {
-            console.debug(`Attempt ${attempt} to check webhook was called`)
+        for (const _ in Array.from(Array(20).keys())) {
             if (webHookCalledWith) {
                 break
             }

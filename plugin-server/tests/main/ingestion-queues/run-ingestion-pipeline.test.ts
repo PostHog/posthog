@@ -53,7 +53,7 @@ describe('workerTasks.runEventPipeline()', () => {
                     event: {
                         distinctId: 'asdf',
                         ip: '',
-                        teamId: teamId,
+                        team_id: teamId,
                         event: 'some event',
                         properties: {},
                         eventUuid: new UUIDT().toString(),

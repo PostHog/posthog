@@ -21,7 +21,7 @@ from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyGroup
-from posthog.models.property.util import get_property_string_expr, parse_prop_grouped_clauses
+from posthog.models.property.util import get_property_string_expr, normalize_url_breakdown, parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.models.utils import PersonPropertiesMode
@@ -30,7 +30,6 @@ from posthog.queries.breakdown_props import (
     format_breakdown_cohort_join_query,
     get_breakdown_cohort_name,
     get_breakdown_prop_values,
-    normalize_url_breakdown,
 )
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
@@ -56,6 +55,7 @@ from posthog.queries.trends.sql import (
 from posthog.queries.trends.util import (
     COUNT_PER_ACTOR_MATH_FUNCTIONS,
     PROPERTY_MATH_FUNCTIONS,
+    ensure_value_is_json_serializable,
     enumerate_time_range,
     get_active_user_params,
     parse_response,
@@ -457,6 +457,7 @@ class TrendsBreakdown:
         def _parse(result: List) -> List:
             parsed_results = []
             for stats in result:
+                aggregated_value = ensure_value_is_json_serializable(stats[0])
                 result_descriptors = self._breakdown_result_descriptors(stats[1], filter, entity)
                 filter_params = filter.to_params()
                 extra_params = {
@@ -467,7 +468,7 @@ class TrendsBreakdown:
                 }
                 parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
                 parsed_result = {
-                    "aggregated_value": stats[0],
+                    "aggregated_value": aggregated_value,
                     "filter": filter_params,
                     "persons": {
                         "filter": extra_params,

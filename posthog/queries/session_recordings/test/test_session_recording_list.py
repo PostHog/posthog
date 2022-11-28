@@ -37,11 +37,13 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
     ):
         if team is None:
             team = self.team
-        _create_event(team=team, event=event_name, timestamp=timestamp, distinct_id=distinct_id, properties=properties)
+        return _create_event(
+            team=team, event=event_name, timestamp=timestamp, distinct_id=distinct_id, properties=properties
+        )
 
     @property
     def base_time(self):
-        return now() - relativedelta(hours=1)
+        return (now() - relativedelta(hours=1)).replace(microsecond=0)
 
     @test_with_materialized_columns(["$current_url"])
     @freeze_time("2021-01-21T20:00:00.000Z")
@@ -112,6 +114,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(session_recordings[0]["duration"], 30)
 
     @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
     def test_event_filter(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
@@ -145,6 +148,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(session_recordings), 0)
 
     @test_with_materialized_columns(["$current_url", "$browser"])
+    @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_event_filter_with_properties(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -200,6 +204,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(session_recordings), 0)
 
     @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
     def test_multiple_event_filters(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
@@ -225,6 +230,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         )
         session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
+
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
         self.assertEqual(len(session_recordings[0]["matching_events"][0]["events"]), 1)
@@ -809,4 +815,4 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
 
         assert session_recordings[0]["start_time"] == self.base_time + relativedelta(seconds=0)
         # Currently duration is loaded from the timestamp. This chunked snapshot will have a timestamp of the first event
-        assert session_recordings[0]["end_time"] == self.base_time + relativedelta(minutes=2)
+        assert session_recordings[0]["end_time"] == self.base_time + relativedelta(minutes=2, seconds=9)

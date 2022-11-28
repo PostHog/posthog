@@ -186,7 +186,7 @@ export const billingLogic = kea<billingLogicType>([
         loadBillingSuccess: () => {
             if (
                 router.values.location.pathname.includes('/organization/billing') &&
-                router.values.searchParams.get('success')
+                router.values.searchParams['success']
             ) {
                 // if the activation is successful, we reload the user to get the updated billing info on the organization
                 actions.loadUser()

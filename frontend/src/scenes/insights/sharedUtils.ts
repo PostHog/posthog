@@ -10,6 +10,7 @@ import {
     RetentionFilterType,
     StickinessFilterType,
     TrendsFilterType,
+    ChartDisplayType,
 } from '~/types'
 
 /**
@@ -33,8 +34,14 @@ export const keyForInsightLogicProps =
 export function filterTrendsClientSideParams(
     filters: Partial<TrendsFilterType & StickinessFilterType>
 ): Partial<TrendsFilterType & StickinessFilterType> {
-    const { people_day: _discard, people_action: __discard, stickiness_days: ___discard, ...newFilters } = filters
+    const { stickiness_days: ___discard, ...newFilters } = filters
 
+    // "compare against previous" doesn't make a lot of sense for area charts.
+    // since we want to preserve the `compare` setting for switching to
+    // other display types, we simply overwrite it here.
+    if (isAreaChartDisplay(filters)) {
+        newFilters.compare = false
+    }
     return newFilters
 }
 
@@ -69,4 +76,8 @@ export function isFilterWithDisplay(
     filters: Partial<FilterType>
 ): filters is Partial<TrendsFilterType> | Partial<StickinessFilterType> {
     return isTrendsFilter(filters) || isStickinessFilter(filters)
+}
+
+export function isAreaChartDisplay(filters?: Partial<FilterType>): boolean {
+    return isTrendsFilter(filters) && filters.display === ChartDisplayType.ActionsAreaGraph
 }
