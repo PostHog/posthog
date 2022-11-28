@@ -259,7 +259,7 @@ class PropertyDefinitionViewSet(
                 # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
                 property_definition_fields = ", ".join(
                     [
-                        f'posthog_propertydefinition."{f.column}"'  # type: ignore
+                        f'{f.cached_col.alias}."{f.column}"'  # type: ignore
                         for f in EnterprisePropertyDefinition._meta.get_fields()
                         if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]  # type: ignore
                     ]
