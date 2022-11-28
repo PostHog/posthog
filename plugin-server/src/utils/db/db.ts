@@ -1476,21 +1476,6 @@ export class DB {
         return selectResult.rows[0] ?? null
     }
 
-    /** Return the ID of the team that is used exclusively internally by the instance for storing metrics data. */
-    public async fetchInternalMetricsTeam(): Promise<Team['id'] | null> {
-        const { rows } = await this.postgresQuery(
-            `
-            SELECT posthog_team.id AS team_id
-            FROM posthog_team
-            INNER JOIN posthog_organization ON posthog_organization.id = posthog_team.organization_id
-            WHERE for_internal_metrics`,
-            undefined,
-            'fetchInternalMetricsTeam'
-        )
-
-        return rows[0]?.team_id || null
-    }
-
     // Hook (EE)
 
     private async fetchActionRestHooks(actionId?: Hook['resource_id']): Promise<Hook[]> {

@@ -42,10 +42,16 @@ export function SessionRecordingPlaylistItem({
         <div className="flex flex-row flex-nowrap shrink-0 gap-1 h-6 ph-no-capture">
             {!recordingPropertiesLoading ? (
                 iconPropertyKeys.map((property) => {
-                    const value =
-                        property === '$device_type'
-                            ? iconProperties?.['$device_type'] || iconProperties?.['$initial_device_type']
-                            : iconProperties?.[property]
+                    let value = iconProperties?.[property]
+                    if (property === '$device_type') {
+                        value = iconProperties?.['$device_type'] || iconProperties?.['$initial_device_type']
+                    }
+
+                    let tooltipValue = value
+                    if (property === '$geoip_country_code') {
+                        tooltipValue = `${iconProperties?.['$geoip_country_name']} (${value})`
+                    }
+
                     return (
                         <PropertyIcon
                             key={property}
@@ -53,11 +59,11 @@ export function SessionRecordingPlaylistItem({
                             className={iconClassnames}
                             property={property}
                             value={value}
-                            tooltipTitle={(_, value) => (
+                            tooltipTitle={() => (
                                 <div className="text-center">
                                     Click to filter for
                                     <br />
-                                    <span className="font-medium">{value ?? 'N/A'}</span>
+                                    <span className="font-medium">{tooltipValue ?? 'N/A'}</span>
                                 </div>
                             )}
                         />

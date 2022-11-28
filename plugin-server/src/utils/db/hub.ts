@@ -31,7 +31,6 @@ import { PersonManager } from '../../worker/ingestion/person-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { SiteUrlManager } from '../../worker/ingestion/site-url-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
-import { InternalMetrics } from '../internal-metrics'
 import { status } from '../status'
 import { createPostgresPool, createRedis, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
@@ -297,10 +296,6 @@ export async function createHub(
 
     hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
     hub.appMetrics = new AppMetrics(hub as Hub)
-
-    if (serverConfig.CAPTURE_INTERNAL_METRICS) {
-        hub.internalMetrics = new InternalMetrics(hub as Hub)
-    }
 
     const closeHub = async () => {
         hub.mmdbUpdateJob?.cancel()

@@ -714,7 +714,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     actions.loadExportedDashboard(props.dashboard)
                 } else {
                     actions.loadDashboardItems({
-                        refresh: props.placement === DashboardPlacement.InternalMetrics,
+                        refresh: false,
                         action: 'initial_load',
                     })
                 }

@@ -11,9 +11,9 @@ from rest_framework.exceptions import APIException, UnsupportedMediaType, Valida
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
+from statshog.defaults.django import statsd
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.internal_metrics import incr
 from posthog.models import UploadedMedia
 from posthog.models.uploaded_media import ObjectStorageUnavailable
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -61,7 +61,7 @@ def download(request, *args, **kwargs) -> HttpResponse:
 
     file_bytes = object_storage.read_bytes(instance.media_location)
 
-    incr("uploaded_media.served", tags={"team_id": instance.team_id, "uuid": kwargs["image_uuid"]})
+    statsd.incr("uploaded_media.served", tags={"team_id": instance.team_id, "uuid": kwargs["image_uuid"]})
 
     return HttpResponse(
         file_bytes,
@@ -108,13 +108,17 @@ class MediaViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 # save it to minio anyway and then delete the record if it's not valid
                 bytes_to_verify = object_storage.read_bytes(uploaded_media.media_location)
                 if not validate_image_file(bytes_to_verify, user=request.user.id):
-                    incr("uploaded_media.image_failed_validation", tags={"file_name": file.name, "team": self.team_id})
+                    statsd.incr(
+                        "uploaded_media.image_failed_validation", tags={"file_name": file.name, "team": self.team_id}
+                    )
                     # TODO a batch process can delete media with no records in the DB or for deleted teams
                     uploaded_media.delete()
                     raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
 
                 headers = self.get_success_headers(uploaded_media.get_absolute_url())
-                incr("uploaded_media.uploaded", tags={"team_id": self.team.pk, "content_type": file.content_type})
+                statsd.incr(
+                    "uploaded_media.uploaded", tags={"team_id": self.team.pk, "content_type": file.content_type}
+                )
                 return Response(
                     {
                         "id": uploaded_media.id,

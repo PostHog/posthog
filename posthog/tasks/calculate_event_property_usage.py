@@ -5,8 +5,8 @@ from typing import Counter, Dict, List, Optional, Set, Tuple
 
 import structlog
 from django.utils import timezone
+from statshog.defaults.django import statsd
 
-from posthog.internal_metrics import gauge, incr
 from posthog.logging.timing import timed
 from posthog.models import EventDefinition, EventProperty, Insight, PropertyDefinition, Team
 from posthog.models.filters.filter import Filter
@@ -167,7 +167,7 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
             altered_events.add(event)
 
         altered_events.update(count_from_zero.seen_events)
-        gauge(
+        statsd.gauge(
             "calculate_event_property_usage_for_team.events_to_update",
             value=len(altered_events),
             tags={"team": team_id},
@@ -183,7 +183,7 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
         )
 
         altered_properties.update(count_from_zero.seen_properties)
-        gauge(
+        statsd.gauge(
             "calculate_event_property_usage_for_team.event_properties_to_update",
             value=len(altered_properties),
             tags={"team": team_id},
@@ -198,10 +198,10 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
             batch_size=1000,
         )
 
-        incr("calculate_event_property_usage_for_team_success", tags={"team": team_id})
+        statsd.incr("calculate_event_property_usage_for_team_success", tags={"team": team_id})
     except Exception as exc:
         logger.error("calculate_event_property_usage_for_team.failed", team=team_id, exc=exc, exc_info=True)
-        incr("calculate_event_property_usage_for_team_failure", tags={"team": team_id})
+        statsd.incr("calculate_event_property_usage_for_team_failure", tags={"team": team_id})
         raise exc
 
 
