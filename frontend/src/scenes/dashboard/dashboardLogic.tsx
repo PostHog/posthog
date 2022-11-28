@@ -129,7 +129,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         }),
         setTextTileId: (textTileId: number | 'new' | null) => ({ textTileId }),
         duplicateTile: (tile: DashboardTile) => ({ tile }),
-        setInitialLoadTimer: (action: string, dashboardQueryId: string) => ({ action, dashboardQueryId }),
+        loadingDashboardItemsStarted: (action: string, dashboardQueryId: string) => ({ action, dashboardQueryId }),
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
     },
 
@@ -145,7 +145,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     }
 
                     const dashboardQueryId = uuid()
-                    actions.setInitialLoadTimer(action, dashboardQueryId)
+                    actions.loadingDashboardItemsStarted(action, dashboardQueryId)
 
                     try {
                         // :TODO: Send dashboardQueryId forward as well if refreshing
@@ -411,10 +411,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
             },
         ],
         loadTimer: [null as Date | null, { loadDashboardItems: () => new Date() }],
-        initialLoadTimerData: [
+        dashboardLoadTimerData: [
             { dashboardQueryId: '', action: '', startTime: 0, responseBytes: 0 },
             {
-                setInitialLoadTimer: (_, { action, dashboardQueryId }) => ({
+                loadingDashboardItemsStarted: (_, { action, dashboardQueryId }) => ({
                     action,
                     dashboardQueryId,
                     startTime: performance.now(),
@@ -942,7 +942,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     }
                     captureTimeToSeeData(values.currentTeamId, payload)
                     if (initialLoad) {
-                        const { dashboardQueryId, startTime, responseBytes } = values.initialLoadTimerData
+                        const { dashboardQueryId, startTime, responseBytes } = values.dashboardLoadTimerData
                         captureTimeToSeeData(values.currentTeamId, {
                             ...payload,
                             dashboard_query_id: dashboardQueryId,
@@ -1018,7 +1018,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
             sharedListeners.reportLoadTiming(...args)
 
             const dashboard = values.allItems as DashboardType
-            const { action, dashboardQueryId, startTime, responseBytes } = values.initialLoadTimerData
+            const { action, dashboardQueryId, startTime, responseBytes } = values.dashboardLoadTimerData
             const lastRefresh = sortDates(dashboard.tiles.map((tile) => tile.last_refresh))
 
             const initialLoad = action === 'initial_load'
