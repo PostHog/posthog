@@ -1,24 +1,32 @@
 import { Tooltip } from 'antd'
 import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
 import { useActions, useValues } from 'kea'
-import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    ONE_FRAME_MS,
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { seekbarLogic } from './seekbarLogic'
-import { SessionRecordingPlayerProps } from '~/types'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/components/icons'
 import clsx from 'clsx'
 
-export function Timestamp({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+export function Timestamp({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
     const { currentPlayerTime, sessionPlayerData } = useValues(
         sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic({ sessionRecordingId, playerKey }))
 
+    const startTimeSeconds = ((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000
+    const endTimeSeconds = Math.floor((sessionPlayerData?.metadata?.recordingDurationMs ?? 0) / 1000)
+
+    const fixedUnits = endTimeSeconds > 3600 ? 3 : 2
+
     return (
         <div className="whitespace-nowrap mr-4">
-            {colonDelimitedDuration(((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000)} /{' '}
-            {colonDelimitedDuration(Math.floor((sessionPlayerData?.metadata?.recordingDurationMs ?? 0) / 1000))}
+            {colonDelimitedDuration(startTimeSeconds, fixedUnits)} /{' '}
+            {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
         </div>
     )
 }
@@ -27,7 +35,7 @@ export function SeekSkip({
     sessionRecordingId,
     playerKey,
     direction,
-}: SessionRecordingPlayerProps & { direction: 'forward' | 'backward' }): JSX.Element {
+}: SessionRecordingPlayerLogicProps & { direction: 'forward' | 'backward' }): JSX.Element {
     const { seekForward, seekBackward } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const { jumpTimeMs } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
 

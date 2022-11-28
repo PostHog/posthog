@@ -3,7 +3,6 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Tuple
 
 from posthog.constants import (
-    EVENT_COUNT_PER_ACTOR,
     MONTHLY_ACTIVE,
     NON_TIME_SERIES_DISPLAY_TYPES,
     TRENDS_CUMULATIVE,
@@ -15,7 +14,7 @@ from posthog.models.event.sql import NULL_SQL
 from posthog.models.filters import Filter
 from posthog.models.team import Team
 from posthog.queries.trends.sql import (
-    ACTIVE_USER_SQL,
+    ACTIVE_USERS_SQL,
     AGGREGATE_SQL,
     CUMULATIVE_SQL,
     SESSION_DURATION_AGGREGATE_SQL,
@@ -26,7 +25,14 @@ from posthog.queries.trends.sql import (
     VOLUME_SQL,
 )
 from posthog.queries.trends.trends_event_query import TrendsEventQuery
-from posthog.queries.trends.util import enumerate_time_range, parse_response, process_math
+from posthog.queries.trends.util import (
+    COUNT_PER_ACTOR_MATH_FUNCTIONS,
+    PROPERTY_MATH_FUNCTIONS,
+    ensure_value_is_json_serializable,
+    enumerate_time_range,
+    parse_response,
+    process_math,
+)
 from posthog.queries.util import TIME_IN_SECONDS, get_interval_func_ch, get_trunc_func_ch, start_of_week_fix
 from posthog.utils import encode_get_request_params
 
@@ -54,16 +60,17 @@ class TrendsTotalVolume:
             "aggregate_operation": aggregate_operation,
             "timestamp": "e.timestamp",
             "interval": trunc_func,
+            "interval_func": interval_func,
         }
         params: Dict = {"team_id": team.id, "timezone": team.timezone}
         params = {**params, **math_params, **event_query_params}
 
         if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
-            if entity.math_property == "$session_duration":
+            if entity.math in PROPERTY_MATH_FUNCTIONS and entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
                 content_sql = SESSION_DURATION_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
-            elif entity.math_property == EVENT_COUNT_PER_ACTOR:
+            elif entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
                 content_sql = VOLUME_PER_ACTOR_AGGREGATE_SQL.format(
                     event_query=event_query,
                     **content_sql_params,
@@ -76,12 +83,13 @@ class TrendsTotalVolume:
         else:
 
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
-                content_sql = ACTIVE_USER_SQL.format(
+                content_sql = ACTIVE_USERS_SQL.format(
                     event_query=event_query,
                     **content_sql_params,
                     parsed_date_to=trend_event_query.parsed_date_to,
                     parsed_date_from=trend_event_query.parsed_date_from,
                     aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
+                    start_of_week_fix=start_of_week_fix(filter.interval),
                     **trend_event_query.active_user_params,
                 )
             elif filter.display == TRENDS_CUMULATIVE and entity.math == UNIQUE_USERS:
@@ -92,11 +100,9 @@ class TrendsTotalVolume:
                     start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
                 )
-            elif entity.math_property == EVENT_COUNT_PER_ACTOR:
+            elif entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
                 # Calculate average number of events per actor
                 # (only including actors with at least one matching event in a period)
-                # Note: When `math_property == EVENT_COUNT_PER_ACTOR` is combined with `math == "sum"`, the results are
-                # identical to `math == 'total'`
                 content_sql = VOLUME_PER_ACTOR_SQL.format(
                     event_query=event_query,
                     start_of_week_fix=start_of_week_fix(filter.interval),
@@ -158,6 +164,7 @@ class TrendsTotalVolume:
 
     def _parse_aggregate_volume_result(self, filter: Filter, entity: Entity, team_id: int) -> Callable:
         def _parse(result: List) -> List:
+            aggregated_value = ensure_value_is_json_serializable(result[0][0]) if result and len(result) else 0
             seconds_in_interval = TIME_IN_SECONDS[filter.interval]
             time_range = enumerate_time_range(filter, seconds_in_interval)
             filter_params = filter.to_params()
@@ -171,7 +178,7 @@ class TrendsTotalVolume:
 
             return [
                 {
-                    "aggregated_value": result[0][0] if result and len(result) else 0,
+                    "aggregated_value": aggregated_value,
                     "days": time_range,
                     "filter": filter_params,
                     "persons": {

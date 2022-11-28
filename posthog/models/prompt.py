@@ -24,7 +24,7 @@ prompts_config = [
             {
                 "step": 0,  # step in the flow
                 "type": "tooltip",  # type of prompt, for now only tooltip
-                "title": "Welcome to PostHog!",  # title of the prompt
+                "title": "Get more from PostHog",  # title of the prompt
                 "text": "We have prepared a list of suggestions and resources to improve your experience with the tool. You can access it at any time by clicking on the question mark icon in the top right corner of the screen, and then selecting 'How to be successful with PostHog'.",
                 "placement": "bottom-start",
                 "buttons": [
@@ -106,7 +106,23 @@ prompts_config = [
         "rule": {
             "path": {"must_match": ["/*"], "exclude": ["/ingestion", "/ingestion/*"]},
             "must_be_completed": ["start-flow"],
+            "requires_opt_in": True,
         },
+        "type": "one-off",
+    },
+    {
+        "key": "session-recording-playlist-announcement",
+        "prompts": [
+            {
+                "step": 0,
+                "type": "tooltip",
+                "title": "Save your filters as playlists!",
+                "text": "You can now save your search as a playlist which will keep up to date as new recordings come in matching the filters you set. Sharing with your team has never been easier!",
+                "placement": "bottom-start",
+                "reference": "save-recordings-playlist-button",
+            }
+        ],
+        "rule": {"path": {"must_match": ["/recordings/recent"]}},
         "type": "one-off",
     },
 ]

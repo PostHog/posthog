@@ -9,10 +9,12 @@ import {
     DashboardType,
     FilterLogicalOperator,
     FilterType,
+    FunnelsFilterType,
     InsightModel,
     InsightShortId,
     InsightType,
     ItemMode,
+    PropertyFilterType,
     PropertyGroupFilter,
     PropertyOperator,
 } from '~/types'
@@ -22,7 +24,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import * as Sentry from '@sentry/react'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { useAvailableFeatures } from '~/mocks/features'
@@ -35,7 +36,7 @@ import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constant
 const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
     events: [{ id: 3 }],
-    properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+    properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' } as any as AnyPropertyFilter],
 }
 
 const Insight12 = '12' as InsightShortId
@@ -322,7 +323,14 @@ describe('insightLogic', () => {
                         filters: {
                             insight: InsightType.TRENDS,
                             events: [{ id: 2 }],
-                            properties: [{ value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }],
+                            properties: [
+                                {
+                                    value: 'lol',
+                                    operator: PropertyOperator.Exact,
+                                    key: 'lol',
+                                    type: PropertyFilterType.Person,
+                                },
+                            ],
                         },
                     },
                 })
@@ -338,7 +346,7 @@ describe('insightLogic', () => {
                         insight: partial({ short_id: Insight42, results: ['cached result'] }),
                         filters: partial({
                             events: [{ id: 2 }],
-                            properties: [partial({ type: 'lol' })],
+                            properties: [partial({ type: PropertyFilterType.Person })],
                         }),
                     })
                     .toNotHaveDispatchedActions(['loadResultsSuccess']) // this took the cached results
@@ -355,7 +363,14 @@ describe('insightLogic', () => {
                         filters: {
                             insight: InsightType.TRENDS,
                             events: [{ id: 3 }],
-                            properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+                            properties: [
+                                {
+                                    value: 'a',
+                                    operator: PropertyOperator.Exact,
+                                    key: 'a',
+                                    type: PropertyFilterType.Person,
+                                },
+                            ],
                         },
                     },
                 })
@@ -381,13 +396,14 @@ describe('insightLogic', () => {
             afterEach(resumeKeaLoadersErrors)
 
             it('makes a query to load the results', async () => {
-                const insight = {
+                const insight: Partial<InsightModel> = {
                     short_id: Insight42,
-                    results: undefined,
                     filters: {
                         insight: InsightType.TRENDS,
                         events: [{ id: 3, throw: true }],
-                        properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+                        properties: [
+                            { value: 'a', operator: PropertyOperator.Exact, key: 'a', type: PropertyFilterType.Person },
+                        ],
                     },
                 }
                 logic = insightLogic({
@@ -413,13 +429,14 @@ describe('insightLogic', () => {
 
         describe('props with filters, no cached results, respects doNotLoad', () => {
             it('does not make a query', async () => {
-                const insight = {
+                const insight: Partial<InsightModel> = {
                     short_id: Insight42,
-                    results: undefined,
                     filters: {
                         insight: InsightType.TRENDS,
                         events: [{ id: 3, throw: true }],
-                        properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+                        properties: [
+                            { value: 'a', operator: PropertyOperator.Exact, key: 'a', type: PropertyFilterType.Person },
+                        ],
                     },
                 }
                 logic = insightLogic({
@@ -874,7 +891,12 @@ describe('insightLogic', () => {
     })
 
     describe('filterPropertiesCount selector', () => {
-        const standardPropertyFilter = { value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }
+        const standardPropertyFilter: AnyPropertyFilter = {
+            value: 'lol',
+            operator: PropertyOperator.Exact,
+            key: 'lol',
+            type: PropertyFilterType.Person,
+        }
         const cases: {
             properties: AnyPropertyFilter[] | PropertyGroupFilter
             count: number
@@ -941,7 +963,7 @@ describe('insightLogic', () => {
             logic.mount()
 
             await expectLogic(logic, () => {
-                logic.actions.setFilters({ new_entity: [] })
+                logic.actions.setFilters({ new_entity: [] } as FunnelsFilterType)
             }).toNotHaveDispatchedActions(['loadResults'])
         })
     })
@@ -970,7 +992,7 @@ describe('insightLogic', () => {
             expectLogic(logic).toMatchValues({ isUsingSessionAnalysis: true })
         })
         it('setting global session property filters sets it true', async () => {
-            const insight = {
+            const insight: Partial<InsightModel> = {
                 filters: {
                     insight: InsightType.TRENDS,
                     properties: {
@@ -983,7 +1005,7 @@ describe('insightLogic', () => {
                                         key: '$session_duration',
                                         value: 1,
                                         operator: PropertyOperator.GreaterThan,
-                                        type: 'session',
+                                        type: PropertyFilterType.Session,
                                     },
                                 ],
                             },
@@ -1168,21 +1190,25 @@ describe('insightLogic', () => {
                     insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
-    })
 
-    it('will not save with empty filters', async () => {
-        jest.spyOn(Sentry, 'captureException')
-        logic = insightLogic({
-            dashboardItemId: '4578' as InsightShortId,
-            cachedInsight: { filters: { insight: InsightType.FUNNELS } },
+        it('reacts to duplication of dashboard attaching it to new dashboard', async () => {
+            await expectLogic(logic, () => {
+                insightsModel.actions.insightsAddedToDashboard({ dashboardId: 1234, insightIds: [0, 1, 42] })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
+                })
         })
-        logic.mount()
 
-        logic.actions.setInsight({ id: 4578, short_id: '4578' as InsightShortId, filters: {} }, {})
-        logic.actions.saveInsight()
-        expect(Sentry.captureException).toHaveBeenCalledWith(
-            new Error('Will not override empty filters in saveInsight.'),
-            expect.any(Object)
-        )
+        it('does not react to duplication of dashboard that did not include this insight', async () => {
+            await expectLogic(logic, () => {
+                insightsModel.actions.insightsAddedToDashboard({ dashboardId: 1234, insightIds: [0, 1, 2] })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                })
+        })
     })
 })

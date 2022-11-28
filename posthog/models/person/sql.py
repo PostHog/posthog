@@ -320,10 +320,6 @@ INSERT_PERSON_BULK_SQL = """
 INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version) VALUES
 """
 
-INSERT_PERSON_DISTINCT_ID = """
-INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, %(_sign)s, now(), 0 VALUES
-"""
-
 INSERT_PERSON_DISTINCT_ID2 = """
 INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, version, _timestamp, _offset, _partition) SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, %(is_deleted)s, %(version)s, now(), 0, 0 VALUES
 """
@@ -396,10 +392,12 @@ ORDER BY count DESC, key ASC
 
 GET_ACTORS_FROM_EVENT_QUERY = """
 SELECT
-    {id_field} AS actor_id
+    {id_field} AS actor_id,
+    {actor_value_expression} AS actor_value
     {matching_events_select_statement}
 FROM ({events_query})
 GROUP BY actor_id
+ORDER BY actor_value DESC, actor_id DESC /* Also sorting by ID for determinism */
 {limit}
 {offset}
 """

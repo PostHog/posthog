@@ -95,10 +95,6 @@ export enum ShownAsValue {
 export const RETENTION_RECURRING = 'retention_recurring'
 export const RETENTION_FIRST_TIME = 'retention_first_time'
 
-// Properties constants
-export const PROPERTY_MATH_TYPE = 'property'
-export const EVENT_MATH_TYPE = 'event'
-
 export const WEBHOOK_SERVICES: Record<string, string> = {
     Slack: 'slack.com',
     Discord: 'discord.com',
@@ -123,15 +119,22 @@ export const FEATURE_FLAGS = {
     CANCEL_RUNNING_QUERIES: 'cancel-running-queries', // owner @timgl
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     ACTOR_ON_EVENTS_QUERYING: 'person-on-events-enabled', //owner: @EDsCODE
-    FEATURE_FLAGS_UX: 'feature-flags-ux', //owner: @liyiy
     REGION_SELECT: 'region-select', //owner: @kappa90
-    INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @macobo
+    INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @tiina303
     HOG_BOOK: 'hog-book', // owner: @pauldambra
     EVENT_COUNT_PER_ACTOR: 'event-count-per-actor', // owner: @Twixes
-    TEXT_CARDS: 'text-cards', // owner: @pauldambra
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
-    CURRENCY_UNITS: 'currency-units', // owner: @pauldambra
-    APP_METRICS: 'app-metrics', // owner: @macobo
+    FEEDBACK_BUTTON: 'feedback-button', // owner: @luke
+    RECORDINGS_ON_FEATURE_FLAGS: 'recordings-on-feature-flags', // owner: @EDsCODE
+    EXPOSURES_ON_FEATURE_FLAGS: 'exposures-on-feature-flags', // owner: @EDsCODE
+    AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE
+    WEBSITE_ANALYTICS_TEMPLATE: 'website-analytics-template', // owner: @pauldambra
+    VARIANT_OVERRIDES: 'variant-overrides', // owner: @neilkakkar
+    ONBOARDING_V2_EXPERIMENT: 'onboarding-v2-experiment', // owner: #team-growth
+    RECORDING_AUTOPLAY: 'recording-autoplay', // owner: #team-session-recordings
+    SIGNUP_FORM_EXPERIMENT: 'signup-form-experiment', // owner: #team-growth
+    SIGNUP_PRODUCT_BENEFITS_EXPERIMENT: 'signup-product-benefits-experiment', // owner: #team-growth
+    ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -156,6 +159,8 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
     [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
     [AvailableFeature.APP_METRICS]: LicensePlan.Scale,
+    [AvailableFeature.RECORDINGS_PLAYLISTS]: LicensePlan.Scale,
+    [AvailableFeature.ROLE_BASED_ACCESS]: LicensePlan.Enterprise,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
@@ -167,8 +172,6 @@ export enum FunnelLayout {
 }
 
 export const BIN_COUNT_AUTO = 'auto' as const
-
-export const EVENT_COUNT_PER_ACTOR = '__event_count_per_actor' as const
 
 // Cohort types
 export enum CohortTypeEnum {
@@ -201,3 +204,8 @@ export const CLOUD_HOSTNAMES = {
     [Region.US]: 'app.posthog.com',
     [Region.EU]: 'eu.posthog.com',
 }
+
+export const SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
+
+// If _any_ item on a dashboard is older than this, dashboard is automatically reloaded
+export const AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS = 20

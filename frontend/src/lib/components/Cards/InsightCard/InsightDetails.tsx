@@ -1,13 +1,20 @@
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, alphabet, convertPropertyGroupToProperties, formatPropertyLabel } from 'lib/utils'
+import { allOperatorsMapping, alphabet, capitalizeFirstLetter, formatPropertyLabel } from 'lib/utils'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { BreakdownFilter } from 'scenes/insights/filters/BreakdownFilter'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
-import { apiValueToMathType, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
+import { apiValueToMathType, MathCategory, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
-import { FilterType, InsightModel, InsightType, PropertyFilter } from '~/types'
+import {
+    FilterLogicalOperator,
+    FilterType,
+    InsightModel,
+    InsightType,
+    PathsFilterType,
+    PropertyGroupFilter,
+} from '~/types'
 import { IconCalculate, IconSubdirectoryArrowRight } from '../../icons'
 import { LemonRow } from '../../LemonRow'
 import { LemonDivider } from '../../LemonDivider'
@@ -15,52 +22,97 @@ import { Lettermark } from '../../Lettermark/Lettermark'
 import { Link } from '../../Link'
 import { ProfilePicture } from '../../ProfilePicture'
 import { keyMapping, PropertyKeyInfo } from '../../PropertyKeyInfo'
-import { TZLabel } from '../../TimezoneAware'
+import { TZLabel } from '../../TZLabel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import React from 'react'
+import { isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import {
+    isAnyPropertyfilter,
+    isCohortPropertyFilter,
+    isPropertyFilterWithOperator,
+} from 'lib/components/PropertyFilters/utils'
 
 function CompactPropertyFiltersDisplay({
-    properties,
+    groupFilter,
     embedded,
 }: {
-    properties: PropertyFilter[]
+    groupFilter: PropertyGroupFilter | null
     embedded?: boolean
 }): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
+    const areAnyFiltersPresent = !!groupFilter && groupFilter.values.flatMap((subValues) => subValues.values).length > 0
+
+    if (!areAnyFiltersPresent) {
+        return <i>None</i>
+    }
+
     return (
         <>
-            {properties.map((subFilter, subIndex) => (
-                <div key={subIndex} className="SeriesDisplay__condition">
-                    {embedded && <IconSubdirectoryArrowRight className="SeriesDisplay__arrow" />}
-                    <span>
-                        {subIndex === 0 ? (embedded ? 'where ' : 'Where ') : 'and '}
-                        {subFilter.type === 'cohort' ? (
-                            <>
-                                person belongs to cohort
-                                <span className="SeriesDisplay__raw-name">
-                                    {formatPropertyLabel(
-                                        subFilter,
-                                        cohortsById,
-                                        keyMapping,
-                                        (s) => formatPropertyValueForDisplay(subFilter.key, s)?.toString() || '?'
+            {groupFilter.values.map(({ values: subValues, type: subType }, subIndex) => (
+                <React.Fragment key={subIndex}>
+                    {subIndex === 0 ? null : groupFilter.type === FilterLogicalOperator.Or ? 'OR' : 'AND'}
+                    {subValues.map((leafFilter, leafIndex) => {
+                        const isFirstFilterWithinSubgroup = leafIndex === 0
+                        const isFirstFilterOverall = isFirstFilterWithinSubgroup && subIndex === 0
+
+                        return (
+                            <div key={leafIndex} className="SeriesDisplay__condition">
+                                {embedded && <IconSubdirectoryArrowRight className="SeriesDisplay__arrow" />}
+                                <span>
+                                    {isFirstFilterWithinSubgroup
+                                        ? embedded
+                                            ? 'where '
+                                            : null
+                                        : subType === FilterLogicalOperator.Or
+                                        ? 'or '
+                                        : 'and '}
+                                    {isCohortPropertyFilter(leafFilter) ? (
+                                        <>
+                                            {isFirstFilterOverall && !embedded ? 'Person' : 'person'} belongs to cohort
+                                            <span className="SeriesDisplay__raw-name">
+                                                {formatPropertyLabel(
+                                                    leafFilter,
+                                                    cohortsById,
+                                                    keyMapping,
+                                                    (s) =>
+                                                        formatPropertyValueForDisplay(leafFilter.key, s)?.toString() ||
+                                                        '?'
+                                                )}
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            {isFirstFilterOverall && !embedded
+                                                ? capitalizeFirstLetter(leafFilter.type || 'event')
+                                                : leafFilter.type || 'event'}
+                                            's
+                                            <span className="SeriesDisplay__raw-name">
+                                                {isAnyPropertyfilter(leafFilter) && leafFilter.key && (
+                                                    <PropertyKeyInfo value={leafFilter.key} />
+                                                )}
+                                            </span>
+                                            {
+                                                allOperatorsMapping[
+                                                    (isPropertyFilterWithOperator(leafFilter) && leafFilter.operator) ||
+                                                        'exact'
+                                                ]
+                                            }{' '}
+                                            <b>
+                                                {isAnyPropertyfilter(leafFilter) &&
+                                                    (Array.isArray(leafFilter.value)
+                                                        ? leafFilter.value.join(' or ')
+                                                        : leafFilter.value)}
+                                            </b>
+                                        </>
                                     )}
                                 </span>
-                            </>
-                        ) : (
-                            <>
-                                {subFilter.type || 'event'}'s
-                                <span className="SeriesDisplay__raw-name">
-                                    {subFilter.key && <PropertyKeyInfo value={subFilter.key} />}
-                                </span>
-                                {allOperatorsMapping[subFilter.operator || 'exact']}{' '}
-                                <b>{Array.isArray(subFilter.value) ? subFilter.value.join(' or ') : subFilter.value}</b>
-                            </>
-                        )}
-                    </span>
-                </div>
+                            </div>
+                        )
+                    })}
+                </React.Fragment>
             ))}
         </>
     )
@@ -95,7 +147,7 @@ function SeriesDisplay({
                     {insightType !== InsightType.FUNNELS && (
                         <div>
                             counted by{' '}
-                            {mathDefinition?.onProperty && filter.math_property && (
+                            {mathDefinition?.category === MathCategory.PropertyValue && filter.math_property && (
                                 <>
                                     {' '}
                                     event's
@@ -108,7 +160,13 @@ function SeriesDisplay({
                         </div>
                     )}
                     {filter.properties && filter.properties.length > 0 && (
-                        <CompactPropertyFiltersDisplay properties={filter.properties} embedded />
+                        <CompactPropertyFiltersDisplay
+                            groupFilter={{
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: FilterLogicalOperator.And, values: filter.properties }],
+                            }}
+                            embedded
+                        />
                     )}
                 </>
             }
@@ -134,7 +192,7 @@ function SeriesDisplay({
     )
 }
 
-function PathsSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
+function PathsSummary({ filters }: { filters: Partial<PathsFilterType> }): JSX.Element {
     // Sync format with summarizePaths in utils
     return (
         <div className="SeriesDisplay">
@@ -162,7 +220,7 @@ export function QuerySummary({ filters }: { filters: Partial<FilterType> }): JSX
         <>
             <h5>Query summary</h5>
             <section className="InsightDetails__query">
-                {filters.formula && (
+                {isTrendsFilter(filters) && filters.formula && (
                     <>
                         <LemonRow className="InsightDetails__formula" icon={<IconCalculate />} fullWidth>
                             <span>
@@ -202,13 +260,23 @@ export function QuerySummary({ filters }: { filters: Partial<FilterType> }): JSX
 }
 
 export function FiltersSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
-    const properties = convertPropertyGroupToProperties(filters.properties)
+    const groupFilter: PropertyGroupFilter | null = Array.isArray(filters.properties)
+        ? {
+              type: FilterLogicalOperator.And,
+              values: [
+                  {
+                      type: FilterLogicalOperator.And,
+                      values: filters.properties,
+                  },
+              ],
+          }
+        : filters.properties || null
 
     return (
         <>
             <h5>Filters</h5>
             <section>
-                {properties?.length ? <CompactPropertyFiltersDisplay properties={properties} /> : <i>None</i>}
+                <CompactPropertyFiltersDisplay groupFilter={groupFilter} />
             </section>
         </>
     )
@@ -222,8 +290,7 @@ export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }):
             <BreakdownFilter
                 filters={filters}
                 useMultiBreakdown={
-                    filters.insight === InsightType.FUNNELS &&
-                    !!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
+                    isFunnelsFilter(filters) && !!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
                 }
             />
         </div>

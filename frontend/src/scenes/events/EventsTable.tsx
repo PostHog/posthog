@@ -9,7 +9,7 @@ import { autoCaptureEventToDescription } from 'lib/utils'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
-import { TZLabel } from 'lib/components/TimezoneAware'
+import { TZLabel } from 'lib/components/TZLabel'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import {
     ActionType,
@@ -17,8 +17,8 @@ import {
     ChartDisplayType,
     ColumnChoice,
     EventsTableRowItem,
-    FilterType,
     InsightType,
+    TrendsFilterType,
 } from '~/types'
 import { LemonEventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -353,7 +353,7 @@ export function EventsTable({
                         return { props: { colSpan: 0 } }
                     }
 
-                    let insightParams: Partial<FilterType> | undefined
+                    let insightParams: Partial<TrendsFilterType> | undefined
                     if (event.event === '$pageview') {
                         insightParams = {
                             insight: InsightType.TRENDS,

@@ -9,6 +9,7 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
+from posthog.test.base import APIBaseTest
 
 
 def create_billing_response(**kwargs) -> Dict[str, Any]:
@@ -18,23 +19,31 @@ def create_billing_response(**kwargs) -> Dict[str, Any]:
 
 
 def create_missing_billing_customer(**kwargs) -> Dict[str, Any]:
-    data: Any = {"custom_limits_usd": {}, "has_active_subscription": False}
+    data: Any = {
+        "customer_id": "cus_123",
+        "custom_limits_usd": {},
+        "has_active_subscription": False,
+        "available_features": [],
+    }
     data.update(kwargs)
     return data
 
 
 def create_billing_customer(**kwargs) -> Dict[str, Any]:
     data: Any = {
+        "customer_id": "cus_123",
         "custom_limits_usd": {},
         "has_active_subscription": True,
         "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
         "current_total_amount_usd": "100.00",
+        "available_features": [],
+        "deactivated": False,
         "products": [
             {
                 "name": "Product OS",
                 "description": "Product Analytics, event pipelines, data warehousing",
                 "price_description": None,
-                "type": "EVENTS",
+                "type": "events",
                 "free_allocation": 10000,
                 "tiers": [
                     {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
@@ -43,7 +52,6 @@ def create_billing_customer(**kwargs) -> Dict[str, Any]:
                 "current_amount_usd": "0.00",
                 "current_usage": 0,
                 "usage_limit": None,
-                "has_exceeded_limit": False,
             }
         ],
         "billing_period": {"current_period_start": "2022-10-07T11:12:48", "current_period_end": "2022-11-07T11:12:48"},
@@ -54,12 +62,25 @@ def create_billing_customer(**kwargs) -> Dict[str, Any]:
 
 def create_billing_products_response(**kwargs) -> Dict[str, Any]:
     data: Any = {
-        "products": [
+        "standard": [
             {
                 "name": "Product OS",
                 "description": "Product Analytics, event pipelines, data warehousing",
                 "price_description": None,
-                "type": "EVENTS",
+                "type": "events",
+                "free_allocation": 10000,
+                "tiers": [
+                    {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
+                    {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
+                ],
+            }
+        ],
+        "enterprise": [
+            {
+                "name": "Product OS Enterprise",
+                "description": "Product Analytics, event pipelines, data warehousing",
+                "price_description": None,
+                "type": "events",
                 "free_allocation": 10000,
                 "tiers": [
                     {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
@@ -79,7 +100,7 @@ def create_billing_license_response(**kwargs) -> Dict[str, Any]:
                 "name": "Product OS",
                 "description": "Product Analytics, event pipelines, data warehousing",
                 "price_description": None,
-                "type": "EVENTS",
+                "type": "events",
                 "free_allocation": 10000,
                 "tiers": [
                     {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
@@ -92,15 +113,86 @@ def create_billing_license_response(**kwargs) -> Dict[str, Any]:
     return data
 
 
+class TestUnlicensedBillingAPI(APIBaseTest):
+    @patch("ee.api.billing.requests.get")
+    @freeze_time("2022-01-01")
+    def test_billing_v2_calls_the_service_without_token(self, mock_request):
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+            mock = MagicMock()
+            mock.status_code = 404
+
+            if "api/billing" in url:
+                mock.status_code = 401
+                mock.json.return_value = {"detail": "Authorization is missing."}
+            if "api/products" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_products_response()
+
+            return mock
+
+        mock_request.side_effect = mock_implementation
+
+        res = self.client.get("/api/billing-v2")
+        assert res.status_code == 200
+        assert res.json() == {
+            "available_features": [],
+            "products": [
+                {
+                    "name": "Product OS",
+                    "description": "Product Analytics, event pipelines, data warehousing",
+                    "price_description": None,
+                    "type": "events",
+                    "free_allocation": 10000,
+                    "tiers": [
+                        {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
+                        {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
+                    ],
+                    "current_usage": 0,
+                    "percentage_usage": 0,
+                }
+            ],
+            "products_enterprise": [
+                {
+                    "current_usage": 0,
+                    "description": "Product Analytics, event pipelines, data warehousing",
+                    "free_allocation": 10000,
+                    "name": "Product OS Enterprise",
+                    "price_description": None,
+                    "tiers": [
+                        {
+                            "current_amount_usd": "0.00",
+                            "unit_amount_usd": "0.00",
+                            "up_to": 1000000,
+                        },
+                        {
+                            "current_amount_usd": None,
+                            "unit_amount_usd": "0.00045",
+                            "up_to": 2000000,
+                        },
+                    ],
+                    "type": "events",
+                }
+            ],
+        }
+
+
 class TestBillingAPI(APILicensedTest):
+    def test_billing_v2_fails_for_old_license_type(self):
+        self.license.key = "test_key"
+        self.license.save()
+
+        res = self.client.get("/api/billing-v2")
+        assert res.status_code == 404
+        assert res.json()["detail"] == "Billing V2 is not supported for this license type"
+
     @patch("ee.api.billing.requests.get")
     @freeze_time("2022-01-01")
     def test_billing_v2_calls_the_service_with_appropriate_token(self, mock_request):
         mock_request.return_value.status_code = 200
-        mock_request.return_value.json.return_value = create_billing_response()
+        mock_request.return_value.json.return_value = create_billing_response(customer=create_billing_customer())
 
         self.client.get("/api/billing-v2")
-        assert mock_request.call_args.args[0] == "http://localhost:8100/api/billing"
+        assert mock_request.call_args.args[0].endswith("/api/billing")
         token = mock_request.call_args.kwargs["headers"]["Authorization"].split(" ")[1]
 
         secret = self.license.key.split("::")[1]
@@ -114,15 +206,8 @@ class TestBillingAPI(APILicensedTest):
             "exp": 1640996100,
             "id": self.license.key.split("::")[0],
             "organization_id": str(self.organization.id),
+            "organization_name": "Test",
         }
-
-    @patch("ee.api.billing.requests.get")
-    def test_billing_v2_returns_404_by_default(self, mock_request):
-        mock_request.return_value.status_code = 200
-        mock_request.return_value.json.return_value = create_billing_response()
-
-        response = self.client.get("/api/billing-v2")
-        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @patch("ee.api.billing.requests.get")
     def test_billing_v2_returns_if_billing_exists(self, mock_request):
@@ -131,11 +216,41 @@ class TestBillingAPI(APILicensedTest):
         response = self.client.get("/api/billing-v2")
         assert response.status_code == status.HTTP_200_OK
 
-        assert response.json() == {"license": {"plan": "enterprise"}, **create_billing_customer()}
+        assert response.json() == {
+            "customer_id": "cus_123",
+            "license": {"plan": "enterprise"},
+            "custom_limits_usd": {},
+            "has_active_subscription": True,
+            "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
+            "current_total_amount_usd": "100.00",
+            "available_features": [],
+            "deactivated": False,
+            "products": [
+                {
+                    "name": "Product OS",
+                    "description": "Product Analytics, event pipelines, data warehousing",
+                    "price_description": None,
+                    "type": "events",
+                    "free_allocation": 10000,
+                    "tiers": [
+                        {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
+                        {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
+                    ],
+                    "current_amount_usd": "0.00",
+                    "current_usage": 0,
+                    "usage_limit": None,
+                    "percentage_usage": 0,
+                }
+            ],
+            "billing_period": {
+                "current_period_start": "2022-10-07T11:12:48",
+                "current_period_end": "2022-11-07T11:12:48",
+            },
+        }
 
     @patch("ee.api.billing.requests.get")
-    def test_billing_v2_returns_if_doesnt_exist_but_enabled_for_instance(self, mock_request):
-        def mock_implementation(url: str, headers: Any = None) -> MagicMock:
+    def test_billing_v2_returns_if_doesnt_exist(self, mock_request):
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
 
@@ -150,28 +265,52 @@ class TestBillingAPI(APILicensedTest):
 
         mock_request.side_effect = mock_implementation
 
-        with self.settings(BILLING_V2_ENABLED=True):
-            response = self.client.get("/api/billing-v2")
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json() == {
-                "custom_limits_usd": {},
-                "has_active_subscription": False,
-                "products": [
-                    {
-                        "name": "Product OS",
-                        "description": "Product Analytics, event pipelines, data warehousing",
-                        "price_description": None,
-                        "type": "EVENTS",
-                        "free_allocation": 10000,
-                        "tiers": [
-                            {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
-                            {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
-                        ],
-                        "current_usage": 0,
-                    }
-                ],
-                "license": {"plan": "enterprise"},
-            }
+        response = self.client.get("/api/billing-v2")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "customer_id": "cus_123",
+            "license": {"plan": "enterprise"},
+            "custom_limits_usd": {},
+            "has_active_subscription": False,
+            "available_features": [],
+            "products": [
+                {
+                    "name": "Product OS",
+                    "description": "Product Analytics, event pipelines, data warehousing",
+                    "price_description": None,
+                    "type": "events",
+                    "free_allocation": 10000,
+                    "tiers": [
+                        {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
+                        {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
+                    ],
+                    "current_usage": 0,
+                    "percentage_usage": 0.0,
+                }
+            ],
+            "products_enterprise": [
+                {
+                    "current_usage": 0,
+                    "description": "Product Analytics, event pipelines, data warehousing",
+                    "free_allocation": 10000,
+                    "name": "Product OS Enterprise",
+                    "price_description": None,
+                    "tiers": [
+                        {
+                            "current_amount_usd": "0.00",
+                            "unit_amount_usd": "0.00",
+                            "up_to": 1000000,
+                        },
+                        {
+                            "current_amount_usd": None,
+                            "unit_amount_usd": "0.00045",
+                            "up_to": 2000000,
+                        },
+                    ],
+                    "type": "events",
+                },
+            ],
+        }
 
     @patch("ee.api.billing.requests.get")
     def test_billing_stores_valid_license(self, mock_request):
@@ -180,7 +319,6 @@ class TestBillingAPI(APILicensedTest):
         mock_request.return_value.status_code = 200
         mock_request.return_value.json.return_value = {
             "license": {
-                "valid_until": "2100-01-01T00:00:00Z",
                 "type": "scale",
             }
         }
@@ -219,29 +357,107 @@ class TestBillingAPI(APILicensedTest):
             "type": "validation_error",
         }
 
+    @freeze_time("2022-01-01T12:00:00Z")
     @patch("ee.api.billing.requests.get")
     def test_license_is_updated_on_billing_load(self, mock_request):
         mock_request.return_value.status_code = 200
         mock_request.return_value.json.return_value = {
             "license": {
-                "valid_until": "2100-01-01T00:00:00Z",
                 "type": "scale",
-            }
+            },
+            "customer": create_billing_customer(),
         }
 
         assert self.license.plan == "enterprise"
         self.client.get("/api/billing-v2")
         self.license.refresh_from_db()
+
+        self.license.valid_until = datetime(2022, 1, 2, 0, 0, 0, tzinfo=pytz.UTC)
+        self.license.save()
         assert self.license.plan == "scale"
 
         mock_request.return_value.json.return_value = {
             "license": {
-                "valid_until": "2200-01-01T00:00:00Z",
                 "type": "enterprise",
-            }
+            },
+            "customer": create_billing_customer(),
         }
 
         self.client.get("/api/billing-v2")
         self.license.refresh_from_db()
         assert self.license.plan == "enterprise"
-        assert self.license.valid_until == datetime(2200, 1, 1, 0, 0, 0, tzinfo=pytz.UTC)
+        # Should be extended by 30 days
+        assert self.license.valid_until == datetime(2022, 1, 31, 12, 0, 0, tzinfo=pytz.UTC)
+
+    @patch("ee.api.billing.requests.get")
+    def test_organization_available_features_updated_if_different(self, mock_request):
+        self.organization.available_features = []
+        self.organization.save()
+
+        mock_request.return_value.status_code = 200
+        mock_request.return_value.json.return_value = create_billing_response(
+            customer=create_billing_customer(available_features=["feature1", "feature2"])
+        )
+
+        assert self.organization.available_features == []
+        self.client.get("/api/billing-v2")
+        self.organization.refresh_from_db()
+        assert self.organization.available_features == ["feature1", "feature2"]
+
+    @patch("ee.api.billing.requests.get")
+    def test_organization_usage_update(self, mock_request):
+        self.organization.customer_id = None
+        self.organization.usage = None
+        self.organization.save()
+
+        mock_request.return_value.status_code = 200
+        mock_request.return_value.json.return_value = create_billing_response(
+            customer=create_billing_customer(has_active_subscription=True)
+        )
+
+        mock_request.return_value.json.return_value["customer"]["products"][0]["current_usage"] = 1000
+
+        assert not self.organization.usage
+        res = self.client.get("/api/billing-v2")
+        assert res.status_code == 200
+        self.organization.refresh_from_db()
+        assert self.organization.usage == {
+            "events": {
+                "limit": None,
+                "usage": 1000,
+            },
+            "recordings": {
+                "limit": None,
+                "usage": None,  # Our mock data has no recording product
+            },
+        }
+
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+            mock = MagicMock()
+            mock.status_code = 404
+
+            if "api/billing" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_response(customer=create_missing_billing_customer())
+            if "api/products" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_products_response()
+
+            return mock
+
+        mock_request.side_effect = mock_implementation
+
+        # Test unsubscribed config
+        res = self.client.get("/api/billing-v2")
+        self.organization.refresh_from_db()
+        assert self.organization.usage == {
+            "events": {
+                "limit": 10000,
+                "usage": 0,
+            },
+            "recordings": {
+                "limit": None,
+                "usage": 0,
+            },
+        }
+        assert self.organization.customer_id == "cus_123"

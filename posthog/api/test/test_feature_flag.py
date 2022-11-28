@@ -311,6 +311,72 @@ class TestFeatureFlag(APIBaseTest):
         )
         self.assertEqual(FeatureFlag.objects.count(), count)
 
+    def test_cant_create_multivariate_feature_flag_with_invalid_variant_overrides(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Multivariate feature",
+                "key": "multivariate-feature",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None, "variant": "unknown-variant"}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("type"), "validation_error")
+        self.assertEqual(response.json().get("detail"), "Filters are not valid (variant override does not exist)")
+
+    def test_cant_update_multivariate_feature_flag_with_invalid_variant_overrides(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Multivariate feature",
+                "key": "multivariate-feature",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None, "variant": "second-variant"}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        feature_flag_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}",
+            {
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None, "variant": "unknown-variant"}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 0},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("type"), "validation_error")
+        self.assertEqual(response.json().get("detail"), "Filters are not valid (variant override does not exist)")
+
     @patch("posthog.api.feature_flag.report_user_action")
     def test_updating_feature_flag(self, mock_capture):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
@@ -1635,3 +1701,36 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(
             updated_flag.filters, {"groups": [{"properties": [], "rollout_percentage": 100}], "multivariate": None}
         )
+
+    def test_feature_flag_threshold(self):
+        feature_flag = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Beta feature",
+                "key": "beta-feature",
+                "filters": {"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 65}]},
+                "rollback_conditions": [
+                    {
+                        "threshold": 5000,
+                        "threshold_metric": {
+                            "insight": "trends",
+                            "events": [{"order": 0, "id": "$pageview"}],
+                            "properties": [
+                                {
+                                    "key": "$geoip_country_name",
+                                    "type": "person",
+                                    "value": ["france"],
+                                    "operator": "exact",
+                                }
+                            ],
+                        },
+                        "operator": "lt",
+                        "threshold_type": "insight",
+                    }
+                ],
+                "auto-rollback": True,
+            },
+            format="json",
+        ).json()
+
+        self.assertEqual(len(feature_flag["rollback_conditions"]), 1)

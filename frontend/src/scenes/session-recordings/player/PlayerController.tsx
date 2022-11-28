@@ -2,28 +2,40 @@ import { useActions, useValues } from 'kea'
 import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { SessionPlayerState, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
+import { SessionPlayerState } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import {
-    IconFullScreen,
-    IconPause,
-    IconPlay,
-    IconSkipInactivity,
-    IconTerminal,
-    UnverifiedEvent,
-} from 'lib/components/icons'
+import { IconFullScreen, IconPause, IconPlay, IconSkipInactivity } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
+import { PlayerInspectorPicker } from './PlayerInspector'
+import { playerSettingsLogic } from './playerSettingsLogic'
+import { More } from 'lib/components/LemonButton/More'
+import { LemonCheckbox } from '@posthog/lemon-ui'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-export function PlayerController({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
-    const { togglePlayPause, setSpeed, setSkipInactivitySetting, setTab, setIsFullScreen } = useActions(
-        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    )
-    const { currentPlayerState, speed, isSmallScreen, isSmallPlayer, skipInactivitySetting, tab, isFullScreen } =
-        useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+interface PlayerControllerProps extends SessionRecordingPlayerLogicProps {
+    hideInspectorPicker?: boolean
+}
+
+export function PlayerController({
+    sessionRecordingId,
+    playerKey,
+    hideInspectorPicker = false,
+}: PlayerControllerProps): JSX.Element {
+    const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
+    const { togglePlayPause } = useActions(logic)
+    const { currentPlayerState, isSmallScreen } = useValues(logic)
+
+    const { speed, skipInactivitySetting, isFullScreen, autoplayEnabled } = useValues(playerSettingsLogic)
+    const { setSpeed, setSkipInactivitySetting, setIsFullScreen, setAutoplayEnabled } = useActions(playerSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const featureAutoplay = !!featureFlags[FEATURE_FLAGS.RECORDING_AUTOPLAY]
 
     return (
         <div className="p-3 bg-light flex flex-col select-none">
@@ -33,29 +45,8 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
             </div>
             <div className="flex justify-between items-center h-8 gap-2">
                 <div className="flex items-center gap-2 flex-1">
-                    {!isFullScreen && (
-                        <>
-                            <LemonButton
-                                size="small"
-                                icon={<UnverifiedEvent />}
-                                status={tab === SessionRecordingTab.EVENTS ? 'primary' : 'primary-alt'}
-                                active={tab === SessionRecordingTab.EVENTS}
-                                onClick={() => setTab(SessionRecordingTab.EVENTS)}
-                            >
-                                {isSmallScreen || isSmallPlayer ? '' : 'Events'}
-                            </LemonButton>
-                            <LemonButton
-                                size="small"
-                                icon={<IconTerminal />}
-                                status={tab === SessionRecordingTab.CONSOLE ? 'primary' : 'primary-alt'}
-                                active={tab === SessionRecordingTab.CONSOLE}
-                                onClick={() => {
-                                    setTab(SessionRecordingTab.CONSOLE)
-                                }}
-                            >
-                                {isSmallScreen || isSmallPlayer ? '' : 'Console'}
-                            </LemonButton>
-                        </>
+                    {!hideInspectorPicker && !isFullScreen && (
+                        <PlayerInspectorPicker sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                     )}
                 </div>
                 <div className="flex items-center gap-1">
@@ -118,7 +109,7 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
                             />
                         </LemonButton>
                     </Tooltip>
-                    <Tooltip title={`${!isFullScreen ? 'Go' : 'exit'} full screen (F)`}>
+                    <Tooltip title={`${!isFullScreen ? 'Go' : 'Exit'} full screen (F)`}>
                         <LemonButton
                             size="small"
                             status="primary-alt"
@@ -131,6 +122,25 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
                             />
                         </LemonButton>
                     </Tooltip>
+
+                    {featureAutoplay && (
+                        <More
+                            overlay={
+                                <>
+                                    <LemonButton
+                                        status="stealth"
+                                        onClick={() => setAutoplayEnabled(!autoplayEnabled)}
+                                        fullWidth
+                                        sideIcon={
+                                            <LemonCheckbox className="pointer-events-none" checked={autoplayEnabled} />
+                                        }
+                                    >
+                                        Autoplay enabled
+                                    </LemonButton>
+                                </>
+                            }
+                        />
+                    )}
                 </div>
             </div>
         </div>

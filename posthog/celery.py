@@ -79,13 +79,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s()  # check twice a week
     )
 
-    sender.add_periodic_task(
-        crontab(
-            hour=0, minute=randrange(0, 40)
-        ),  # every day at a random minute past midnight. Sends data from the preceding whole day to the billing service.
-        send_instance_usage_report.s(),
-        name="send instance usage report",
-    )
+    # Send all instance usage to the Billing service
+    sender.add_periodic_task(crontab(hour=0, minute=0), send_org_usage_reports.s(), name="send instance usage report")
 
     # PostHog Cloud cron jobs
     if is_cloud():
@@ -153,6 +148,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         sender.add_periodic_task(
             crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
         )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
+        sender.add_periodic_task(
+            crontab(hour=4, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
+        )  # again a few hours later just to make sure
 
         materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
 
@@ -176,20 +174,27 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             name="count tiles with no filters_hash",
         )
 
+        sender.add_periodic_task(
+            crontab(hour="*"), check_flags_to_rollback.s(), name="check feature flags that should be rolled back"
+        )
+
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect
-def set_up_instrumentation(task_id, task, **kwargs):
-    from posthog import client
+def pre_run_signal_handler(task_id, task, **kwargs):
+    from statshog.defaults.django import statsd
 
-    client._request_information = {"kind": "celery", "id": task.name}
+    from posthog.clickhouse.query_tagging import tag_queries
+
+    statsd.incr("celery_tasks_metrics.pre_run", tags={"name": task.name})
+    tag_queries(kind="celery", id=task.name)
 
 
 @task_postrun.connect
 def teardown_instrumentation(task_id, task, **kwargs):
-    from posthog import client
+    from posthog.clickhouse.query_tagging import reset_query_tags
 
-    client._request_information = None
+    reset_query_tags()
 
 
 @app.task(ignore_result=True)
@@ -223,7 +228,7 @@ def enqueue_clickhouse_execute_with_progress(
 
 @app.task(ignore_result=True)
 def pg_table_cache_hit_rate():
-    from posthog.internal_metrics import gauge
+    from statshog.defaults.django import statsd
 
     with connection.cursor() as cursor:
         try:
@@ -239,7 +244,7 @@ def pg_table_cache_hit_rate():
             )
             tables = cursor.fetchall()
             for row in tables:
-                gauge("pg_table_cache_hit_rate", float(row[1]), tags={"table": row[0]})
+                statsd.gauge("pg_table_cache_hit_rate", float(row[1]), tags={"table": row[0]})
         except:
             # if this doesn't work keep going
             pass
@@ -247,7 +252,7 @@ def pg_table_cache_hit_rate():
 
 @app.task(ignore_result=True)
 def pg_plugin_server_query_timing():
-    from posthog.internal_metrics import gauge
+    from statshog.defaults.django import statsd
 
     with connection.cursor() as cursor:
         try:
@@ -275,7 +280,9 @@ def pg_plugin_server_query_timing():
                 for key, value in row_dictionary.items():
                     if key == "query_type":
                         continue
-                    gauge(f"pg_plugin_server_query_{key}", value, tags={"query_type": row_dictionary["query_type"]})
+                    statsd.gauge(
+                        f"pg_plugin_server_query_{key}", value, tags={"query_type": row_dictionary["query_type"]}
+                    )
         except:
             # if this doesn't work keep going
             pass
@@ -289,15 +296,16 @@ if settings.CLICKHOUSE_REPLICATION:
 
 @app.task(ignore_result=True)
 def clickhouse_lag():
+    from statshog.defaults.django import statsd
+
     from posthog.client import sync_execute
-    from posthog.internal_metrics import gauge
 
     for table in CLICKHOUSE_TABLES:
         try:
             QUERY = """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from {table};"""
             query = QUERY.format(table=table)
             lag = sync_execute(query)[0][2]
-            gauge("posthog_celery_clickhouse__table_lag_seconds", lag, tags={"table": table})
+            statsd.gauge("posthog_celery_clickhouse__table_lag_seconds", lag, tags={"table": table})
         except:
             pass
 
@@ -311,8 +319,9 @@ HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {
 
 @app.task(ignore_result=True)
 def ingestion_lag():
+    from statshog.defaults.django import statsd
+
     from posthog.client import sync_execute
-    from posthog.internal_metrics import gauge
 
     # Requires https://github.com/PostHog/posthog-heartbeat-plugin to be enabled on team 2
     # Note that it runs every minute and we compare it with now(), so there's up to 60s delay
@@ -322,7 +331,7 @@ def ingestion_lag():
                 SELECT now() - max(parseDateTimeBestEffortOrNull(JSONExtractString(properties, '$timestamp')))
                 FROM events WHERE team_id IN %(team_ids)s AND _timestamp > yesterday() AND event = %(event)s;"""
             lag = sync_execute(query, {"team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS, "event": event})[0][0]
-            gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
+            statsd.gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
         except:
             pass
 
@@ -330,8 +339,7 @@ def ingestion_lag():
 @app.task(ignore_result=True)
 def graphile_worker_queue_size():
     from django.db import connections
-
-    from posthog.internal_metrics import gauge
+    from statshog.defaults.django import statsd
 
     connection = connections["graphile"] if "graphile" in connections else connections["default"]
     with connection.cursor() as cursor:
@@ -346,7 +354,7 @@ def graphile_worker_queue_size():
         )
 
         queue_size = cursor.fetchone()[0]
-        gauge("graphile_worker_queue_size", queue_size)
+        statsd.gauge("graphile_worker_queue_size", queue_size)
 
         # Track the number of jobs that will still be run at least once or are currently running based on job type (i.e. task_identifier)
         # Completed jobs are deleted and "permanently failed" jobs have attempts == max_attempts
@@ -359,28 +367,30 @@ def graphile_worker_queue_size():
         )
 
         for (task_identifier, count) in cursor.fetchall():
-            gauge("graphile_waiting_jobs", count, tags={"task_identifier": task_identifier})
+            statsd.gauge("graphile_waiting_jobs", count, tags={"task_identifier": task_identifier})
 
 
 @app.task(ignore_result=True)
 def clickhouse_row_count():
+    from statshog.defaults.django import statsd
+
     from posthog.client import sync_execute
-    from posthog.internal_metrics import gauge
 
     for table in CLICKHOUSE_TABLES:
         try:
             QUERY = """select count(1) freq from {table};"""
             query = QUERY.format(table=table)
             rows = sync_execute(query)[0][0]
-            gauge(f"posthog_celery_clickhouse_table_row_count", rows, tags={"table": table})
+            statsd.gauge(f"posthog_celery_clickhouse_table_row_count", rows, tags={"table": table})
         except:
             pass
 
 
 @app.task(ignore_result=True)
 def clickhouse_part_count():
+    from statshog.defaults.django import statsd
+
     from posthog.client import sync_execute
-    from posthog.internal_metrics import gauge
 
     QUERY = """
         select table, count(1) freq
@@ -390,13 +400,14 @@ def clickhouse_part_count():
     """
     rows = sync_execute(QUERY)
     for (table, parts) in rows:
-        gauge(f"posthog_celery_clickhouse_table_parts_count", parts, tags={"table": table})
+        statsd.gauge(f"posthog_celery_clickhouse_table_parts_count", parts, tags={"table": table})
 
 
 @app.task(ignore_result=True)
 def clickhouse_mutation_count():
+    from statshog.defaults.django import statsd
+
     from posthog.client import sync_execute
-    from posthog.internal_metrics import gauge
 
     QUERY = """
         SELECT
@@ -409,7 +420,7 @@ def clickhouse_mutation_count():
     """
     rows = sync_execute(QUERY)
     for (table, muts) in rows:
-        gauge(f"posthog_celery_clickhouse_table_mutations_count", muts, tags={"table": table})
+        statsd.gauge(f"posthog_celery_clickhouse_table_mutations_count", muts, tags={"table": table})
 
 
 @app.task(ignore_result=True)
@@ -422,11 +433,11 @@ def clickhouse_clear_removed_data():
 
 @app.task(ignore_result=True)
 def redis_celery_queue_depth():
-    from posthog.internal_metrics import gauge
+    from statshog.defaults.django import statsd
 
     try:
         llen = get_client().llen("celery")
-        gauge(f"posthog_celery_queue_depth", llen)
+        statsd.gauge(f"posthog_celery_queue_depth", llen)
     except:
         # if we can't connect to statsd don't complain about it.
         # not every installation will have statsd available
@@ -503,8 +514,7 @@ def calculate_event_property_usage():
 @app.task(ignore_result=True)
 def count_teams_with_no_property_query_count():
     import structlog
-
-    from posthog.internal_metrics import gauge
+    from statshog.defaults.django import statsd
 
     logger = structlog.get_logger(__name__)
 
@@ -527,7 +537,7 @@ def count_teams_with_no_property_query_count():
             )
 
             count = cursor.fetchone()
-            gauge(
+            statsd.gauge(
                 f"calculate_event_property_usage.teams_with_no_property_query_count",
                 count[0],
             )
@@ -620,13 +630,10 @@ def clickhouse_mark_all_materialized():
 
 
 @app.task(ignore_result=True)
-def send_instance_usage_report():
-    try:
-        from ee.tasks.usage_report import send_all_org_usage_reports
-    except ImportError:
-        pass
-    else:
-        send_all_org_usage_reports()
+def send_org_usage_reports():
+    from posthog.tasks.usage_report import send_all_org_usage_reports
+
+    send_all_org_usage_reports()
 
 
 @app.task(ignore_result=True)
@@ -639,12 +646,22 @@ def schedule_all_subscriptions():
         _schedule_all_subscriptions()
 
 
-@app.task(ignore_result=True)
+@app.task(ignore_result=True, retries=3)
 def clickhouse_send_license_usage():
     try:
         if not is_cloud():
             from ee.tasks.send_license_usage import send_license_usage
 
             send_license_usage()
+    except ImportError:
+        pass
+
+
+@app.task(ignore_result=True)
+def check_flags_to_rollback():
+    try:
+        from ee.tasks.auto_rollback_feature_flag import check_flags_to_rollback
+
+        check_flags_to_rollback()
     except ImportError:
         pass

@@ -37,7 +37,7 @@ export const billingLogic = kea<billingLogicType>([
         referer: (referer: string) => ({ referer }),
     }),
     connect({
-        values: [featureFlagLogic, ['featureFlags'], billingLogicV2, ['billingVersion']],
+        values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags'], billingLogicV2, ['billingVersion']],
         actions: [eventUsageLogic, ['reportIngestionBillingCancelled']],
     }),
     reducers({
@@ -63,7 +63,7 @@ export const billingLogic = kea<billingLogicType>([
     windowValues({
         isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions }) => ({
         billing: [
             null as BillingType | null,
             {
@@ -73,16 +73,6 @@ export const billingLogic = kea<billingLogicType>([
                         actions.loadPlans()
                     } else {
                         actions.setPlans([response.plan])
-                    }
-                    if (
-                        response.event_allocation &&
-                        response.current_usage > response.event_allocation &&
-                        response.should_setup_billing &&
-                        router.values.location.pathname !== '/organization/billing/locked' &&
-                        values.featureFlags[FEATURE_FLAGS.BILLING_LOCK_EVERYTHING]
-                    ) {
-                        posthog.capture('billing locked screen shown')
-                        router.actions.replace(urls.billingLocked())
                     }
                     actions.registerInstrumentationProps()
                     return response as BillingType
@@ -127,6 +117,13 @@ export const billingLogic = kea<billingLogicType>([
         ],
     })),
     selectors({
+        upgradeLink: [
+            (s) => [s.preflight, s.billingVersion],
+            (preflight, billingVersion): string =>
+                billingVersion === 'v2' || preflight?.cloud
+                    ? '/organization/billing'
+                    : 'https://license.posthog.com?utm_medium=in-product&utm_campaign=in-product-upgrade',
+        ],
         eventAllocation: [(s) => [s.billing], (billing: BillingType) => billing?.event_allocation],
         percentage: [
             (s) => [s.eventAllocation, s.billing],
@@ -159,17 +156,21 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         alertToShow: [
-            (s) => [s.eventAllocation, s.percentage, s.billing, sceneLogic.selectors.scene],
+            (s) => [s.eventAllocation, s.percentage, s.billing, sceneLogic.selectors.scene, s.billingVersion],
             (
                 eventAllocation: number | null,
                 percentage: number,
                 billing: BillingType,
-                scene: Scene
+                scene: Scene,
+                billingVersion: string
             ): BillingAlertType | undefined => {
-                // Determines which billing alert/warning to show to the user (if any)
-
-                // Priority 1: In-progress incomplete billing setup
+                if (billingVersion === 'v2') {
+                    return
+                }
                 if (billing?.should_setup_billing && billing?.subscription_url) {
+                    // Determines which billing alert/warning to show to the user (if any)
+
+                    // Priority 1: In-progress incomplete billing setup
                     return BillingAlertType.SetupBilling
                 }
 
@@ -221,6 +222,24 @@ export const billingLogic = kea<billingLogicType>([
                             ? values.billing.current_usage / values.billing.event_allocation
                             : undefined,
                 })
+            }
+        },
+
+        loadBillingSuccess: () => {
+            if (!values.billing) {
+                return
+            }
+
+            if (
+                values.billingVersion === 'v1' &&
+                values.billing.event_allocation &&
+                (values.billing.current_usage || 0) > values.billing.event_allocation &&
+                values.billing.should_setup_billing &&
+                router.values.location.pathname !== '/organization/billing/locked' &&
+                values.featureFlags[FEATURE_FLAGS.BILLING_LOCK_EVERYTHING]
+            ) {
+                posthog.capture('billing locked screen shown')
+                router.actions.replace(urls.billingLocked())
             }
         },
     })),

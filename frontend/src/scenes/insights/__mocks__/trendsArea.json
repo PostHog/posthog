@@ -1,0 +1,197 @@
+{
+    "id": 18,
+    "short_id": "Khitkwur",
+    "name": "",
+    "derived_name": "Pageview count",
+    "filters": {
+        "events": [{ "id": "$pageview", "name": "$pageview", "type": "events", "order": 0 }],
+        "actions": [],
+        "display": "ActionsAreaGraph",
+        "insight": "TRENDS",
+        "interval": "day",
+        "properties": [],
+        "filter_test_accounts": false,
+        "date_from": "-7d"
+    },
+    "filters_hash": "cache_b6d0b194beb8fdc574de3857c4d3de4e",
+    "order": null,
+    "deleted": false,
+    "dashboards": [],
+    "last_refresh": null,
+    "refreshing": false,
+    "result": [
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview",
+            "count": 2275.0,
+            "data": [297.0, 296.0, -282.0, -262.0, 320.0, 290.0, 332.0, 196.0],
+            "labels": [
+                "14-Nov-2022",
+                "15-Nov-2022",
+                "16-Nov-2022",
+                "17-Nov-2022",
+                "18-Nov-2022",
+                "19-Nov-2022",
+                "20-Nov-2022",
+                "21-Nov-2022"
+            ],
+            "days": [
+                "2022-11-14",
+                "2022-11-15",
+                "2022-11-16",
+                "2022-11-17",
+                "2022-11-18",
+                "2022-11-19",
+                "2022-11-20",
+                "2022-11-21"
+            ],
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-14T00:00:00Z",
+                        "date_to": "2022-11-14T00:00:00Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2022-11-14T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-14T00%3A00%3A00%2B00%3A00&entity_order=0"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-15T00:00:00Z",
+                        "date_to": "2022-11-15T00:00:00Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2022-11-15T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-15T00%3A00%3A00%2B00%3A00&entity_order=0"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-16T00:00:00Z",
+                        "date_to": "2022-11-16T00:00:00Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2022-11-16T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-16T00%3A00%3A00%2B00%3A00&entity_order=0"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-17T00:00:00Z",
+                        "date_to": "2022-11-17T00:00:00Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2022-11-17T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-17T00%3A00%3A00%2B00%3A00&entity_order=0"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-18T00:00:00Z",
+                        "date_to": "2022-11-18T00:00:00Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2022-11-18T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-18T00%3A00%3A00%2B00%3A00&entity_order=0"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-19T00:00:00Z",
+                        "date_to": "2022-11-19T00:00:00Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2022-11-19T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-19T00%3A00%3A00%2B00%3A00&entity_order=0"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-20T00:00:00Z",
+                        "date_to": "2022-11-20T00:00:00Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2022-11-20T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-20T00%3A00%3A00%2B00%3A00&entity_order=0"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-21T00:00:00Z",
+                        "date_to": "2022-11-21T00:00:00Z",
+                        "entity_order": 0
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown_attribution_type=first_touch&breakdown_normalize_url=False&date_from=2022-11-21T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-21T00%3A00%3A00%2B00%3A00&entity_order=0"
+                }
+            ],
+            "filter": {
+                "breakdown_attribution_type": "first_touch",
+                "breakdown_normalize_url": false,
+                "date_from": "-7d",
+                "display": "ActionsAreaGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "insight": "TRENDS",
+                "interval": "day",
+                "smoothing_intervals": 1
+            }
+        }
+    ],
+    "created_at": "2022-11-22T12:41:01.902911Z",
+    "created_by": {
+        "id": 2,
+        "uuid": "01849a3b-733c-0000-a2a3-11540809ae0b",
+        "distinct_id": "EgJxebsiPyI2oROvcrs80YvlCFWc9HSVbQTIMyuFXE5",
+        "first_name": "Employee 427",
+        "email": "test@posthog.com"
+    },
+    "description": "",
+    "updated_at": "2022-11-22T12:41:01.902938Z",
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2022-11-22T12:41:01.902158Z",
+    "last_modified_by": {
+        "id": 2,
+        "uuid": "01849a3b-733c-0000-a2a3-11540809ae0b",
+        "distinct_id": "EgJxebsiPyI2oROvcrs80YvlCFWc9HSVbQTIMyuFXE5",
+        "first_name": "Employee 427",
+        "email": "test@posthog.com"
+    },
+    "is_sample": false,
+    "effective_restriction_level": 21,
+    "effective_privilege_level": 37,
+    "timezone": null,
+    "tags": []
+}

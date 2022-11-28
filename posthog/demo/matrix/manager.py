@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
 from django.conf import settings
 from django.core import exceptions
+from django.db import transaction
 
 from posthog.client import query_with_columns, sync_execute
 from posthog.demo.graphile_worker import (
@@ -75,11 +76,12 @@ class MatrixManager:
             organization_kwargs: Dict[str, Any] = {"name": organization_name}
             if settings.DEMO:
                 organization_kwargs["plugins_access_level"] = Organization.PluginsAccessLevel.INSTALL
-            organization = Organization.objects.create(**organization_kwargs)
-            new_user = User.objects.create_and_join(
-                organization, email, password, first_name, OrganizationMembership.Level.ADMIN, is_staff=is_staff
-            )
-            team = self.create_team(organization)
+            with transaction.atomic():
+                organization = Organization.objects.create(**organization_kwargs)
+                new_user = User.objects.create_and_join(
+                    organization, email, password, first_name, OrganizationMembership.Level.ADMIN, is_staff=is_staff
+                )
+                team = self.create_team(organization)
             if self.print_steps:
                 print(f"Saving simulated data...")
             self.run_on_team(team, new_user)
@@ -240,12 +242,15 @@ class MatrixManager:
         if subject.past_events:
             from posthog.models.person.util import create_person, create_person_distinct_id
 
-            person_uuid_str = str(subject.cluster.roll_uuidt(subject.past_events[0].timestamp))
-            create_person(uuid=person_uuid_str, team_id=team.pk, properties=subject.properties_at_now, version=0)
+            create_person(
+                uuid=str(subject.in_posthog_id), team_id=team.pk, properties=subject.properties_at_now, version=0
+            )
             self._persons_created += 1
             self._person_distinct_ids_created += len(subject.distinct_ids_at_now)
             for distinct_id in subject.distinct_ids_at_now:
-                create_person_distinct_id(team_id=team.pk, distinct_id=str(distinct_id), person_id=person_uuid_str)
+                create_person_distinct_id(
+                    team_id=team.pk, distinct_id=str(distinct_id), person_id=str(subject.in_posthog_id)
+                )
             self._save_past_sim_events(team, subject.past_events)
         # We only want to queue future events if there are any
         if subject.future_events:
@@ -265,6 +270,19 @@ class MatrixManager:
                 distinct_id=event.distinct_id,
                 timestamp=event.timestamp,
                 properties=event.properties,
+                person_id=event.person_id,
+                person_properties=event.person_properties,
+                person_created_at=event.person_created_at,
+                group0_properties=event.group0_properties,
+                group1_properties=event.group1_properties,
+                group2_properties=event.group2_properties,
+                group3_properties=event.group3_properties,
+                group4_properties=event.group4_properties,
+                group0_created_at=event.group0_created_at,
+                group1_created_at=event.group1_created_at,
+                group2_created_at=event.group2_created_at,
+                group3_created_at=event.group3_created_at,
+                group4_created_at=event.group4_created_at,
             )
 
     @staticmethod

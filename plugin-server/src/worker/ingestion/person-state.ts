@@ -393,9 +393,8 @@ export class PersonState {
                 }
             }
         } else if (oldPerson && newPerson && oldPerson.id !== newPerson.id) {
-            // $create_alias is an explicit call to merge 2 users, so we'll merge anything
-            // for $identify, we'll not merge a user who's already identified into anyone else
-            const isIdentifyCallToMergeAnIdentifiedUser = isIdentifyCall && oldPerson.is_identified
+            // $create_alias and $identify will not merge a user who's already identified into anyone else
+            const isCallToMergeAnIdentifiedUser = oldPerson.is_identified
 
             this.statsd?.increment('merge_users', {
                 call: isIdentifyCall ? 'identify' : 'alias',
@@ -403,13 +402,11 @@ export class PersonState {
                 oldPersonIdentified: String(oldPerson.is_identified),
                 newPersonIdentified: String(newPerson.is_identified),
             })
-            if (oldPerson.is_identified) {
+            if (isCallToMergeAnIdentifiedUser) {
                 captureIngestionWarning(this.db, teamId, 'cannot_merge_already_identified', {
                     sourcePersonDistinctId: previousDistinctId,
                     targetPersonDistinctId: distinctId,
                 })
-            }
-            if (isIdentifyCallToMergeAnIdentifiedUser) {
                 status.warn('🤔', 'refused to merge an already identified user via an $identify call')
             } else {
                 await this.mergePeople({

@@ -38,8 +38,8 @@ describe('Trends', () => {
         cy.get('[data-attr=math-selector-0]').click()
         cy.get('[data-attr=math-total-0]').should('be.visible')
 
-        // Use `force = true` because clicking the element without dragging the mouse makes the dropdown disappear
-        cy.get('[data-attr=math-avg-0]').click({ force: true })
+        cy.get('[data-attr=math-node-property-value-0]').click()
+        cy.get('[data-attr=math-avg-0]').click()
         cy.get('[data-attr=math-property-select]').should('exist')
     })
 

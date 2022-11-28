@@ -5,7 +5,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PROPERTIES, PropertyOperatorType
 from posthog.models.filters.mixins.base import BaseParamMixin
-from posthog.models.filters.mixins.utils import cached_property, include_dict
+from posthog.models.filters.mixins.utils import cached_property, include_dict, include_query_tags
 from posthog.models.property import Property, PropertyGroup
 
 
@@ -123,3 +123,11 @@ class PropertyMixin(BaseParamMixin):
         return (
             {PROPERTIES: self.property_groups.to_dict()} if self.property_groups and self.property_groups.values else {}
         )
+
+    @include_query_tags
+    def properties_query_tags(self):
+        filter_by_type = set(prop.type for prop in self.property_groups.flat)
+        for entity in getattr(self, "entities", []):
+            filter_by_type |= set(prop.type for prop in entity.property_groups.flat)
+
+        return {"filter_by_type": list(filter_by_type)}

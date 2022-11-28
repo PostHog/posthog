@@ -6,10 +6,12 @@ import { PluginInstallationType } from 'scenes/plugins/types'
 
 export function PluginImage({
     url,
+    icon,
     pluginType,
     size = 'medium',
 }: {
     url?: string
+    icon?: string
     pluginType?: PluginInstallationType
     size?: 'medium' | 'large'
 }): JSX.Element {
@@ -17,9 +19,15 @@ export function PluginImage({
     const pixelSize = size === 'large' ? 100 : 60
 
     useEffect(() => {
-        if (url?.includes('github.com')) {
-            const { user, repo } = parseGithubRepoURL(url)
-            setState({ ...state, image: `https://raw.githubusercontent.com/${user}/${repo}/main/logo.png` })
+        if (icon) {
+            setState((state) => ({ ...state, image: icon }))
+        } else if (url?.includes('github.com')) {
+            const { user, repo, path } = parseGithubRepoURL(url)
+
+            setState({
+                ...state,
+                image: `https://raw.githubusercontent.com/${user}/${repo}/${path || 'main'}/logo.png`,
+            })
         }
     }, [url])
 

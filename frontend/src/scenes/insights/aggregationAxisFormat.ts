@@ -1,11 +1,11 @@
-import { LemonSelectOption } from 'lib/components/LemonSelect'
+import { LemonSelectOptionLeaf } from 'lib/components/LemonSelect'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
-import { ChartDisplayType, FilterType } from '~/types'
+import { ChartDisplayType, TrendsFilterType } from '~/types'
 
 const formats = ['numeric', 'duration', 'duration_ms', 'percentage', 'percentage_scaled'] as const
 export type AggregationAxisFormat = typeof formats[number]
 
-export const aggregationAxisFormatSelectOptions: LemonSelectOption<AggregationAxisFormat>[] = [
+export const INSIGHT_UNIT_OPTIONS: LemonSelectOptionLeaf<AggregationAxisFormat>[] = [
     { value: 'numeric', label: 'None' },
     { value: 'duration', label: 'Duration (s)' },
     { value: 'duration_ms', label: 'Duration (ms)' },
@@ -14,7 +14,7 @@ export const aggregationAxisFormatSelectOptions: LemonSelectOption<AggregationAx
 ]
 
 export const formatAggregationAxisValue = (
-    filters: Partial<FilterType> | undefined,
+    filters: Partial<TrendsFilterType> | undefined,
     value: number | string
 ): string => {
     value = Number(value)

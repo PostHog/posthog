@@ -1,4 +1,4 @@
-import { kea, path, connect, listeners } from 'kea'
+import { kea, path, connect, listeners, actions, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import { forms } from 'kea-forms'
@@ -45,6 +45,20 @@ export const loginLogic = kea<loginLogicType>([
     connect({
         values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
     }),
+    actions({
+        setGeneralError: (code: string, detail: string) => ({ code, detail }),
+        clearGeneralError: true,
+    }),
+    reducers({
+        // This is separate from the login form, so that the form can be submitted even if a general error is present
+        generalError: [
+            null as { code: string; detail: string } | null,
+            {
+                setGeneralError: (_, error) => error,
+                clearGeneralError: () => null,
+            },
+        ],
+    }),
     loaders(() => ({
         precheckResponse: [
             { status: 'pending' } as PrecheckResponseType,
@@ -68,7 +82,6 @@ export const loginLogic = kea<loginLogicType>([
             },
         ],
     })),
-
     forms(({ actions, values }) => ({
         login: {
             defaults: { email: '', password: '' } as LoginForm,
@@ -88,14 +101,9 @@ export const loginLogic = kea<loginLogicType>([
                     const { code } = e as Record<string, any>
                     let { detail } = e as Record<string, any>
                     if (values.featureFlags[FEATURE_FLAGS.REGION_SELECT] && code === 'invalid_credentials') {
-                        detail = 'Invalid email or password. Make sure you have selected the right data region.'
+                        detail += ' Make sure you have selected the right data region.'
                     }
-                    actions.setLoginManualErrors({
-                        generic: {
-                            code,
-                            detail,
-                        },
-                    })
+                    actions.setGeneralError(code, detail)
                     throw e
                 }
             },
@@ -109,10 +117,16 @@ export const loginLogic = kea<loginLogicType>([
         },
     }),
     urlToAction(({ actions }) => ({
-        '/login': ({}, { error_code, error_detail }) => {
+        '/login': ({}, { error_code, error_detail, email }) => {
             if (error_code) {
-                actions.setLoginManualErrors({ generic: { code: error_code, detail: error_detail } })
+                actions.setGeneralError(error_code, error_detail)
                 router.actions.replace('/login', {})
+            }
+
+            // This allows us to give a quick login link in the `generate_demo_data` command
+            if (email) {
+                actions.setLoginValue('email', email)
+                actions.precheck({ email })
             }
         },
     })),

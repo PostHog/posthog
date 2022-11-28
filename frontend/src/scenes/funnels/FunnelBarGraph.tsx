@@ -19,6 +19,7 @@ import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/fun
 import { useResizeObserver } from '../../lib/hooks/useResizeObserver'
 import { getSeriesColor } from 'lib/colors'
 import { FunnelStepMore } from './FunnelStepMore'
+import { Noun } from '~/models/groupsModel'
 
 interface BarProps {
     percentage: number
@@ -31,7 +32,7 @@ interface BarProps {
     breakdownSumPercentage?: number
     popoverTitle?: string | JSX.Element | null
     popoverMetrics?: { title: string; value: number | string; visible?: boolean }[]
-    aggregationTargetLabel: { singular: string; plural: string }
+    aggregationTargetLabel: Noun
 }
 
 type LabelPosition = 'inside' | 'outside'
@@ -201,7 +202,7 @@ interface AverageTimeInspectorProps {
     onClick: (e?: React.MouseEvent) => void
     disabled?: boolean
     averageTime: number
-    aggregationTargetLabel: { singular: string; plural: string }
+    aggregationTargetLabel: Noun
 }
 
 function AverageTimeInspector({
@@ -242,12 +243,8 @@ function AverageTimeInspector({
 
     return (
         <div ref={wrapperRef}>
-            <span
-                ref={infoTextRef}
-                className="text-muted-alt"
-                style={{ paddingRight: 4, display: 'inline-block', visibility: infoTextVisible ? undefined : 'hidden' }}
-            >
-                Average time:
+            <span ref={infoTextRef} className={clsx('inline-block text-muted-alt', !infoTextVisible && 'invisible')}>
+                Average time:{' '}
             </span>
             <ValueInspectorButton
                 innerRef={buttonRef}
@@ -538,10 +535,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                         completed step
                                     </div>
                                 </div>
-                                <div
-                                    className="step-stat"
-                                    style={stepIndex === 0 ? { visibility: 'hidden' } : undefined}
-                                >
+                                <div className={clsx('step-stat', stepIndex === 0 && 'invisible')}>
                                     <div className="center-flex">
                                         <ValueInspectorButton
                                             onClick={() => openPersonsModalForStep({ step, converted: false })}

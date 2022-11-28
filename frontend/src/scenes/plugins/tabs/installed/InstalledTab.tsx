@@ -6,7 +6,6 @@ import { PluginsEmptyState } from './sections/PluginsEmptyState'
 import { DisabledPluginSection } from './sections/DisabledPluginsSection'
 import { UpgradeSection } from './sections/UpgradeSection'
 import { EnabledPluginSection } from './sections/EnabledPluginsSection'
-import { HistoryDrawer } from 'scenes/plugins/plugin/HistoryDrawer'
 
 export function InstalledTab(): JSX.Element {
     const { installedPlugins } = useValues(pluginsLogic)
@@ -24,7 +23,6 @@ export function InstalledTab(): JSX.Element {
                 <DisabledPluginSection />
             </div>
             <LogsDrawer />
-            <HistoryDrawer />
         </>
     )
 }

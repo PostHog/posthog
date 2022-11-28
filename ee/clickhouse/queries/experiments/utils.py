@@ -50,7 +50,7 @@ def requires_flag_warning(filter: Filter, team: Team) -> bool:
 
     requires_flag_warning = True
 
-    for event, property_group_list in events_result:
+    for _event, property_group_list in events_result:
         for property_group in property_group_list:
             if "$feature/" in property_group:
                 requires_flag_warning = False

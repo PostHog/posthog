@@ -5,6 +5,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 export default {
     title: 'Lemon UI/Lemon Select',
     component: LemonSelect,
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         options: {
             defaultValue: [
@@ -81,6 +82,21 @@ MixedValuesTypes.args = {
         { value: '4', label: 'Potato - string 4' },
         { value: 'lettuce', label: 'Lettuce' },
         { value: 6, label: 'Tomato - 6' },
+    ] as LemonSelectOptions<string | number>,
+}
+
+export const NestedSelect = Template.bind({})
+NestedSelect.args = {
+    dropdownMatchSelectWidth: false,
+    options: [
+        { label: 'Capybara', value: 'capybara' },
+        {
+            label: 'Elephant',
+            options: [
+                { label: 'African elephant', value: 'elephant-african' },
+                { label: 'Asian elephant', value: 'elephant-asian' },
+            ],
+        },
     ] as LemonSelectOptions<string | number>,
 }
 

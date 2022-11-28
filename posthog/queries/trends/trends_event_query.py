@@ -1,16 +1,17 @@
 from typing import Any, Dict, Tuple
 
-from posthog.constants import EVENT_COUNT_PER_ACTOR, MONTHLY_ACTIVE, UNIQUE_USERS, WEEKLY_ACTIVE, PropertyOperatorType
+from posthog.constants import MONTHLY_ACTIVE, UNIQUE_USERS, WEEKLY_ACTIVE, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property.util import get_property_string_expr
+from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
-from posthog.queries.trends.util import MATH_FUNCTIONS, get_active_user_params
+from posthog.queries.trends.util import get_active_user_params
 
 
 class TrendsEventQuery(EventQuery):
@@ -65,6 +66,7 @@ class TrendsEventQuery(EventQuery):
             for column_name in sorted(self._column_optimizer.person_on_event_columns_to_query):
                 _fields += f', {self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
 
+        if self._using_person_on_events and groups_on_events_querying_enabled():
             for column_name in sorted(self._column_optimizer.group_on_event_columns_to_query):
                 _fields += f', {self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
 
@@ -142,9 +144,7 @@ class TrendsEventQuery(EventQuery):
             )
 
     def _determine_should_join_distinct_ids(self) -> None:
-        is_entity_per_user = self._entity.math == UNIQUE_USERS or (
-            self._entity.math in MATH_FUNCTIONS and self._entity.math_property == EVENT_COUNT_PER_ACTOR
-        )
+        is_entity_per_user = self._entity.math == UNIQUE_USERS
         if (
             is_entity_per_user and not self._aggregate_users_by_distinct_id
         ) or self._column_optimizer.is_using_cohort_propertes:
@@ -152,29 +152,33 @@ class TrendsEventQuery(EventQuery):
 
     def _get_date_filter(self) -> Tuple[str, Dict]:
         date_filter = ""
-        date_params: Dict[str, Any] = {}
+        query_params: Dict[str, Any] = {}
         query_date_range = QueryDateRange(self._filter, self._team)
         parsed_date_from, date_from_params = query_date_range.date_from
         parsed_date_to, date_to_params = query_date_range.date_to
 
-        date_params.update(date_from_params)
-        date_params.update(date_to_params)
+        query_params.update(date_from_params)
+        query_params.update(date_to_params)
 
         self.parsed_date_from = parsed_date_from
         self.parsed_date_to = parsed_date_to
 
         if self._entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
-            date_filter = "{parsed_date_from_prev_range} {parsed_date_to}"
-            format_params = get_active_user_params(self._filter, self._entity, self._team_id)
-            self.active_user_params = format_params
+            active_user_format_params, active_user_query_params = get_active_user_params(
+                self._filter, self._entity, self._team_id
+            )
+            self.active_user_params = active_user_format_params
+            query_params.update(active_user_query_params)
 
-            date_filter = date_filter.format(**format_params, parsed_date_to=parsed_date_to)
+            date_filter = "{parsed_date_from_prev_range} {parsed_date_to}".format(
+                **active_user_format_params, parsed_date_to=parsed_date_to
+            )
         else:
             date_filter = "{parsed_date_from} {parsed_date_to}".format(
                 parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to
             )
 
-        return date_filter, date_params
+        return date_filter, query_params
 
     def _get_entity_query(self) -> Tuple[str, Dict]:
         entity_params, entity_format_params = get_entity_filtering_params(

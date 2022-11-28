@@ -135,6 +135,10 @@ export const userLogic = kea<userLogicType>([
                             available_features: user.organization.available_features,
                             ...user.organization.metadata,
                         })
+
+                        if (user.organization.customer_id) {
+                            posthog.group('customer', user.organization.customer_id)
+                        }
                     }
                 }
             }
@@ -168,13 +172,6 @@ export const userLogic = kea<userLogicType>([
             (user) => {
                 return (feature: AvailableFeature) => !!user?.organization?.available_features.includes(feature)
             },
-        ],
-        upgradeLink: [
-            (s) => [s.preflight],
-            (preflight): string =>
-                preflight?.cloud
-                    ? '/organization/billing'
-                    : 'https://license.posthog.com?utm_medium=in-product&utm_campaign=in-product-upgrade',
         ],
         otherOrganizations: [
             (s) => [s.user],

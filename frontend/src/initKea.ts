@@ -66,12 +66,12 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
                     ) {
                         lemonToast.error(
                             `${identifierToHuman(actionKey)} on reducer ${identifierToHuman(reducerKey)} failed: ${
-                                error.status !== 0 ? error.detail || 'PostHog may be offline' : 'PostHog may be offline'
+                                error.detail || error.statusText || 'PostHog may be offline'
                             }`
                         )
                     }
                     if (!errorsSilenced) {
-                        console.error(error)
+                        console.error({ error, reducerKey, actionKey })
                     }
                     ;(window as any).Sentry?.captureException(error)
                 },

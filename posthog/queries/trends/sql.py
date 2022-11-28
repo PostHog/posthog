@@ -36,14 +36,25 @@ SELECT {aggregate_operation} as data FROM (
 )
 """
 
-ACTIVE_USER_SQL = """
-SELECT counts as total, timestamp as day_start FROM (
-    SELECT d.timestamp, COUNT(DISTINCT {aggregator}) counts FROM (
-        SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as timestamp FROM events WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
+ACTIVE_USERS_SQL = """
+SELECT counts AS total, timestamp AS day_start FROM (
+    SELECT d.timestamp, COUNT(DISTINCT {aggregator}) AS counts FROM (
+        /* We generate a table of periods to match events against. This has to be synthesized from `numbers`
+           and not `events`, because we cannot rely on there being an event for each period (this assumption previously
+           caused active user counts to be off for sparse events). */
+        SELECT {interval}(toDateTime(%(date_to)s, %(timezone)s) - {interval_func}(number) {start_of_week_fix}) AS timestamp
+        FROM numbers(dateDiff(%(interval)s, {interval}(toDateTime(%(date_from_active_users_adjusted)s, %(timezone)s) {start_of_week_fix}), toDateTime(%(date_to)s, %(timezone)s)))
     ) d
+    /* In Postgres we'd be able to do a non-cross join with multiple inequalities (in this case, <= along with >),
+       but this is not possible in ClickHouse as of 2022.10 (ASOF JOIN isn't fit for this either). */
     CROSS JOIN (
-        SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as timestamp, {aggregator} FROM ({event_query}) events WHERE 1 = 1 {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp, {aggregator}
-    ) e WHERE e.timestamp <= d.timestamp AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
+        SELECT
+            toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) AS timestamp,
+            {aggregator}
+        FROM ({event_query}) events
+        WHERE 1 = 1 {parsed_date_from_prev_range} {parsed_date_to}
+        GROUP BY timestamp, {aggregator}
+    ) e WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
     GROUP BY d.timestamp
     ORDER BY d.timestamp
 ) WHERE 1 = 1 {parsed_date_from} {parsed_date_to}
@@ -179,7 +190,44 @@ FROM events e
 GROUP BY day_start, breakdown_value
 """
 
-SESSION_MATH_BREAKDOWN_INNER_SQL = """
+VOLUME_PER_ACTOR_BREAKDOWN_INNER_SQL = """
+SELECT
+    {aggregate_operation} AS total, day_start, breakdown_value
+FROM (
+    SELECT
+        COUNT(*) AS intermediate_count,
+        {aggregator},
+        {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) AS day_start,
+        {breakdown_value} as breakdown_value
+    FROM events AS e
+    {person_join}
+    {groups_join}
+    {sessions_join}
+    {breakdown_filter}
+    {null_person_filter}
+    GROUP BY {aggregator}, day_start, breakdown_value
+)
+GROUP BY day_start, breakdown_value
+"""
+
+VOLUME_PER_ACTOR_BREAKDOWN_AGGREGATE_SQL = """
+SELECT {aggregate_operation} AS total, breakdown_value
+FROM (
+    SELECT
+        COUNT(*) AS intermediate_count,
+        {aggregator}, {breakdown_value} AS breakdown_value
+    FROM events AS e
+    {person_join}
+    {groups_join}
+    {sessions_join_condition}
+    {breakdown_filter}
+    GROUP BY {aggregator}, breakdown_value
+)
+GROUP BY breakdown_value
+ORDER BY breakdown_value
+"""
+
+SESSION_DURATION_BREAKDOWN_INNER_SQL = """
 SELECT
     {aggregate_operation} as total, day_start, breakdown_value
 FROM (
@@ -261,7 +309,7 @@ ORDER BY breakdown_value
 """
 
 
-SESSION_MATH_BREAKDOWN_AGGREGATE_QUERY_SQL = """
+SESSION_DURATION_BREAKDOWN_AGGREGATE_QUERY_SQL = """
 SELECT {aggregate_operation} AS total, breakdown_value
 FROM (
     SELECT any(session_duration) as session_duration, breakdown_value FROM (

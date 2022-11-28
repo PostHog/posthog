@@ -1,5 +1,4 @@
 import { Hub, PluginConfig, PluginLogEntryType } from '../../../types'
-import { JobName } from './../../../types'
 
 type JobRunner = {
     runAt: (date: Date) => Promise<void>
@@ -48,20 +47,15 @@ export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
                 pluginConfigId: pluginConfig.id,
                 pluginConfigTeam: pluginConfig.team_id,
             }
-            await server.graphileWorker.enqueue(
-                JobName.PLUGIN_JOB,
-                job,
-                {
-                    key: 'plugin',
-                    tag: pluginConfig.plugin?.name ?? '?',
-                },
-                true
-            )
+            server.statsd?.increment('job_enqueue_attempt')
+            await server.enqueuePluginJob(job)
         } catch (e) {
             await pluginConfig.vm?.createLogEntry(
                 `Failed to enqueue job ${type} with error: ${e.message}`,
                 PluginLogEntryType.Error
             )
+
+            throw e
         }
     }
 

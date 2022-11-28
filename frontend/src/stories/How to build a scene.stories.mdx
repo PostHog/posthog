@@ -16,7 +16,9 @@ Create a component like: `frontend/src/scenes/dashboard/Dashboards.tsx`
 
 ```ts
 import './Dashboards.scss'
-import { dashboardsLogic } './dashboardsLogic.ts'
+import { dashboardsLogic } from './dashboardsLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { useValues } from 'kea'
 
 export function Dashboards (): JSX.Element {
     const {
@@ -61,7 +63,9 @@ Create a component like: `frontend/src/scenes/dashboard/Dashboard.tsx`
 
 ```ts
 import './Dashboard.scss'
-import { dashboardLogic } './dashboardLogic.ts'
+import { dashboardLogic } from './dashboardLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { useActions, useValues } from 'kea'
 
 export const scene: SceneExport = {
     component: Dashboard,

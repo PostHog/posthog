@@ -2,14 +2,11 @@ import datetime as dt
 import logging
 import secrets
 from time import monotonic
-from typing import cast
 
 from django.core import exceptions
 from django.core.management.base import BaseCommand
-from django.db import transaction
 
 from posthog.demo.matrix import Matrix, MatrixManager
-from posthog.demo.matrix.models import SimEvent
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 
 logging.getLogger("kafka").setLevel(logging.WARNING)  # Hide kafka-python's logspam
@@ -66,24 +63,26 @@ class Command(BaseCommand):
             email = options["email"]
             password = options["password"]
             matrix_manager = MatrixManager(matrix, print_steps=True)
-            with transaction.atomic():
-                try:
-                    if options["reset_master"]:
-                        matrix_manager.reset_master()
-                    else:
-                        matrix_manager.ensure_account_and_save(
-                            email, "Employee 427", "Hedgebox Inc.", password=password, disallow_collision=True
-                        )
-                except exceptions.ValidationError as e:
-                    print(f"Error: {e}")
+            try:
+                if options["reset_master"]:
+                    matrix_manager.reset_master()
                 else:
-                    print(
-                        "Master project reset!"
-                        if options["reset_master"]
-                        else f"Demo data ready! Log in as {email} with password {password}.\n"
-                        "If running DEMO mode locally, log in instantly with this link:\n"
-                        f"http://localhost:8000/signup?email={email}"
+                    matrix_manager.ensure_account_and_save(
+                        email, "Employee 427", "Hedgebox Inc.", password=password, disallow_collision=True
                     )
+            except exceptions.ValidationError as e:
+                print(f"Error: {e}")
+            else:
+                print(
+                    "Master project reset!"
+                    if options["reset_master"]
+                    else f"\nDemo data ready for {email}!\n\n"
+                    "Pre-fill the login form with this link:\n"
+                    f"http://localhost:8000/login?email={email}\n"
+                    f"The password is {password}.\n\n"
+                    "If running demo mode (DEMO=1), log in instantly with this link:\n"
+                    f"http://localhost:8000/signup?email={email}\n"
+                )
         else:
             print("Dry run - not saving results.")
 
@@ -118,12 +117,13 @@ class Command(BaseCommand):
                         if not event_count:
                             summary_lines.append("            No events")
                         else:
+                            assert person.first_seen_at is not None and person.last_seen_at is not None
                             session_count = len(set(event.properties.get("$session_id") for event in person.all_events))
                             summary_lines.append(
                                 f"            {event_count} event{'' if event_count == 1 else 's'} "
                                 f"across {session_count} session{'' if session_count == 1 else 's'} "
-                                f"between {cast(SimEvent, person.first_event).timestamp.strftime('%Y-%m-%d %H:%M:%S')} "
-                                f"and {cast(SimEvent, person.last_event).timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+                                f"between {person.first_seen_at.strftime('%Y-%m-%d %H:%M:%S')} "
+                                f"and {person.last_seen_at.strftime('%Y-%m-%d %H:%M:%S')}"
                             )
         summary_lines.append(
             f"All in all, in {duration * 1000:.2f} ms "

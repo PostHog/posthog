@@ -6,7 +6,7 @@ import requests
 from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
-from django.db import connections
+from django.db import connections, transaction
 from django.db.models import Q
 from django.http import HttpResponse
 from django.utils.encoding import smart_str
@@ -54,7 +54,7 @@ def _update_plugin_attachments(request: request.Request, plugin_config: PluginCo
         match = re.match(r"^add_attachment\[([^]]+)\]$", key)
         if match:
             _update_plugin_attachment(plugin_config, match.group(1), file, user)
-    for key, file in request.POST.items():
+    for key, _file in request.POST.items():
         match = re.match(r"^remove_attachment\[([^]]+)\]$", key)
         if match:
             _update_plugin_attachment(plugin_config, match.group(1), None, user)
@@ -195,6 +195,7 @@ class PluginSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "url",
+            "icon",
             "config_schema",
             "tag",
             "latest_tag",
@@ -260,6 +261,8 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        queryset = queryset.select_related("organization")
+
         if self.action == "get" or self.action == "list":
             if can_install_plugins(self.organization) or can_configure_plugins(self.organization):
                 return queryset
@@ -298,6 +301,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         Plugin.objects.filter(id=plugin.id).update(
             latest_tag=latest_url.get("tag", latest_url.get("version", None)), latest_tag_checked_at=now()
         )
+        plugin.refresh_from_db()
 
         return Response({"plugin": PluginSerializer(plugin).data})
 
@@ -334,7 +338,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     sources[key].error = None
                     sources[key].save()
         response: Dict[str, str] = {}
-        for key, source in sources.items():
+        for _, source in sources.items():
             response[source.filename] = source.source
 
         # Update values from plugin.json, if one exists
@@ -365,8 +369,9 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if plugin.plugin_type not in (Plugin.PluginType.SOURCE, Plugin.PluginType.LOCAL):
             validated_data: Dict[str, Any] = {}
             plugin_json = update_validated_data_from_url(validated_data, plugin.url)
-            serializer.update(plugin, validated_data)
-            PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
+            with transaction.atomic():
+                serializer.update(plugin, validated_data)
+                PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
         return Response(serializer.data)
 
     def destroy(self, request: request.Request, *args, **kwargs) -> Response:
@@ -442,8 +447,19 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PluginConfig
-        fields = ["id", "plugin", "enabled", "order", "config", "error", "team_id", "plugin_info", "delivery_rate_24h"]
-        read_only_fields = ["id", "team_id", "plugin_info", "delivery_rate_24h"]
+        fields = [
+            "id",
+            "plugin",
+            "enabled",
+            "order",
+            "config",
+            "error",
+            "team_id",
+            "plugin_info",
+            "delivery_rate_24h",
+            "created_at",
+        ]
+        read_only_fields = ["id", "team_id", "plugin_info", "delivery_rate_24h", "created_at"]
 
     def get_config(self, plugin_config: PluginConfig):
         attachments = PluginAttachment.objects.filter(plugin_config=plugin_config).only(
@@ -688,7 +704,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:
     # A set of keys for config fields that have secret = true
-    secret_fields = set([field["key"] for field in plugin.config_schema if "secret" in field and field["secret"]])
+    secret_fields = {field["key"] for field in plugin.config_schema if "secret" in field and field["secret"]}
     return secret_fields
 
 

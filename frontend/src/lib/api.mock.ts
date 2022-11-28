@@ -8,6 +8,7 @@ import {
     OrganizationMemberType,
     OrganizationType,
     PersonProperty,
+    PropertyFilterType,
     PropertyOperator,
     TeamType,
     UserBasicType,
@@ -22,10 +23,10 @@ export const MOCK_TEAM_UUID: TeamType['uuid'] = 'TEAM_UUID'
 export const MOCK_ORGANIZATION_ID: OrganizationType['id'] = 'ABCD'
 
 type APIMockReturnType = {
-    [K in keyof Pick<typeof apiReal, 'create' | 'get' | 'update' | 'delete'>]: jest.Mock<
-        ReturnType<typeof apiReal[K]>,
-        Parameters<typeof apiReal[K]>
-    >
+    [K in keyof Pick<
+        typeof apiReal,
+        'create' | 'createResponse' | 'get' | 'getResponse' | 'update' | 'delete'
+    >]: jest.Mock<ReturnType<typeof apiReal[K]>, Parameters<typeof apiReal[K]>>
 }
 
 export const api = apiReal as any as APIMockReturnType
@@ -45,7 +46,12 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     completed_snippet_onboarding: true,
     ingested_event: true,
     test_account_filters: [
-        { key: 'email', type: 'person', value: 'posthog.com', operator: PropertyOperator.NotIContains },
+        {
+            key: 'email',
+            type: PropertyFilterType.Person,
+            value: 'posthog.com',
+            operator: PropertyOperator.NotIContains,
+        },
     ],
     test_account_filters_default_checked: false,
     path_cleaning_filters: [],
@@ -68,6 +74,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
+    customer_id: null,
     id: MOCK_ORGANIZATION_ID,
     name: 'MockHog',
     slug: 'mockhog-fstn',

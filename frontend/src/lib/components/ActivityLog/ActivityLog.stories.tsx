@@ -11,6 +11,9 @@ import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 export default {
     title: 'Components/ActivityLog',
     component: ActivityLog,
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
     decorators: [
         mswDecorator({
             get: {

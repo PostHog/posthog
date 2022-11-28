@@ -250,7 +250,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                     "detail": {
                         "changes": None,
                         "trigger": None,
-                        "name": str(person.pk),
+                        "name": str(person.uuid),
                         "short_id": None,
                     },
                     "created_at": "2021-08-25T22:09:14.252000Z",
@@ -264,7 +264,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual([(100, 1, "{}")], ch_persons)
         # No async deletion is scheduled
-        self.assertEqual(AsyncDeletion.objects.filter(team=self.team).count(), 0)
+        self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 0)
         ch_events = sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk})[
             0
         ][0]
@@ -291,7 +291,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([(100, 1, "{}")], ch_persons)
 
         # async deletion scheduled and executed
-        async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team=self.team).first())
+        async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
         self.assertEqual(async_deletion.deletion_type, DeletionType.Person)
         self.assertEqual(async_deletion.key, str(person.uuid))
         self.assertIsNone(async_deletion.delete_verified_at)
@@ -330,7 +330,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                                 "after": {"distinct_ids": ["1", "2", "3"]},
                             }
                         ],
-                        "name": None,
+                        "name": str(person1.uuid),
                         "trigger": None,
                         "short_id": None,
                     },
@@ -366,7 +366,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             immediate=True,
         )
 
-        self.client.patch(f"/api/person/{person.uuid}", {"properties": {"foo": "bar"}})
+        self.client.post(f"/api/person/{person.uuid}/update_property", {"key": "foo", "value": "bar"})
 
         mock_capture.assert_called_once_with(
             distinct_id="some_distinct_id",

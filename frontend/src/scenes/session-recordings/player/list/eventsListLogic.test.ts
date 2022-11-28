@@ -44,12 +44,12 @@ describe('eventsListLogic', () => {
         })
     })
 
-    describe('setLocalFilter', () => {
+    describe('setEventListLocalFilters', () => {
         it('calls setFilter in parent logic with debounce', async () => {
             const filters = { query: 'mini pretzels' }
             await expectLogic(logic, () => {
-                logic.actions.setLocalFilters({ query: 'no mini pretzels' })
-                logic.actions.setLocalFilters(filters)
+                logic.actions.setEventListLocalFilters({ query: 'no mini pretzels' })
+                logic.actions.setEventListLocalFilters(filters)
             })
                 .toNotHaveDispatchedActions([
                     sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionCreators.setFilters({

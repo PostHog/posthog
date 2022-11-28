@@ -3,10 +3,11 @@ from urllib.parse import urlencode
 
 import pytz
 
-from posthog.client import substitute_params, sync_execute
+from posthog.client import substitute_params
 from posthog.constants import RETENTION_FIRST_TIME, RetentionQueryType
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.retention.actors_query import RetentionActorsByPeriod, build_actor_activity_query
 from posthog.queries.retention.event_query import RetentionEventsQuery
 from posthog.queries.retention.sql import RETENTION_BREAKDOWN_SQL
@@ -32,9 +33,11 @@ class Retention:
     ) -> Dict[CohortKey, Dict[str, Any]]:
 
         actor_query = build_actor_activity_query(filter=filter, team=team, retention_events_query=self.event_query)
-        result = sync_execute(
+        result = insight_sync_execute(
             RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query),
             settings={"timeout_before_checking_execution_speed": 60},
+            filter=filter,
+            query_type="retention_by_breakdown_values",
             client_query_id=filter.client_query_id,
             client_query_team_id=team.pk,
         )

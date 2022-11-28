@@ -1,14 +1,15 @@
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
-import { DashboardType, InsightModel, InsightType } from '~/types'
+import { InsightModel, InsightType } from '~/types'
 import { combineUrl, router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { useMocks } from '~/mocks/jest'
 import api from 'lib/api'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
-import { dashboardsModel } from '~/models/dashboardsModel'
+import { DuplicateDashboardForm, duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
+import { DeleteDashboardForm, deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 
 jest.spyOn(api, 'create')
 
@@ -25,7 +26,6 @@ const createInsight = (id: number, string = 'hi'): InsightModel =>
         is_sample: false,
         updated_at: 'now',
         result: {},
-        tags: [],
         color: null,
         created_at: 'now',
         dashboard: null,
@@ -182,6 +182,7 @@ describe('savedInsightsLogic', () => {
             expect.objectContaining({ name: 'should be copied (copy)' })
         )
     })
+
     it('can duplicate using name', async () => {
         const sourceInsight = createInsight(123, 'hello')
         sourceInsight.name = 'should be copied'
@@ -195,7 +196,15 @@ describe('savedInsightsLogic', () => {
 
     it('loads insights when a dashboard is duplicated', async () => {
         await expectLogic(logic, () => {
-            dashboardsModel.actions.duplicateDashboardSuccess({} as DashboardType, {} as any)
+            duplicateDashboardLogic.actions.submitDuplicateDashboardSuccess({
+                duplicateTiles: true,
+            } as DuplicateDashboardForm)
+        }).toDispatchActions(['loadInsights'])
+    })
+
+    it('loads insights when a dashboard is deleted', async () => {
+        await expectLogic(logic, () => {
+            deleteDashboardLogic.actions.submitDeleteDashboardSuccess({ deleteInsights: true } as DeleteDashboardForm)
         }).toDispatchActions(['loadInsights'])
     })
 })

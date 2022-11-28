@@ -24,6 +24,7 @@ from ee.settings import BILLING_SERVICE_URL
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models import Organization
 from posthog.models.event.util import get_event_count_for_team_and_period
+from posthog.models.organization import OrganizationUsageInfo
 from posthog.models.session_recording_event.util import get_recording_count_for_team_and_period
 from posthog.models.team.team import Team
 
@@ -41,8 +42,8 @@ class LicenseKeySerializer(serializers.Serializer):
     license = serializers.CharField()
 
 
-def build_billing_token(license: License, organization_id: str):
-    if not organization_id or not license:
+def build_billing_token(license: License, organization: Organization):
+    if not organization or not license:
         raise NotAuthenticated()
 
     license_id = license.key.split("::")[0]
@@ -52,7 +53,8 @@ def build_billing_token(license: License, organization_id: str):
         {
             "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
             "id": license_id,
-            "organization_id": str(organization_id),
+            "organization_id": str(organization.id),
+            "organization_name": organization.name,
             "aud": "posthog:license-key",
         },
         license_secret,
@@ -85,18 +87,21 @@ def get_cached_current_usage(organization: Organization) -> Dict[str, int]:
     cache_key: str = f"monthly_usage_breakdown_{organization.id}"
     usage: Optional[Dict[str, int]] = cache.get(cache_key)
 
+    # TODO BW: For self-hosted this should be priced across all orgs
+
     if usage is None:
         teams = Team.objects.filter(organization=organization).exclude(organization__for_internal_metrics=True)
 
         usage = {
-            "EVENTS": 0,
-            "RECORDINGS": 0,
+            "events": 0,
+            "recordings": 0,
         }
 
+        (start_period, end_period) = get_this_month_date_range()
+
         for team in teams:
-            (start_period, end_period) = get_this_month_date_range()
-            usage["RECORDINGS"] += get_recording_count_for_team_and_period(team.id, start_period, end_period)
-            usage["EVENTS"] += get_event_count_for_team_and_period(team.id, start_period, end_period)
+            usage["recordings"] += get_recording_count_for_team_and_period(team.id, start_period, end_period)
+            usage["events"] += get_event_count_for_team_and_period(team.id, start_period, end_period)
 
         cache.set(
             cache_key,
@@ -110,7 +115,7 @@ def get_cached_current_usage(organization: Organization) -> Dict[str, int]:
     return usage
 
 
-def handle_billing_service_error(res: requests.Response, valid_codes=(200, 404)) -> None:
+def handle_billing_service_error(res: requests.Response, valid_codes=(200, 404, 401)) -> None:
     if res.status_code not in valid_codes:
         logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
         raise Exception(f"Billing service returned bad status code: {res.status_code}")
@@ -127,6 +132,9 @@ class BillingViewset(viewsets.GenericViewSet):
 
     def list(self, request: HttpRequest, *args: Any, **kwargs: Any) -> Response:
         license = License.objects.first_valid()
+        if license and not license.is_v2_license:
+            raise NotFound("Billing V2 is not supported for this license type")
+
         org = self._get_org()
 
         # If on Cloud and we have the property billing - return 404 as we always use legacy billing it it exists
@@ -134,81 +142,92 @@ class BillingViewset(viewsets.GenericViewSet):
             if org.billing.stripe_subscription_id:  # type: ignore
                 raise NotFound("Billing V1 is active for this organization")
 
-        response: Dict[str, Any] = {}
+        billing_service_response: Dict[str, Any] = {}
+        response: Dict[str, Any] = {"available_features": []}
 
+        # Load Billing info if we have a V2 license
         if org and license and license.is_v2_license:
             response["license"] = {"plan": license.plan}
-            billing_service_token = build_billing_token(license, str(org.id))
+            billing_service_response = self._get_billing(license, org)
 
-            res = requests.get(
-                f"{BILLING_SERVICE_URL}/api/billing",
-                headers={"Authorization": f"Bearer {billing_service_token}"},
-            )
+        # Sync the License and Org if we have a valid response
+        if license and billing_service_response.get("license"):
+            self._update_license_details(license, billing_service_response["license"])
 
-            handle_billing_service_error(res)
+        if org and billing_service_response.get("customer"):
+            response.update(billing_service_response["customer"])
 
-            data = res.json()
-
-            if data.get("license"):
-                self._update_license_details(license, data["license"])
-
-            if data.get("customer"):
-                response.update(data["customer"])
-
-        # If there isn't a valid v2 subscription then we only return sucessfully if BILLING_V2_ENABLED
-        if not response.get("has_active_subscription") and not settings.BILLING_V2_ENABLED:
-            distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
-            if not (distinct_id and posthoganalytics.get_feature_flag("billing-v2-enabled", distinct_id)):
-                raise NotFound("Billing V2 is not enabled for this organization")
-
-        # The default response is used if there is no subscription
+        # If we don't have products then get the default ones with our local usage calculation
         if not response.get("products"):
-            products = self._get_products()
+            products = self._get_products(license, org)
+            response["products"] = products["standard"]
+            response["products_enterprise"] = products["enterprise"]
+
             calculated_usage = get_cached_current_usage(org) if org else None
 
-            if calculated_usage is not None:
-                for product in products:
-                    if product["type"] in calculated_usage:
-                        product["current_usage"] = calculated_usage[product["type"]]
-            response["products"] = products
+            for product in response["products"] + response["products_enterprise"]:
+                if calculated_usage and product["type"] in calculated_usage:
+                    product["current_usage"] = calculated_usage[product["type"]]
+                else:
+                    product["current_usage"] = 0
+
+        # Either way calculate the percentage_used for each product
+        for product in response["products"]:
+            usage_limit = product.get("usage_limit", product.get("free_allocation"))
+            product["percentage_usage"] = product["current_usage"] / usage_limit if usage_limit else 0
+
+        # Before responding ensure the org is updated with the latest info
+        if org:
+            self._update_org_details(org, response)
 
         return Response(response)
 
     @action(methods=["PATCH"], detail=False, url_path="/")
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
         license = License.objects.first_valid()
         if not license:
             raise Exception("There is no license configured for this instance yet.")
+
         org = self._get_org_required()
+        billing_service_token = build_billing_token(license, org)
+        custom_limits_usd = request.data.get("custom_limits_usd")
 
-        billing_service_token = build_billing_token(license, str(org.id))
+        if custom_limits_usd:
+            res = requests.patch(
+                f"{BILLING_SERVICE_URL}/api/billing/",
+                headers={"Authorization": f"Bearer {billing_service_token}"},
+                json={"custom_limits_usd": custom_limits_usd},
+            )
 
-        res = requests.patch(
-            f"{BILLING_SERVICE_URL}/api/billing/",
-            headers={"Authorization": f"Bearer {billing_service_token}"},
-            json={"custom_limits_usd": request.data.get("custom_limits_usd")},
-        )
+            handle_billing_service_error(res)
 
-        handle_billing_service_error(res)
+            if distinct_id:
+                posthoganalytics.capture(distinct_id, "billing limits updated", properties={**custom_limits_usd})
+                posthoganalytics.group_identify(
+                    "organization",
+                    str(org.id),
+                    properties={f"billing_limits_{key}": value for key, value in custom_limits_usd.items()},
+                )
 
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/billing/",
-            headers={"Authorization": f"Bearer {billing_service_token}"},
-        )
-
-        handle_billing_service_error(res)
-        return Response(res.json()["customer"])
+        return self.list(request, *args, **kwargs)
 
     @action(methods=["GET"], detail=False)
     def activation(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = License.objects.first_valid()
         organization = self._get_org_required()
 
-        redirect_uri = f"{settings.SITE_URL or request.headers.get('Host')}/organization/billing"
-        url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}"
+        redirect_path = request.GET.get("redirect_path") or "organization/billing"
+        if redirect_path.startswith("/"):
+            redirect_path = redirect_path[1:]
+
+        plan = request.GET.get("plan", "standard")
+
+        redirect_uri = f"{settings.SITE_URL or request.headers.get('Host')}/{redirect_path}"
+        url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}&plan={plan}"
 
         if license:
-            billing_service_token = build_billing_token(license, str(organization.id))
+            billing_service_token = build_billing_token(license, organization)
             url = f"{url}&token={billing_service_token}"
 
         return redirect(url)
@@ -232,7 +251,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing",
-            headers={"Authorization": f"Bearer {build_billing_token(license, str(organization.id))}"},
+            headers={"Authorization": f"Bearer {build_billing_token(license, organization)}"},
         )
 
         if res.status_code != 200:
@@ -258,21 +277,111 @@ class BillingViewset(viewsets.GenericViewSet):
 
         return org
 
-    def _get_products(self):
+    def _get_products(self, license: Optional[License], organization: Optional[Organization]):
+        headers = {}
+        params = {"plan": "standard"}
+
+        if license and organization:
+            billing_service_token = build_billing_token(license, organization)
+            headers = {"Authorization": f"Bearer {billing_service_token}"}
+            params = {"plan": "standard"}
+
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/products",
+            params=params,
+            headers=headers,
         )
 
         handle_billing_service_error(res)
 
-        return res.json()["products"]
+        return res.json()
+
+    def _get_billing(self, license: License, organization: Organization) -> Dict[str, Any]:
+        """
+        Retrieves billing info and updates local models if necessary
+        """
+        billing_service_token = build_billing_token(license, organization)
+
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing",
+            headers={"Authorization": f"Bearer {billing_service_token}"},
+        )
+
+        handle_billing_service_error(res)
+
+        data = res.json()
+
+        return data
 
     def _update_license_details(self, license: License, data: Dict[str, Any]) -> License:
         """
         Ensure the license details are up-to-date locally
         """
-        license.valid_until = data["valid_until"]
-        license.plan = data["type"]
-        license.save()
+        license_modified = False
+
+        if not license.valid_until or license.valid_until < timezone.now() + timedelta(days=29):
+            # NOTE: License validity is a legacy concept. For now we always extend the license validity by 30 days.
+            license.valid_until = timezone.now() + timedelta(days=30)
+            license_modified = True
+
+        if license.plan != data["type"]:
+            license.plan = data["type"]
+            license_modified = True
+
+        if license_modified:
+            license.save()
 
         return license
+
+    def _update_org_details(self, organization: Organization, data: Dict[str, Any]) -> Organization:
+        """
+        Ensure the relevant organization details are up-to-date locally
+        """
+        org_modified = False
+
+        if data.get("customer_id") and organization.customer_id != data["customer_id"]:
+            organization.customer_id = data["customer_id"]
+            org_modified = True
+
+        usage: Dict[str, OrganizationUsageInfo] = {
+            "events": {
+                "usage": None,
+                "limit": None,
+            },
+            "recordings": {"usage": None, "limit": None},
+        }
+
+        if data.get("has_active_subscription"):
+            # If we have a subscription use the correct values from there
+            for product in data["products"]:
+                if product["type"] in usage:
+                    usage[product["type"]]["usage"] = product["current_usage"]
+                    usage[product["type"]]["limit"] = product.get("usage_limit")
+        else:
+            # We don't have a subscription so use the calculated usage
+            calculated_usage = get_cached_current_usage(organization)
+
+            for key, value in calculated_usage.items():
+                if key in usage:
+                    usage[key]["usage"] = value
+
+            for product in data["products"]:
+                if product["type"] in usage:
+                    usage[product["type"]]["limit"] = product.get("free_allocation")
+
+        if usage != organization.usage:
+            organization.usage = usage
+            org_modified = True
+
+        if data["available_features"] != organization.available_features:
+            organization.available_features = data["available_features"]
+            org_modified = True
+
+        if data.get("deactivated"):
+            # TODO: Mark the organization as deactivated
+            pass
+
+        if org_modified:
+            organization.save()
+
+        return organization

@@ -4,7 +4,7 @@ Django settings for PostHog Enterprise Edition.
 import os
 from typing import Dict, List
 
-from posthog.settings import AUTHENTICATION_BACKENDS, DEBUG, DEMO, SITE_URL, get_from_env
+from posthog.settings import AUTHENTICATION_BACKENDS, DEMO, SITE_URL, get_from_env
 
 # Zapier REST hooks
 HOOK_EVENTS: Dict[str, str] = {
@@ -23,7 +23,8 @@ AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + [
 # SAML base attributes
 SOCIAL_AUTH_SAML_SP_ENTITY_ID = SITE_URL
 SOCIAL_AUTH_SAML_SECURITY_CONFIG = {
-    "wantAttributeStatement": False  # AttributeStatement is optional in the specification
+    "wantAttributeStatement": False,  # AttributeStatement is optional in the specification
+    "requestedAuthnContext": False,  # do not explicitly request a password login, also allow multifactor and others
 }
 # Attributes below are required for the SAML integration from social_core to work properly
 SOCIAL_AUTH_SAML_SP_PUBLIC_CERT = ""
@@ -59,6 +60,4 @@ MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS = get_from_env("MATERIALIZE_COLUMNS_BAC
 # Maximum number of columns to materialize at once. Avoids running into resource bottlenecks (storage + ingest + backfilling).
 MATERIALIZE_COLUMNS_MAX_AT_ONCE = get_from_env("MATERIALIZE_COLUMNS_MAX_AT_ONCE", 10, type_cast=int)
 
-BILLING_SERVICE_URL = get_from_env(
-    "BILLING_SERVICE_URL", "https://billing.posthog.com" if not DEBUG else "http://localhost:8100"
-)
+BILLING_SERVICE_URL = get_from_env("BILLING_SERVICE_URL", "https://billing.posthog.com")
