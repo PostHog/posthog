@@ -25,6 +25,7 @@ function generateFeatureFlag(
         experiment_set: null,
         rollback_conditions: [],
         performed_rollback: false,
+        can_edit: true,
     }
 }
 
