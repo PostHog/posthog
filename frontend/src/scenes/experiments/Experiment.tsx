@@ -1029,7 +1029,6 @@ export function Experiment(): JSX.Element {
                         {experimentResults ? (
                             (experimentData?.parameters?.feature_flag_variants?.length || 0) > 4 ? (
                                 <>
-                                    {/* why y no work? */}
                                     <Row
                                         className="border-t"
                                         justify="space-between"
