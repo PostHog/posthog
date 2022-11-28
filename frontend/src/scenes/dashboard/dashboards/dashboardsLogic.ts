@@ -52,7 +52,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
                     return dashboards
                 }
                 return new Fuse(dashboards, {
-                    keys: ['key', 'name'],
+                    keys: ['key', 'name', 'description', 'tags'],
                     threshold: 0.3,
                 })
                     .search(searchTerm)
