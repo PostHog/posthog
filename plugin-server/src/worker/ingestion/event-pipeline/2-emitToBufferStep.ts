@@ -93,6 +93,7 @@ export function shouldSendEventToBuffer(
         (event.event == '$identify' && !!event.properties && !!event.properties['$anon_distinct_id']) ||
         (event.event == `$create_alias` && !!event.properties && !!event.properties['alias'])
 
+    // KLUDGE: This definition is not currently not encompassing all anonymous events
     const isAnonymousEvent =
         event.properties && event.properties['$device_id'] && event.distinct_id === event.properties['$device_id']
 
