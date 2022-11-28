@@ -1027,7 +1027,7 @@ export function Experiment(): JSX.Element {
                     </Row>
                     <div className="experiment-result">
                         {experimentResults ? (
-                            experimentData?.parameters?.feature_flag_variants?.length || 0 > 4 ? (
+                            (experimentData?.parameters?.feature_flag_variants?.length || 0) > 4 ? (
                                 <>
                                     <Row
                                         className="border-t"
