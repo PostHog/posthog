@@ -3,13 +3,16 @@ import {
     AnyPropertyFilter,
     EventType,
     PropertyFilterType,
-    PropertyGroupFilter,
     IntervalType,
+    BaseMathType,
+    PropertyMathType,
+    CountPerActorMathType,
 } from '~/types'
 
 export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
+    ActionsNode = 'ActionsNode',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -22,6 +25,7 @@ export enum NodeKind {
 export type QuerySchema =
     // Data nodes (see utils.ts)
     | EventsNode
+    | ActionsNode
 
     // Interface nodes
     | DataTableNode
@@ -42,15 +46,28 @@ export interface DataNode extends Node {
     response?: Record<string, any>
 }
 
-export interface EventsNode extends DataNode {
+export interface EntityNode extends DataNode {
+    name?: string
+    custom_name?: string
+    math?: BaseMathType | PropertyMathType | CountPerActorMathType
+    math_property?: string
+    math_group_type_index?: 0 | 1 | 2 | 3 | 4
+    properties?: AnyPropertyFilter[]
+}
+
+export interface EventsNode extends EntityNode {
     kind: NodeKind.EventsNode
     event?: string
-    properties?: AnyPropertyFilter[] | PropertyGroupFilter
     limit?: number
     response?: {
         results: EventType[]
         next?: string
     }
+}
+
+export interface ActionsNode extends EntityNode {
+    kind: NodeKind.ActionsNode
+    id: number
 }
 
 // Data table node
@@ -85,6 +102,12 @@ interface InsightsQueryBase extends Node {
 
 export interface TrendsQuery extends InsightsQueryBase {
     kind: NodeKind.TrendsQuery
+    /** Exclude internal and test users by applying the respective filters */
+    filterTestAccounts?: boolean
+    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    interval?: IntervalType
+    /** Events and actions to include */
+    series: (EventsNode | ActionsNode)[]
 }
 
 // TODO: not supported by "ts-json-schema-generator" nor "typescript-json-schema" :(
@@ -104,5 +127,4 @@ export interface LegacyQuery extends Node {
 export interface DateRange {
     date_from?: string | null
     date_to?: string | null
-    interval?: IntervalType
 }

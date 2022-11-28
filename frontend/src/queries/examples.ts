@@ -1,6 +1,6 @@
 // This file contains example queries, used in storybook and in the /query interface.
 import { EventsNode, DataTableNode, LegacyQuery, Node, NodeKind, TrendsQuery } from '~/queries/schema'
-import { ChartDisplayType, InsightType, PropertyFilterType, PropertyOperator } from '~/types'
+import { ChartDisplayType, InsightType, PropertyFilterType, PropertyOperator, PropertyMathType } from '~/types'
 import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/DataTable'
 
 const Events: EventsNode = {
@@ -30,6 +30,49 @@ const LegacyTrendsQuery: LegacyQuery = {
 
 const TrendsQuery: TrendsQuery = {
     kind: NodeKind.TrendsQuery,
+    interval: 'day',
+    dateRange: {
+        date_from: '-7d',
+    },
+    series: [
+        {
+            kind: NodeKind.EventsNode,
+            name: '$pageview',
+            custom_name: 'Views',
+            event: '$pageview',
+            properties: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$browser',
+                    operator: PropertyOperator.Exact,
+                    value: 'Chrome',
+                },
+                {
+                    type: PropertyFilterType.Cohort,
+                    key: 'id',
+                    value: 2,
+                },
+            ],
+            limit: 100, // TODO - can't find a use for `limits` in insights/trends
+        },
+        {
+            kind: NodeKind.ActionsNode,
+            id: 1,
+            name: 'Interacted with file',
+            custom_name: 'Interactions',
+            properties: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$geoip_country_code',
+                    operator: PropertyOperator.Exact,
+                    value: ['US'],
+                },
+            ],
+            math: PropertyMathType.Average,
+            math_property: '$session_duration',
+        },
+    ],
+    filterTestAccounts: false,
 }
 
 export const examples: Record<string, Node> = {
