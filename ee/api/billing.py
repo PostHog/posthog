@@ -100,8 +100,9 @@ def get_cached_current_usage(organization: Organization) -> Dict[str, int]:
         (start_period, end_period) = get_this_month_date_range()
 
         for team in teams:
-            usage["recordings"] += get_recording_count_for_team_and_period(team.id, start_period, end_period)
-            usage["events"] += get_event_count_for_team_and_period(team.id, start_period, end_period)
+            if not team.is_demo:
+                usage["recordings"] += get_recording_count_for_team_and_period(team.id, start_period, end_period)
+                usage["events"] += get_event_count_for_team_and_period(team.id, start_period, end_period)
 
         cache.set(
             cache_key,
