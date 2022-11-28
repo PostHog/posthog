@@ -72,10 +72,9 @@ function focusVariantKeyField(index: number): void {
 }
 
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
-    const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag, approximateTotalBlastRadius } =
-        useValues(featureFlagLogic)
+    const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, submitFeatureFlag } = useActions(featureFlagLogic)
+    const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag } = useActions(featureFlagLogic)
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
@@ -124,38 +123,15 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     >
                                         Cancel
                                     </LemonButton>
-                                    {approximateTotalBlastRadius > 50 ? (
-                                        <Popconfirm
-                                            title={`This will roll out to ${humanFriendlyNumber(
-                                                approximateTotalBlastRadius,
-                                                1
-                                            )}% of users. Are you sure?`}
-                                            onConfirm={() => submitFeatureFlag()}
-                                            okText="Save"
-                                            cancelText="Cancel"
-                                            placement="topRight"
-                                        >
-                                            <LemonButton
-                                                type="primary"
-                                                data-attr="save-feature-flag"
-                                                htmlType="submit"
-                                                loading={featureFlagLoading}
-                                                disabled={featureFlagLoading}
-                                            >
-                                                Save
-                                            </LemonButton>
-                                        </Popconfirm>
-                                    ) : (
-                                        <LemonButton
-                                            type="primary"
-                                            data-attr="save-feature-flag"
-                                            htmlType="submit"
-                                            loading={featureFlagLoading}
-                                            disabled={featureFlagLoading}
-                                        >
-                                            Save
-                                        </LemonButton>
-                                    )}
+                                    <LemonButton
+                                        type="primary"
+                                        data-attr="save-feature-flag"
+                                        htmlType="submit"
+                                        loading={featureFlagLoading}
+                                        disabled={featureFlagLoading}
+                                    >
+                                        Save
+                                    </LemonButton>
                                 </div>
                             }
                         />
@@ -289,39 +265,15 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             >
                                 Cancel
                             </LemonButton>
-
-                            {approximateTotalBlastRadius > 50 ? (
-                                <Popconfirm
-                                    title={`This will roll out to ${humanFriendlyNumber(
-                                        approximateTotalBlastRadius,
-                                        1
-                                    )}% of users. Are you sure?`}
-                                    onConfirm={() => submitFeatureFlag()}
-                                    okText="Save"
-                                    cancelText="Cancel"
-                                    placement="topRight"
-                                >
-                                    <LemonButton
-                                        type="primary"
-                                        data-attr="save-feature-flag"
-                                        htmlType="submit"
-                                        loading={featureFlagLoading}
-                                        disabled={featureFlagLoading}
-                                    >
-                                        Save
-                                    </LemonButton>
-                                </Popconfirm>
-                            ) : (
-                                <LemonButton
-                                    type="primary"
-                                    data-attr="save-feature-flag"
-                                    htmlType="submit"
-                                    loading={featureFlagLoading}
-                                    disabled={featureFlagLoading}
-                                >
-                                    Save
-                                </LemonButton>
-                            )}
+                            <LemonButton
+                                type="primary"
+                                data-attr="save-feature-flag"
+                                htmlType="submit"
+                                loading={featureFlagLoading}
+                                disabled={featureFlagLoading}
+                            >
+                                Save
+                            </LemonButton>
                         </div>
                     </Form>
                 ) : (
