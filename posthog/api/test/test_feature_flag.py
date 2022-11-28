@@ -311,6 +311,72 @@ class TestFeatureFlag(APIBaseTest):
         )
         self.assertEqual(FeatureFlag.objects.count(), count)
 
+    def test_cant_create_multivariate_feature_flag_with_invalid_variant_overrides(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Multivariate feature",
+                "key": "multivariate-feature",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None, "variant": "unknown-variant"}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("type"), "validation_error")
+        self.assertEqual(response.json().get("detail"), "Filters are not valid (variant override does not exist)")
+
+    def test_cant_update_multivariate_feature_flag_with_invalid_variant_overrides(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Multivariate feature",
+                "key": "multivariate-feature",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None, "variant": "second-variant"}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        feature_flag_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}",
+            {
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None, "variant": "unknown-variant"}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 0},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("type"), "validation_error")
+        self.assertEqual(response.json().get("detail"), "Filters are not valid (variant override does not exist)")
+
     @patch("posthog.api.feature_flag.report_user_action")
     def test_updating_feature_flag(self, mock_capture):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:

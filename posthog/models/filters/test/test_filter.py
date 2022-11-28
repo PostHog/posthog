@@ -32,6 +32,7 @@ class TestFilter(BaseTest):
                 "actions": [],
                 "date_from": "2020-01-01T20:00:00Z",
                 "search": "query",
+                "client_query_id": "123",
             }
         )
         self.assertCountEqual(
@@ -46,6 +47,7 @@ class TestFilter(BaseTest):
                 "smoothing_intervals",
                 "breakdown_attribution_type",
                 "search",
+                "breakdown_normalize_url",
             ],
         )
 

@@ -317,7 +317,7 @@
               GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
            WHERE e.team_id = 2
              AND event = 'sign up'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND e.person_id != toUUIDOrZero('')
              AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance', 'technology'])
@@ -335,7 +335,8 @@
 # name: TestClickhouseTrends.test_breakdown_by_group_props_person_on_events.2
   '
   
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e.person_id as person_id,
@@ -356,6 +357,8 @@
        AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
        AND e.person_id != toUUIDOrZero('') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -633,7 +636,7 @@
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND e.person_id != toUUIDOrZero('')
              AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance'])
@@ -883,7 +886,7 @@
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['uh', 'oh'])
            GROUP BY day_start,
@@ -1001,7 +1004,7 @@
               GROUP BY group_key) groups_2 ON "$group_2" == groups_2.group_key
            WHERE team_id = 2
              AND event = 'sign up'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
                   AND has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', '')))
@@ -1014,7 +1017,8 @@
 # name: TestClickhouseTrends.test_filtering_by_multiple_groups_person_on_events.1
   '
   
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e.person_id as person_id,
@@ -1043,6 +1047,8 @@
             AND has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', '')))
        AND e.person_id != toUUIDOrZero('') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -1191,7 +1197,7 @@
               GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
            WHERE team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                   AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', ''))))

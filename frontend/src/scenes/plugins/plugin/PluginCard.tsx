@@ -32,6 +32,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { PluginsAccessLevel } from 'lib/constants'
 import { urls } from 'scenes/urls'
 import { SuccessRateBadge } from './SuccessRateBadge'
+import clsx from 'clsx'
 
 export function PluginAboutButton({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
@@ -108,7 +109,7 @@ export function PluginCard({
                 <Row align="middle" className="plugin-card-row">
                     {typeof order === 'number' && typeof maxOrder === 'number' ? (
                         <DragColumn>
-                            <div className={`arrow${order === 1 ? ' hide' : ''}`}>
+                            <div className={clsx('arrow', order === 1 && 'invisible')}>
                                 <DownOutlined />
                             </div>
                             <div>
@@ -116,7 +117,7 @@ export function PluginCard({
                                     {order}
                                 </Tag>
                             </div>
-                            <div className={`arrow${order === maxOrder ? ' hide' : ''}`}>
+                            <div className={clsx('arrow', order === maxOrder && 'invisible')}>
                                 <DownOutlined />
                             </div>
                         </DragColumn>

@@ -1,7 +1,7 @@
 import './PlayerList.scss'
 import { ReactElement, useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { SessionRecordingPlayerProps, SessionRecordingPlayerTab } from '~/types'
+import { SessionRecordingPlayerTab } from '~/types'
 import {
     DEFAULT_EXPANDED_ROW_HEIGHT,
     DEFAULT_ROW_HEIGHT,
@@ -21,8 +21,8 @@ import { ListRowOptions, PlayerListRow } from 'scenes/session-recordings/player/
 import { getRowExpandedState } from 'scenes/session-recordings/player/playerUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonButton } from 'lib/components/LemonButton'
-import { urls } from 'scenes/urls'
-import { IconOpenInNew } from 'lib/components/icons'
+import { openSessionRecordingSettingsDialog } from 'scenes/session-recordings/settings/SessionRecordingSettings'
+import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 
 interface RowConfig<T extends Record<string, any>> {
     /** Class to append to each row. */
@@ -42,7 +42,7 @@ export interface PlayerListExpandableConfig<T extends Record<string, any>> exten
     expandedPreviewContentRender?: (record: T, recordIndex: number) => any
 }
 
-export interface PlayerListProps<T> extends SessionRecordingPlayerProps {
+export interface PlayerListProps<T> extends SessionRecordingPlayerLogicProps {
     tab: SessionRecordingPlayerTab
     expandable?: PlayerListExpandableConfig<T>
     row?: RowConfig<T>
@@ -60,7 +60,7 @@ export function PlayerList<T extends Record<string, any>>({
     const { data, showPositionFinder, isCurrent, isDirectionUp, expandedRows } = useValues(logic)
     const { setRenderedRows, setList, scrollTo, disablePositionFinder, handleRowClick, expandRow, collapseRow } =
         useActions(logic)
-    const { sessionEventsDataLoading, sessionPlayerMetaDataLoading } = useValues(
+    const { sessionEventsDataLoading, sessionPlayerMetaDataLoading, windowIds } = useValues(
         sessionRecordingDataLogic({ sessionRecordingId, playerKey })
     )
     const { currentTeam } = useValues(teamLogic)
@@ -126,9 +126,8 @@ export function PlayerList<T extends Record<string, any>>({
                                                     Turn on console log capture for future recordings
                                                 </LemonButton>
                                                 <LemonButton
-                                                    to={urls.projectSettings() + '#recordings'}
+                                                    onClick={() => openSessionRecordingSettingsDialog()}
                                                     targetBlank
-                                                    sideIcon={<IconOpenInNew />}
                                                 >
                                                     Configure in settings
                                                 </LemonButton>
@@ -225,6 +224,12 @@ export function PlayerList<T extends Record<string, any>>({
                                                 optionsDetermined={optionsDetermined ?? []}
                                                 expandedDetermined={expandedDetermined}
                                                 loading={sessionEventsDataLoading}
+                                                windowNumber={
+                                                    windowIds.length > 1
+                                                        ? windowIds.indexOf(record.playerPosition.windowId) + 1 ||
+                                                          undefined
+                                                        : undefined
+                                                }
                                             />
                                         )
                                     }}

@@ -5,7 +5,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].component }),
     [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
     [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].component }),
-    [Scene.Dashboards]: () => import('./dashboard/Dashboards'),
+    [Scene.Dashboards]: () => import('./dashboard/dashboards/Dashboards'),
     [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
     [Scene.Insight]: () => import('./insights/InsightScene'),
     [Scene.Cohorts]: () => import('./cohorts/Cohorts'),
@@ -44,7 +44,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.MySettings]: () => import('./me/Settings'),
     [Scene.Annotations]: () => import('./annotations/Annotations'),
     [Scene.PreflightCheck]: () => import('./PreflightCheck/PreflightCheck'),
-    [Scene.Signup]: () => import('./authentication/Signup'),
+    [Scene.Signup]: () => import('./authentication/signup/SignupContainer'),
     [Scene.InviteSignup]: () => import('./authentication/InviteSignup'),
     [Scene.Ingestion]: () => import('./ingestion/IngestionWizard'),
     [Scene.Billing]: () => import('./billing/Billing'),
@@ -60,4 +60,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Unsubscribe]: () => import('./Unsubscribe/Unsubscribe'),
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
     [Scene.IngestionWarnings]: () => import('./data-management/ingestion-warnings/IngestionWarningsView'),
+    [Scene.Query]: () => import('./query/QueryScene'),
 }

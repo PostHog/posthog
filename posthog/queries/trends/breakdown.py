@@ -21,7 +21,7 @@ from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyGroup
-from posthog.models.property.util import get_property_string_expr, parse_prop_grouped_clauses
+from posthog.models.property.util import get_property_string_expr, normalize_url_breakdown, parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.models.utils import PersonPropertiesMode
@@ -55,6 +55,7 @@ from posthog.queries.trends.sql import (
 from posthog.queries.trends.util import (
     COUNT_PER_ACTOR_MATH_FUNCTIONS,
     PROPERTY_MATH_FUNCTIONS,
+    ensure_value_is_json_serializable,
     enumerate_time_range,
     get_active_user_params,
     parse_response,
@@ -403,7 +404,10 @@ class TrendsBreakdown:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
 
         if self.filter.using_histogram:
-            return f"toFloat64OrNull(toString({breakdown_value}))"
+            breakdown_value = f"toFloat64OrNull(toString({breakdown_value}))"
+
+        breakdown_value = normalize_url_breakdown(breakdown_value, self.filter.breakdown_normalize_url)
+
         return breakdown_value
 
     def _get_histogram_breakdown_values(self, raw_breakdown_value: str, buckets: List[int]):
@@ -443,7 +447,9 @@ class TrendsBreakdown:
         if self.filter.breakdown_type == "session":
             # if session duration breakdown, we want ordering based on the time buckets, not the value
             return (-1, "")
-        return (value.get("count", value.get("aggregated_value", 0)) * -1, value.get("label"))  # reverse it
+
+        count_or_aggregated_value = value.get("count", value.get("aggregated_value") or 0)
+        return count_or_aggregated_value * -1, value.get("label")  # reverse it
 
     def _parse_single_aggregate_result(
         self, filter: Filter, entity: Entity, additional_values: Dict[str, Any]
@@ -451,6 +457,7 @@ class TrendsBreakdown:
         def _parse(result: List) -> List:
             parsed_results = []
             for stats in result:
+                aggregated_value = ensure_value_is_json_serializable(stats[0])
                 result_descriptors = self._breakdown_result_descriptors(stats[1], filter, entity)
                 filter_params = filter.to_params()
                 extra_params = {
@@ -461,7 +468,7 @@ class TrendsBreakdown:
                 }
                 parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
                 parsed_result = {
-                    "aggregated_value": stats[0],
+                    "aggregated_value": aggregated_value,
                     "filter": filter_params,
                     "persons": {
                         "filter": extra_params,

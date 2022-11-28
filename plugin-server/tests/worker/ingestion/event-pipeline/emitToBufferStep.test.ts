@@ -7,7 +7,7 @@ import { UUIDT } from '../../../../src/utils/utils'
 import {
     emitToBufferStep,
     shouldSendEventToBuffer,
-} from '../../../../src/worker/ingestion/event-pipeline/1-emitToBufferStep'
+} from '../../../../src/worker/ingestion/event-pipeline/2-emitToBufferStep'
 import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
 
 const now = DateTime.fromISO('2020-01-01T12:00:05.200Z')
@@ -22,6 +22,12 @@ const pluginEvent: PluginEvent = {
     ip: null,
     site_url: 'https://example.com',
     uuid: new UUIDT().toString(),
+}
+
+const anonEvent = {
+    ...pluginEvent,
+    distinct_id: '$some_device_id',
+    properties: { $device_id: '$some_device_id' },
 }
 
 const existingPerson: Person = {
@@ -69,7 +75,7 @@ describe('emitToBufferStep()', () => {
             topic: KAFKA_BUFFER,
             messages: [
                 {
-                    key: '2',
+                    key: 'my_id',
                     value: JSON.stringify(pluginEvent),
                     headers: {
                         eventId: pluginEvent.uuid,
@@ -133,12 +139,6 @@ describe('shouldSendEventToBuffer()', () => {
     })
 
     it('returns false for recently created anonymous person', () => {
-        const anonEvent = {
-            ...pluginEvent,
-            distinct_id: '$some_device_id',
-            properties: { $device_id: '$some_device_id' },
-        }
-
         const person = {
             ...existingPerson,
             created_at: now.minus({ seconds: 5 }),
@@ -163,20 +163,22 @@ describe('shouldSendEventToBuffer()', () => {
         expect(result).toEqual(false)
     })
 
-    it('returns false for $identify events for non-existing users', () => {
+    it('returns false for merging $identify events for non-existing users', () => {
         const event = {
             ...pluginEvent,
             event: '$identify',
+            properties: { $anon_distinct_id: 'some-id' },
         }
 
         const result = shouldSendEventToBuffer(runner.hub, event, undefined, 2)
         expect(result).toEqual(false)
     })
 
-    it('returns false for $identify events for new users', () => {
+    it('returns false for merging $identify events for new users', () => {
         const event = {
             ...pluginEvent,
             event: '$identify',
+            properties: { $anon_distinct_id: 'some-id' },
         }
         const person = {
             ...existingPerson,
@@ -187,10 +189,31 @@ describe('shouldSendEventToBuffer()', () => {
         expect(result).toEqual(false)
     })
 
-    it('returns false for $create_alias events', () => {
+    it('returns true for non merging $identify events', () => {
+        const event = {
+            ...pluginEvent,
+            event: '$identify',
+        }
+
+        const result = shouldSendEventToBuffer(runner.hub, event, undefined, 2)
+        expect(result).toEqual(true)
+    })
+
+    it('returns true for non merging $create_alias events', () => {
         const event = {
             ...pluginEvent,
             event: '$create_alias',
+        }
+
+        const result = shouldSendEventToBuffer(runner.hub, event, undefined, 2)
+        expect(result).toEqual(true)
+    })
+
+    it('returns false for merging $create_alias events', () => {
+        const event = {
+            ...pluginEvent,
+            event: '$create_alias',
+            properties: { alias: 'some-id' },
         }
 
         const result = shouldSendEventToBuffer(runner.hub, event, undefined, 2)
@@ -222,5 +245,14 @@ describe('shouldSendEventToBuffer()', () => {
 
         runner.hub.CONVERSION_BUFFER_ENABLED = true
         expect(shouldSendEventToBuffer(runner.hub, pluginEvent, undefined, 3)).toEqual(true)
+    })
+
+    it('handles teamIdsToBufferAnonymousEventsFor', () => {
+        runner.hub.MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR = 2
+
+        expect(shouldSendEventToBuffer(runner.hub, anonEvent, {} as Person, 1)).toEqual(true)
+        expect(shouldSendEventToBuffer(runner.hub, anonEvent, undefined, 1)).toEqual(true)
+        expect(shouldSendEventToBuffer(runner.hub, anonEvent, undefined, 2)).toEqual(true)
+        expect(shouldSendEventToBuffer(runner.hub, anonEvent, undefined, 3)).toEqual(false)
     })
 })

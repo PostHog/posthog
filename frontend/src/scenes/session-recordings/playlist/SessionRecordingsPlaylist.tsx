@@ -1,7 +1,13 @@
-import { useEffect, useRef } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { range } from '~/lib/utils'
-import { RecordingDurationFilter, RecordingFilters, SessionRecordingType } from '~/types'
+import {
+    RecordingDurationFilter,
+    RecordingFilters,
+    SessionRecordingPlaylistType,
+    SessionRecordingsTabs,
+    SessionRecordingType,
+} from '~/types'
 import {
     defaultPageviewPropertyEntityFilter,
     PLAYLIST_LIMIT,
@@ -10,7 +16,7 @@ import {
 import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { IconChevronLeft, IconChevronRight, IconFilter, IconWithCount } from 'lib/components/icons'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import clsx from 'clsx'
@@ -25,9 +31,11 @@ import { SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { DurationFilter } from '../filters/DurationFilter'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
-import { Spinner } from 'lib/components/Spinner/Spinner'
 import { NotFound } from 'lib/components/NotFound'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { More } from 'lib/components/LemonButton/More'
+import { urls } from 'scenes/urls'
+import { router } from 'kea-router'
 
 export const scene: SceneExport = {
     component: SessionRecordingsPlaylistScene,
@@ -38,11 +46,33 @@ export const scene: SceneExport = {
 }
 
 export function SessionRecordingsPlaylistScene(): JSX.Element {
-    const { playlist, playlistLoading, hasChanges } = useValues(sessionRecordingsPlaylistLogic)
-    const { updatePlaylist, setFilters, saveChanges } = useActions(sessionRecordingsPlaylistLogic)
+    const { playlist, playlistLoading, hasChanges, derivedName } = useValues(sessionRecordingsPlaylistLogic)
+    const { updateSavedPlaylist, setFilters, saveChanges, duplicateSavedPlaylist, deleteSavedPlaylistWithUndo } =
+        useActions(sessionRecordingsPlaylistLogic)
 
     if (!playlist && playlistLoading) {
-        return <Spinner />
+        return (
+            <div className="space-y-4 mt-6">
+                <LemonSkeleton className="h-10 w-1/4" />
+                <LemonSkeleton className=" w-1/3" />
+                <LemonSkeleton className=" w-1/4" />
+
+                <div className="flex justify-between mt-4">
+                    <LemonSkeleton.Button />
+                    <div className="flex gap-4">
+                        <LemonSkeleton.Button />
+                        <LemonSkeleton.Button />
+                    </div>
+                </div>
+
+                <div className="flex justify-between gap-4 mt-8">
+                    <div className="space-y-8 w-1/4">
+                        <LemonSkeleton className="h-10" repeat={10} />
+                    </div>
+                    <div className="flex-1" />
+                </div>
+            </div>
+        )
     }
 
     if (!playlist) {
@@ -56,8 +86,8 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     <EditableField
                         name="name"
                         value={playlist.name || ''}
-                        placeholder={'Untitled Playlist'}
-                        onSave={(value) => updatePlaylist({ name: value })}
+                        placeholder={derivedName}
+                        onSave={(value) => updateSavedPlaylist({ short_id: playlist.short_id, name: value })}
                         saveOnBlur={true}
                         maxLength={400}
                         mode={undefined}
@@ -66,16 +96,61 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                 }
                 buttons={
                     <div className="flex justify-between items-center gap-2">
-                        <>
-                            <LemonButton
-                                type="primary"
-                                disabled={!hasChanges}
-                                loading={hasChanges && playlistLoading}
-                                onClick={saveChanges}
-                            >
-                                Save changes
-                            </LemonButton>
-                        </>
+                        <More
+                            overlay={
+                                <>
+                                    <LemonButton
+                                        status="stealth"
+                                        onClick={() => duplicateSavedPlaylist(playlist, true)}
+                                        fullWidth
+                                        data-attr="duplicate-playlist"
+                                    >
+                                        Duplicate
+                                    </LemonButton>
+                                    <LemonButton
+                                        status="stealth"
+                                        onClick={() =>
+                                            updateSavedPlaylist({
+                                                short_id: playlist.short_id,
+                                                pinned: !playlist.pinned,
+                                            })
+                                        }
+                                        fullWidth
+                                    >
+                                        {playlist.pinned ? 'Unpin playlist' : 'Pin playlist'}
+                                    </LemonButton>
+                                    <LemonDivider />
+
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={() =>
+                                            deleteSavedPlaylistWithUndo(playlist, () => {
+                                                router.actions.replace(
+                                                    urls.sessionRecordings(SessionRecordingsTabs.Playlists)
+                                                )
+                                            })
+                                        }
+                                        fullWidth
+                                    >
+                                        Delete playlist
+                                    </LemonButton>
+                                </>
+                            }
+                        />
+
+                        {!playlist.is_static && (
+                            <>
+                                <LemonDivider vertical />
+                                <LemonButton
+                                    type="primary"
+                                    disabled={!hasChanges}
+                                    loading={hasChanges && playlistLoading}
+                                    onClick={saveChanges}
+                                >
+                                    Save changes
+                                </LemonButton>
+                            </>
+                        )}
                     </div>
                 }
                 caption={
@@ -85,7 +160,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                             name="description"
                             value={playlist.description || ''}
                             placeholder="Description (optional)"
-                            onSave={(value) => updatePlaylist({ description: value })}
+                            onSave={(value) => updateSavedPlaylist({ short_id: playlist.short_id, description: value })}
                             saveOnBlur={true}
                             maxLength={400}
                             data-attr="playlist-description"
@@ -104,6 +179,8 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     logicKey={playlist.short_id}
                     filters={playlist.filters}
                     onFiltersChange={setFilters}
+                    isStatic={!!playlist.is_static}
+                    staticRecordings={playlist.playlist_items}
                 />
             ) : null}
         </div>
@@ -116,6 +193,8 @@ export type SessionRecordingsPlaylistProps = {
     filters?: RecordingFilters
     updateSearchParams?: boolean
     onFiltersChange?: (filters: RecordingFilters) => void
+    isStatic?: boolean
+    staticRecordings?: SessionRecordingPlaylistType['playlist_items']
 }
 
 export function SessionRecordingsPlaylist({
@@ -124,8 +203,17 @@ export function SessionRecordingsPlaylist({
     filters: defaultFilters,
     updateSearchParams,
     onFiltersChange,
+    isStatic = false,
+    staticRecordings = [],
 }: SessionRecordingsPlaylistProps): JSX.Element {
-    const logic = sessionRecordingsListLogic({ key: logicKey, personUUID, filters: defaultFilters, updateSearchParams })
+    const logic = sessionRecordingsListLogic({
+        key: logicKey,
+        personUUID,
+        filters: defaultFilters,
+        updateSearchParams,
+        isStatic,
+        staticRecordings,
+    })
     const {
         sessionRecordings,
         sessionRecordingIdToProperties,
@@ -134,6 +222,7 @@ export function SessionRecordingsPlaylist({
         hasNext,
         hasPrev,
         activeSessionRecording,
+        nextSessionRecording,
         filters,
         totalFiltersCount,
         showFilters,
@@ -198,26 +287,30 @@ export function SessionRecordingsPlaylist({
     return (
         <>
             <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={
-                        <IconWithCount count={totalFiltersCount}>
-                            <IconFilter />
-                        </IconWithCount>
-                    }
-                    onClick={() => {
-                        setShowFilters(!showFilters)
-                        if (personUUID) {
-                            const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
-                            if (entityFilterButtons.length > 0) {
-                                ;(entityFilterButtons[0] as HTMLElement).click()
+                <div className="flex items-center gap-4">
+                    {!isStatic && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={
+                                <IconWithCount count={totalFiltersCount}>
+                                    <IconFilter />
+                                </IconWithCount>
                             }
-                        }
-                    }}
-                >
-                    {showFilters ? 'Hide filters' : 'Filter recordings'}
-                </LemonButton>
+                            onClick={() => {
+                                setShowFilters(!showFilters)
+                                if (personUUID) {
+                                    const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
+                                    if (entityFilterButtons.length > 0) {
+                                        ;(entityFilterButtons[0] as HTMLElement).click()
+                                    }
+                                }
+                            }}
+                        >
+                            {showFilters ? 'Hide filters' : 'Filters'}
+                        </LemonButton>
+                    )}
+                </div>
 
                 <div className="flex items-center gap-4">
                     <DateFilter
@@ -261,7 +354,9 @@ export function SessionRecordingsPlaylist({
                     ) : null}
                     <div className="w-full overflow-hidden border rounded">
                         <div className="relative flex justify-between items-center bg-mid py-3 px-4 border-b">
-                            <span className="font-bold uppercase text-xs my-1 tracking-wide">Recent Recordings</span>
+                            <span className="font-bold uppercase text-xs my-1 tracking-wide">
+                                {logicKey === 'recents' ? 'Recent recordings' : 'Recordings'}
+                            </span>
                             {paginationControls}
 
                             <LemonTableLoader loading={sessionRecordingsResponseLoading} />
@@ -283,10 +378,9 @@ export function SessionRecordingsPlaylist({
                         ) : (
                             <ul className={clsx(sessionRecordingsResponseLoading ? 'opacity-50' : '')}>
                                 {sessionRecordings.map((rec, i) => (
-                                    <>
+                                    <Fragment key={rec.id}>
                                         {i > 0 && <div className="border-t" />}
                                         <SessionRecordingPlaylistItem
-                                            key={rec.id}
                                             recording={rec}
                                             recordingProperties={sessionRecordingIdToProperties[rec.id]}
                                             recordingPropertiesLoading={sessionRecordingsPropertiesResponseLoading}
@@ -294,7 +388,7 @@ export function SessionRecordingsPlaylist({
                                             onPropertyClick={onPropertyClick}
                                             isActive={activeSessionRecording?.id === rec.id}
                                         />
-                                    </>
+                                    </Fragment>
                                 ))}
                             </ul>
                         )}
@@ -330,16 +424,13 @@ export function SessionRecordingsPlaylist({
                 </div>
                 <div className="SessionRecordingsPlaylist__right-column">
                     {activeSessionRecording?.id ? (
-                        <div className="border rounded h-full">
-                            <SessionRecordingPlayer
-                                playerKey="playlist"
-                                sessionRecordingId={activeSessionRecording?.id}
-                                matching={activeSessionRecording?.matching_events}
-                                recordingStartTime={
-                                    activeSessionRecording ? activeSessionRecording.start_time : undefined
-                                }
-                            />
-                        </div>
+                        <SessionRecordingPlayer
+                            playerKey="playlist"
+                            sessionRecordingId={activeSessionRecording?.id}
+                            matching={activeSessionRecording?.matching_events}
+                            recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
+                            nextSessionRecording={nextSessionRecording}
+                        />
                     ) : (
                         <div className="mt-20">
                             <EmptyMessage

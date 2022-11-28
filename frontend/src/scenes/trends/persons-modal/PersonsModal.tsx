@@ -8,7 +8,7 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { GroupActorHeader, groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { IconPlayCircle, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonBadge, LemonDivider, LemonInput, LemonModal, LemonSelect, Link } from '@posthog/lemon-ui'
 import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
 import ReactDOM from 'react-dom'
 import { Spinner } from 'lib/components/Spinner/Spinner'
@@ -18,6 +18,8 @@ import { Skeleton, Tabs } from 'antd'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { AlertMessage } from 'lib/components/AlertMessage'
+import { Tooltip } from 'lib/components/Tooltip'
+import { Noun } from '~/models/groupsModel'
 
 export interface PersonsModalProps {
     onAfterClose?: () => void
@@ -68,15 +70,7 @@ function PersonsModal({ url: _url, urlsIndex, urls, title, onAfterClose }: Perso
                 </LemonModal.Header>
                 <div className="px-6 py-2">
                     {actorsResponse && !!missingActorsCount && (
-                        <AlertMessage type="info" className="mb-2">
-                            {missingActorsCount}{' '}
-                            {missingActorsCount > 1 ? `${actorLabel.plural} are` : `${actorLabel.singular} is`} not
-                            shown because they've been lost.{' '}
-                            <a href="https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons">
-                                Read more here for when this can happen
-                            </a>
-                            .
-                        </AlertMessage>
+                        <MissingPersonsAlert actorLabel={actorLabel} missingActorsCount={missingActorsCount} />
                     )}
                     <LemonInput
                         type="search"
@@ -222,7 +216,7 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
     const matchedRecordings = actor.matched_recordings || []
 
     return (
-        <div className="border rounded overflow-hidden bg-white">
+        <div className="relative border rounded bg-white">
             <div className="flex items-center gap-2 p-2">
                 <LemonButton
                     noPadding
@@ -323,7 +317,36 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
                     </Tabs>
                 </div>
             ) : null}
+
+            {actor.value_at_data_point !== null && (
+                <Tooltip title={`${name}'s value for this data point.`}>
+                    <LemonBadge.Number
+                        count={actor.value_at_data_point}
+                        maxDigits={Infinity}
+                        position="top-right"
+                        style={{ pointerEvents: 'auto' }}
+                    />
+                </Tooltip>
+            )}
         </div>
+    )
+}
+
+export function MissingPersonsAlert({
+    actorLabel,
+    missingActorsCount,
+}: {
+    actorLabel: Noun
+    missingActorsCount: number
+}): JSX.Element {
+    return (
+        <AlertMessage type="info" className="mb-2">
+            {missingActorsCount} {missingActorsCount > 1 ? `${actorLabel.plural} are` : `${actorLabel.singular} is`} not
+            shown because they've been merged with those listed, or deleted.{' '}
+            <Link to="https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons">
+                Learn more.
+            </Link>
+        </AlertMessage>
     )
 }
 

@@ -548,6 +548,45 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.assertTrue("lg" in first_tile_layouts)
 
+    def test_dashboard_tile_color_can_be_set_for_new_or_existing_tiles(self):
+        dashboard_id, _ = self._create_dashboard({"name": "asdasd", "pinned": True})
+
+        insight_id, _ = self._create_insight(
+            {"filters": {"hello": "test"}, "dashboards": [dashboard_id], "name": "another"}
+        )
+
+        dashboard_json = self._get_dashboard(dashboard_id)
+        tiles = dashboard_json["tiles"]
+        assert len(tiles) == 1
+        tile_id = tiles[0]["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {
+                "tiles": [
+                    {
+                        "id": tile_id,
+                        "color": "red",
+                        "is_cached": True,  # included to ensure we can update existing tiles with this readonly property
+                    },
+                    {
+                        "id": tile_id + 1,
+                        "color": "red",
+                        "is_cached": True,  # included to ensure we can update new tiles with this readonly property
+                        "text": {"body": "an example"},
+                        "layouts": {},
+                    },
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        dashboard_json = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/", {"refresh": False}
+        ).json()
+        assert dashboard_json["tiles"][0]["color"] == "red"
+
     def test_dashboard_from_template(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/", {"name": "another", "use_template": "DEFAULT_APP"}
@@ -617,6 +656,54 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         # default
         response = self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "another"})
         self.assertEqual(response.json()["creation_mode"], "default")
+
+    def test_dashboard_duplication_does_not_duplicate_tiles_by_default(self):
+        existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
+        insight_one_id, _ = self._create_insight({"dashboards": [existing_dashboard.pk], "name": "the insight"})
+        _, dashboard_with_tiles = self.dashboard_api.create_text_tile(existing_dashboard.id)
+
+        duplicate_response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/", {"name": "another", "use_dashboard": existing_dashboard.id}
+        )
+        self.assertEqual(duplicate_response.status_code, status.HTTP_201_CREATED)
+
+        after_duplication_insight_id = duplicate_response.json()["tiles"][0]["insight"]["id"]
+        assert after_duplication_insight_id == insight_one_id
+        assert duplicate_response.json()["tiles"][0]["insight"]["name"] == "the insight"
+
+        after_duplication_tile_id = duplicate_response.json()["tiles"][1]["text"]["id"]
+        assert after_duplication_tile_id == dashboard_with_tiles["tiles"][1]["text"]["id"]
+
+    def test_dashboard_duplication_can_duplicate_tiles(self):
+        existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
+        insight_one_id, _ = self._create_insight({"dashboards": [existing_dashboard.pk], "name": "the insight"})
+        _, dashboard_with_tiles = self.dashboard_api.create_text_tile(existing_dashboard.id)
+
+        duplicate_response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {"name": "another", "use_dashboard": existing_dashboard.id, "duplicate_tiles": True},
+        )
+        self.assertEqual(duplicate_response.status_code, status.HTTP_201_CREATED)
+
+        after_duplication_insight_id = duplicate_response.json()["tiles"][0]["insight"]["id"]
+        assert after_duplication_insight_id != insight_one_id
+        assert duplicate_response.json()["tiles"][0]["insight"]["name"] == "the insight (Copy)"
+
+        after_duplication_tile_id = duplicate_response.json()["tiles"][1]["text"]["id"]
+        assert after_duplication_tile_id != dashboard_with_tiles["tiles"][1]["text"]["id"]
+
+    def test_dashboard_duplication_can_duplicate_tiles_without_editing_name_if_there_is_none(self) -> None:
+        existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
+        insight_one_id, _ = self._create_insight({"dashboards": [existing_dashboard.pk], "name": None})
+        _, dashboard_with_tiles = self.dashboard_api.create_text_tile(existing_dashboard.id)
+
+        duplicate_response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {"name": "another", "use_dashboard": existing_dashboard.id, "duplicate_tiles": True},
+        )
+        self.assertEqual(duplicate_response.status_code, status.HTTP_201_CREATED)
+
+        assert duplicate_response.json()["tiles"][0]["insight"]["name"] is None
 
     def test_dashboard_duplication(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
@@ -843,7 +930,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         other_dashboard_id, _ = self._create_dashboard({"name": "not to delete"})
         insight_one_id, _ = self._create_insight({"dashboards": [dashboard_id, other_dashboard_id]})
         insight_two_id, _ = self._create_insight({"dashboards": [dashboard_id]})
-        tile_id, _ = self.dashboard_api.create_text_tile(dashboard_id)
+        self.dashboard_api.create_text_tile(dashboard_id)
 
         self._soft_delete(dashboard_id, "dashboards")
 

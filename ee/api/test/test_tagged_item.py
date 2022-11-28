@@ -4,7 +4,7 @@ import pytest
 from django.utils import timezone
 from rest_framework import status
 
-from posthog.models import Dashboard, Tag
+from posthog.models import Dashboard, Insight, Tag
 from posthog.models.tagged_item import TaggedItem
 from posthog.test.base import APIBaseTest
 
@@ -103,3 +103,22 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         )
 
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
+
+    def test_can_list_tags(self) -> None:
+        from ee.models.license import License, LicenseManager
+
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+        )
+
+        dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
+        tag = Tag.objects.create(name="dashboard tag", team_id=self.team.id)
+        dashboard.tagged_items.create(tag_id=tag.id)
+
+        insight = Insight.objects.create(team_id=self.team.id, name="empty insight")
+        tag = Tag.objects.create(name="insight tag", team_id=self.team.id)
+        insight.tagged_items.create(tag_id=tag.id)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/tags")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == ["dashboard tag", "insight tag"]

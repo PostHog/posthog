@@ -307,7 +307,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
         context["js_posthog_host"] = "'https://app.posthog.com'"
 
-    context["js_capture_internal_metrics"] = settings.CAPTURE_INTERNAL_METRICS
+    context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_url"] = get_js_url(request)
 
     posthog_app_context: Dict[str, Any] = {
@@ -354,7 +354,10 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
     if posthog_distinct_id:
-        feature_flags = posthoganalytics.get_all_flags(posthog_distinct_id, only_evaluate_locally=True)
+        groups = {}
+        if request.user and request.user.is_authenticated and request.user.organization:
+            groups = {"organization": str(request.user.organization.id)}
+        feature_flags = posthoganalytics.get_all_flags(posthog_distinct_id, only_evaluate_locally=True, groups=groups)
         # don't forcefully set distinctID, as this breaks the link for anonymous users coming from `posthog.com`.
         posthog_bootstrap["featureFlags"] = feature_flags
 
@@ -904,23 +907,6 @@ def get_safe_cache(cache_key: str):
 def is_anonymous_id(distinct_id: str) -> bool:
     # Our anonymous ids are _not_ uuids, but a random collection of strings
     return bool(re.match(ANONYMOUS_REGEX, distinct_id))
-
-
-def mask_email_address(email_address: str) -> str:
-    """
-    Grabs an email address and returns it masked in a human-friendly way to protect PII.
-        Example: testemail@posthog.com -> t********l@posthog.com
-    """
-    index = email_address.find("@")
-
-    if index == -1:
-        raise ValueError("Please provide a valid email address.")
-
-    if index == 1:
-        # Username is one letter, mask it differently
-        return f"*{email_address[index:]}"
-
-    return f"{email_address[0]}{'*' * (index - 2)}{email_address[index-1:]}"
 
 
 def is_valid_regex(value: Any) -> bool:

@@ -16,7 +16,6 @@ import {
     InsightType,
     InsightShortId,
     MultivariateFlagVariant,
-    ChartDisplayType,
     TrendResult,
     FunnelStep,
     SecondaryExperimentMetric,
@@ -273,7 +272,6 @@ export const experimentLogic = kea<experimentLogicType>({
                 newInsightFilters = cleanFilters({
                     insight: InsightType.FUNNELS,
                     funnel_viz_type: FunnelVizType.Steps,
-                    display: ChartDisplayType.FunnelViz,
                     date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     layout: FunnelLayout.horizontal,

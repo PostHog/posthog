@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { combineUrl, router } from 'kea-router'
 import { lemonToast } from 'lib/components/lemonToast'
-import { EmptyPropertyFilter, EventType, PropertyFilter, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, EventType, PropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
 import { fromParamsGivenUrl } from 'lib/utils'
@@ -13,12 +13,24 @@ const errorToastSpy = jest.spyOn(lemonToast, 'error')
 
 const timeNow = '2021-05-05T00:00:00.000Z'
 
-import * as dayjs from 'lib/dayjs'
-jest.spyOn(dayjs, 'now').mockImplementation(() => dayjs.dayjs(timeNow))
-
 import * as exporter from 'lib/components/ExportButton/exporter'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
-jest.spyOn(exporter, 'triggerExport')
+
+jest.mock('lib/dayjs', () => {
+    const mod = jest.requireActual('lib/dayjs')
+    return {
+        ...mod,
+        now: () => mod.dayjs(timeNow),
+    }
+})
+
+jest.mock('lib/components/ExportButton/exporter', () => {
+    const mod = jest.requireActual('lib/components/ExportButton/exporter')
+    return {
+        ...mod,
+        triggerExport: jest.fn(),
+    }
+})
 
 const randomBool = (): boolean => Math.random() < 0.5
 
@@ -27,8 +39,8 @@ const randomString = (): string => Math.random().toString(36).substring(2, 5)
 const makeEvent = (id: string = '1', timestamp: string = randomString()): EventType => ({
     id: id,
     timestamp,
+    distinct_id: 'distinct_id',
     elements: [],
-    elements_hash: '',
     event: '',
     properties: {},
 })
@@ -36,7 +48,7 @@ const makeEvent = (id: string = '1', timestamp: string = randomString()): EventT
 const makePropertyFilter = (value: string = randomString()): PropertyFilter => ({
     key: value,
     operator: PropertyOperator.Exact,
-    type: 't',
+    type: PropertyFilterType.Person,
     value: 'v',
 })
 
@@ -658,7 +670,7 @@ describe('eventsTableLogic', () => {
 
                 it('can filter partial properties inside the array', async () => {
                     const propertyFilter = makePropertyFilter()
-                    const partialPropertyFilter = { type: 't' } as EmptyPropertyFilter
+                    const partialPropertyFilter = { type: PropertyFilterType.Person } as AnyPropertyFilter
                     await expectLogic(logic, () => {
                         logic.actions.setProperties([propertyFilter, partialPropertyFilter])
                     }).toMatchValues({ properties: [propertyFilter] })

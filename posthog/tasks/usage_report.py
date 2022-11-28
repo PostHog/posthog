@@ -222,10 +222,10 @@ def send_report_to_billing_service(organization: Organization, report: Dict) -> 
     from ee.settings import BILLING_SERVICE_URL
 
     license = License.objects.first_valid()
-    token = build_billing_token(license, organization) if license else None
+    if not license or not license.is_v2_license:
+        return
 
-    if not license:
-        return None
+    token = build_billing_token(license, organization)
 
     headers = {}
     if token:

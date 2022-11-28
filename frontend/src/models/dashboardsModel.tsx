@@ -8,9 +8,13 @@ import { DashboardType, InsightShortId, DashboardTile, InsightModel } from '~/ty
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
 import { lemonToast } from 'lib/components/lemonToast'
+import { tagsModel } from '~/models/tagsModel'
 
 export const dashboardsModel = kea<dashboardsModelType>({
     path: ['models', 'dashboardsModel'],
+    connect: {
+        actions: [tagsModel, ['loadTags']],
+    },
     actions: () => ({
         delayedDeleteDashboard: (id: number) => ({ id }),
         setDiveSourceId: (id: InsightShortId | null) => ({ id }),
@@ -49,10 +53,21 @@ export const dashboardsModel = kea<dashboardsModelType>({
         pinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         unpinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         loadDashboards: true,
-        duplicateDashboard: ({ id, name, show }: { id: number; name?: string; show?: boolean }) => ({
+        duplicateDashboard: ({
+            id,
+            name,
+            show,
+            duplicateTiles,
+        }: {
+            id: number
+            name?: string
+            show?: boolean
+            duplicateTiles?: boolean
+        }) => ({
             id: id,
             name: name || `#${id}`,
             show: show || false,
+            duplicateTiles: duplicateTiles || false,
         }),
         tileMovedToDashboard: (tile: DashboardTile, dashboardId: number) => ({ tile, dashboardId }),
         tileRemovedFromDashboard: ({ tile, dashboardId }: { tile?: DashboardTile; dashboardId?: number }) => ({
@@ -108,6 +123,9 @@ export const dashboardsModel = kea<dashboardsModelType>({
                         values.rawDashboards[id]?.[updatedAttribute]?.length || 0,
                         payload[updatedAttribute].length
                     )
+                    if (updatedAttribute === 'tags') {
+                        actions.loadTags()
+                    }
                 }
                 if (allowUndo) {
                     lemonToast.success('Dashboard updated', {
@@ -149,10 +167,11 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 eventUsageLogic.actions.reportDashboardPinToggled(false, source)
                 return response
             },
-            duplicateDashboard: async ({ id, name, show }) => {
+            duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
                 const result = (await api.create(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`, {
                     use_dashboard: id,
                     name: `${name} (Copy)`,
+                    duplicate_tiles: duplicateTiles,
                 })) as DashboardType
                 if (show) {
                     router.actions.push(urls.dashboard(result.id))

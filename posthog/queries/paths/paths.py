@@ -5,11 +5,11 @@ from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.materialized_columns import ColumnName
-from posthog.client import sync_execute
 from posthog.constants import LIMIT, PATH_EDGE_LIMIT
 from posthog.models import Filter, Team
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property import PropertyName
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.paths.paths_event_query import PathEventQuery
 from posthog.queries.paths.sql import PATH_ARRAY_QUERY
 
@@ -84,8 +84,13 @@ class Paths:
 
     def _exec_query(self) -> List[Tuple]:
         query = self.get_query()
-        return sync_execute(
-            query, self.params, client_query_id=self._filter.client_query_id, client_query_team_id=self._team.pk
+        return insight_sync_execute(
+            query,
+            self.params,
+            query_type="paths",
+            filter=self._filter,
+            client_query_id=self._filter.client_query_id,
+            client_query_team_id=self._team.pk,
         )
 
     def get_query(self) -> str:

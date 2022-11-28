@@ -325,12 +325,24 @@ class FeatureFlagMatcher:
 
         highest_priority_evaluation_reason = FeatureFlagMatchReason.NO_CONDITION_MATCH
         highest_priority_index = 0
-        for index, condition in enumerate(feature_flag.conditions):
+        # Stable sort conditions with variant overrides to the top. This ensures that if overrides are present, they are
+        # evaluated first, and the variant override is applied to the first matching condition.
+        # :TRICKY: We need to include the enumeration index before the sort so the flag evaluation reason gets the right condition index.
+        sorted_flag_conditions = sorted(
+            enumerate(feature_flag.conditions),
+            key=lambda condition_tuple: 0 if condition_tuple[1].get("variant") else 1,
+        )
+        for index, condition in sorted_flag_conditions:
             is_match, evaluation_reason = self.is_condition_match(feature_flag, condition, index)
             if is_match:
+                variant_override = condition.get("variant")
+                if variant_override in [variant["key"] for variant in feature_flag.variants]:
+                    variant = variant_override
+                else:
+                    variant = self.get_matching_variant(feature_flag)
                 return FeatureFlagMatch(
                     match=True,
-                    variant=self.get_matching_variant(feature_flag),
+                    variant=variant,
                     reason=evaluation_reason,
                     condition_index=index,
                 )
@@ -678,6 +690,42 @@ def set_feature_flag_hash_key_overrides(
 
     if new_overrides:
         FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides)
+
+
+def can_user_edit_feature_flag(request, feature_flag):
+    try:
+        from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
+        from ee.models.organization_resource_access import OrganizationResourceAccess
+    except:
+        return True
+    else:
+        if feature_flag.created_by == request.user:
+            return True
+
+        all_role_memberships = request.user.role_memberships.select_related("role").all()
+        try:
+            feature_flag_resource_access = OrganizationResourceAccess.objects.get(
+                resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS
+            )
+            org_level = feature_flag_resource_access.access_level
+        except OrganizationResourceAccess.DoesNotExist:
+            org_level = OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT
+
+        role_level = max([membership.role.feature_flags_access_level for membership in all_role_memberships], default=0)
+
+        if role_level == 0:
+            final_level = org_level
+        else:
+            final_level = role_level
+
+        if final_level == OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW:
+            can_edit = FeatureFlagRoleAccess.objects.filter(
+                feature_flag__id=feature_flag.pk,
+                role__id__in=[membership.role.pk for membership in all_role_memberships],
+            ).exists()
+            return can_edit
+        else:
+            return final_level == OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT
 
 
 # DEPRECATED: This model is no longer used, but it's not deleted to avoid downtime

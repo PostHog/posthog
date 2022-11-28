@@ -139,7 +139,7 @@ djangorestframework-dataclasses==1.1.1
     # via -r requirements.in
 dnspython==2.2.1
     # via -r requirements.in
-drf-exceptions-hog==0.2.0
+drf-exceptions-hog==0.3.0
     # via -r requirements.in
 drf-extensions==0.7.0
     # via -r requirements.in
@@ -211,6 +211,8 @@ mimesis==5.2.1
     # via -r requirements.in
 monotonic==1.5
     # via posthoganalytics
+more-itertools==9.0.0
+    # via -r requirements.in
 multidict==6.0.2
     # via
     #   aiohttp
