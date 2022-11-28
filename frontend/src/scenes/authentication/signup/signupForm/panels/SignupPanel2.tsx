@@ -4,17 +4,17 @@ import { Form } from 'kea-forms'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import { Field } from 'lib/forms/Field'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { signupTestLogic } from '../signupTestLogic'
+import { signupLogic } from '../signupLogic'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 
 export function SignupPanel2(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
-    const { isSignupPanel2Submitting } = useValues(signupTestLogic)
+    const { isSignupPanel2Submitting } = useValues(signupLogic)
 
     return (
         <div className="space-y-4 Signup__panel__2">
-            <Form logic={signupTestLogic} formKey={'signupPanel2'} className="space-y-4" enableFormOnSubmit>
+            <Form logic={signupLogic} formKey={'signupPanel2'} className="space-y-4" enableFormOnSubmit>
                 <Field name="first_name" label="Your name">
                     <LemonInput
                         className="ph-ignore-input"

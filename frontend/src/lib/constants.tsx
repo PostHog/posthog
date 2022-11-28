@@ -132,7 +132,6 @@ export const FEATURE_FLAGS = {
     VARIANT_OVERRIDES: 'variant-overrides', // owner: @neilkakkar
     ONBOARDING_V2_EXPERIMENT: 'onboarding-v2-experiment', // owner: #team-growth
     RECORDING_AUTOPLAY: 'recording-autoplay', // owner: #team-session-recordings
-    SIGNUP_FORM_EXPERIMENT: 'signup-form-experiment', // owner: #team-growth
     SIGNUP_PRODUCT_BENEFITS_EXPERIMENT: 'signup-product-benefits-experiment', // owner: #team-growth
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
 }
