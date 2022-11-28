@@ -32,7 +32,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         cls.user.current_team = cls.demo_team
         cls.user.save()
         EventProperty.objects.create(team=cls.demo_team, event="$pageview", property="$browser")
+        # put the same event against more than one property to test that we only count it once
         EventProperty.objects.create(team=cls.demo_team, event="$pageview", property="first_visit")
+        EventProperty.objects.create(team=cls.demo_team, event="another_event", property="first_visit")
         calculate_event_property_usage_for_team(cls.demo_team.pk)
 
     def test_individual_property_formats(self):
@@ -112,12 +114,26 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json(), self.permission_denied_response())
 
     def test_query_property_definitions(self):
+        # no search at all
+        response = self.client.get("/api/projects/@current/property_definitions")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        assert sorted([r["name"] for r in response_data["results"]]) == [
+            "$browser",
+            "$current_url",
+            "app_rating",
+            "first_visit",
+            "is_first_movie",
+            "plan",
+            "purchase",
+            "purchase_value",
+        ]
 
         # Regular search
         response = self.client.get("/api/projects/@current/property_definitions/?search=firs")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        self.assertEqual(response_data["count"], 2)  # first_visit, is_first_movie
+        assert [r["name"] for r in response_data["results"]] == ["first_visit", "is_first_movie"]
 
         # Fuzzy search
         response = self.client.get("/api/projects/@current/property_definitions/?search=p ting")
