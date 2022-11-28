@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 import api from 'lib/api'
 
-interface TimeToSeeDataPayload {
+export interface TimeToSeeDataPayload {
     type: 'insight_load' | 'dashboard_load'
     context: 'insight' | 'dashboard'
     time_to_see_data_ms: number
