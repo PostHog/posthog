@@ -28,7 +28,7 @@ class LicenseSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         validation = requests.post(
-            "https://license.posthog.com/licenses/activate", data={"key": data["key"]}, timeout=5
+            "https://license.posthog.com/licenses/activate", data={"key": data["key"]}, timeout=15
         )
         validation.raise_for_status()
         resp = validation.json()
@@ -71,7 +71,7 @@ class LicenseViewSet(
     def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:
         license = get_object_or_404(License, pk=pk)
         validation = requests.post(
-            "https://license.posthog.com/licenses/deactivate", data={"key": license.key}, timeout=5
+            "https://license.posthog.com/licenses/deactivate", data={"key": license.key}, timeout=15
         )
         validation.raise_for_status()
 

@@ -216,7 +216,7 @@ def make_api_call(
             url=url,
             json=body,
             headers={"Authorization": f"Bearer {access_token}"},
-            timeout=5,
+            timeout=15,
         )
         return response
     except Exception as ex:

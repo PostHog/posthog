@@ -32,7 +32,7 @@ def send_license_usage():
         response = requests.post(
             "https://license.posthog.com/licenses/usage",
             data={"date": date_from.strftime("%Y-%m-%d"), "key": license.key, "events_count": events_count},
-            timeout=5,
+            timeout=15,
         )
 
         if response.status_code == 404 and response.json().get("code") == "not_found":

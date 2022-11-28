@@ -204,7 +204,7 @@ class BillingViewset(viewsets.GenericViewSet):
                 f"{BILLING_SERVICE_URL}/api/billing/",
                 headers={"Authorization": f"Bearer {billing_service_token}"},
                 json={"custom_limits_usd": custom_limits_usd},
-                timeout=5,
+                timeout=15,
             )
 
             handle_billing_service_error(res)
@@ -259,7 +259,7 @@ class BillingViewset(viewsets.GenericViewSet):
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing",
             headers={"Authorization": f"Bearer {build_billing_token(license, organization)}"},
-            timeout=5,
+            timeout=15,
         )
 
         if res.status_code != 200:
@@ -298,7 +298,7 @@ class BillingViewset(viewsets.GenericViewSet):
             f"{BILLING_SERVICE_URL}/api/products",
             params=params,
             headers=headers,
-            timeout=5,
+            timeout=15,
         )
 
         handle_billing_service_error(res)
@@ -314,7 +314,7 @@ class BillingViewset(viewsets.GenericViewSet):
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing",
             headers={"Authorization": f"Bearer {billing_service_token}"},
-            timeout=5,
+            timeout=15,
         )
 
         handle_billing_service_error(res)
