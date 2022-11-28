@@ -263,7 +263,6 @@ jobs:
                   OBJECT_STORAGE_ENDPOINT=http://localhost:19000
                   OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
                   OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
-                  CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:22.8
                   EOT
 
             - uses: actions/download-artifact@v3
