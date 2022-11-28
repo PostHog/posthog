@@ -8,6 +8,8 @@ import {
     BaseMathType,
     PropertyMathType,
     CountPerActorMathType,
+    FilterType,
+    TrendsFilterType,
 } from '~/types'
 
 export enum NodeKind {
@@ -112,6 +114,8 @@ export interface TrendsQuery extends InsightsQueryBase {
     interval?: IntervalType
     /** Events and actions to include */
     series: (EventsNode | ActionsNode)[]
+    /** Properties specific to the trends insight */
+    trendsFilter?: Omit<TrendsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
 }
 
 // TODO: not supported by "ts-json-schema-generator" nor "typescript-json-schema" :(

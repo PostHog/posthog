@@ -1697,6 +1697,53 @@
                         ]
                     },
                     "type": "array"
+                },
+                "trendsFilter": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "aggregation_axis_format": {
+                            "$ref": "#/definitions/AggregationAxisFormat"
+                        },
+                        "aggregation_axis_postfix": {
+                            "type": "string"
+                        },
+                        "aggregation_axis_prefix": {
+                            "type": "string"
+                        },
+                        "breakdown_histogram_bin_count": {
+                            "type": "number"
+                        },
+                        "compare": {
+                            "type": "boolean"
+                        },
+                        "display": {
+                            "$ref": "#/definitions/ChartDisplayType"
+                        },
+                        "formula": {},
+                        "hidden_legend_keys": {
+                            "additionalProperties": {
+                                "anyOf": [
+                                    {
+                                        "type": "boolean"
+                                    },
+                                    {
+                                        "not": {}
+                                    }
+                                ]
+                            },
+                            "type": "object"
+                        },
+                        "show_legend": {
+                            "type": "boolean"
+                        },
+                        "shown_as": {
+                            "$ref": "#/definitions/ShownAsValue"
+                        },
+                        "smoothing_intervals": {
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
                 }
             },
             "required": ["kind", "series"],

@@ -40,6 +40,7 @@ const filtersFromTrendsQuery = (query: TrendsQuery): Partial<FilterType> => {
         ...seriesToActionsAndEvents(query.series),
         properties: query.properties,
         filter_test_accounts: query.filterTestAccounts,
+        ...query.trendsFilter,
     }
 }
 
