@@ -15,21 +15,22 @@ def test_func(number: Optional[int] = None) -> int:
 
 
 class TestCacheUtils(APIBaseTest):
-    def test_cache_for_with_different_passed_arguments_styles_when_skipping_in_tests(self) -> None:
-        with self.settings(TEST=True):
-            assert 1 == test_func()
-            assert 1 == test_func(2)
-            assert 1 == test_func(number=2)
-            assert 1 == test_func(number=2)
+    def setUp(self):
+        mocked_dependency.reset_mock()
 
-            # function is never cached when TEST=True
-            assert mocked_dependency.call_count == 4
+    def test_cache_for_with_different_passed_arguments_styles_when_skipping_cache(self) -> None:
+        assert 1 == test_func(use_cache=False)
+        assert 1 == test_func(2, use_cache=False)
+        assert 1 == test_func(number=2, use_cache=False)
+        assert 1 == test_func(number=2, use_cache=False)
+
+        # function is never cached when TEST=True
+        assert mocked_dependency.call_count == 4
 
     def test_cache_for_with_different_passed_arguments_styles_when_caching(self) -> None:
-        with self.settings(TEST=False):
-            assert 1 == test_func(2)
-            assert 1 == test_func(number=2)
-            assert 1 == test_func(number=2)
+        assert 1 == test_func(2, use_cache=True)
+        assert 1 == test_func(number=2, use_cache=True)
+        assert 1 == test_func(number=2, use_cache=True)
 
-            # cache treats test_func(2) and test_func(number=2) as two different calls
-            assert mocked_dependency.call_count == 2
+        # cache treats test_func(2) and test_func(number=2) as two different calls
+        assert mocked_dependency.call_count == 2
