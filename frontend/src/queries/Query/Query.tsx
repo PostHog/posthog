@@ -1,6 +1,6 @@
 import { isDataNode, isDataTableNode, isLegacyQuery, isTrendsQuery } from '../utils'
 import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyInsightQuery'
-import { TrendsQuery } from '~/queries/nodes/TrendsQuery/TrendsQuery'
+import { TrendsInsightQuery } from '~/queries/nodes/TrendsInsightQuery/TrendsInsightQuery'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { Node } from '~/queries/schema'
@@ -28,7 +28,7 @@ export function Query(props: QueryProps): JSX.Element {
     } else if (isDataNode(query)) {
         component = <DataNode query={query} />
     } else if (isTrendsQuery(query)) {
-        component = <TrendsQuery query={query} />
+        component = <TrendsInsightQuery query={query} />
     }
 
     if (component) {

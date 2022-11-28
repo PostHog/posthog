@@ -46,7 +46,7 @@ const filtersFromTrendsQuery = (query: TrendsQuery): Partial<FilterType> => {
 }
 
 /** Use new TrendsQuery and transform it into old insight props to display the trends graph. */
-export function TrendsQuery({ query }: { query: TrendsQuery }): JSX.Element {
+export function TrendsInsightQuery({ query }: { query: TrendsQuery }): JSX.Element {
     const filters: Partial<FilterType> = filtersFromTrendsQuery(query)
     const insightProps: InsightLogicProps = { dashboardItemId: 'new', cachedInsight: { filters } }
 
