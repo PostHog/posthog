@@ -3,12 +3,12 @@ from typing import Optional
 
 import structlog
 from sentry_sdk import capture_exception
+from statshog.defaults.django import statsd
 
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import send_slack_subscription_report
 from ee.tasks.subscriptions.subscription_utils import generate_assets
 from posthog.celery import app
-from posthog.internal_metrics import incr
 from posthog.models.subscription import Subscription
 
 logger = structlog.get_logger(__name__)
@@ -51,11 +51,11 @@ def _deliver_subscription_report(
                     invite_message=invite_message or "" if is_new_subscription_target else None,
                     total_asset_count=len(insights),
                 )
-                incr("subscription_email_send_success")
+                statsd.incr("subscription_email_send_success")
             except Exception as e:
                 logger.error(e)
                 capture_exception(e)
-                incr("subscription_email_send_failure")
+                statsd.incr("subscription_email_send_failure")
 
     elif subscription.target_type == "slack":
         insights, assets = generate_assets(subscription)
@@ -63,9 +63,9 @@ def _deliver_subscription_report(
             send_slack_subscription_report(
                 subscription, assets, total_asset_count=len(insights), is_new_subscription=is_new_subscription_target
             )
-            incr("subscription_slack_send_success")
+            statsd.incr("subscription_slack_send_success")
         except Exception as e:
-            incr("subscription_slack_send_failure")
+            statsd.incr("subscription_slack_send_failure")
             logger.error(e)
     else:
         raise NotImplementedError(f"{subscription.target_type} is not supported")
