@@ -96,11 +96,7 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
             f"Can only redirect to the same port as the referer: {referer_url.port or 'no port in URL'}", status=400
         )
 
-    return render_template(
-        "authorize_and_redirect.html",
-        request=request,
-        context={"domain": redirect_url.hostname, "redirect_url": request.GET["redirect"]},
-    )
+    return render_template("index.html", request)
 
 
 def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
