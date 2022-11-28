@@ -24,7 +24,6 @@ class TestCacheUtils(APIBaseTest):
         assert 1 == test_func(number=2, use_cache=False)
         assert 1 == test_func(number=2, use_cache=False)
 
-        # function is never cached when TEST=True
         assert mocked_dependency.call_count == 4
 
     def test_cache_for_with_different_passed_arguments_styles_when_caching(self) -> None:
