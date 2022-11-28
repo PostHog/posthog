@@ -950,7 +950,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
             await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                 filters: values.filters,
             })
-            actions.refreshAllDashboardItems({ action: 'update_filters' })
+            actions.loadDashboardItems({ action: 'update_filters' })
         },
         setDates: ({ dateFrom, dateTo, reloadDashboard }) => {
             if (reloadDashboard) {
