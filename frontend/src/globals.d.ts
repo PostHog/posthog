@@ -6,7 +6,6 @@ declare global {
         JS_POSTHOG_API_KEY?: string
         JS_POSTHOG_HOST?: string
         JS_POSTHOG_SELF_CAPTURE?: boolean
-        JS_CAPTURE_INTERNAL_METRICS?: boolean
         JS_CAPTURE_TIME_TO_SEE_DATA?: boolean
         posthog?: posthog
         ESBUILD_LOAD_SCRIPT: (name) => void

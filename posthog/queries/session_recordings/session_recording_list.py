@@ -70,7 +70,7 @@ class SessionRecordingList(EventQuery):
         SELECT
             session_id,
             any(window_id) as window_id,
-            MIN(first_event_timestamp) as start_time,
+            minIf(first_event_timestamp, first_event_timestamp != '1970-01-01 00:00:00') as start_time,
             MAX(last_event_timestamp) as end_time,
             SUM(click_count) as click_count,
             SUM(keypress_count) as keypress_count,

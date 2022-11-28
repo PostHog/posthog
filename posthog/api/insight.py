@@ -9,7 +9,8 @@ from django.http import HttpResponse
 from django.utils.text import slugify
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -515,21 +516,33 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
 
         return queryset
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="refresh",
+                type=OpenApiTypes.BOOL,
+                description="""
+To improve UI responsiveness if there is not already a result cached the insight is returned without a result.
+
+This allows the UI to render and then request the result separately.
+
+To ensure the result is calculated and returned include a `refresh=true` query parameter.""",
+            ),
+            OpenApiParameter(
+                name="from_dashboard",
+                type=OpenApiTypes.INT,
+                description="""
+When loading an insight for a dashboard pass a `from_dashboard` query parameter containing the dashboard ID
+
+e.g. `"/api/projects/{team_id}/insights/{insight_id}?from_dashboard={dashboard_id}"`
+
+Insights can be added to more than one dashboard, this allows the insight to be loaded in the correct context.
+
+Using the correct cache and enriching the response with dashboard specific config (e.g. layouts or colors)""",
+            ),
+        ],
+    )
     def retrieve(self, request, *args, **kwargs):
-        """
-        When loading an insight for a dashboard pass a `from_dashboard` query parameter containing the dashboard ID
-
-        e.g. `"/api/projects/{team_id}/insights/{insight_id}?from_dashboard={dashboard_id}"`
-
-        Insights can be added to more than one dashboard, this allows the insight to be loaded in the correct context.
-
-        Using the correct cache and enriching the response with dashboard specific config (e.g. layouts or colors)
-
-        To improve UI responsiveness if there is not already a result cached the insight is returned without a result.
-        This allows the UI to render and then request the result separately.
-
-        To ensure the result is calculated and returned include a `refresh=true` query parameter.
-        """
         instance = self.get_object()
         serializer_context = self.get_serializer_context()
 

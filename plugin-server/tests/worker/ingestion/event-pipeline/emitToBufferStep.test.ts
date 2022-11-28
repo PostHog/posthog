@@ -250,6 +250,7 @@ describe('shouldSendEventToBuffer()', () => {
     it('handles teamIdsToBufferAnonymousEventsFor', () => {
         runner.hub.MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR = 2
 
+        expect(shouldSendEventToBuffer(runner.hub, anonEvent, {} as Person, 1)).toEqual(true)
         expect(shouldSendEventToBuffer(runner.hub, anonEvent, undefined, 1)).toEqual(true)
         expect(shouldSendEventToBuffer(runner.hub, anonEvent, undefined, 2)).toEqual(true)
         expect(shouldSendEventToBuffer(runner.hub, anonEvent, undefined, 3)).toEqual(false)
