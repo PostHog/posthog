@@ -38,7 +38,9 @@ class QueryContext:
 
     event_property_field: str = "NULL"
 
+    # the event name filter is used with and without a posthog_eventproperty_table_join_alias qualifier
     event_name_join_filter: str = ""
+    qualified_event_name_join_filter: str = ""
 
     posthog_eventproperty_table_join_alias = "check_for_matching_event_property"
 
@@ -85,6 +87,7 @@ class QueryContext:
         event_name_filter = ""
         event_property_field = "NULL"
         event_name_join_filter = ""
+        qualified_event_name_join_filter = ""
 
         # Passed as JSON instead of duplicate properties like event_names[] to work with frontend's combineUrl
         if event_names:
@@ -98,7 +101,10 @@ class QueryContext:
             )
 
         if is_filtering_by_event_names:
-            event_name_join_filter += " AND event in %(event_names)s"
+            event_name_join_filter = " AND event in %(event_names)s"
+            qualified_event_name_join_filter = (
+                f" AND {self.posthog_eventproperty_table_join_alias}.event in %(event_names)s"
+            )
 
         if is_event_property == "true":
             event_property_filter = f"AND {event_property_field} = true"
@@ -110,6 +116,7 @@ class QueryContext:
             event_property_filter=event_property_filter,
             event_property_field=event_property_field,
             event_name_join_filter=event_name_join_filter,
+            qualified_event_name_join_filter=qualified_event_name_join_filter,
             event_name_filter=event_name_filter,
             params={**self.params, "event_names": tuple(event_names or [])},
         )
@@ -162,7 +169,7 @@ class QueryContext:
                                {self.event_name_join_filter}
                                group by team_id, property) {self.posthog_eventproperty_table_join_alias}
                         on {self.posthog_eventproperty_table_join_alias}.property = name
-                        {self.event_name_join_filter}
+                        {self.qualified_event_name_join_filter}
                 """
             if self.event_property_field
             else ""
