@@ -242,7 +242,7 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
 }
 
 function AppUrls({ setIsToolbarLaunchShown }: { setIsToolbarLaunchShown: (state: boolean) => void }): JSX.Element {
-    const { authorizedUrls, launchUrl, suggestionsLoading } = useValues(
+    const { authorizedUrls, suggestionsLoading } = useValues(
         authorizedUrlListLogic({ type: AuthorizedUrlListType.TOOLBAR_URLS })
     )
     return (
@@ -260,8 +260,7 @@ function AppUrls({ setIsToolbarLaunchShown }: { setIsToolbarLaunchShown: (state:
                             fullWidth
                             key={index}
                             onClick={() => setIsToolbarLaunchShown(false)}
-                            to={launchUrl(appUrl)}
-                            targetBlank
+                            to={urls.toolbarRedirect(appUrl)}
                             sideIcon={
                                 <Tooltip title="Launch toolbar">
                                     <IconOpenInApp />

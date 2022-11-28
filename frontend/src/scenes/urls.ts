@@ -84,6 +84,8 @@ export const urls = {
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     organizationCreateFirst: (): string => '/organization/create',
     toolbarLaunch: (): string => '/toolbar',
+    toolbarRedirect: (redirect?: string): string =>
+        combineUrl('/authorize_and_redirect', redirect ? { redirect } : {}).url,
     // Onboarding / setup routes
     login: (): string => '/login',
     passwordReset: (): string => '/reset',

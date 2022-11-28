@@ -334,6 +334,7 @@ export const routes: Record<string, Scene> = {
     [urls.deadLetterQueue()]: Scene.DeadLetterQueue,
     [urls.mySettings()]: Scene.MySettings,
     [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
+    [urls.toolbarRedirect()]: Scene.ToolbarLaunch,
     // Onboarding / setup routes
     [urls.login()]: Scene.Login,
     [urls.preflight()]: Scene.PreflightCheck,

@@ -13,6 +13,7 @@ import { Form } from 'kea-forms'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { Field } from 'lib/forms/Field'
 import { LemonDialog } from '../LemonDialog'
+import { urls } from 'scenes/urls'
 
 function EmptyState({
     numberOfResults,
@@ -84,15 +85,8 @@ export function AuthorizedUrlList({
     addText = 'Add',
 }: AuthorizedUrlListProps & { addText?: string }): JSX.Element {
     const logic = authorizedUrlListLogic({ actionId, type })
-    const {
-        urlsKeyed,
-        suggestionsLoading,
-        searchTerm,
-        launchUrl,
-        editUrlIndex,
-        isAddUrlFormVisible,
-        onlyAllowDomains,
-    } = useValues(logic)
+    const { urlsKeyed, suggestionsLoading, searchTerm, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains } =
+        useValues(logic)
     const { addUrl, removeUrl, setSearchTerm, newUrl, setEditUrlIndex } = useActions(logic)
 
     return (
@@ -153,8 +147,7 @@ export function AuthorizedUrlList({
                                         <>
                                             <LemonButton
                                                 icon={<IconOpenInApp />}
-                                                to={launchUrl(keyedURL.url)}
-                                                targetBlank
+                                                to={urls.toolbarRedirect(keyedURL.url)}
                                                 tooltip={
                                                     type === AuthorizedUrlListType.TOOLBAR_URLS
                                                         ? 'Launch toolbar'
