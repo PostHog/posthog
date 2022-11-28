@@ -1051,7 +1051,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response_json = response.json()
         return response_json.get("id", None), response_json
 
-    def _get_dashboard(self, dashboard_id: int, query_params="") -> Dict:
+    def _get_dashboard(self, dashboard_id: int, query_params: str = "") -> Dict:
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/{query_params}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()
