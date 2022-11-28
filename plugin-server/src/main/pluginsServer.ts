@@ -315,13 +315,6 @@ export async function startPluginsServer(
             })
         }
 
-        // every minute flush internal metrics
-        if (hub.internalMetrics) {
-            schedule.scheduleJob('0 * * * * *', async () => {
-                await hub!.internalMetrics?.flush(piscina!)
-            })
-        }
-
         if (hub.statsd) {
             stopEventLoopMetrics = captureEventLoopMetrics(hub.statsd, hub.instanceId)
         }

@@ -20,7 +20,6 @@ import { VM } from 'vm2'
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
-import { InternalMetrics } from './utils/internal-metrics'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
@@ -132,7 +131,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean
     STALENESS_RESTART_SECONDS: number
     HEALTHCHECK_MAX_STALE_SECONDS: number
-    CAPTURE_INTERNAL_METRICS: boolean
     PISCINA_USE_ATOMICS: boolean
     PISCINA_ATOMICS_TIMEOUT: number
     SITE_URL: string | null
@@ -177,7 +175,6 @@ export interface Hub extends PluginsServerConfig {
     objectStorage: ObjectStorage
     // metrics
     statsd?: StatsD
-    internalMetrics?: InternalMetrics
     pluginMetricsJob: Job | undefined
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
