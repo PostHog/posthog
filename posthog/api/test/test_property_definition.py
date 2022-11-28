@@ -156,21 +156,69 @@ class TestPropertyDefinitionAPI(APIBaseTest):
     def test_is_event_property_filter(self):
         response = self.client.get("/api/projects/@current/property_definitions/?search=firs")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
+        assert [r["name"] for r in response.json()["results"]] == ["first_visit", "is_first_movie"]
 
+        # specifying the event name doesn't filter the list,
+        # instead it checks if the property has been seen with that event
+        # previously it was necessary to _also_ send is_event_property=(true or false) alongside the event name param
+        response = self.client.get("/api/projects/@current/property_definitions/?event_names=%5B%22%24pageview%22%5D")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # sort a list of tuples by the first element
+
+        assert sorted(
+            [(r["name"], r["is_event_property"]) for r in response.json()["results"]], key=lambda tup: tup[0]
+        ) == [
+            ("$browser", True),
+            ("$current_url", False),
+            ("app_rating", False),
+            ("first_visit", True),
+            ("is_first_movie", False),
+            ("plan", False),
+            ("purchase", False),
+            ("purchase_value", False),
+        ]
+
+        # get any properties that have been seen with any event
+        response = self.client.get("/api/projects/@current/property_definitions/?is_event_property=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert sorted(
+            [(r["name"], r["is_event_property"]) for r in response.json()["results"]], key=lambda tup: tup[0]
+        ) == [
+            ("$browser", True),
+            ("first_visit", True),
+        ]
+
+        # get any properties that have not been seen with any event
+        response = self.client.get("/api/projects/@current/property_definitions/?is_event_property=false")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert sorted(
+            [(r["name"], r["is_event_property"]) for r in response.json()["results"]], key=lambda tup: tup[0]
+        ) == [
+            ("$current_url", False),
+            ("app_rating", False),
+            ("is_first_movie", False),
+            ("plan", False),
+            ("purchase", False),
+            ("purchase_value", False),
+        ]
+
+        # can combine the filters
         response = self.client.get(
             "/api/projects/@current/property_definitions/?search=firs&event_names=%5B%22%24pageview%22%5D&is_event_property=true"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
+        self.assertEqual(
+            [(r["name"], r["is_event_property"]) for r in response.json()["results"]], [("first_visit", True)]
+        )
 
+        # and reverse the combination
         response = self.client.get(
             "/api/projects/@current/property_definitions/?search=firs&event_names=%5B%22%24pageview%22%5D&is_event_property=false"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["name"], "is_first_movie")
+        self.assertEqual(
+            [(r["name"], r["is_event_property"]) for r in response.json()["results"]], [("is_first_movie", False)]
+        )
 
     def test_is_feature_flag_property_filter(self):
         PropertyDefinition.objects.create(team=self.demo_team, name="$feature/plan", property_type="String")
