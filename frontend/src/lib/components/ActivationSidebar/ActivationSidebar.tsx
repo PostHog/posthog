@@ -8,15 +8,17 @@ import { Progress } from 'antd'
 import { IconCheckmark, IconClose } from '../icons'
 import { SessionRecording as SessionRecordingConfig } from 'scenes/project/Settings/SessionRecording'
 import { ProfessorHog } from '../hedgehogs'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const Task = ({ id, name, description, completed, canSkip, skipped, url }: ActivationTaskType): JSX.Element => {
     const displaySideAction = !completed && !skipped && canSkip
     const { runTask, skipTask } = useActions(activationLogic)
+    const { reportActivationSideBarTaskClicked } = useActions(eventUsageLogic)
 
     const content = (
         <div className="my-4 mx-2">
             <p className="m-0">{name}</p>
-            {!completed && !skipped && <p className="font-normal text-xs mt-2 mb-0">{description}</p>}
+            {!completed && !skipped && <p className="font-normal text-xs mt-2 mb-0 mx-0">{description}</p>}
         </div>
     )
 
@@ -32,7 +34,10 @@ const Task = ({ id, name, description, completed, canSkip, skipped, url }: Activ
         params.to = url
         params.targetBlank = true
     } else {
-        params.onClick = () => runTask(id)
+        params.onClick = () => {
+            runTask(id)
+            reportActivationSideBarTaskClicked(id)
+        }
     }
     return (
         <li>
@@ -81,7 +86,9 @@ const ActivationSidebar = (): JSX.Element => {
                 ) : (
                     <>
                         <h2 className="subtitle">Quick Start</h2>
-                        <p>Learn how to get the most out of PostHog, straight away.</p>
+                        <p>
+                            Use our Quick Start guide to learn about everything PostHog can do for you and your product.
+                        </p>
                         <div className="my-4 flex items-center justify-center">
                             <div className="flex flex-col items-center">
                                 <Progress

@@ -17,7 +17,15 @@ const ActivationSidebarToggle = (): JSX.Element | null => {
             size="small"
             type="tertiary"
             onClick={toggleActivationSideBar}
-            icon={<Progress type="circle" percent={completionPercent} width={40} format={() => activeTasks.length} />}
+            icon={
+                <Progress
+                    type="circle"
+                    percent={completionPercent}
+                    width={40}
+                    format={() => activeTasks.length}
+                    strokeWidth={16}
+                />
+            }
         >
             {!mobileLayout && (
                 <div className="pl-2 text-left">

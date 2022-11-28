@@ -11,10 +11,14 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { EventDefinitionType, TeamBasicType } from '~/types'
 import type { activationLogicType } from './activationLogicType'
 import { urls } from 'scenes/urls'
+import { dashboardsLogic } from 'scenes/dashboard/dashboardsLogic'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 
 export enum ActivationTasks {
     IngestFirstEvent = 'ingest_first_event',
     InviteTeamMember = 'invite_team_member',
+    CreateFirstInsight = 'create_first_insight',
+    CreateFirstDashboard = 'create_first_dashboard',
     SetupSessionRecordings = 'setup_session_recordings',
     TrackCustomEvents = 'track_custom_events',
     InstallFirstApp = 'install_first_app',
@@ -46,6 +50,10 @@ export const activationLogic = kea<activationLogicType>([
             ['invites'],
             pluginsLogic,
             ['installedPlugins'],
+            savedInsightsLogic,
+            ['insights'],
+            dashboardsLogic,
+            ['dashboards'],
         ],
         actions: [
             inviteLogic,
@@ -54,6 +62,8 @@ export const activationLogic = kea<activationLogicType>([
             ['toggleActivationSideBar', 'showActivationSideBar', 'hideActivationSideBar'],
             eventUsageLogic,
             ['reportActivationSideBarShown'],
+            savedInsightsLogic,
+            ['loadInsights', 'loadInsightsSuccess', 'loadInsightsFailure'],
         ],
     })),
     actions({
@@ -79,11 +89,18 @@ export const activationLogic = kea<activationLogicType>([
                 setShowSessionRecordingConfig: (_, { value }) => value,
             },
         ],
-        isReady: [
+        areCustomEventsLoaded: [
             false,
             {
                 loadCustomEventsSuccess: () => true,
                 loadCustomEventsFailure: () => true,
+            },
+        ],
+        areInsightsLoaded: [
+            false,
+            {
+                loadInsightsSuccess: () => true,
+                loadInsightsFailure: () => true,
             },
         ],
     })),
@@ -112,6 +129,10 @@ export const activationLogic = kea<activationLogicType>([
         ],
     })),
     selectors({
+        isReady: [
+            (s) => [s.areCustomEventsLoaded, s.areInsightsLoaded],
+            (areCustomEventsLoaded, areInsightsLoaded) => areCustomEventsLoaded && areInsightsLoaded,
+        ],
         currentTeamSkippedTasks: [
             (s) => [s.skippedTasks, s.currentTeam],
             (skippedTasks, currentTeam) => skippedTasks[currentTeam?.id ?? ''] ?? [],
@@ -121,11 +142,22 @@ export const activationLogic = kea<activationLogicType>([
                 s.currentTeam,
                 s.members,
                 s.invites,
+                s.insights,
+                s.dashboards,
                 s.customEventsCount,
                 s.installedPlugins,
                 s.currentTeamSkippedTasks,
             ],
-            (currentTeam, members, invites, customEventsCount, installedPlugins, skippedTasks) => {
+            (
+                currentTeam,
+                members,
+                invites,
+                insights,
+                dashboards,
+                customEventsCount,
+                installedPlugins,
+                skippedTasks
+            ) => {
                 const tasks: ActivationTaskType[] = []
                 for (const task of Object.values(ActivationTasks)) {
                     switch (task) {
@@ -147,6 +179,27 @@ export const activationLogic = kea<activationLogicType>([
                                 completed: members.length > 1 || invites.length > 0,
                                 canSkip: true,
                                 skipped: skippedTasks.includes(ActivationTasks.InviteTeamMember),
+                            })
+                            break
+                        case ActivationTasks.CreateFirstInsight:
+                            tasks.push({
+                                id: ActivationTasks.CreateFirstInsight,
+                                name: 'Create your first insight',
+                                description: 'Make sense of your data by creating an insight',
+                                completed:
+                                    insights.results.find((insight) => insight.created_by !== null) !== undefined,
+                                canSkip: true,
+                                skipped: skippedTasks.includes(ActivationTasks.CreateFirstInsight),
+                            })
+                            break
+                        case ActivationTasks.CreateFirstDashboard:
+                            tasks.push({
+                                id: ActivationTasks.CreateFirstDashboard,
+                                name: 'Create your first dashboard',
+                                description: 'Collect your insights in a dashboard',
+                                completed: dashboards.find((dashboard) => dashboard.created_by !== null) !== undefined,
+                                canSkip: true,
+                                skipped: skippedTasks.includes(ActivationTasks.CreateFirstDashboard),
                             })
                             break
                         case ActivationTasks.SetupSessionRecordings:
@@ -251,7 +304,12 @@ export const activationLogic = kea<activationLogicType>([
     })),
     events(({ actions }) => ({
         afterMount: () => {
-            actions.loadCustomEvents()
+            // we artificially wait for a second so that the UI has time to render before we check for these async values
+            // this prevents the UI from flickering when the values are loaded
+            setTimeout(() => {
+                actions.loadCustomEvents()
+                actions.loadInsights()
+            }, 1000)
         },
     })),
     urlToAction(({ actions, values }) => ({

@@ -485,6 +485,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             completedTasksCount: number,
             completionPercent: number
         ) => ({ activeTasksCount, completedTasksCount, completionPercent }),
+        reportActivationSideBarTaskClicked: (key: string) => ({ key }),
     },
     listeners: ({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
@@ -1160,6 +1161,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 active_tasks_count: activeTasksCount,
                 completed_tasks_count: completedTasksCount,
                 completion_percent_count: completionPercent,
+            })
+        },
+        reportActivationSideBarTaskClicked: ({ key }) => {
+            posthog.capture('activation sidebar task clicked', {
+                key,
             })
         },
     }),
