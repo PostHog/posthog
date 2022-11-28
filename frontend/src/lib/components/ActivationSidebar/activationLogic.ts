@@ -11,8 +11,8 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { EventDefinitionType, TeamBasicType } from '~/types'
 import type { activationLogicType } from './activationLogicType'
 import { urls } from 'scenes/urls'
-import { dashboardsLogic } from 'scenes/dashboard/dashboardsLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export enum ActivationTasks {
     IngestFirstEvent = 'ingest_first_event',
@@ -52,8 +52,8 @@ export const activationLogic = kea<activationLogicType>([
             ['installedPlugins'],
             savedInsightsLogic,
             ['insights'],
-            dashboardsLogic,
-            ['dashboards'],
+            dashboardsModel,
+            ['rawDashboards'],
         ],
         actions: [
             inviteLogic,
@@ -143,7 +143,7 @@ export const activationLogic = kea<activationLogicType>([
                 s.members,
                 s.invites,
                 s.insights,
-                s.dashboards,
+                s.rawDashboards,
                 s.customEventsCount,
                 s.installedPlugins,
                 s.currentTeamSkippedTasks,
