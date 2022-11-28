@@ -1,6 +1,9 @@
 import {
     AnyPartialFilterType,
     AnyPropertyFilter,
+    Breakdown,
+    BreakdownKeyType,
+    BreakdownType,
     PropertyGroupFilter,
     EventType,
     PropertyFilterType,
@@ -116,6 +119,7 @@ export interface TrendsQuery extends InsightsQueryBase {
     series: (EventsNode | ActionsNode)[]
     /** Properties specific to the trends insight */
     trendsFilter?: Omit<TrendsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+    breakdown?: BreakdownFilter
 }
 
 // TODO: not supported by "ts-json-schema-generator" nor "typescript-json-schema" :(
@@ -135,4 +139,15 @@ export interface LegacyQuery extends Node {
 export interface DateRange {
     date_from?: string | null
     date_to?: string | null
+}
+
+export interface BreakdownFilter {
+    // TODO: unclutter
+    breakdown_type?: BreakdownType | null
+    breakdown?: BreakdownKeyType
+    breakdown_normalize_url?: boolean
+    breakdowns?: Breakdown[]
+    breakdown_value?: string | number
+    breakdown_group_type_index?: number | null
+    aggregation_group_type_index?: number | undefined // Groups aggregation
 }

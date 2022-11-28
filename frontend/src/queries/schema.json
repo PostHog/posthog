@@ -1161,6 +1161,43 @@
             "enum": ["first_touch", "last_touch", "all_events", "step"],
             "type": "string"
         },
+        "BreakdownFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_group_type_index": {
+                    "type": "number"
+                },
+                "breakdown": {
+                    "$ref": "#/definitions/BreakdownKeyType"
+                },
+                "breakdown_group_type_index": {
+                    "type": ["number", "null"]
+                },
+                "breakdown_normalize_url": {
+                    "type": "boolean"
+                },
+                "breakdown_type": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BreakdownType"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "breakdown_value": {
+                    "type": ["string", "number"]
+                },
+                "breakdowns": {
+                    "items": {
+                        "$ref": "#/definitions/Breakdown"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "BreakdownKeyType": {
             "anyOf": [
                 {
@@ -1654,6 +1691,9 @@
         "TrendsQuery": {
             "additionalProperties": false,
             "properties": {
+                "breakdown": {
+                    "$ref": "#/definitions/BreakdownFilter"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -1700,6 +1740,7 @@
                 },
                 "trendsFilter": {
                     "additionalProperties": false,
+                    "description": "Properties specific to the trends insight",
                     "properties": {
                         "aggregation_axis_format": {
                             "$ref": "#/definitions/AggregationAxisFormat"

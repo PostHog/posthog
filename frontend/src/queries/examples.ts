@@ -102,6 +102,13 @@ const TrendsQuery: TrendsQuery = {
             },
         ],
     },
+    trendsFilter: {
+        display: ChartDisplayType.ActionsAreaGraph,
+    },
+    breakdown: {
+        breakdown: '$geoip_country_code',
+        breakdown_type: 'event',
+    },
 }
 
 export const examples: Record<string, Node> = {
