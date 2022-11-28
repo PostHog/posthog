@@ -2,6 +2,8 @@ import { toolbarRedirectLogic } from './toolbarRedirectLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { useValues } from 'kea'
 import { LemonModal } from 'lib/components/LemonModal'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export function ToolbarRedirectModal(): JSX.Element {
     const { redirect, domain } = useValues(toolbarRedirectLogic)
@@ -21,7 +23,9 @@ export function ToolbarRedirectModal(): JSX.Element {
                             Can't connect?
                         </LemonButton>
                     </div>
-                    <LemonButton type="secondary">Cancel</LemonButton>
+                    <LemonButton onClick={() => router.actions.push(urls.toolbarLaunch())} type="secondary">
+                        Cancel
+                    </LemonButton>
                     <LemonButton
                         to={`/api/user/redirect_to_site/?appUrl=${redirect}`}
                         onClick={(e) => {
@@ -34,8 +38,7 @@ export function ToolbarRedirectModal(): JSX.Element {
                     </LemonButton>
                 </>
             }
-            onAfterClose={function Ke() {}}
-            onClose={function Ke() {}}
+            onClose={() => router.actions.push(urls.toolbarLaunch())}
             title="Launch Toolbar"
         >
             <p>
