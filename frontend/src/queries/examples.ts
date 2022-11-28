@@ -35,7 +35,7 @@ const LegacyTrendsQuery: LegacyQuery = {
     },
 }
 
-const TrendsQuery: TrendsQuery = {
+const InsightTrendsQuery: TrendsQuery = {
     kind: NodeKind.TrendsQuery,
     interval: 'day',
     dateRange: {
@@ -115,7 +115,7 @@ export const examples: Record<string, Node> = {
     Events,
     EventsTable,
     LegacyTrendsQuery,
-    TrendsQuery,
+    InsightTrendsQuery,
 }
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(
