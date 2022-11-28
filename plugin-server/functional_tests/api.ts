@@ -19,18 +19,20 @@ import { insertRow } from '../tests/helpers/sql'
 
 export const capture = async (
     producer: Producer,
-    teamId: number,
+    teamId: number | null,
     distinctId: string,
     uuid: string,
     event: string,
-    properties: object = {}
+    properties: object = {},
+    token: string | null = null
 ) => {
     await producer.send({
         topic: 'events_plugin_ingestion',
         messages: [
             {
-                key: teamId.toString(),
+                key: teamId ? teamId.toString() : '',
                 value: JSON.stringify({
+                    token,
                     distinct_id: distinctId,
                     ip: '',
                     site_url: '',
@@ -150,7 +152,12 @@ export const createOrganization = async (pgClient: Pool) => {
     return organizationId
 }
 
-export const createTeam = async (pgClient: Pool, organizationId: string, slack_incoming_webhook?: string) => {
+export const createTeam = async (
+    pgClient: Pool,
+    organizationId: string,
+    slack_incoming_webhook?: string,
+    token?: string
+) => {
     const team = await insertRow(pgClient, 'posthog_team', {
         organization_id: organizationId,
         app_urls: [],
@@ -170,7 +177,7 @@ export const createTeam = async (pgClient: Pool, organizationId: string, slack_i
         plugins_opt_in: false,
         opt_out_capture: false,
         is_demo: false,
-        api_token: new UUIDT().toString(),
+        api_token: token ?? new UUIDT().toString(),
         test_account_filters: [],
         timezone: 'UTC',
         data_attributes: ['data-attr'],

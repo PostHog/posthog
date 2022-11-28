@@ -26,7 +26,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { userLogic } from 'scenes/userLogic'
-import { AnyPropertyFilter, AvailableFeature } from '~/types'
+import { AnyPropertyFilter, AvailableFeature, Resource } from '~/types'
 import { Link } from 'lib/components/Link'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Field } from 'lib/forms/Field'
@@ -55,6 +55,9 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { EventsTable } from 'scenes/events'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
+import { ResourcePermissionModal } from 'scenes/ResourcePermissionModal'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -75,6 +78,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag } = useActions(featureFlagLogic)
+
+    const { permissionModalVisible, addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
+        featureFlagPermissionsLogic({ flagId: featureFlag.id })
+    )
+    const { setModalOpen, setRolesToAdd, addAssociatedRoles, deleteAssociatedRole } = useActions(
+        featureFlagPermissionsLogic({ flagId: featureFlag.id })
+    )
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
@@ -313,29 +323,36 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </>
                                     }
                                     buttons={
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <LemonButton
-                                                data-attr="delete-feature-flag"
-                                                status="danger"
-                                                type="secondary"
-                                                onClick={() => {
-                                                    deleteFeatureFlag(featureFlag)
-                                                }}
-                                                disabled={featureFlagLoading}
-                                            >
-                                                Delete feature flag
-                                            </LemonButton>
-                                            <LemonButton
-                                                data-attr="edit-feature-flag"
-                                                type="secondary"
-                                                onClick={() => {
-                                                    editFeatureFlag(true)
-                                                }}
-                                                disabled={featureFlagLoading}
-                                            >
-                                                Edit
-                                            </LemonButton>
-                                        </div>
+                                        <>
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <LemonButton
+                                                    data-attr="delete-feature-flag"
+                                                    status="danger"
+                                                    type="secondary"
+                                                    onClick={() => {
+                                                        deleteFeatureFlag(featureFlag)
+                                                    }}
+                                                    disabled={featureFlagLoading || !featureFlag.can_edit}
+                                                >
+                                                    Delete feature flag
+                                                </LemonButton>
+                                                <LemonButton
+                                                    data-attr="edit-feature-flag"
+                                                    type="secondary"
+                                                    tooltip={
+                                                        featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] &&
+                                                        !featureFlag.can_edit &&
+                                                        "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                    }
+                                                    onClick={() => {
+                                                        editFeatureFlag(true)
+                                                    }}
+                                                    disabled={featureFlagLoading || !featureFlag.can_edit}
+                                                >
+                                                    Edit
+                                                </LemonButton>
+                                            </div>
+                                        </>
                                     }
                                 />
                                 <Tabs
@@ -375,12 +392,41 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
                                         </Tabs.TabPane>
                                     )}
+                                    {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
+                                        <Tabs.TabPane tab="Permissions" key="permissions">
+                                            <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                                                {featureFlag.can_edit && (
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        onClick={() => setModalOpen(true)}
+                                                        className="mb-4"
+                                                    >
+                                                        Set permissions
+                                                    </LemonButton>
+                                                )}
+                                            </PayGateMini>
+                                        </Tabs.TabPane>
+                                    )}
                                 </Tabs>
                             </>
                         )}
                     </>
                 )}
             </div>
+            <ResourcePermissionModal
+                resourceType={Resource.FEATURE_FLAGS}
+                isNewResource={id === 'new'}
+                onChange={(roleIds) => setRolesToAdd(roleIds)}
+                rolesToAdd={rolesToAdd}
+                addableRoles={addableRoles}
+                addableRolesLoading={unfilteredAddableRolesLoading}
+                onClose={() => setModalOpen(false)}
+                title="Feature Flag Permissions"
+                onAdd={() => addAssociatedRoles()}
+                visible={permissionModalVisible}
+                roles={derivedRoles}
+                deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+            />
         </>
     )
 }

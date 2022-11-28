@@ -134,6 +134,8 @@ export const FEATURE_FLAGS = {
     RECORDING_AUTOPLAY: 'recording-autoplay', // owner: #team-session-recordings
     SIGNUP_FORM_EXPERIMENT: 'signup-form-experiment', // owner: #team-growth
     FEATURE_FLAG_ROLLOUT_UX: 'feature-flag-rollout-ux', // owner: @neilkakkar
+    SIGNUP_PRODUCT_BENEFITS_EXPERIMENT: 'signup-product-benefits-experiment', // owner: #team-growth
+    ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -159,6 +161,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
     [AvailableFeature.APP_METRICS]: LicensePlan.Scale,
     [AvailableFeature.RECORDINGS_PLAYLISTS]: LicensePlan.Scale,
+    [AvailableFeature.ROLE_BASED_ACCESS]: LicensePlan.Enterprise,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
@@ -204,3 +207,6 @@ export const CLOUD_HOSTNAMES = {
 }
 
 export const SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
+
+// If _any_ item on a dashboard is older than this, dashboard is automatically reloaded
+export const AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS = 20

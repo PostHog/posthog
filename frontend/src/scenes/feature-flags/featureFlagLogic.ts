@@ -61,6 +61,7 @@ const NEW_FLAG: FeatureFlagType = {
     experiment_set: null,
     rollback_conditions: [],
     performed_rollback: false,
+    can_edit: true,
 }
 const NEW_VARIANT = {
     key: '',
@@ -411,7 +412,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
                 try {
                     if (!updatedFlag.id) {
-                        return await api.create(`api/projects/${values.currentTeamId}/feature_flags`, flag)
+                        const newFlag = await api.create(`api/projects/${values.currentTeamId}/feature_flags`, flag)
+                        return newFlag
                     } else {
                         return await api.update(
                             `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,

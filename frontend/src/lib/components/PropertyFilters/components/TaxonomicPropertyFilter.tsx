@@ -13,6 +13,7 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import {
+    isGroupPropertyFilter,
     isPropertyFilterWithOperator,
     propertyFilterTypeToTaxonomicFilterType,
 } from 'lib/components/PropertyFilters/utils'
@@ -79,7 +80,10 @@ export function TaxonomicPropertyFilter({
 
     const taxonomicFilter = (
         <TaxonomicFilter
-            groupType={propertyFilterTypeToTaxonomicFilterType(filter?.type, filter?.group_type_index)}
+            groupType={propertyFilterTypeToTaxonomicFilterType(
+                filter?.type,
+                isGroupPropertyFilter(filter) ? filter.group_type_index : undefined
+            )}
             value={cohortOrOtherValue}
             onChange={taxonomicOnChange}
             taxonomicGroupTypes={groupTypes}
@@ -180,7 +184,9 @@ export function TaxonomicPropertyFilter({
                                             value: newValue || null,
                                             operator: newOperator,
                                             type: filter?.type,
-                                            group_type_index: filter?.group_type_index,
+                                            ...(isGroupPropertyFilter(filter)
+                                                ? { group_type_index: filter.group_type_index }
+                                                : {}),
                                         } as AnyPropertyFilter)
                                     }
                                     if (

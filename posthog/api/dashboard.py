@@ -61,6 +61,7 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         The datetime this tile's insight results were generated.
         """,
     )
+    is_cached = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = DashboardTile
@@ -72,6 +73,11 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         if should_refresh(self.context["request"]):
             return now()
         return dashboard_tile.last_refresh
+
+    def get_is_cached(self, dashboard_tile: DashboardTile) -> bool:
+        if should_refresh(self.context["request"]):
+            return False
+        return dashboard_tile.last_refresh is not None
 
 
 class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
@@ -261,6 +267,8 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
     @staticmethod
     def _update_tiles(instance: Dashboard, tile_data: Dict, user: User) -> None:
+        tile_data.pop("is_cached", None)  # read only field
+
         if tile_data.get("text", None):
             text_json: Dict = tile_data.get("text", {})
             created_by_json = text_json.get("created_by", None)
