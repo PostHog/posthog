@@ -276,6 +276,12 @@ export const activationLogic = kea<activationLogicType>([
                 case ActivationTasks.InviteTeamMember:
                     actions.showInviteModal()
                     break
+                case ActivationTasks.CreateFirstInsight:
+                    router.actions.push(urls.insightNew())
+                    break
+                case ActivationTasks.CreateFirstDashboard:
+                    router.actions.push(urls.dashboards())
+                    break
                 case ActivationTasks.SetupSessionRecordings:
                     actions.setShowSessionRecordingConfig(true)
                     break
