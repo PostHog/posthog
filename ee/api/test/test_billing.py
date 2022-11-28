@@ -1,9 +1,12 @@
 from datetime import datetime
 from typing import Any, Dict
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 import jwt
 import pytz
+from dateutil.relativedelta import relativedelta
+from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
@@ -11,6 +14,7 @@ from ee.api.test.base import APILicensedTest
 from ee.models.license import License
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
+from posthog.test.base import _create_event, flush_persons_and_events
 
 
 def create_billing_response(**kwargs) -> Dict[str, Any]:
@@ -403,7 +407,7 @@ class TestBillingAPI(APILicensedTest):
     @patch("posthog.demo.matrix.manager.bulk_queue_graphile_worker_jobs")
     @patch("posthog.demo.matrix.manager.copy_graphile_worker_jobs_between_teams")
     @patch("ee.api.billing.requests.get")
-    def test_organization_usage_count(self, mock_request, *args):
+    def test_organization_usage_count_with_demo_project(self, mock_request, *args):
         self.organization.customer_id = None
         self.organization.usage = None
         self.organization.save()
@@ -413,6 +417,21 @@ class TestBillingAPI(APILicensedTest):
         response = self.client.post("/api/projects/", {"name": "Test", "is_demo": True})
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Team.objects.count(), 3)
+
+        demo_team = Team.objects.filter(is_demo=True).first()
+
+        # We create some events for the demo project
+        with self.settings(USE_TZ=False):
+            distinct_id = str(uuid4())
+            for _ in range(0, 10):
+                _create_event(
+                    distinct_id=distinct_id,
+                    event="$demo-event",
+                    properties={"$lib": "$mobile"},
+                    timestamp=now() - relativedelta(hours=12),
+                    team=demo_team,
+                )
+            flush_persons_and_events()
 
         mock_request.return_value.status_code = 200
         mock_request.return_value.json.return_value = create_billing_response(
