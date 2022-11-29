@@ -376,5 +376,3 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         actions.getSessionRecordings({})
     }),
 ])
-
-// http://localhost:8000/recordings/recent?filters=%7B%22session_recording_duration%22%3A%7B%22type%22%3A%22recording%22%2C%22key%22%3A%22duration%22%2C%22value%22%3A60%2C%22operator%22%3A%22gt%22%7D%2C%22properties%22%3A%5B%5D%2C%22events%22%3A%5B%7B%22id%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%2C%22name%22%3A%22%24pageview%22%7D%5D%2C%22actions%22%3A%5B%5D%2C%22date_from%22%3A%222022-11-08%22%7D#sessionRecordingId=184c38db35712c0-06fe2f55feab86-40292c33-384000-184c38db35820b5
