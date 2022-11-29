@@ -10,9 +10,9 @@ inputs:
     clickhouse-server-image:
         required: true
         type: string
-    ee:
+    segment:
         required: true
-        type: boolean
+        type: string
     foss:
         required: true
         type: boolean
@@ -84,14 +84,14 @@ runs:
         - name: Determine if --snapshot-update should be on
           # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
           # runs, as we want to ignore snapshots diverging there
-          if: github.event.pull_request.head.repo.full_name == github.repository || inputs.person-on-events == 'true' || inputs.foss == 'true'
+          if: github.event.pull_request.head.repo.full_name == github.repository || inputs.person-on-events == 'true'
           shell: bash
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
 
         # Tests
 
         - name: Run FOSS tests
-          if: ${{ inputs.ee == 'false' }}
+          if: ${{ inputs.segment == 'FOSS' }}
           env:
               PERSON_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
               GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
@@ -104,7 +104,7 @@ runs:
                   $PYTEST_ARGS
 
         - name: Run EE tests
-          if: ${{ inputs.ee == 'true' }}
+          if: ${{ inputs.segment == 'EE' }}
           env:
               PERSON_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
               GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
@@ -127,7 +127,7 @@ runs:
 
         - name: Upload updated timing data as artifacts
           uses: actions/upload-artifact@v2
-          if: ${{ inputs.ee == 'true' && inputs.person-on-events != 'true'}}
+          if: ${{ inputs.segment == 'EE' && inputs.person-on-events != 'true'}}
           with:
               name: timing_data-${{ inputs.group }}
               path: .test_durations
