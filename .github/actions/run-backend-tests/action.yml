@@ -4,13 +4,10 @@
 #
 name: Run Backend Django tests
 inputs:
-    cache-id:
-        required: true
-        type: string
     python-version:
         required: true
         type: string
-    clickhouse-server-image:
+    clickhouse-version:
         required: true
         type: string
     ee:
@@ -32,12 +29,14 @@ inputs:
 runs:
     using: 'composite'
     steps:
+        # Pre-tests
+
         - name: Stop/Start stack with Docker Compose
           shell: bash
           run: |
-              export CLICKHOUSE_SERVER_IMAGE=${{ inputs.clickhouse-server-image }}
-              docker compose -f docker-compose.dev.yml down
-              docker compose -f docker-compose.dev.yml up -d
+              export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:${{ inputs.clickhouse-version }}
+              docker-compose -f docker-compose.dev.yml down
+              docker-compose -f docker-compose.dev.yml up -d
 
         - name: Add Kafka to /etc/hosts
           shell: bash
@@ -57,7 +56,7 @@ runs:
         - uses: syphar/restore-virtualenv@v1.2
           id: cache-backend-tests
           with:
-              custom_cache_key_element: v1-${{ inputs.cache-id }}
+              custom_cache_key_element: v1
 
         - uses: syphar/restore-pip-download-cache@v1
           if: steps.cache-backend-tests.outputs.cache-hit != 'true'
@@ -89,51 +88,40 @@ runs:
           shell: bash
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
 
+        # Tests
+
         - name: Run FOSS tests
-          if: ${{ inputs.foss == 'true' }}
+          if: ${{ inputs.ee == 'false' }}
+          env:
+              PERSON_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
+              GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
           shell: bash
-          run: |
-              pytest -m "not ee and not async_migrations" posthog/ --cov  --cov-report=xml:coverage-postgres.xml \
-                --durations=150 --durations-min=1.0 $PYTEST_ARGS
-
-        - name: Run ee/ tests
-          if: ${{ inputs.ee == 'true' && inputs.person-on-events != 'true' }}
-          shell: bash
-          run: |
-              pytest ee \
-                  --splits ${{ inputs.concurrency }} \
-                  --group ${{ inputs.group }} \
-                  --store-durations \
-                  --cov \
-                  --cov-report=xml:coverage-clickhouse.xml \
-                  --durations=100 --durations-min=1.0 \
+          run: | # async_migrations are covered in ci-async-migrations.yml
+              pytest -m "not ee and not async_migrations" \
+                  --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
+                  --cov --cov-report=xml:coverage-ee.xml \
+                  --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
 
-        - name: Run ee/ tests with person-on-events, no snapshot commits
-          if: ${{ inputs.ee == 'true' && inputs.person-on-events == 'true' }}
+        - name: Run EE tests
+          if: ${{ inputs.ee == 'true' }}
+          env:
+              PERSON_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
+              GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
           shell: bash
-          run: |
-              PERSON_ON_EVENTS_ENABLED=true GROUPS_ON_EVENTS_ENABLED=true pytest ee \
-                  --splits ${{ inputs.concurrency }} \
-                  --group ${{ inputs.group }} \
+          run: | # async_migrations are covered in ci-async-migrations.yml
+              pytest -m "ee and not async_migrations" \
+                  --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
+                  --cov --cov-report=xml:coverage-ee.xml \
+                  --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
 
-        - name: Run pytest.mark.ee tests
-          if: ${{ inputs.ee == 'true' && inputs.group == '1' && inputs.person-on-events != 'true'}}
-          shell: bash
-          run: |
-              pytest posthog -m "ee" --durations=100 --durations-min=1.0 $PYTEST_ARGS
-
-        - name: Run pytest.mark.ee tests with person-on-events, no snapshot commits
-          if: ${{ inputs.ee == 'true' && inputs.group == '1' && inputs.person-on-events == 'true' }}
-          shell: bash
-          run: |
-              PERSON_ON_EVENTS_ENABLED=true GROUPS_ON_EVENTS_ENABLED=true pytest posthog -m "ee" --durations=100 --durations-min=1.0 $PYTEST_ARGS
+        # Post-tests
 
         - uses: codecov/codecov-action@v2
           if: ${{ inputs.cloud == 'false' }}
           with:
-              files: ./coverage-postgres.xml,./coverage-clickhouse.xml
+              files: ./coverage-foss.xml,./coverage-ee.xml
               fail_ci_if_error: false
               verbose: true
 
