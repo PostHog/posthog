@@ -16,6 +16,7 @@ class Command(BaseCommand):
         parser.add_argument("--create-e2e-test-plugin", action="store_true", help="Create plugin for charts E2E test")
 
     def handle(self, *args, **options):
+        print("\n⚠️ setup_dev is deprecated. Use the more robust generate_demo_data command instead.\n")  # noqa T201
         with transaction.atomic():
             _, team, user = User.objects.bootstrap(
                 organization_name=ORGANIZATION_NAME,
