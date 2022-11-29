@@ -24,7 +24,7 @@ import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedLis
 import equal from 'fast-deep-equal'
 import { fromParamsGivenUrl } from 'lib/utils'
 
-export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
+export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
 
 export interface Player {
