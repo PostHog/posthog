@@ -170,7 +170,13 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             sql_statements_with_params[entity.index] = (sql, params)
             thread = threading.Thread(
                 target=self._run_query_for_threading,
-                args=(result, entity.index, query_type, sql, params, team.pk),
+                args=(
+                    result,
+                    entity.index,
+                    query_type,
+                    sql,
+                    params,
+                ),
             )
             jobs.append(thread)
 
