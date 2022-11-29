@@ -1,11 +1,12 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 import pytz
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from posthog.cache_utils import cache_for
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
 from posthog.queries.insight import insight_sync_execute
 
@@ -49,6 +50,7 @@ def format_ch_timestamp(timestamp: datetime, convert_to_timezone: Optional[str] 
     return timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
 
+@cache_for(timedelta(seconds=2))
 def get_earliest_timestamp(team_id: int) -> datetime:
     results = insight_sync_execute(
         GET_EARLIEST_TIMESTAMP_SQL,

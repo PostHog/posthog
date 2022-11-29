@@ -330,13 +330,19 @@ export interface ElementType {
 }
 
 export type ToolbarUserIntent = 'add-action' | 'edit-action'
+export type ToolbarSource = 'url' | 'localstorage'
+export type ToolbarVersion = 'toolbar'
 
-export interface EditorProps {
+/* sync with posthog-js */
+export interface ToolbarParams {
     apiURL?: string
     jsURL?: string
-    temporaryToken?: string
+    token?: string /** public posthog-js token */
+    temporaryToken?: string /** private temporary user token */
     actionId?: number
     userIntent?: ToolbarUserIntent
+    source?: ToolbarSource
+    toolbarVersion?: ToolbarVersion
     instrument?: boolean
     distinctId?: string
     userEmail?: string
@@ -344,7 +350,7 @@ export interface EditorProps {
     featureFlags?: Record<string, string | boolean>
 }
 
-export interface ToolbarProps extends EditorProps {
+export interface ToolbarProps extends ToolbarParams {
     posthog?: PostHog
     disableExternalStyles?: boolean
 }

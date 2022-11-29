@@ -608,7 +608,7 @@ export const experimentLogic = kea<experimentLogicType>({
             (s) => [s.experimentResults],
             (experimentResults) =>
                 (variant: string): string => {
-                    const errorResult = "Can't find variant"
+                    const errorResult = '--'
                     if (!experimentResults) {
                         return errorResult
                     }
@@ -658,7 +658,7 @@ export const experimentLogic = kea<experimentLogicType>({
             (s) => [s.experimentResults],
             (experimentResults) =>
                 (variant: string): string => {
-                    const errorResult = "Can't find variant"
+                    const errorResult = '--'
                     if (!experimentResults) {
                         return errorResult
                     }
@@ -702,6 +702,24 @@ export const experimentLogic = kea<experimentLogicType>({
                 }
 
                 return variantResults.breakdown_value !== highestProbabilityVariant
+            },
+        ],
+        sortedExperimentResultVariants: [
+            (s) => [s.experimentResults, s.experimentData],
+            (experimentResults, experimentData): string[] => {
+                if (experimentResults) {
+                    const sortedResults = Object.keys(experimentResults.probability).sort(
+                        (a, b) => experimentResults.probability[b] - experimentResults.probability[a]
+                    )
+
+                    experimentData?.parameters?.feature_flag_variants?.forEach((variant) => {
+                        if (!sortedResults.includes(variant.key)) {
+                            sortedResults.push(variant.key)
+                        }
+                    })
+                    return sortedResults
+                }
+                return []
             },
         ],
     },

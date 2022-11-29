@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { signupTestLogic } from './signupTestLogic'
-import { userLogic } from '../../../../userLogic'
+import { signupLogic } from './signupLogic'
+import { userLogic } from '../../../userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton } from '@posthog/lemon-ui'
 import { AlertMessage } from 'lib/components/AlertMessage'
@@ -14,14 +14,14 @@ import { SignupPanel2 } from './panels/SignupPanel2'
 
 export const scene: SceneExport = {
     component: SignupForm,
-    logic: signupTestLogic,
+    logic: signupLogic,
 }
 
 export function SignupForm(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
-    const { isSignupPanel2Submitting, signupPanel2ManualErrors, panel } = useValues(signupTestLogic)
-    const { setPanel } = useActions(signupTestLogic)
+    const { isSignupPanel2Submitting, signupPanel2ManualErrors, panel } = useValues(signupLogic)
+    const { setPanel } = useActions(signupLogic)
     const [showSpinner, setShowSpinner] = useState(true)
 
     useEffect(() => {
