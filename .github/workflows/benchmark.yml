@@ -14,7 +14,7 @@ concurrency: 'benchmarks' # Ensure only one of this runs at a time
 jobs:
     run-benchmarks:
         name: Clickhouse queries
-        runs-on: ubuntu-20.04
+        runs-on: ubuntu-latest
         environment: clickhouse-benchmarks
 
         # Benchmarks are expensive to run so we only run them (periodically) against master branch and for PRs labeled `performance`
