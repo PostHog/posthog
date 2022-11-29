@@ -41,7 +41,7 @@ concurrency:
 jobs:
     code-quality:
         name: Code quality
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-20.04
         defaults:
             run:
                 working-directory: 'plugin-server'
@@ -65,7 +65,7 @@ jobs:
 
     tests:
         name: Tests (${{matrix.shard}})
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-20.04
 
         strategy:
             fail-fast: false
@@ -151,7 +151,7 @@ jobs:
 
     functional-tests:
         name: Functional tests
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-20.04
 
         env:
             REDIS_URL: 'redis://localhost'
