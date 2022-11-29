@@ -3,15 +3,60 @@ $thumb_size: 15px;
 $tick_size: 9px;
 $tick_hover_size: 5px;
 
-.rrweb-controller-slider {
+$bar_height: 4px;
+
+.PlayerSeekbar {
+    --bar-height: 4px;
+    --slider-height: 16px;
+
     width: 100%;
-    height: $slider-height;
+    height: var(--slider-height);
     position: relative;
 
-    .slider {
+    .PlayerSeekbar__slider {
         z-index: 2;
         position: relative;
-        height: 100%;
+        height: var(--bar-height);
+        background-color: var(--border-light);
+        border-radius: var(--bar-height);
+        position: absolute;
+        left: 0px;
+        right: 0px;
+        top: calc((var(--slider-height) - var(--bar-height)) / 2);
+
+        .PlayerSeekbar__bufferbar,
+        .PlayerSeekbar__currentbar {
+            width: 100%;
+            border-radius: var(--bar-height);
+            position: absolute;
+            height: var(--bar-height);
+            left: 0px;
+            top: 0px;
+            width: 0px;
+        }
+
+        .PlayerSeekbar__bufferbar {
+            background-color: var(--border);
+            z-index: 2;
+        }
+
+        .PlayerSeekbar__currentbar {
+            z-index: 3;
+            background-color: var(--recording-seekbar-red);
+        }
+
+        .PlayerSeekbar__segments {
+            height: var(--bar-height);
+
+            .PlayerSeekbar__segments__item {
+                height: var(--bar-height);
+                background-color: transparent;
+
+                &--active {
+                    background-color: transparent;
+                }
+            }
+        }
 
         .thumb {
             z-index: 5;
@@ -37,7 +82,6 @@ $tick_hover_size: 5px;
 
         .slider-bar {
             z-index: 1;
-            background-color: var(--border);
             height: 4px;
             top: ($slider-height - 4px) / 2;
         }
@@ -47,7 +91,7 @@ $tick_hover_size: 5px;
             // transition: width 10ms;
             background-color: var(--recording-buffer-bg);
             position: absolute;
-            height: 2px;
+            height: 4px;
             top: ($slider-height - 2px) / 2;
             left: 1px;
             width: 0; // starting point
@@ -57,7 +101,7 @@ $tick_hover_size: 5px;
             z-index: 3;
             background-color: var(--recording-seekbar-red);
             position: absolute;
-            height: 2px;
+            height: 4px;
             top: ($slider-height - 2px) / 2;
             left: 1px;
             width: 0; // starting point
@@ -66,7 +110,7 @@ $tick_hover_size: 5px;
         .inactivity-bar {
             z-index: 4;
             position: absolute;
-            height: 2px;
+            height: 4px;
             top: ($slider-height - 2px) / 2;
             left: 1px;
             width: 100%;
@@ -75,7 +119,9 @@ $tick_hover_size: 5px;
                 height: 100%;
             }
             .inactive-section {
-                background: repeating-linear-gradient(325deg, transparent, transparent 2px, #fff 2px, #fff 4px);
+                background: var(--recording-seekbar-red);
+                opacity: 0.5;
+                // background: repeating-linear-gradient(325deg, transparent, transparent 2px, #fff 2px, #fff 4px);
             }
         }
     }
@@ -101,19 +147,19 @@ $tick_hover_size: 5px;
                 right: floor($tick_hover_size / 2);
             }
 
-            .tick-info {
-                border-radius: var(--radius);
-                padding: 0.25rem 0.5rem;
-                position: absolute;
-                top: -4 * $tick_size;
-                background-color: var(--bg-charcoal);
-                display: none;
-                color: var(--light);
-                white-space: nowrap;
-                // Next 2 lines centers the absolute positioned tick info
-                left: 50%;
-                transform: translate(-50%, 0);
-            }
+            // .tick-info {
+            //     border-radius: var(--radius);
+            //     padding: 0.25rem 0.5rem;
+            //     position: absolute;
+            //     top: -4 * $tick_size;
+            //     background-color: var(--bg-charcoal);
+            //     display: none;
+            //     color: var(--light);
+            //     white-space: nowrap;
+            //     // Next 2 lines centers the absolute positioned tick info
+            //     left: 50%;
+            //     transform: translate(-50%, 0);
+            // }
 
             .tick-thumb {
                 position: absolute;

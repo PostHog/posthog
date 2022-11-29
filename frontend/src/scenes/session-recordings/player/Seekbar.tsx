@@ -1,3 +1,4 @@
+/* eslint-disable react/forbid-dom-props */
 import './Seekbar.scss'
 import { useEffect, useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
@@ -25,6 +26,7 @@ function Tick({ event, sessionRecordingId, playerKey, status, numEvents, index }
     return (
         <div
             className="tick-hover-box"
+            title={event.event}
             style={{
                 left: `calc(${event.percentageOfRecordingDuration}% - 2px)`,
                 zIndex: zIndexOffset + index,
@@ -43,8 +45,8 @@ function Tick({ event, sessionRecordingId, playerKey, status, numEvents, index }
                 setHovering(false)
             }}
         >
-            <div className={clsx('tick-info', { flex: hovering })}>{event.event}</div>
-            <div className={clsx('tick-marker', status === RowStatus.Match ? 'bg-purple-dark' : 'bg-muted-alt')} />
+            {/* <div className={clsx('tick-info', { flex: hovering })}>{event.event}</div> */}
+            {/* <div className={clsx('tick-marker', status === RowStatus.Match ? 'bg-purple-dark' : 'bg-muted-alt')} /> */}
             <div
                 className={clsx(
                     'tick-thumb',
@@ -76,13 +78,17 @@ export function Seekbar({ sessionRecordingId, playerKey }: SessionRecordingPlaye
     }, [sliderRef.current, thumbRef.current, sessionRecordingId])
 
     return (
-        <div className="rrweb-controller-slider">
-            <div className="slider" ref={sliderRef} onMouseDown={handleDown} onTouchStart={handleDown}>
-                <div className="inactivity-bar">
+        <div className="PlayerSeekbar">
+            <div className="PlayerSeekbar__slider" ref={sliderRef} onMouseDown={handleDown} onTouchStart={handleDown}>
+                <div className="PlayerSeekbar__segments">
                     {sessionPlayerData?.metadata?.segments?.map((segment: RecordingSegment) => (
                         <div
                             key={`${segment.windowId}-${segment.startTimeEpochMs}`}
-                            className={clsx('activity-section', !segment.isActive && 'inactive-section')}
+                            className={clsx(
+                                'PlayerSeekbar__segments__item',
+                                segment.isActive && 'PlayerSeekbar__segments__item--active'
+                            )}
+                            title={!segment.isActive ? 'Inactive period' : 'Active period'}
                             style={{
                                 width: `${
                                     (100 * segment.durationMs) / sessionPlayerData.metadata.recordingDurationMs
@@ -91,12 +97,16 @@ export function Seekbar({ sessionRecordingId, playerKey }: SessionRecordingPlaye
                         />
                     ))}
                 </div>
-                <div className="slider-bar" />
-                <div className="thumb" ref={thumbRef} style={{ transform: `translateX(${thumbLeftPos}px)` }} />
-                <div className="current-bar" style={{ width: `${Math.max(thumbLeftPos, 0)}px` }} />
-                <div className="buffer-bar" style={{ width: `calc(${bufferPercent}% - 2px)` }} />
+
+                <div className="PlayerSeekbar__currentbar" style={{ width: `${Math.max(thumbLeftPos, 0)}px` }} />
+                <div className="PlayerSeekbar__bufferbar" style={{ width: `${bufferPercent}%` }} />
+                <div
+                    className="PlayerSeekbar__thumb"
+                    ref={thumbRef}
+                    style={{ transform: `translateX(${thumbLeftPos}px)` }}
+                />
             </div>
-            <div className="ticks">
+            {/* <div className="ticks">
                 {eventListData.map((event: RecordingEventType, i) => (
                     <Tick
                         key={event.id}
@@ -108,7 +118,7 @@ export function Seekbar({ sessionRecordingId, playerKey }: SessionRecordingPlaye
                         numEvents={eventListData.length}
                     />
                 ))}
-            </div>
+            </div> */}
         </div>
     )
 }
