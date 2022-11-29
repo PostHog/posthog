@@ -8,7 +8,7 @@ import { PluginTypeWithConfig } from 'scenes/plugins/types'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { windowValues } from 'kea-window-values'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -350,7 +350,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
         setState: () => getUrl(values),
         updateCurrentTeamSuccess: () => {
             if (router.values.location.pathname.includes('/ingestion')) {
-                return urls.events()
+                return combineUrl(urls.events(), { onboarding_completed: true }).url
             }
         },
     })),
@@ -480,17 +480,18 @@ function getUrl(values: ingestionLogicV2Type['values']): string | [string, Recor
         return url + '/billing'
     }
 
+    if (readyToVerify) {
+        url += '/verify'
+        return [
+            url,
+            {
+                platform: platform || undefined,
+                framework: framework?.toLowerCase() || undefined,
+            },
+        ]
+    }
+
     if (isTechnicalUser) {
-        if (readyToVerify) {
-            url += '/verify'
-            return [
-                url,
-                {
-                    platform: platform || undefined,
-                    framework: framework?.toLowerCase() || undefined,
-                },
-            ]
-        }
         if (framework === API) {
             url += '/api'
             return [
