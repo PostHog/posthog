@@ -30,3 +30,9 @@ Cypress.Commands.add('map', { prevSubject: true }, (subject, method) => {
 Cypress.Commands.add('clickNavMenu', (name) => {
     cy.get(`[data-attr="menu-item-${name}"]`).click()
 })
+
+Cypress.Commands.add(`verifyCallCount`, (alias, expectedNumberOfCalls) => {
+    cy.get(`${alias}.all`).then((calls) => {
+        cy.wrap(calls.length).should(`equal`, expectedNumberOfCalls)
+    })
+})
