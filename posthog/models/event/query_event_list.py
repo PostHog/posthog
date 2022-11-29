@@ -95,26 +95,18 @@ def query_events_list(
         prop_filter_params = {**prop_filter_params, **params}
 
     if prop_filters != "":
-        print('##########')
-        print('##########')
-        res = query_with_columns(
+        return query_with_columns(
             SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
                 database=CLICKHOUSE_DATABASE,
                 conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
             ),
             {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
         )
-        print(res)
-        return res
     else:
-        print('##########')
-        print('##########')
-        res = query_with_columns(
+        return query_with_columns(
             SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_SQL.format(database=CLICKHOUSE_DATABASE,conditions=conditions, limit=limit_sql, order=order),
             {"team_id": team.pk, "limit": limit, **condition_params},
         )
-        print(res)
-        return res
 
 def parse_order_by(order_by_param: Optional[str]) -> List[str]:
     return ["-timestamp"] if not order_by_param else list(json.loads(order_by_param))
