@@ -66,6 +66,9 @@ export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
 export type LoadDashboardItemsProps = { refresh?: boolean; action: string }
 
+// to stop kea typegen getting confused
+export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layouts'>
+
 const layoutsByTile = (layouts: Layouts): Record<number, Record<DashboardLayoutSize, TileLayout>> => {
     const itemLayouts: Record<number, Record<DashboardLayoutSize, TileLayout>> = {}
 
@@ -102,7 +105,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         triggerDashboardUpdate: (payload) => ({ payload }),
         /** The current state in which the dashboard is being viewed, see DashboardMode. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
-        saveLayouts: (tilesToSave: Pick<DashboardTile, 'id' | 'layouts'>[] = []) => ({ tilesToSave }),
+        saveLayouts: (tilesToSave: DashboardTileLayoutUpdatePayload[] = []) => ({ tilesToSave }),
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
