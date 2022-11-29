@@ -48,6 +48,14 @@ FROM cohortpeople
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version < %(new_version)s AND sign = 1
 """
 
+INSERT_COHORTPEOPLE_SQL = f"INSERT INTO cohortpeople (person_id, cohort_id, team_id, sign, version) VALUES"
+
+MOVE_STATIC_TO_COHORTPEOPLE_SQL = f"""
+    INSERT INTO cohortpeople
+    SELECT person_id, cohort_id, team_id, 1, %(new_version)s
+    FROM {PERSON_STATIC_COHORT_TABLE}
+"""
+
 GET_DISTINCT_ID_BY_ENTITY_SQL = """
 SELECT distinct_id FROM events WHERE team_id = %(team_id)s {date_query} AND {entity_query}
 """

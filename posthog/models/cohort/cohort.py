@@ -87,6 +87,7 @@ class Cohort(models.Model):
     is_calculating: models.BooleanField = models.BooleanField(default=False)
     last_calculation: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     errors_calculating: models.IntegerField = models.IntegerField(default=0)
+    is_merged_static: models.BooleanField = models.BooleanField(blank=True, null=True)
 
     is_static: models.BooleanField = models.BooleanField(default=False)
 
@@ -195,8 +196,16 @@ class Cohort(models.Model):
         }
 
     def calculate_people(self, new_version: int, batch_size=10000, pg_batch_size=1000):
+        from posthog.models.cohort.util import move_static_to_cohortpeople
+
         if self.is_static:
-            return
+            if self.is_merged_static:
+                return
+            else:
+                # TODO: sync from person_static_cohorts to cohortpeople
+                move_static_to_cohortpeople(new_version)
+                self.is_merged_static = True
+                self.save()
         try:
 
             # Paginate fetch batch_size from clickhouse and paginate insert pg_batch_size into postgres
@@ -275,7 +284,6 @@ class Cohort(models.Model):
     def insert_users_by_list(self, items: List[str]) -> None:
         """
         Items can be distinct_id or email
-        Important! Does not insert into clickhouse
         """
         batchsize = 1000
         from posthog.models.cohort.util import insert_static_cohort
@@ -295,7 +303,7 @@ class Cohort(models.Model):
                     .filter(Q(persondistinctid__team_id=self.team_id, persondistinctid__distinct_id__in=batch))
                     .exclude(cohort__id=self.id)
                 )
-                insert_static_cohort([p for p in persons_query.values_list("uuid", flat=True)], self.pk, self.team)
+                insert_static_cohort([p for p in persons_query.values_list("uuid", flat=True)], self, self.team)
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,

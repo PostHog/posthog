@@ -21,6 +21,8 @@ from posthog.models.cohort.sql import (
     GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
+    INSERT_COHORTPEOPLE_SQL,
+    MOVE_STATIC_TO_COHORTPEOPLE_SQL,
     RECALCULATE_COHORT_BY_ID,
 )
 from posthog.models.person.sql import (
@@ -231,18 +233,35 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int]
     return [str(row[0]) for row in results]
 
 
-def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int, team: Team):
+def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort: Cohort, team: Team):
     persons = (
         {
             "id": str(uuid.uuid4()),
             "person_id": str(person_uuid),
-            "cohort_id": cohort_id,
+            "cohort_id": cohort.pk,
             "team_id": team.pk,
             "_timestamp": datetime.now(),
         }
         for person_uuid in person_uuids
     )
     sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
+
+    # populate cohortpeople too
+    persons_cohortpeople = (
+        {
+            "person_id": str(person_uuid),
+            "cohort_id": cohort.pk,
+            "team_id": team.pk,
+            "sign": 1,
+            "version": cohort.version or 1,  # static cohorts don't need to be versioned
+        }
+        for person_uuid in person_uuids
+    )
+    sync_execute(INSERT_COHORTPEOPLE_SQL, persons_cohortpeople)
+
+
+def move_static_to_cohortpeople(new_version: int):
+    sync_execute(MOVE_STATIC_TO_COHORTPEOPLE_SQL, {"new_version": new_version})
 
 
 def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:
