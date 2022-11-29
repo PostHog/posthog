@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues, useActions, useMountedLogic } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
@@ -56,15 +55,15 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
             />
             <div className="mt-4 space-y-4">
                 {showGroupsOptions && (
-                    <div className="flex items-center w-full">
-                        <span className="text-muted mr-2">Aggregating by </span>
+                    <div className="flex items-center w-full gap-2">
+                        <span>Aggregating by</span>
                         <AggregationSelect
                             aggregationGroupTypeIndex={filters.aggregation_group_type_index}
                             onChange={(newValue) => setFilters({ aggregation_group_type_index: newValue })}
                         />
                     </div>
                 )}
-                <FunnelConversionWindowFilter horizontal />
+                <FunnelConversionWindowFilter />
             </div>
         </>
     )

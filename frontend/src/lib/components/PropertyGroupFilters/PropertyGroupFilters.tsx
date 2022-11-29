@@ -1,7 +1,12 @@
-import React from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import '../../../scenes/actions/Actions.scss'
-import { PropertyGroupFilter, FilterLogicalOperator, PropertyGroupFilterValue, FilterType } from '~/types'
+import {
+    PropertyGroupFilter,
+    FilterLogicalOperator,
+    PropertyGroupFilterValue,
+    FilterType,
+    AnyPropertyFilter,
+} from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Col, Row, Select } from 'antd'
 import './PropertyGroupFilters.scss'
@@ -12,6 +17,8 @@ import { IconCopy, IconDelete, IconPlusMini } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { LemonDivider } from '../LemonDivider'
+import React from 'react'
+import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 
 interface PropertyGroupFilters {
     value: PropertyGroupFilter
@@ -106,7 +113,16 @@ export function PropertyGroupFilters({
                                                 </div>
                                                 <PropertyFilters
                                                     orFiltering={true}
-                                                    propertyFilters={group.values}
+                                                    addButton={
+                                                        <LemonButton type="tertiary" noPadding icon={<IconPlusMini />}>
+                                                            Add filter
+                                                        </LemonButton>
+                                                    }
+                                                    propertyFilters={
+                                                        isPropertyGroupFilterLike(group)
+                                                            ? (group.values as AnyPropertyFilter[])
+                                                            : null
+                                                    }
                                                     style={{ marginBottom: 0 }}
                                                     onChange={(properties) => {
                                                         setPropertyFilters(properties, propertyGroupIndex)

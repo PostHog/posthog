@@ -1,9 +1,8 @@
-import React from 'react'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import type { personsLogicType } from './personsLogicType'
-import { AnyPropertyFilter, Breadcrumb, CohortType, ExporterFormat, PersonsTabType, PersonType } from '~/types'
+import { Breadcrumb, CohortType, ExporterFormat, PersonListParams, PersonsTabType, PersonType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,12 +16,6 @@ export interface PersonPaginatedResponse {
     next: string | null
     previous: string | null
     results: PersonType[]
-}
-
-export interface PersonFilters {
-    properties?: AnyPropertyFilter[]
-    search?: string
-    cohort?: number
 }
 
 export interface PersonLogicProps {
@@ -48,7 +41,7 @@ export const personsLogic = kea<personsLogicType>({
         setPerson: (person: PersonType | null) => ({ person }),
         loadPerson: (id: string) => ({ id }),
         loadPersons: (url: string | null = '') => ({ url }),
-        setListFilters: (payload: PersonFilters) => ({ payload }),
+        setListFilters: (payload: PersonListParams) => ({ payload }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         deleteProperty: (key: string) => ({ key }),
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
@@ -56,10 +49,11 @@ export const personsLogic = kea<personsLogicType>({
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
         showPersonDeleteModal: (person: PersonType | null) => ({ person }),
         deletePerson: (payload: { person: PersonType; deleteEvents: boolean }) => payload,
+        setDistinctId: (distinctId: string) => ({ distinctId }),
     },
     reducers: {
         listFilters: [
-            {} as PersonFilters,
+            {} as PersonListParams,
             {
                 setListFilters: (state, { payload }) => {
                     const newFilters = { ...state, ...payload }
@@ -101,6 +95,12 @@ export const personsLogic = kea<personsLogicType>({
             null as PersonType | null,
             {
                 showPersonDeleteModal: (_, { person }) => person,
+            },
+        ],
+        distinctId: [
+            null as string | null,
+            {
+                setDistinctId: (_, { distinctId }) => distinctId,
             },
         ],
     },
@@ -145,8 +145,8 @@ export const personsLogic = kea<personsLogicType>({
                     export_format: ExporterFormat.CSV,
                     export_context: {
                         path: cohort
-                            ? api.cohorts.determineCSVUrl(cohort, listFilters)
-                            : api.person.determineCSVUrl(listFilters),
+                            ? api.cohorts.determineListUrl(cohort, listFilters)
+                            : api.persons.determineListUrl(listFilters),
                         max_limit: 10000,
                     },
                 },
@@ -172,11 +172,11 @@ export const personsLogic = kea<personsLogicType>({
         editProperty: async ({ key, newValue }) => {
             const person = values.person
 
-            if (person) {
+            if (person && person.id) {
                 let parsedValue = newValue
 
                 // Instrumentation stuff
-                let action: 'added' | 'updated' | 'removed'
+                let action: 'added' | 'updated'
                 const oldPropertyType = person.properties[key] === null ? 'null' : typeof person.properties[key]
                 let newPropertyType: string = typeof newValue
 
@@ -204,7 +204,7 @@ export const personsLogic = kea<personsLogicType>({
                 actions.setPerson({ ...person }) // To update the UI immediately while the request is being processed
                 // :KLUDGE: Person properties are updated asynchronosly in the plugin server - the response won't reflect
                 //      the 'updated' properties yet.
-                await api.update(`api/person/${person.id}`, person)
+                await api.persons.updateProperty(person.id, key, newValue)
                 lemonToast.success(`Person property ${action}`)
 
                 eventUsageLogic.actions.reportPersonPropertyUpdated(
@@ -218,12 +218,13 @@ export const personsLogic = kea<personsLogicType>({
         deleteProperty: async ({ key }) => {
             const person = values.person
 
-            if (person) {
+            if (person && person.id) {
                 const updatedProperties = { ...person.properties }
                 delete updatedProperties[key]
 
-                actions.setPerson({ ...person, properties: updatedProperties })
-                await api.create(`api/person/${person.id}/delete_property`, { $unset: key })
+                actions.setPerson({ ...person, properties: updatedProperties }) // To update the UI immediately
+                // await api.create(`api/person/${person.id}/delete_property`, { $unset: key })
+                await api.persons.deleteProperty(person.id, key)
                 lemonToast.success(`Person property deleted`)
 
                 eventUsageLogic.actions.reportPersonPropertyUpdated('removed', 1, undefined, undefined)
@@ -242,7 +243,7 @@ export const personsLogic = kea<personsLogicType>({
                         if (props.cohort) {
                             url = `api/cohort/${props.cohort}/persons/?${toParams(values.listFilters)}`
                         } else {
-                            url = `api/person/?${toParams(values.listFilters)}`
+                            return api.persons.list(values.listFilters)
                         }
                     }
                     return await api.get(url)
@@ -253,8 +254,8 @@ export const personsLogic = kea<personsLogicType>({
             null as PersonType | null,
             {
                 loadPerson: async ({ id }): Promise<PersonType | null> => {
-                    const response = await api.get(`api/person/?${toParams({ distinct_id: id })}`)
-                    const person = response.results[0] || (null as PersonType | null)
+                    const response = await api.persons.list({ distinct_id: id })
+                    const person = response.results[0]
                     if (person) {
                         actions.reportPersonDetailViewed(person)
                     }

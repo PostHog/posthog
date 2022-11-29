@@ -24,6 +24,7 @@ from posthog.permissions import (
     OrganizationAdminWritePermissions,
     ProjectMembershipNecessaryPermissions,
     TeamMemberLightManagementPermission,
+    TeamMemberStrictManagementPermission,
 )
 
 
@@ -65,6 +66,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "completed_snippet_onboarding",
             "ingested_event",
             "test_account_filters",
+            "test_account_filters_default_checked",
             "path_cleaning_filters",
             "is_demo",
             "timezone",
@@ -72,11 +74,13 @@ class TeamSerializer(serializers.ModelSerializer):
             "person_display_name_properties",
             "correlation_config",
             "session_recording_opt_in",
+            "capture_console_log_opt_in",
             "effective_membership_level",
             "access_control",
             "has_group_types",
             "primary_dashboard",
             "live_events_columns",
+            "recording_domains",
         )
         read_only_fields = (
             "id",
@@ -182,8 +186,9 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
         base_permissions = [permission() for permission in self.permission_classes]
+
+        # Return early for non-actions (e.g. OPTIONS)
         if self.action:
-            # Return early for non-actions (e.g. OPTIONS)
             if self.action == "create":
                 organization = getattr(self.request.user, "organization", None)
                 if not organization:
@@ -212,16 +217,39 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         self.check_object_permissions(self.request, team)
         return team
 
+    # :KLUDGE: Exposed for compatibility reasons for permission classes.
+    @property
+    def team(self):
+        return self.get_object()
+
     def perform_destroy(self, team: Team):
         team_id = team.pk
         delete_bulky_postgres_data(team_ids=[team_id])
-        AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Team, team_id=team_id, key=str(team_id), created_by=cast(User, self.request.user)
-        )
         with mute_selected_signals():
             super().perform_destroy(team)
+        # Once the project is deleted, queue deletion of associated data
+        AsyncDeletion.objects.bulk_create(
+            [
+                AsyncDeletion(
+                    deletion_type=DeletionType.Team,
+                    team_id=team_id,
+                    key=str(team_id),
+                    created_by=cast(User, self.request.user),
+                )
+            ],
+            ignore_conflicts=True,
+        )
 
-    @action(methods=["PATCH"], detail=True)
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[
+            permissions.IsAuthenticated,
+            ProjectMembershipNecessaryPermissions,
+            TeamMemberStrictManagementPermission,
+        ],
+    )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
         team.api_token = generate_random_token_project()

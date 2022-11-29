@@ -323,6 +323,9 @@ export function stepToDatabaseFormat(step: ActionStepForm): ActionStepType {
 }
 
 export function clearSessionToolbarToken(): void {
+    window.sessionStorage?.removeItem('_postHogToolbarParams')
+    window.localStorage?.removeItem('_postHogToolbarParams')
+    // keeping these around for compatibility, should be eventually removed
     window.sessionStorage?.removeItem('_postHogEditorParams')
     window.localStorage?.removeItem('_postHogEditorParams')
 }

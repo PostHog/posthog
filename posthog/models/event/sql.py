@@ -63,7 +63,7 @@ EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = """
 """
 
 EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
-    "events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED,
+    "events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
 )
 EVENTS_TABLE_SQL = lambda: (
     EVENTS_TABLE_BASE_SQL
@@ -155,8 +155,58 @@ DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
 
 INSERT_EVENT_SQL = (
     lambda: f"""
-INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset)
-VALUES (%(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(elements_chain)s, %(created_at)s, now(), 0)
+INSERT INTO {EVENTS_DATA_TABLE()}
+(
+    uuid,
+    event,
+    properties,
+    timestamp,
+    team_id,
+    distinct_id,
+    elements_chain,
+    person_id,
+    person_properties,
+    person_created_at,
+    group0_properties,
+    group1_properties,
+    group2_properties,
+    group3_properties,
+    group4_properties,
+    group0_created_at,
+    group1_created_at,
+    group2_created_at,
+    group3_created_at,
+    group4_created_at,
+    created_at,
+    _timestamp,
+    _offset
+)
+VALUES
+(
+    %(uuid)s,
+    %(event)s,
+    %(properties)s,
+    %(timestamp)s,
+    %(team_id)s,
+    %(distinct_id)s,
+    %(elements_chain)s,
+    %(person_id)s,
+    %(person_properties)s,
+    %(person_created_at)s,
+    %(group0_properties)s,
+    %(group1_properties)s,
+    %(group2_properties)s,
+    %(group3_properties)s,
+    %(group4_properties)s,
+    %(group0_created_at)s,
+    %(group1_created_at)s,
+    %(group2_created_at)s,
+    %(group3_created_at)s,
+    %(group4_created_at)s,
+    %(created_at)s,
+    now(),
+    0
+)
 """
 )
 
@@ -294,7 +344,7 @@ FROM events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 
 NULL_SQL = """
 -- Creates zero values for all date axis ticks for the given date_from, date_to range
-SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s) - {interval_func}(number), {start_of_week_fix} %(timezone)s) AS day_start
+SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s, %(timezone)s) - {interval_func}(number) {start_of_week_fix}) AS day_start
 
 -- Get the number of `intervals` between date_from and date_to.
 --
@@ -314,12 +364,12 @@ SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s) - {interval_fu
 --
 -- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
 --       `ticks` query elsewhere.
-FROM numbers(dateDiff(%(interval)s, {trunc_func}(toDateTime(%(date_from)s), {start_of_week_fix} %(timezone)s), toDateTime(%(date_to)s), %(timezone)s))
+FROM numbers(dateDiff(%(interval)s, {trunc_func}(toDateTime(%(date_from)s, %(timezone)s) {start_of_week_fix}), toDateTime(%(date_to)s, %(timezone)s)))
 
 UNION ALL
 
 -- Make sure we capture the interval date_from falls into.
-SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_from)s), {start_of_week_fix} %(timezone)s)
+SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_from)s, %(timezone)s) {start_of_week_fix})
 """
 
 EVENT_JOIN_PERSON_SQL = """
@@ -346,7 +396,7 @@ GROUP BY tag_name, elements_chain
 ORDER BY tag_count desc, tag_name
 LIMIT %(limit)s
 """.format(
-    tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX,
+    tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX
 )
 
 GET_CUSTOM_EVENTS = """

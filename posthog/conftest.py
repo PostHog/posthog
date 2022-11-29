@@ -32,6 +32,7 @@ def reset_clickhouse_tables():
     # Mostly so that test runs locally work correctly
     from posthog.clickhouse.dead_letter_queue import TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL
     from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
+    from posthog.models.app_metrics.sql import TRUNCATE_APP_METRICS_TABLE_SQL
     from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
     from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
     from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
@@ -55,6 +56,7 @@ def reset_clickhouse_tables():
         TRUNCATE_COHORTPEOPLE_TABLE_SQL,
         TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL,
         TRUNCATE_GROUPS_TABLE_SQL,
+        TRUNCATE_APP_METRICS_TABLE_SQL,
     ]
 
     run_clickhouse_statement_in_parallel(TABLES_TO_CREATE_DROP)

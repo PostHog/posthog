@@ -11,6 +11,8 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="team", name="session_recording_opt_in", field=models.BooleanField(default=False),
+            model_name="team",
+            name="session_recording_opt_in",
+            field=models.BooleanField(default=False),
         ),
     ]

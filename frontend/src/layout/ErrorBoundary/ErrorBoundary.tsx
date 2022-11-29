@@ -1,11 +1,12 @@
-import { ErrorBoundary as SentryErrorBoundary } from '@sentry/react'
+import { getCurrentHub, ErrorBoundary as SentryErrorBoundary } from '@sentry/react'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { IconArrowDropDown } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
-import React from 'react'
 import './ErrorBoundary.scss'
 
 export function ErrorBoundary({ children }: { children: React.ReactElement }): JSX.Element {
+    const isSentryInitialized = !!getCurrentHub().getClient()
+
     return (
         <SentryErrorBoundary
             fallback={({ error, eventId }) => (
@@ -14,12 +15,18 @@ export function ErrorBoundary({ children }: { children: React.ReactElement }): J
                         <h2>An error has occurred</h2>
                         <pre>
                             <code>
-                                {error.name} (ID {eventId})
-                                <br />
-                                {error.message}
+                                {error.stack || (
+                                    <>
+                                        {error.name}
+                                        <br />
+                                        {error.message}
+                                    </>
+                                )}
                             </code>
                         </pre>
-                        We've registered this event for analysis, but feel free to contact us directly too.
+                        {isSentryInitialized
+                            ? `We've registered this event for analysis (ID ${eventId}), but feel free to contact us directly too.`
+                            : 'Please send over a screenshot of this message, so that we can resolve the issue.'}
                         <HelpButton
                             customComponent={
                                 <LemonButton type="primary" sideIcon={<IconArrowDropDown />}>

@@ -114,12 +114,7 @@ class Filter(
             elif request.data and request.data.get(PROPERTIES):
                 properties = request.data[PROPERTIES]
 
-            data = {
-                **request.GET.dict(),
-                **request.data,
-                **(data if data else {}),
-                **({PROPERTIES: properties}),
-            }
+            data = {**request.GET.dict(), **request.data, **(data if data else {}), **({PROPERTIES: properties})}
         elif not data:
             raise ValueError("You need to define either a data dict or a request")
 

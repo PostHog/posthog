@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { Select } from 'antd'
 import { BarsOutlined } from '@ant-design/icons'

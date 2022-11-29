@@ -4,6 +4,8 @@ const { join } = require('path')
 
 import fetch from 'node-fetch'
 
+import { status } from './src/utils/status'
+
 jest.mock('node-fetch')
 
 beforeEach(() => {
@@ -32,3 +34,7 @@ beforeEach(() => {
             )
     )
 })
+
+// NOTE: in testing we use the pino-pretty transport, which results in a handle
+// that we need to close to allow Jest to exit properly.
+afterAll(() => status.close())

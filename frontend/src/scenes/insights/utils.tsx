@@ -1,5 +1,6 @@
 import {
     ActionFilter,
+    AnyPartialFilterType,
     BreakdownKeyType,
     BreakdownType,
     CohortType,
@@ -8,7 +9,7 @@ import {
     FunnelVizType,
     InsightModel,
     InsightShortId,
-    InsightType,
+    PathsFilterType,
     PathType,
     StepOrderValue,
 } from '~/types'
@@ -17,6 +18,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { getCurrentTeamId } from 'lib/utils/logics'
 import { groupsModelType } from '~/models/groupsModelType'
 import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
@@ -24,11 +26,19 @@ import { RETENTION_FIRST_TIME } from 'lib/constants'
 import { retentionOptions } from 'scenes/retention/retentionTableLogic'
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { mathsLogicType } from 'scenes/trends/mathsLogicType'
-import { apiValueToMathType, MathDefinition } from 'scenes/trends/mathsLogic'
+import { apiValueToMathType, MathCategory, MathDefinition } from 'scenes/trends/mathsLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightLogic } from './insightLogic'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
-import React, { ReactNode } from 'react'
+import { ReactNode } from 'react'
+import {
+    isFunnelsFilter,
+    isLifecycleFilter,
+    isPathsFilter,
+    isRetentionFilter,
+    isStickinessFilter,
+    isTrendsFilter,
+} from 'scenes/insights/sharedUtils'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -46,8 +56,8 @@ export const getDisplayNameFromEntityFilter = (
 }
 
 export function extractObjectDiffKeys(
-    oldObj: Partial<FilterType>,
-    newObj: Partial<FilterType>,
+    oldObj: AnyPartialFilterType,
+    newObj: AnyPartialFilterType,
     prefix: string = ''
 ): Record<string, any> {
     if (Object.keys(oldObj).length === 0) {
@@ -97,7 +107,7 @@ export function findInsightFromMountedLogic(
     if (dashboardId) {
         const insightOnDashboard = dashboardLogic
             .findMounted({ id: dashboardId })
-            ?.values.allItems?.items?.find((item) => item.short_id === insightShortId)
+            ?.values.insightTiles?.find((tile) => tile.insight?.short_id === insightShortId)?.insight
         if (insightOnDashboard) {
             return insightOnDashboard
         } else {
@@ -106,7 +116,7 @@ export function findInsightFromMountedLogic(
             for (const dashModelId of Object.keys(dashboards || {})) {
                 foundOnModel = dashboardLogic
                     .findMounted({ id: parseInt(dashModelId) })
-                    ?.values.allItems?.items?.find((item) => item.short_id === insightShortId)
+                    ?.values.insightTiles?.find((tile) => tile.insight?.short_id === insightShortId)?.insight
             }
             return foundOnModel || null
         }
@@ -128,7 +138,7 @@ export async function getInsightId(shortId: InsightShortId): Promise<number | un
               .results[0]?.id
 }
 
-export function humanizePathsEventTypes(filters: Partial<FilterType>): string[] {
+export function humanizePathsEventTypes(filters: Partial<PathsFilterType>): string[] {
     let humanEventTypes: string[] = []
     if (filters.include_event_types) {
         let matchCount = 0
@@ -185,119 +195,120 @@ export function summarizeBreakdown(
 }
 
 export function summarizeInsightFilters(
-    filters: Partial<FilterType>,
+    filters: AnyPartialFilterType,
     aggregationLabel: groupsModelType['values']['aggregationLabel'],
     cohortsById: cohortsModelType['values']['cohortsById'],
     mathDefinitions: mathsLogicType['values']['mathDefinitions']
 ): string {
-    const insightType = filters.insight
-    let summary: string
-    switch (insightType) {
-        case InsightType.RETENTION:
-            const areTargetAndReturningIdentical =
-                filters.returning_entity?.id === filters.target_entity?.id &&
-                filters.returning_entity?.type === filters.target_entity?.type
-            summary =
-                `Retention of ${aggregationLabel(filters.aggregation_group_type_index, true).plural}` +
-                ` based on doing ${getDisplayNameFromEntityFilter((filters.target_entity || {}) as EntityFilter)}` +
-                ` ${retentionOptions[filters.retention_type || RETENTION_FIRST_TIME]} and returning with ` +
-                (areTargetAndReturningIdentical
-                    ? 'the same event'
-                    : getDisplayNameFromEntityFilter((filters.returning_entity || {}) as EntityFilter))
-            break
-        case InsightType.PATHS:
-            // Sync format with PathsSummary in InsightDetails
-            summary = `User paths based on ${humanizePathsEventTypes(filters).join(' and ')}`
-            if (filters.start_point) {
-                summary += ` starting at ${filters.start_point}`
-            }
-            if (filters.end_point) {
-                summary += `${filters.start_point ? ' and' : ''} ending at ${filters.end_point}`
-            }
-            break
-        default:
-            const localFilters = toLocalFilters(filters)
-            switch (insightType) {
-                case InsightType.LIFECYCLE:
-                    summary = `User lifecycle based on ${getDisplayNameFromEntityFilter(localFilters[0])}`
-                    break
-                case InsightType.FUNNELS:
-                    const linkSymbol =
-                        filters.funnel_order_type === StepOrderValue.STRICT
-                            ? '⇉'
-                            : filters.funnel_order_type === StepOrderValue.UNORDERED
-                            ? '&'
-                            : '→'
-                    summary = `${localFilters
-                        .map((filter) => getDisplayNameFromEntityFilter(filter))
-                        .join(` ${linkSymbol} `)} ${
-                        aggregationLabel(filters.aggregation_group_type_index, true).singular
-                    } conversion`
-                    if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
-                        summary += ' time'
-                    } else if (filters.funnel_viz_type === FunnelVizType.Trends) {
-                        summary += ' trend'
-                    } else {
-                        // Steps are the default viz type
-                        summary += ' rate'
-                    }
-                    if (filters.breakdown_type) {
-                        summary += ` by ${summarizeBreakdown(filters, aggregationLabel, cohortsById)}`
-                    }
-                    break
-                case InsightType.STICKINESS:
-                    summary = capitalizeFirstLetter(
-                        localFilters
-                            .map((localFilter) => {
-                                const actor = aggregationLabel(
-                                    localFilter.math === 'unique_group' ? localFilter.math_group_type_index : null,
-                                    true
-                                ).singular
-                                return `${actor} stickiness based on ${getDisplayNameFromEntityFilter(localFilter)}`
-                            })
-                            .join(' & ')
-                    )
-                    break
-                default:
-                    // Trends are the default type
-                    summary = localFilters
-                        .map((localFilter, localFilterIndex) => {
-                            const mathType = apiValueToMathType(localFilter.math, localFilter.math_group_type_index)
-                            const mathDefinition = mathDefinitions[mathType] as MathDefinition | undefined
-                            const propertyMath: string =
-                                mathDefinition?.onProperty && localFilter.math_property
-                                    ? `'s ${
-                                          keyMapping.event[localFilter.math_property]?.label ||
-                                          localFilter.math_property
-                                      }`
-                                    : ''
-                            let series = `${getDisplayNameFromEntityFilter(localFilter)}${propertyMath} ${
-                                mathDefinition
-                                    ? mathDefinition.shortName
-                                    : localFilter.math === 'unique_group'
-                                    ? 'unique groups'
-                                    : mathType
-                            }`
-                            if (filters.formula) {
-                                series = `${alphabet[localFilterIndex].toUpperCase()}. ${series}`
-                            }
-                            return series
-                        })
-                        .join(' & ')
-                    if (filters.breakdown_type) {
-                        summary += `${localFilters.length > 1 ? ',' : ''} by ${summarizeBreakdown(
-                            filters,
-                            aggregationLabel,
-                            cohortsById
-                        )}`
-                    }
-                    if (filters.formula) {
-                        summary = `${filters.formula} on ${summary}`
-                    }
-                    break
-            }
+    const localFilters = toLocalFilters(filters)
+
+    if (isRetentionFilter(filters)) {
+        const areTargetAndReturningIdentical =
+            filters.returning_entity?.id === filters.target_entity?.id &&
+            filters.returning_entity?.type === filters.target_entity?.type
+        return (
+            `Retention of ${aggregationLabel(filters.aggregation_group_type_index, true).plural}` +
+            ` based on doing ${getDisplayNameFromEntityFilter((filters.target_entity || {}) as EntityFilter)}` +
+            ` ${retentionOptions[filters.retention_type || RETENTION_FIRST_TIME]} and returning with ` +
+            (areTargetAndReturningIdentical
+                ? 'the same event'
+                : getDisplayNameFromEntityFilter((filters.returning_entity || {}) as EntityFilter))
+        )
+    } else if (isPathsFilter(filters)) {
+        // Sync format with PathsSummary in InsightDetails
+        let summary = `User paths based on ${humanizePathsEventTypes(filters).join(' and ')}`
+        if (filters.start_point) {
+            summary += ` starting at ${filters.start_point}`
+        }
+        if (filters.end_point) {
+            summary += `${filters.start_point ? ' and' : ''} ending at ${filters.end_point}`
+        }
+        return summary
+    } else if (isLifecycleFilter(filters)) {
+        return `User lifecycle based on ${getDisplayNameFromEntityFilter(localFilters[0])}`
+    } else if (isFunnelsFilter(filters)) {
+        let summary = ''
+        const linkSymbol =
+            filters.funnel_order_type === StepOrderValue.STRICT
+                ? '⇉'
+                : filters.funnel_order_type === StepOrderValue.UNORDERED
+                ? '&'
+                : '→'
+        summary = `${localFilters.map((filter) => getDisplayNameFromEntityFilter(filter)).join(` ${linkSymbol} `)} ${
+            aggregationLabel(filters.aggregation_group_type_index, true).singular
+        } conversion`
+        if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
+            summary += ' time'
+        } else if (filters.funnel_viz_type === FunnelVizType.Trends) {
+            summary += ' trend'
+        } else {
+            // Steps are the default viz type
+            summary += ' rate'
+        }
+        if (filters.breakdown_type) {
+            summary += ` by ${summarizeBreakdown(filters, aggregationLabel, cohortsById)}`
+        }
+        return summary
+    } else if (isStickinessFilter(filters)) {
+        return capitalizeFirstLetter(
+            localFilters
+                .map((localFilter) => {
+                    const actor = aggregationLabel(
+                        localFilter.math === 'unique_group' ? localFilter.math_group_type_index : null,
+                        true
+                    ).singular
+                    return `${actor} stickiness based on ${getDisplayNameFromEntityFilter(localFilter)}`
+                })
+                .join(' & ')
+        )
+    } else if (isTrendsFilter(filters)) {
+        let summary = localFilters
+            .map((localFilter, localFilterIndex) => {
+                const mathType = apiValueToMathType(localFilter.math, localFilter.math_group_type_index)
+                const mathDefinition = mathDefinitions[mathType] as MathDefinition | undefined
+                let series: string
+                if (mathDefinition?.category === MathCategory.EventCountPerActor) {
+                    series = `${getDisplayNameFromEntityFilter(localFilter)} count per user ${mathDefinition.shortName}`
+                } else if (mathDefinition?.category === MathCategory.PropertyValue) {
+                    series = `${getDisplayNameFromEntityFilter(localFilter)}'s ${
+                        keyMapping.event[localFilter.math_property as string]?.label || localFilter.math_property
+                    } ${
+                        mathDefinition
+                            ? mathDefinition.shortName
+                            : localFilter.math === 'unique_group'
+                            ? 'unique groups'
+                            : mathType
+                    }`
+                } else {
+                    series = `${getDisplayNameFromEntityFilter(localFilter)} ${
+                        mathDefinition
+                            ? mathDefinition.shortName
+                            : localFilter.math === 'unique_group'
+                            ? 'unique groups'
+                            : mathType
+                    }`
+                }
+                if (filters.formula) {
+                    series = `${alphabet[localFilterIndex].toUpperCase()}. ${series}`
+                }
+                return series
+            })
+            .join(' & ')
+
+        if (filters.breakdown_type) {
+            summary += `${localFilters.length > 1 ? ',' : ''} by ${summarizeBreakdown(
+                filters,
+                aggregationLabel,
+                cohortsById
+            )}`
+        }
+        if (filters.formula) {
+            summary = `${filters.formula} on ${summary}`
+        }
+
+        return summary
     }
-    return summary
+    return ''
 }
 
 export function formatAggregationValue(
@@ -328,11 +339,11 @@ export function formatAggregationValue(
 }
 
 export function formatBreakdownLabel(
-    cohorts?: CohortType[],
-    formatPropertyValueForDisplay?: FormatPropertyValueForDisplayFunction,
-    breakdown_value?: BreakdownKeyType,
-    breakdown?: BreakdownKeyType,
-    breakdown_type?: BreakdownType | null,
+    cohorts: CohortType[] | undefined,
+    formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
+    breakdown_value: BreakdownKeyType | undefined,
+    breakdown: BreakdownKeyType | undefined,
+    breakdown_type: BreakdownType | null | undefined,
     isHistogram?: boolean
 ): string {
     if (isHistogram && typeof breakdown_value === 'string') {
@@ -353,10 +364,13 @@ export function formatBreakdownLabel(
         )
         return `${formattedBucketStart} – ${formattedBucketEnd}`
     }
-    if (typeof breakdown_value == 'number') {
-        if (breakdown_type === 'cohort') {
-            return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? breakdown_value.toString()
+    if (breakdown_type === 'cohort') {
+        // :TRICKY: Different endpoints represent the all users cohort breakdown differently
+        if (breakdown_value === 0 || breakdown_value === 'all') {
+            return 'All Users'
         }
+        return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
+    } else if (typeof breakdown_value == 'number') {
         return formatPropertyValueForDisplay
             ? formatPropertyValueForDisplay(breakdown, breakdown_value)?.toString() ?? 'None'
             : breakdown_value.toString()
@@ -367,4 +381,13 @@ export function formatBreakdownLabel(
     } else {
         return ''
     }
+}
+
+export function sortDates(dates: Array<string | null>): Array<string | null> {
+    return dates.sort((a, b) => (dayjs(a).isAfter(dayjs(b)) ? 1 : -1))
+}
+
+// Gets content-length header from a fetch Response
+export function getResponseBytes(apiResponse: Response): number {
+    return parseInt(apiResponse.headers.get('Content-Length') ?? '0')
 }

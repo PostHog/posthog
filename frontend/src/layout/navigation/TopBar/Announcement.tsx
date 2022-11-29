@@ -1,4 +1,3 @@
-import React from 'react'
 import ReactMarkdown from 'react-markdown'
 import clsx from 'clsx'
 import { CloseOutlined } from '@ant-design/icons'
@@ -7,7 +6,7 @@ import { announcementLogic, AnnouncementType } from '~/layout/navigation/TopBar/
 import { useActions, useValues } from 'kea'
 import { NewFeatureBanner } from 'lib/introductions/NewFeatureBanner'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { LinkButton } from 'lib/components/LinkButton'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
 window.process = MOCK_NODE_PROCESS
 
@@ -21,9 +20,9 @@ export function Announcement(): JSX.Element | null {
         message = (
             <b>
                 Welcome to PostHog's demo environment. To level up,{' '}
-                <a href="https://posthog.com/signup" target="_blank" rel="noopener">
+                <Link to="https://posthog.com/signup" target="_blank">
                     deploy your own PostHog instance, or sign up for PostHog Cloud
-                </a>
+                </Link>
                 .
             </b>
         )
@@ -32,13 +31,13 @@ export function Announcement(): JSX.Element | null {
             <div>
                 <strong>Attention required!</strong> Your instance has uncompleted migrations that are required for the
                 next release.
-                <LinkButton
+                <LemonButton
                     to="/instance/async_migrations"
                     className="NewFeatureAnnouncement__button"
                     data-attr="site-banner-async-migrations"
                 >
                     Click here to fix
-                </LinkButton>
+                </LemonButton>
             </div>
         )
     } else if (shownAnnouncementType === AnnouncementType.CloudFlag && cloudAnnouncement) {

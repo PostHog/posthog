@@ -38,7 +38,7 @@ def mock_email_messages(MockEmailMessage: MagicMock) -> List[Any]:
             with open(output_file, "w") as f:
                 f.write(email_message.html_body)
 
-            print(f"Email rendered to {output_file}")  # noqa: T001
+            print(f"Email rendered to {output_file}")  # noqa: T201
 
             return _original_send()
 

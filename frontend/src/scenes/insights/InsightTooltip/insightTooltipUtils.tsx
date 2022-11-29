@@ -1,11 +1,10 @@
 import { dayjs } from 'lib/dayjs'
-import React from 'react'
 import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
-import { Space, Tag, Typography } from 'antd'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatBreakdownLabel } from '../utils'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export interface SeriesDatum {
     id: number // determines order that series will be displayed in
@@ -69,7 +68,14 @@ export function getTooltipTitle(
     return null
 }
 
-export function getFormattedDate(dayInput?: string | number, interval?: IntervalType): string {
+export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
+    hour: 'DD MMM YYYY HH:00',
+    day: 'DD MMM YYYY',
+    week: 'DD MMM YYYY',
+    month: 'MMMM YYYY',
+}
+
+export function getFormattedDate(dayInput?: string | number, interval: IntervalType = 'day'): string {
     // Number of days
     if (Number.isInteger(dayInput)) {
         return pluralize(dayInput as number, 'day')
@@ -77,8 +83,7 @@ export function getFormattedDate(dayInput?: string | number, interval?: Interval
     const day = dayjs(dayInput)
     // Dayjs formatted day
     if (dayInput !== undefined && day.isValid()) {
-        const formatString = `DD MMM YYYY${interval === 'hour' ? ' HH:00' : ''}`
-        return day.format(formatString)
+        return day.format(INTERVAL_UNIT_TO_DAYJS_FORMAT[interval])
     }
     return String(dayInput)
 }
@@ -99,7 +104,7 @@ export function invertDataSource(seriesData: SeriesDatum[]): InvertedSeriesDatum
                     s.breakdown_value,
                     s.filter?.breakdown,
                     s.filter?.breakdown_type,
-                    s.filter?.breakdown_histogram_bin_count !== undefined
+                    s.filter && isTrendsFilter(s.filter) && s.filter?.breakdown_histogram_bin_count !== undefined
                 )
             )
         }
@@ -108,15 +113,11 @@ export function invertDataSource(seriesData: SeriesDatum[]): InvertedSeriesDatum
         }
         if (pillValues.length > 0) {
             datumTitle = (
-                <Space direction={'horizontal'} wrap={true} align="center">
+                <>
                     {pillValues.map((pill) => (
-                        <Tag className="tag-pill" key={pill} closable={false}>
-                            <Typography.Text ellipsis={{ tooltip: pill }} style={{ maxWidth: 150 }}>
-                                {midEllipsis(pill, 30)}
-                            </Typography.Text>
-                        </Tag>
+                        <span key={pill}>{midEllipsis(pill, 60)}</span>
                     ))}
-                </Space>
+                </>
             )
         } else {
             // Technically should never reach this point because series data should have at least breakdown or compare values

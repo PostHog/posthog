@@ -12,7 +12,7 @@ const EXPORT_BUFFER_BYTES_DEFAULT = 1024 * 1024
 const EXPORT_BUFFER_BYTES_MAXIMUM = 100 * 1024 * 1024
 const EXPORT_BUFFER_SECONDS_MINIMUM = 1
 const EXPORT_BUFFER_SECONDS_MAXIMUM = 600
-const EXPORT_BUFFER_SECONDS_DEFAULT = isTestEnv() ? EXPORT_BUFFER_SECONDS_MAXIMUM : 10
+const EXPORT_BUFFER_SECONDS_DEFAULT = isTestEnv() ? 0 : 10
 
 type ExportEventsUpgrade = Plugin<{
     global: {
@@ -92,6 +92,13 @@ export function upgradeExportEvents(
                 plugin: pluginConfig.plugin?.name ?? '?',
                 teamId: pluginConfig.team_id.toString(),
             })
+            await hub.appMetrics.queueMetric({
+                teamId: pluginConfig.team_id,
+                pluginConfigId: pluginConfig.id,
+                category: 'exportEvents',
+                successes: payload.retriesPerformedSoFar == 0 ? payload.batch.length : 0,
+                successesOnRetry: payload.retriesPerformedSoFar == 0 ? 0 : payload.batch.length,
+            })
         } catch (err) {
             if (err instanceof RetryError) {
                 if (payload.retriesPerformedSoFar < MAXIMUM_RETRIES) {
@@ -121,8 +128,32 @@ export function upgradeExportEvents(
                         plugin: pluginConfig.plugin?.name ?? '?',
                         teamId: pluginConfig.team_id.toString(),
                     })
+                    await hub.appMetrics.queueError(
+                        {
+                            teamId: pluginConfig.team_id,
+                            pluginConfigId: pluginConfig.id,
+                            category: 'exportEvents',
+                            failures: payload.batch.length,
+                        },
+                        {
+                            error: err,
+                            eventCount: payload.batch.length,
+                        }
+                    )
                 }
             } else {
+                await hub.appMetrics.queueError(
+                    {
+                        teamId: pluginConfig.team_id,
+                        pluginConfigId: pluginConfig.id,
+                        category: 'exportEvents',
+                        failures: payload.batch.length,
+                    },
+                    {
+                        error: err,
+                        eventCount: payload.batch.length,
+                    }
+                )
                 throw err
             }
         }

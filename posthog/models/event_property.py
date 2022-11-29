@@ -13,11 +13,8 @@ class EventProperty(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "event", "property"], name="posthog_event_property_unique_team_event_property"
-            ),
+            )
         ]
-        indexes = [
-            models.Index(fields=["team", "event"]),
-            models.Index(fields=["team", "property"]),
-        ]
+        indexes = [models.Index(fields=["team", "event"]), models.Index(fields=["team", "property"])]
 
     __repr__ = sane_repr("event", "property", "team_id")

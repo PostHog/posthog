@@ -11,10 +11,7 @@ from posthog.test.test_journeys import journeys_for
 class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
     def test_funnel_unordered_basic_post(self):
         journeys_for(
-            {
-                "1": [{"event": "step one"}, {"event": "step two"},],
-                "2": [{"event": "step one"}, {"event": "step two"},],
-            },
+            {"1": [{"event": "step one"}, {"event": "step two"}], "2": [{"event": "step one"}, {"event": "step two"}]},
             self.team,
         )
 
@@ -32,15 +29,15 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         ).json()
 
         self.assertEqual(len(response["result"]), 2)
-        self.assertEqual(response["result"][0]["name"], "step one")
-        self.assertEqual(response["result"][1]["name"], "step two")
+        self.assertEqual(response["result"][0]["name"], "Completed 1 step")
+        self.assertEqual(response["result"][1]["name"], "Completed 2 steps")
         self.assertEqual(response["result"][0]["count"], 2)
         self.assertEqual(response["result"][1]["count"], 2)
 
         # Should have 2 people, all got to the end of the funnel
         assert get_funnel_people_breakdown_by_step(client=self.client, funnel_response=response) == [
-            {"name": "step one", "converted": ["1", "2"], "dropped": []},
-            {"name": "step two", "converted": ["1", "2"], "dropped": []},
+            {"name": "Completed 1 step", "converted": ["1", "2"], "dropped": []},
+            {"name": "Completed 2 steps", "converted": ["1", "2"], "dropped": []},
         ]
 
     def test_unordered_funnel_with_breakdown_by_event_property(self):
@@ -60,7 +57,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                 {"event": "sign up", "timestamp": "2020-01-02", "properties": person2_properties},
                 {"event": "play movie", "timestamp": "2020-01-03", "properties": person2_properties},
             ],
-            "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": person3_properties},],
+            "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": person3_properties}],
         }
 
         journeys_for(team=self.team, events_by_person=events)
@@ -83,17 +80,17 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             {
                 "breakdown_value": "Chrome",
                 "steps": [
-                    {"name": "sign up", "converted": ["person1"], "dropped": []},
-                    {"name": "play movie", "converted": ["person1"], "dropped": []},
-                    {"name": "buy", "converted": ["person1"], "dropped": []},
+                    {"name": "Completed 1 step", "converted": ["person1"], "dropped": []},
+                    {"name": "Completed 2 steps", "converted": ["person1"], "dropped": []},
+                    {"name": "Completed 3 steps", "converted": ["person1"], "dropped": []},
                 ],
             },
             {
                 "breakdown_value": "Safari",
                 "steps": [
-                    {"name": "sign up", "converted": ["person2", "person3"], "dropped": []},
-                    {"name": "play movie", "converted": ["person2"], "dropped": ["person3"]},
-                    {"name": "buy", "converted": ["person2"], "dropped": []},
+                    {"name": "Completed 1 step", "converted": ["person2", "person3"], "dropped": []},
+                    {"name": "Completed 2 steps", "converted": ["person2"], "dropped": ["person3"]},
+                    {"name": "Completed 3 steps", "converted": ["person2"], "dropped": []},
                 ],
             },
         ]
@@ -101,8 +98,8 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
     def test_funnel_strict_basic_post(self):
         journeys_for(
             {
-                "1": [{"event": "step one"}, {"event": "step two"},],
-                "2": [{"event": "step one"}, {"event": "blahh"}, {"event": "step two"},],
+                "1": [{"event": "step one"}, {"event": "step two"}],
+                "2": [{"event": "step one"}, {"event": "blahh"}, {"event": "step two"}],
             },
             self.team,
         )
@@ -157,7 +154,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                 },
                 {"event": "buy", "timestamp": "2020-01-04", "properties": safari_properties},
             ],
-            "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": safari_properties},],
+            "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": safari_properties}],
         }
 
         journeys_for(team=self.team, events_by_person=events)
@@ -215,7 +212,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                 {"event": "play movie", "timestamp": "2020-01-02", "properties": person2_properties},
                 {"event": "buy", "timestamp": "2020-01-03", "properties": person2_properties},
             ],
-            "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": person3_properties},],
+            "person3": [{"event": "sign up", "timestamp": "2020-01-01", "properties": person3_properties}],
         }
 
         journeys_for(team=self.team, events_by_person=events)
@@ -456,7 +453,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                 "is_cached": False,
                 "timezone": "UTC",
                 "result": {
-                    "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
+                    "bins": [[2220.0, 2], [42510.0, 0], [82800.0, 1]],
                     "average_conversion_time": 29540.0,
                 },
             },
@@ -514,7 +511,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                 "is_cached": False,
                 "timezone": "UTC",
                 "result": {
-                    "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
+                    "bins": [[2220.0, 2], [42510.0, 0], [82800.0, 1]],
                     "average_conversion_time": 29540.0,
                 },
             },
@@ -572,7 +569,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                 "is_cached": False,
                 "timezone": "UTC",
                 "result": {
-                    "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
+                    "bins": [[2220.0, 2], [42510.0, 0], [82800.0, 1]],
                     "average_conversion_time": 29540.0,
                 },
             },
@@ -580,8 +577,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
     def test_funnel_invalid_action_handled(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/insights/funnel/",
-            {"actions": [{"id": 666, "type": "actions", "order": 0},]},
+            f"/api/projects/{self.team.id}/insights/funnel/", {"actions": [{"id": 666, "type": "actions", "order": 0}]}
         )
 
         self.assertEqual(response.status_code, 400)
@@ -590,8 +586,8 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
     def test_funnel_basic_exclusions(self):
         journeys_for(
             {
-                "1": [{"event": "step one"}, {"event": "step x"}, {"event": "step two"},],
-                "2": [{"event": "step one"}, {"event": "step two"},],
+                "1": [{"event": "step one"}, {"event": "step x"}, {"event": "step two"}],
+                "2": [{"event": "step one"}, {"event": "step two"}],
             },
             self.team,
         )
@@ -603,7 +599,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step one", "type": "events", "order": 0},
                     {"id": "step two", "type": "events", "order": 1},
                 ],
-                "exclusions": [{"id": "step x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1},],
+                "exclusions": [{"id": "step x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1}],
                 "funnel_window_days": 14,
                 "insight": "funnels",
             },
@@ -626,8 +622,8 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
     def test_funnel_invalid_exclusions(self):
         journeys_for(
             {
-                "1": [{"event": "step one"}, {"event": "step x"}, {"event": "step two"},],
-                "2": [{"event": "step one"}, {"event": "step two"},],
+                "1": [{"event": "step one"}, {"event": "step x"}, {"event": "step two"}],
+                "2": [{"event": "step one"}, {"event": "step two"}],
             },
             self.team,
         )
@@ -654,7 +650,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                             "type": "events",
                             "funnel_from_step": exclusion_from_step,
                             "funnel_to_step": exclusion_to_step,
-                        },
+                        }
                     ],
                     "funnel_window_days": 14,
                     "insight": "funnels",
@@ -828,11 +824,7 @@ def get_converted_and_dropped_people(client: Client, step):
         dropped_people = dropped_people_response.json()["results"][0]["people"]
         dropped_distinct_ids = [distinct_id for people in dropped_people for distinct_id in people["distinct_ids"]]
 
-    return {
-        "name": step["name"],
-        "converted": sorted(converted_distinct_ids),
-        "dropped": sorted(dropped_distinct_ids),
-    }
+    return {"name": step["name"], "converted": sorted(converted_distinct_ids), "dropped": sorted(dropped_distinct_ids)}
 
 
 def get_funnel_people_breakdown_by_step(client: Client, funnel_response):

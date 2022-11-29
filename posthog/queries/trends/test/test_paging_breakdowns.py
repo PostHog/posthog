@@ -28,10 +28,10 @@ class TestPagingBreakdowns(APIBaseTest):
                             "team": self.team,
                             "event": "$pageview",
                             "distinct_id": "blabla",
-                            "properties": {"wildcard_route": f"/1/*/{i}",},
+                            "properties": {"wildcard_route": f"/1/*/{i}"},
                         }
                         for i in range(50)
-                    ],
+                    ]
                 },
                 team=self.team,
                 create_people=True,
@@ -41,14 +41,14 @@ class TestPagingBreakdowns(APIBaseTest):
         with freeze_time(run_at or "2020-01-04T13:01:01Z"):
             action_response = Trends().run(
                 Filter(
-                    data={"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},], **extra,}
+                    data={"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}], **extra}
                 ),
                 self.team,
             )
         return action_response
 
     def test_with_breakdown_loads_two_unqiue_pages_of_values(self):
-        response = self._run({"breakdown": "wildcard_route", "breakdown_type": "event",})
+        response = self._run({"breakdown": "wildcard_route", "breakdown_type": "event"})
 
         self.assertEqual(len(response), 25)
 

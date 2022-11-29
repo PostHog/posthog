@@ -36,7 +36,9 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
-            options={"unique_together": {("team", "name")},},
+            options={
+                "unique_together": {("team", "name")},
+            },
         ),
         migrations.CreateModel(
             name="EventDefinition",
@@ -60,6 +62,8 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
-            options={"unique_together": {("team", "name")},},
+            options={
+                "unique_together": {("team", "name")},
+            },
         ),
     ]

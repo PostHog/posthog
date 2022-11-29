@@ -10,5 +10,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(model_name="person", name="version", field=models.BigIntegerField(blank=True, null=True),)
+        migrations.AddField(
+            model_name="person",
+            name="version",
+            field=models.BigIntegerField(blank=True, null=True),
+        )
     ]

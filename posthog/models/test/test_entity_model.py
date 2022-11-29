@@ -19,7 +19,7 @@ class TestEntity(TestCase):
             {
                 "id": "e1",
                 "type": TREND_FILTER_TYPE_EVENTS,
-                "properties": [{"key": "current_url", "value": "test@posthog.com", "type": "element"},],
+                "properties": [{"key": "current_url", "value": "test@posthog.com", "type": "element"}],
             }
         )
 
@@ -42,7 +42,7 @@ class TestEntity(TestCase):
             {
                 "id": "e1",
                 "type": TREND_FILTER_TYPE_EVENTS,
-                "properties": [{"key": "current_url", "value": "test@posthog.com", "type": "element"},],
+                "properties": [{"key": "current_url", "value": "test@posthog.com", "type": "element"}],
             }
         )
 
@@ -170,7 +170,7 @@ class TestEntity(TestCase):
     def test_equality_with_old_style_and_new_style_properties(self):
         entity1 = Entity({"id": "e1", "type": TREND_FILTER_TYPE_EVENTS, "properties": {"key": "value"}})
         entity2 = Entity(
-            {"id": "e1", "type": TREND_FILTER_TYPE_EVENTS, "properties": [{"key": "key", "value": "value"},]}
+            {"id": "e1", "type": TREND_FILTER_TYPE_EVENTS, "properties": [{"key": "key", "value": "value"}]}
         )
 
         self.assertTrue(entity1.equals(entity2))

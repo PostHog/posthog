@@ -9,9 +9,7 @@ from posthog.settings import AUTHENTICATION_BACKENDS, DEMO, SITE_URL, get_from_e
 # Zapier REST hooks
 HOOK_EVENTS: Dict[str, str] = {
     # "event_name": "App.Model.Action" (created/updated/deleted)
-    "action_defined": "posthog.Action.created_custom",
     "action_performed": "posthog.Action.performed",
-    "annotation_created": "posthog.Annotation.created_custom",
 }
 HOOK_FINDER = "ee.models.hook.find_and_fire_hook"
 HOOK_DELIVERER = "ee.models.hook.deliver_hook_wrapper"
@@ -26,6 +24,7 @@ AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + [
 SOCIAL_AUTH_SAML_SP_ENTITY_ID = SITE_URL
 SOCIAL_AUTH_SAML_SECURITY_CONFIG = {
     "wantAttributeStatement": False,  # AttributeStatement is optional in the specification
+    "requestedAuthnContext": False,  # do not explicitly request a password login, also allow multifactor and others
 }
 # Attributes below are required for the SAML integration from social_core to work properly
 SOCIAL_AUTH_SAML_SP_PUBLIC_CERT = ""
@@ -60,3 +59,5 @@ MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS = get_from_env(
 MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS = get_from_env("MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS", 90, type_cast=int)
 # Maximum number of columns to materialize at once. Avoids running into resource bottlenecks (storage + ingest + backfilling).
 MATERIALIZE_COLUMNS_MAX_AT_ONCE = get_from_env("MATERIALIZE_COLUMNS_MAX_AT_ONCE", 10, type_cast=int)
+
+BILLING_SERVICE_URL = get_from_env("BILLING_SERVICE_URL", "https://billing.posthog.com")

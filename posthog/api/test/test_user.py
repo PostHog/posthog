@@ -4,6 +4,7 @@ from unittest.mock import ANY, patch
 import pytest
 from django.core.cache import cache
 from django.utils.text import slugify
+from freezegun.api import freeze_time
 from rest_framework import status
 
 from posthog.models import Tag, Team, User
@@ -114,21 +115,19 @@ class TestUserAPI(APIBaseTest):
                 team=self.team, name="a new event", owner=self.user  # I shouldn't be counted
             )
             timestamp_property = EnterprisePropertyDefinition.objects.create(
-                team=self.team, name="a timestamp", property_type="DateTime", description="This is a cool timestamp.",
+                team=self.team, name="a timestamp", property_type="DateTime", description="This is a cool timestamp."
             )
             tag_test = Tag.objects.create(name="test", team_id=self.team.id)
             tag_official = Tag.objects.create(name="official", team_id=self.team.id)
             timestamp_property.tagged_items.create(tag_id=tag_test.id)
             timestamp_property.tagged_items.create(tag_id=tag_official.id)
             EnterprisePropertyDefinition.objects.create(
-                team=self.team, name="plan", description="The current membership plan the user has active.",
+                team=self.team, name="plan", description="The current membership plan the user has active."
             )
             tagged_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="property")
             tag_test2 = Tag.objects.create(name="test2", team_id=self.team.id)
             tagged_property.tagged_items.create(tag_id=tag_test2.id)
-            EnterprisePropertyDefinition.objects.create(
-                team=self.team, name="some_prop",  # I shouldn't be counted
-            )
+            EnterprisePropertyDefinition.objects.create(team=self.team, name="some_prop")  # I shouldn't be counted
 
             response = self.client.get("/api/users/@me/")
 
@@ -182,8 +181,9 @@ class TestUserAPI(APIBaseTest):
 
     # UPDATING USER
 
+    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_update_current_user(self, mock_capture):
+    def test_update_current_user(self, mock_capture, mock_identify_task):
         another_org = Organization.objects.create(name="Another Org")
         another_team = Team.objects.create(name="Another Team", organization=another_org)
         user = self._create_user("old@posthog.com", password="12345678")
@@ -192,10 +192,10 @@ class TestUserAPI(APIBaseTest):
             "/api/users/@me/",
             {
                 "first_name": "Cooper",
-                "email": "updated@posthog.com",
                 "anonymize_data": True,
                 "email_opt_in": False,
                 "events_column_config": {"active": ["column_1", "column_2"]},
+                "notification_settings": {"plugin_disabled": False},
                 "uuid": 1,  # should be ignored
                 "id": 1,  # should be ignored
                 "organization": str(another_org.id),  # should be ignored
@@ -208,7 +208,6 @@ class TestUserAPI(APIBaseTest):
 
         self.assertNotEqual(response_data["uuid"], 1)
         self.assertEqual(response_data["first_name"], "Cooper")
-        self.assertEqual(response_data["email"], "updated@posthog.com")
         self.assertEqual(response_data["anonymize_data"], True)
         self.assertEqual(response_data["email_opt_in"], False)
         self.assertEqual(response_data["events_column_config"], {"active": ["column_1", "column_2"]})
@@ -219,20 +218,98 @@ class TestUserAPI(APIBaseTest):
         self.assertNotEqual(user.pk, 1)
         self.assertNotEqual(user.uuid, 1)
         self.assertEqual(user.first_name, "Cooper")
-        self.assertEqual(user.email, "updated@posthog.com")
         self.assertEqual(user.anonymize_data, True)
+        self.assertDictContainsSubset({"plugin_disabled": False}, user.notification_settings)
 
         mock_capture.assert_called_once_with(
             user.distinct_id,
             "user updated",
             properties={
-                "updated_attrs": ["anonymize_data", "email", "email_opt_in", "events_column_config", "first_name"],
+                "updated_attrs": [
+                    "anonymize_data",
+                    "email_opt_in",
+                    "events_column_config",
+                    "first_name",
+                    "partial_notification_settings",
+                ]
             },
-            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid),},
+            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
         )
 
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_notifications_sent_when_user_email_is_changed_and_email_available(
+        self, mock_send_email_change_emails, mock_is_email_available
+    ):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        with freeze_time("2020-01-01T21:37:00+00:00"):
+            response = self.client.patch(
+                "/api/users/@me/",
+                {
+                    "email": "beta@example.com",
+                },
+            )
+        response_data = response.json()
+        self.user.refresh_from_db()
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response_data["email"] == "beta@example.com"
+        assert self.user.email == "beta@example.com"
+        mock_is_email_available.assert_called_once()
+        mock_send_email_change_emails.assert_called_once_with(
+            "2020-01-01T21:37:00+00:00", self.user.first_name, "alpha@example.com", "beta@example.com"
+        )
+
+    @patch("posthog.api.user.is_email_available", return_value=False)
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_no_notifications_when_user_email_is_changed_and_email_not_available(
+        self, mock_send_email_change_emails, mock_is_email_available
+    ):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "email": "beta@example.com",
+            },
+        )
+        response_data = response.json()
+        self.user.refresh_from_db()
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response_data["email"] == "beta@example.com"
+        assert self.user.email == "beta@example.com"
+        mock_is_email_available.assert_called_once()
+        mock_send_email_change_emails.assert_not_called()
+
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_no_notifications_when_user_email_is_changed_and_only_case_differs(
+        self, mock_send_email_change_emails, mock_is_email_available
+    ):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "email": "ALPHA@example.com",
+            },
+        )
+        response_data = response.json()
+        self.user.refresh_from_db()
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response_data["email"] == "ALPHA@example.com"
+        assert self.user.email == "ALPHA@example.com"
+        mock_is_email_available.assert_not_called()
+        mock_send_email_change_emails.assert_not_called()
+
     def test_cannot_upgrade_yourself_to_staff_user(self):
-        response = self.client.patch("/api/users/@me/", {"is_staff": True},)
+        response = self.client.patch("/api/users/@me/", {"is_staff": True})
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
@@ -242,9 +319,10 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertEqual(self.user.is_staff, False)
 
+    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_can_update_current_organization(self, mock_capture):
-        response = self.client.patch("/api/users/@me/", {"set_current_organization": str(self.new_org.id)},)
+    def test_can_update_current_organization(self, mock_capture, mock_identify):
+        response = self.client.patch("/api/users/@me/", {"set_current_organization": str(self.new_org.id)})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["organization"]["id"], str(self.new_org.id))
@@ -262,11 +340,12 @@ class TestUserAPI(APIBaseTest):
             self.user.distinct_id,
             "user updated",
             properties={"updated_attrs": ["current_organization", "current_team"]},
-            groups={"instance": ANY, "organization": str(self.new_org.id), "project": str(self.new_project.uuid),},
+            groups={"instance": ANY, "organization": str(self.new_org.id), "project": str(self.new_project.uuid)},
         )
 
+    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_can_update_current_project(self, mock_capture):
+    def test_can_update_current_project(self, mock_capture, mock_identify):
         team = Team.objects.create(name="Local Team", organization=self.new_org)
         response = self.client.patch("/api/users/@me/", {"set_current_team": team.id})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -285,7 +364,7 @@ class TestUserAPI(APIBaseTest):
             self.user.distinct_id,
             "user updated",
             properties={"updated_attrs": ["current_organization", "current_team"]},
-            groups={"instance": ANY, "organization": str(self.new_org.id), "project": str(team.uuid),},
+            groups={"instance": ANY, "organization": str(self.new_org.id), "project": str(team.uuid)},
         )
 
     def test_cannot_set_mismatching_org_and_team(self):
@@ -391,8 +470,9 @@ class TestUserAPI(APIBaseTest):
         response = self.client.get("/api/users/@me/").json()
         self.assertEqual(response["team"]["id"], team2.pk)
 
+    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_can_update_password(self, mock_capture):
+    def test_user_can_update_password(self, mock_capture, mock_identify):
 
         user = self._create_user("bob@posthog.com", password="A12345678")
         self.client.force_login(user)
@@ -416,20 +496,21 @@ class TestUserAPI(APIBaseTest):
             user.distinct_id,
             "user updated",
             properties={"updated_attrs": ["password"]},
-            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid),},
+            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
         )
 
         # User can log in with new password
         response = self.client.post("/api/login", {"email": "bob@posthog.com", "password": "a_new_password"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_with_no_password_set_can_set_password(self, mock_capture):
+    def test_user_with_no_password_set_can_set_password(self, mock_capture, mock_identify):
         user = self._create_user("no_password@posthog.com", password=None)
         self.client.force_login(user)
 
         response = self.client.patch(
-            "/api/users/@me/", {"password": "a_new_password"},  # note we don't send current password
+            "/api/users/@me/", {"password": "a_new_password"}  # note we don't send current password
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -449,7 +530,7 @@ class TestUserAPI(APIBaseTest):
             user.distinct_id,
             "user updated",
             properties={"updated_attrs": ["password"]},
-            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid),},
+            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
         )
 
         # User can log in with new password
@@ -462,7 +543,7 @@ class TestUserAPI(APIBaseTest):
         user.save()
         self.client.force_login(user)
 
-        response = self.client.patch("/api/users/@me/", {"password": "a_new_password"},)
+        response = self.client.patch("/api/users/@me/", {"password": "a_new_password"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Assert session is still valid
@@ -473,8 +554,9 @@ class TestUserAPI(APIBaseTest):
         user.refresh_from_db()
         self.assertTrue(user.check_password("a_new_password"))
 
+    @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_cant_update_to_insecure_password(self, mock_capture):
+    def test_cant_update_to_insecure_password(self, mock_capture, mock_identify):
 
         response = self.client.patch("/api/users/@me/", {"current_password": self.CONFIG_PASSWORD, "password": "123"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -551,12 +633,10 @@ class TestUserAPI(APIBaseTest):
 
     def test_user_cannot_update_password_with_incorrect_current_password_and_ratelimit_to_prevent_attacks(self):
 
-        for i in range(7):
+        for _ in range(7):
             response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertDictContainsSubset(
-            {"attr": None, "code": "throttled", "type": "throttled_error"}, response.json(),
-        )
+        self.assertDictContainsSubset({"attr": None, "code": "throttled", "type": "throttled_error"}, response.json())
 
         # Password was not changed
         self.user.refresh_from_db()
@@ -564,20 +644,20 @@ class TestUserAPI(APIBaseTest):
 
     def test_no_ratelimit_for_get_requests_for_users(self):
 
-        for i in range(6):
+        for _ in range(6):
             response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        for i in range(4):
+        for _ in range(4):
             # below rate limit, so shouldn't be throttled
             response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-        for i in range(2):
+        for _ in range(2):
             response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        for i in range(2):
+        for _ in range(2):
             # finally above rate limit, so should be throttled
             response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
@@ -603,9 +683,7 @@ class TestUserAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         locationHeader = response.headers.get("location", "not found")
-        self.assertIn(
-            "%22jsURL%22%3A%20%22http%3A%2F%2Flocalhost%3A8234%22", locationHeader,
-        )
+        self.assertIn("%22jsURL%22%3A%20%22http%3A%2F%2Flocalhost%3A8234%22", locationHeader)
         self.maxDiff = None
         self.assertEqual(
             locationHeader,

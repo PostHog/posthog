@@ -6,13 +6,15 @@ import { PropertyOperator } from '~/types'
 import { useMocks } from '~/mocks/jest'
 import api from 'lib/api'
 
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 describe('personsLogic', () => {
     let logic: ReturnType<typeof personsLogic.build>
 
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/person/': (req) => {
+                '/api/projects/:team_id/persons/': (req) => {
                     if (['+', 'abc', 'xyz'].includes(req.url.searchParams.get('distinct_id') ?? '')) {
                         return [200, { results: ['person from api'] }]
                     }
@@ -114,7 +116,7 @@ describe('personsLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.loadPerson('+')
                 // has encoded from + in the action to %2B in the API call
-                expect(api.get).toHaveBeenCalledWith('api/person/?distinct_id=%2B')
+                expect(api.get).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/persons?distinct_id=%2B`, undefined)
             })
                 .toDispatchActions(['loadPerson', 'loadPersonSuccess'])
                 .toMatchValues({

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Modal } from 'antd'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -92,7 +92,7 @@ function ModalContent({ origResult }: { origResult: Query[] }): JSX.Element {
                         },
                     },
                     {
-                        title: 'Execution duration (seconds)',
+                        title: 'Execution duration (ms)',
                         render: function exec(_, item) {
                             return <>{Math.round((item.execution_time + Number.EPSILON) * 100) / 100}</>
                         },

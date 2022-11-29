@@ -15,6 +15,4 @@ def add_columns_to_required_tables(_):
     sync_execute(ADD_COLUMNS_BASE_SQL.format(table="cohortpeople", cluster=CLICKHOUSE_CLUSTER))
 
 
-operations = [
-    migrations.RunPython(add_columns_to_required_tables),
-]
+operations = [migrations.RunPython(add_columns_to_required_tables)]

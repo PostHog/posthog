@@ -23,7 +23,7 @@ class Hook(AbstractHook):
 
 
 def find_and_fire_hook(
-    event_name: str, instance: models.Model, user_override: Team, payload_override: Optional[dict] = None,
+    event_name: str, instance: models.Model, user_override: Team, payload_override: Optional[dict] = None
 ):
     if not user_override.organization.is_feature_available(AvailableFeature.ZAPIER):
         return

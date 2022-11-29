@@ -37,7 +37,7 @@ GROUPS_TABLE_SQL = lambda: (
 )
 
 KAFKA_GROUPS_TABLE_SQL = lambda: GROUPS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + GROUPS_TABLE, cluster=CLICKHOUSE_CLUSTER, engine=kafka_engine(KAFKA_GROUPS), extra_fields="",
+    table_name="kafka_" + GROUPS_TABLE, cluster=CLICKHOUSE_CLUSTER, engine=kafka_engine(KAFKA_GROUPS), extra_fields=""
 )
 
 # You must include the database here because of a bug in clickhouse
@@ -81,9 +81,9 @@ COPY_GROUPS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
 )
 
 SELECT_GROUPS_OF_TEAM = """SELECT * FROM {table_name} WHERE team_id = %(source_team_id)s""".format(
-    table_name=GROUPS_TABLE,
+    table_name=GROUPS_TABLE
 )
 
 GET_GROUP_PROPERTY_SAMPLE_JSON_VALUES = GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES.format(
-    table_name=GROUPS_TABLE, properties_column="group_properties",
+    table_name=GROUPS_TABLE, properties_column="group_properties"
 )

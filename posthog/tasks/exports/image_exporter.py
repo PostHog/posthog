@@ -1,5 +1,4 @@
 import json
-import logging
 import os
 import time
 import uuid
@@ -16,9 +15,8 @@ from selenium.webdriver.support.wait import WebDriverWait
 from sentry_sdk import capture_exception, configure_scope
 from statshog.defaults.django import statsd
 from webdriver_manager.chrome import ChromeDriverManager
-from webdriver_manager.utils import ChromeType
+from webdriver_manager.core.utils import ChromeType
 
-from posthog.internal_metrics import incr, timing
 from posthog.logging.timing import timed
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
 from posthog.tasks.update_cache import synchronously_update_insight_cache
@@ -47,7 +45,7 @@ def get_driver() -> webdriver.Chrome:
         return webdriver.Chrome(os.environ["CHROMEDRIVER_BIN"], options=options)
 
     return webdriver.Chrome(
-        service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM, log_level=logging.ERROR).install()),
+        service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE).install()),
         options=options,
     )
 
@@ -103,7 +101,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
         save_content(exported_asset, image_data)
 
         os.remove(image_path)
-        timing("exporter_task_success", time.time() - _start)
+        statsd.timing("exporter_task_success", time.time() - _start)
 
     except Exception as err:
         # Ensure we clean up the tmp file in case anything went wrong
@@ -114,7 +112,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
 
 
 def _screenshot_asset(
-    image_path: str, url_to_render: str, screenshot_width: ScreenWidth, wait_for_css_selector: CSSSelector,
+    image_path: str, url_to_render: str, screenshot_width: ScreenWidth, wait_for_css_selector: CSSSelector
 ) -> None:
     driver: Optional[webdriver.Chrome] = None
     try:
@@ -142,7 +140,7 @@ def _screenshot_asset(
                     pass
                 capture_exception(e)
 
-            raise e
+        raise e
     finally:
         if driver:
             driver.quit()
@@ -170,5 +168,5 @@ def export_image(exported_asset: ExportedAsset) -> None:
         capture_exception(e)
 
         logger.error("image_exporter.failed", exception=e, exc_info=True)
-        incr("exporter_task_failure", tags={"team_id": team_id})
+        statsd.incr("exporter_task_failure", tags={"team_id": team_id})
         raise e

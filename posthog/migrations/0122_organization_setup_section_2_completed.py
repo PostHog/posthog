@@ -11,6 +11,8 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="organization", name="setup_section_2_completed", field=models.BooleanField(default=True),
+            model_name="organization",
+            name="setup_section_2_completed",
+            field=models.BooleanField(default=True),
         ),
     ]

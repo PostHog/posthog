@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues, useActions, useMountedLogic } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelStepReference, StepOrderValue, EditorFilterProps } from '~/types'
@@ -19,17 +18,17 @@ export function FunnelsAdvanced({ filters, insightProps }: EditorFilterProps): J
             <PureField
                 label="Step order"
                 info={
-                    <ul className="pl-4">
+                    <ul className="list-disc pl-4">
                         <li>
                             <b>Sequential</b> - Step B must happen after Step A, but any number events can happen
                             between A and B.
                         </li>
                         <li>
-                            <b>Strict Order</b> - Step B must happen directly after Step A without any events in
+                            <b>Strict order</b> - Step B must happen directly after Step A without any events in
                             between.
                         </li>
                         <li>
-                            <b>Any Order</b> - Steps can be completed in any sequence.
+                            <b>Any order</b> - Steps can be completed in any sequence.
                         </li>
                     </ul>
                 }
@@ -37,7 +36,7 @@ export function FunnelsAdvanced({ filters, insightProps }: EditorFilterProps): J
                 <FunnelStepOrderPicker />
             </PureField>
             <PureField label="Conversion rate calculation">
-                <FunnelStepReferencePicker bordered />
+                <FunnelStepReferencePicker />
             </PureField>
 
             <PureField

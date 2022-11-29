@@ -17,7 +17,9 @@ class Migration(migrations.Migration):
             field=models.DateTimeField(blank=True, default=django.utils.timezone.now),
         ),
         migrations.AddField(
-            model_name="event", name="created_at", field=models.DateTimeField(auto_now_add=True, null=True),
+            model_name="event",
+            name="created_at",
+            field=models.DateTimeField(auto_now_add=True, null=True),
         ),
         migrations.AlterField(
             model_name="user",

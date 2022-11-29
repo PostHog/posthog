@@ -1,5 +1,6 @@
 .project-homepage {
     .homepage-dashboard-header {
+        display: flex;
         justify-content: space-between;
         align-items: center;
 
@@ -7,10 +8,6 @@
             display: flex;
             flex-direction: row;
             align-items: center;
-
-            .dashboard-name {
-                margin: 0;
-            }
 
             .ant-skeleton {
                 width: 300px;
@@ -44,38 +41,12 @@
     }
 
     .empty-state-container {
-        background-color: var(--bg-side);
+        background-color: var(--side);
         width: 100%;
         justify-content: center;
         align-items: center;
         padding: 4rem;
         display: flex;
         flex-direction: column;
-    }
-}
-
-.ProjectHomePage__listrow {
-    display: flex;
-    flex-direction: row;
-    flex: 1;
-    gap: 0.5rem;
-    height: 2.5rem;
-    align-items: center;
-    font-weight: 400; // Overrides font-weight from LemonButton
-    color: var(--default);
-    overflow: hidden;
-
-    .ProjectHomePage__listrow__details {
-        flex: 1;
-        overflow: hidden;
-
-        div:first-child {
-            color: var(--primary);
-            font-weight: 600;
-            margin-bottom: 0.25rem;
-            text-overflow: ellipsis;
-            overflow: hidden;
-            white-space: nowrap;
-        }
     }
 }

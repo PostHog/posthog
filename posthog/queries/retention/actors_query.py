@@ -1,10 +1,11 @@
 import dataclasses
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
-from posthog.client import substitute_params, sync_execute
+from posthog.client import substitute_params
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.retention.event_query import RetentionEventsQuery
 from posthog.queries.retention.sql import RETENTION_BREAKDOWN_ACTOR_SQL
 from posthog.queries.retention.types import BreakdownValues
@@ -22,29 +23,12 @@ class AppearanceRow:
     appearances: List[float]
 
 
-class RetentionActors(ActorBaseQuery):
-    _filter: RetentionFilter
-    _retention_events_query = RetentionEventsQuery
-
-    def __init__(self, team: Team, filter: RetentionFilter):
-        super().__init__(team, filter)
-
-    def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
-        actor_query = _build_actor_query(
-            filter=self._filter,
-            team=self._team,
-            filter_by_breakdown=self._filter.breakdown_values or (0,),
-            selected_interval=self._filter.selected_interval,
-            retention_events_query=self._retention_events_query,
-        )
-
-        return actor_query, {}
-
-
 # Note: This class does not respect the entire flor from ActorBaseQuery because the result shape differs from other actor queries
 class RetentionActorsByPeriod(ActorBaseQuery):
     _filter: RetentionFilter
     _retention_events_query = RetentionEventsQuery
+
+    QUERY_TYPE = "retention_actors_by_period"
 
     def __init__(self, team: Team, filter: RetentionFilter):
         super().__init__(team, filter)
@@ -78,9 +62,9 @@ class RetentionActorsByPeriod(ActorBaseQuery):
             retention_events_query=self._retention_events_query,
         )
 
+        results = insight_sync_execute(actor_query, query_type="retention_actors", filter=self._filter)
         actor_appearances = [
-            AppearanceRow(actor_id=str(row[0]), appearance_count=len(row[1]), appearances=row[1])
-            for row in sync_execute(actor_query)
+            AppearanceRow(actor_id=str(row[0]), appearance_count=len(row[1]), appearances=row[1]) for row in results
         ]
 
         _, serialized_actors = self.get_actors_from_result(
@@ -91,14 +75,15 @@ class RetentionActorsByPeriod(ActorBaseQuery):
 
         return [
             {
-                "person": actors_lookup.get(actor.actor_id, {"id": actor.actor_id, "distinct_ids": []}),
+                "person": actors_lookup[actor.actor_id],
                 "appearances": [
                     1 if interval_number in actor.appearances else 0
                     for interval_number in range(self._filter.total_intervals - (self._filter.selected_interval or 0))
                 ],
             }
-            for actor in sorted(actor_appearances, key=lambda x: (x.appearance_count, x.actor_id), reverse=True)
-        ]
+            for actor in actor_appearances
+            if actor.actor_id in actors_lookup
+        ], len(actor_appearances)
 
 
 def build_actor_activity_query(
@@ -142,7 +127,7 @@ def build_actor_activity_query(
     }
 
     query = substitute_params(RETENTION_BREAKDOWN_ACTOR_SQL, all_params).format(
-        returning_event_query=returning_event_query, target_event_query=target_event_query,
+        returning_event_query=returning_event_query, target_event_query=target_event_query
     )
 
     return query
@@ -175,14 +160,14 @@ def _build_actor_query(
 
         -- make sure we have stable ordering/pagination
         -- NOTE: relies on ids being monotonic
-        ORDER BY actor_id
+        ORDER BY length(appearances) DESC, actor_id
 
-        LIMIT 100
+        LIMIT %(limit)s
         OFFSET %(offset)s
     """
 
-    actor_query = substitute_params(actor_query_template, {"offset": filter.offset}).format(
-        actor_activity_query=actor_activity_query
-    )
+    actor_query = substitute_params(
+        actor_query_template, {"offset": filter.offset, "limit": filter.limit or 100}
+    ).format(actor_activity_query=actor_activity_query)
 
     return actor_query

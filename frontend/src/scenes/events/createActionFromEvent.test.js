@@ -1,9 +1,7 @@
-import api from 'lib/api'
+import { api } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { createActionFromEvent } from './createActionFromEvent'
 import { initKeaTests } from '~/test/init'
-
-jest.mock('lib/api')
 
 describe('createActionFromEvent()', () => {
     given(
@@ -33,6 +31,8 @@ describe('createActionFromEvent()', () => {
 
     beforeEach(() => {
         initKeaTests()
+        jest.spyOn(api.actions, 'get')
+        jest.spyOn(api.actions, 'create')
         api.actions.get.mockImplementation(() => Promise.resolve(given.event))
         api.actions.create.mockImplementation(() => Promise.resolve(given.createResponse))
     })

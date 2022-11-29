@@ -15,7 +15,7 @@ export const cohortsModel = kea<cohortsModelType>({
         updateCohort: (cohort: CohortType) => ({ cohort }),
         deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
         cohortCreated: (cohort: CohortType) => ({ cohort }),
-        exportCohortPersons: (id: CohortType['id']) => ({ id }),
+        exportCohortPersons: (id: CohortType['id'], columns?: string[]) => ({ id, columns }),
     }),
 
     loaders: () => ({
@@ -76,14 +76,18 @@ export const cohortsModel = kea<cohortsModelType>({
             }
             actions.setPollTimeout(window.setTimeout(actions.loadCohorts, POLL_TIMEOUT))
         },
-        exportCohortPersons: async ({ id }) => {
-            await triggerExport({
+        exportCohortPersons: async ({ id, columns }) => {
+            const exportCommand = {
                 export_format: ExporterFormat.CSV,
                 export_context: {
                     path: `/api/cohort/${id}/persons`,
                     max_limit: 10000,
                 },
-            })
+            }
+            if (columns && columns.length > 0) {
+                exportCommand.export_context['columns'] = columns
+            }
+            await triggerExport(exportCommand)
         },
         deleteCohort: ({ cohort }) => {
             deleteWithUndo({

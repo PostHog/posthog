@@ -1,7 +1,14 @@
 .variant-form-list {
+    font-size: 13px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-top: 16px;
+
     .ant-form-item {
         min-height: 32px;
     }
+
     .label-row {
         font-weight: bold;
 
@@ -12,6 +19,32 @@
             align-items: center;
         }
     }
+}
+
+.feature-flag-property-display {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+
+    .arrow-right {
+        margin-right: -8px;
+        margin-top: 0.25rem;
+    }
+
+    .display-value {
+        word-break: break-all;
+    }
+}
+
+.condition-set-separator {
+    color: var(--primary-alt);
+    font-size: 12px;
+    font-weight: var(--font-semibold);
+    margin-left: 0.5rem;
+    margin-bottom: 0.5rem;
 }
 
 .feature-flag-form-row {

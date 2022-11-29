@@ -14,13 +14,21 @@ def migrate_plugin_source(apps, schema_editor):
     for plugin in Plugin.objects.filter(plugin_type="source"):
         if plugin.source:
             PluginSourceFile.objects.create(
-                plugin=plugin, filename="index.ts", source=plugin.source,
+                plugin=plugin,
+                filename="index.ts",
+                source=plugin.source,
             )
         if plugin.config_schema:
             PluginSourceFile.objects.create(
                 plugin=plugin,
                 filename="plugin.json",
-                source=json.dumps({"name": plugin.name, "config": plugin.config_schema,}, indent=4,),
+                source=json.dumps(
+                    {
+                        "name": plugin.name,
+                        "config": plugin.config_schema,
+                    },
+                    indent=4,
+                ),
             )
 
 

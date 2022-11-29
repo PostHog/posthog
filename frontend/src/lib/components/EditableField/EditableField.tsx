@@ -8,12 +8,13 @@ import clsx from 'clsx'
 import { pluralize } from 'lib/utils'
 import { Tooltip } from '../Tooltip'
 
-export interface EditableFieldProps {
+interface EditableFieldProps {
     /** What this field stands for. */
     name: string
     value: string
     onChange?: (value: string) => void
     onSave?: (value: string) => void
+    saveOnBlur?: boolean
     placeholder?: string
     minLength?: number
     maxLength?: number
@@ -40,6 +41,7 @@ export function EditableField({
     value,
     onChange,
     onSave,
+    saveOnBlur = false,
     placeholder,
     minLength,
     maxLength,
@@ -62,6 +64,12 @@ export function EditableField({
     }, [value])
 
     const isSaveable = !minLength || tentativeValue.length >= minLength
+
+    const mouseDownOnCancelButton = (e: React.MouseEvent): void => {
+        // if saveOnBlur is set the onBlur handler of the input fires before the onClick event of the button
+        // this onMouseDown handler fires before the input can see the click and fire onBlur
+        e.preventDefault()
+    }
 
     const cancel = (): void => {
         setLocalIsEditing(false)
@@ -120,6 +128,7 @@ export function EditableField({
                                         onChange?.(e.target.value)
                                         setTentativeValue(e.target.value)
                                     }}
+                                    onBlur={saveOnBlur ? (tentativeValue !== value ? save : cancel) : undefined}
                                     onKeyDown={handleKeyDown}
                                     placeholder={placeholder}
                                     minLength={minLength}
@@ -134,6 +143,7 @@ export function EditableField({
                                         onChange?.(e.target.value)
                                         setTentativeValue(e.target.value)
                                     }}
+                                    onBlur={saveOnBlur ? (tentativeValue !== value ? save : cancel) : undefined}
                                     onKeyDown={handleKeyDown}
                                     placeholder={placeholder}
                                     minLength={minLength}
@@ -145,7 +155,13 @@ export function EditableField({
                             )}
                             {!mode && (
                                 <>
-                                    <LemonButton title="Cancel editing" size="small" onClick={cancel} type="secondary">
+                                    <LemonButton
+                                        title="Cancel editing"
+                                        size="small"
+                                        onClick={cancel}
+                                        type="secondary"
+                                        onMouseDown={mouseDownOnCancelButton}
+                                    >
                                         Cancel
                                     </LemonButton>
                                     <LemonButton

@@ -26,11 +26,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(Team.objects.count(), 2)
         response_data = response.json()
         self.assertDictContainsSubset(
-            {
-                "name": "Test",
-                "access_control": False,
-                "effective_membership_level": OrganizationMembership.Level.ADMIN,
-            },
+            {"name": "Test", "access_control": False, "effective_membership_level": OrganizationMembership.Level.ADMIN},
             response_data,
         )
         self.assertEqual(self.organization.teams.count(), 2)

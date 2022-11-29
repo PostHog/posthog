@@ -5,13 +5,14 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
 from django.conf import settings
 from django.core import exceptions
+from django.db import transaction
 
 from posthog.client import query_with_columns, sync_execute
-from posthog.demo.graphile import (
-    GraphileJob,
-    bulk_queue_graphile_jobs,
-    copy_graphile_jobs_between_teams,
-    erase_graphile_jobs_of_team,
+from posthog.demo.graphile_worker import (
+    GraphileWorkerJob,
+    bulk_queue_graphile_worker_jobs,
+    copy_graphile_worker_jobs_between_teams,
+    erase_graphile_worker_jobs_for_team,
 )
 from posthog.models import (
     Cohort,
@@ -31,6 +32,12 @@ from posthog.tasks.calculate_event_property_usage import calculate_event_propert
 
 from .matrix import Matrix
 from .models import SimEvent, SimPerson
+
+# Because the Postgres `Person.id` value is synthesized here (instead of relying on the DB sequence), we can
+# bulk insert persons AND person distinct IDs into Postgres without having to query for the person IDs resulting
+# from auto-incrementation. The trade-off is that we need to make sure synthesized IDs don't collide between teams,
+# so the limit is used as an ID multiplier.
+PERSON_COUNT_LIMIT = 500_000
 
 
 class MatrixManager:
@@ -69,11 +76,12 @@ class MatrixManager:
             organization_kwargs: Dict[str, Any] = {"name": organization_name}
             if settings.DEMO:
                 organization_kwargs["plugins_access_level"] = Organization.PluginsAccessLevel.INSTALL
-            organization = Organization.objects.create(**organization_kwargs)
-            new_user = User.objects.create_and_join(
-                organization, email, password, first_name, OrganizationMembership.Level.ADMIN, is_staff=is_staff
-            )
-            team = self.create_team(organization)
+            with transaction.atomic():
+                organization = Organization.objects.create(**organization_kwargs)
+                new_user = User.objects.create_and_join(
+                    organization, email, password, first_name, OrganizationMembership.Level.ADMIN, is_staff=is_staff
+                )
+                team = self.create_team(organization)
             if self.print_steps:
                 print(f"Saving simulated data...")
             self.run_on_team(team, new_user)
@@ -129,6 +137,12 @@ class MatrixManager:
         team.save()
 
     def _save_analytics_data(self, data_team: Team):
+        sim_persons = self.matrix.people
+        if len(sim_persons) >= PERSON_COUNT_LIMIT:
+            raise exceptions.ValidationError(
+                f"The simulation has {len(sim_persons)} persons, when the limit is {PERSON_COUNT_LIMIT}. "
+                "Reduce the number of clusters."
+            )
         bulk_group_type_mappings = []
         for group_type_index, (group_type, groups) in enumerate(self.matrix.groups.items()):
             bulk_group_type_mappings.append(
@@ -139,7 +153,6 @@ class MatrixManager:
                     data_team, cast(Literal[0, 1, 2, 3, 4], group_type_index), group_key, group, self.matrix.now
                 )
         GroupTypeMapping.objects.bulk_create(bulk_group_type_mappings)
-        sim_persons = self.matrix.people
         for sim_person in sim_persons:
             self._save_sim_person(data_team, sim_person)
 
@@ -163,7 +176,7 @@ class MatrixManager:
             [AsyncDeletion(team_id=cls.MASTER_TEAM_ID, key=cls.MASTER_TEAM_ID, deletion_type=DeletionType.Team)]
         )
         GroupTypeMapping.objects.filter(team_id=cls.MASTER_TEAM_ID).delete()
-        erase_graphile_jobs_of_team(cls.MASTER_TEAM_ID)
+        erase_graphile_worker_jobs_for_team(cls.MASTER_TEAM_ID)
 
     @classmethod
     def _copy_analytics_data_from_master_team(cls, target_team: Team):
@@ -171,7 +184,7 @@ class MatrixManager:
         from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
         from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 
-        copy_graphile_jobs_between_teams(cls.MASTER_TEAM_ID, target_team.pk)
+        copy_graphile_worker_jobs_between_teams(cls.MASTER_TEAM_ID, target_team.pk)
         copy_params = {"source_team_id": cls.MASTER_TEAM_ID, "target_team_id": target_team.pk}
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
@@ -198,7 +211,7 @@ class MatrixManager:
         )
         bulk_persons: Dict[str, Person] = {}
         for i, row in enumerate(clickhouse_persons):
-            synthetic_id = target_team_id * 100_000_000 + i
+            synthetic_id = target_team_id * PERSON_COUNT_LIMIT + i
             properties = json.loads(row.pop("properties", "{}"))
             bulk_persons[row["uuid"]] = Person(id=synthetic_id, team_id=target_team_id, properties=properties, **row)
         Person.objects.bulk_create(bulk_persons.values())
@@ -217,9 +230,7 @@ class MatrixManager:
             )
         PersonDistinctId.objects.bulk_create(bulk_person_distinct_ids, ignore_conflicts=True)
         # Groups
-        clickhouse_groups = query_with_columns(
-            SELECT_GROUPS_OF_TEAM, list_params, ["team_id", "_timestamp", "_offset"],
-        )
+        clickhouse_groups = query_with_columns(SELECT_GROUPS_OF_TEAM, list_params, ["team_id", "_timestamp", "_offset"])
         bulk_groups = []
         for row in clickhouse_groups:
             group_properties = json.loads(row.pop("group_properties", "{}"))
@@ -231,12 +242,15 @@ class MatrixManager:
         if subject.past_events:
             from posthog.models.person.util import create_person, create_person_distinct_id
 
-            person_uuid_str = str(subject.cluster.roll_uuidt(subject.past_events[0].timestamp))
-            create_person(uuid=person_uuid_str, team_id=team.pk, properties=subject.properties_at_now, version=0)
+            create_person(
+                uuid=str(subject.in_posthog_id), team_id=team.pk, properties=subject.properties_at_now, version=0
+            )
             self._persons_created += 1
             self._person_distinct_ids_created += len(subject.distinct_ids_at_now)
             for distinct_id in subject.distinct_ids_at_now:
-                create_person_distinct_id(team_id=team.pk, distinct_id=str(distinct_id), person_id=person_uuid_str)
+                create_person_distinct_id(
+                    team_id=team.pk, distinct_id=str(distinct_id), person_id=str(subject.in_posthog_id)
+                )
             self._save_past_sim_events(team, subject.past_events)
         # We only want to queue future events if there are any
         if subject.future_events:
@@ -256,12 +270,25 @@ class MatrixManager:
                 distinct_id=event.distinct_id,
                 timestamp=event.timestamp,
                 properties=event.properties,
+                person_id=event.person_id,
+                person_properties=event.person_properties,
+                person_created_at=event.person_created_at,
+                group0_properties=event.group0_properties,
+                group1_properties=event.group1_properties,
+                group2_properties=event.group2_properties,
+                group3_properties=event.group3_properties,
+                group4_properties=event.group4_properties,
+                group0_created_at=event.group0_created_at,
+                group1_created_at=event.group1_created_at,
+                group2_created_at=event.group2_created_at,
+                group3_created_at=event.group3_created_at,
+                group4_created_at=event.group4_created_at,
             )
 
     @staticmethod
     def _save_future_sim_events(team: Team, events: List[SimEvent]):
         """Future events are not saved immediately, instead they're scheduled for ingestion via event buffer."""
-        graphile_jobs: List[GraphileJob] = []
+        graphile_jobs: List[GraphileWorkerJob] = []
         for event in events:
             event_uuid = UUIDT(unix_time_ms=int(event.timestamp.timestamp() * 1000))
             timestamp_iso = event.timestamp.isoformat()
@@ -276,11 +303,11 @@ class MatrixManager:
                 }
             }
             graphile_jobs.append(
-                GraphileJob(
+                GraphileWorkerJob(
                     task_identifier="bufferJob", payload=payload, run_at=event.timestamp, flags={"team_id": team.pk}
                 )
             )
-        bulk_queue_graphile_jobs(graphile_jobs)
+        bulk_queue_graphile_worker_jobs(graphile_jobs)
 
     @staticmethod
     def _save_sim_group(

@@ -1,11 +1,14 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
-from posthog.client import substitute_params, sync_execute
+import pytz
+
+from posthog.client import substitute_params
 from posthog.constants import RETENTION_FIRST_TIME, RetentionQueryType
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
-from posthog.queries.retention.actors_query import RetentionActors, RetentionActorsByPeriod, build_actor_activity_query
+from posthog.queries.insight import insight_sync_execute
+from posthog.queries.retention.actors_query import RetentionActorsByPeriod, build_actor_activity_query
 from posthog.queries.retention.event_query import RetentionEventsQuery
 from posthog.queries.retention.sql import RETENTION_BREAKDOWN_SQL
 from posthog.queries.retention.types import BreakdownValues, CohortKey
@@ -13,7 +16,6 @@ from posthog.queries.retention.types import BreakdownValues, CohortKey
 
 class Retention:
     event_query = RetentionEventsQuery
-    actors_query = RetentionActors
     actors_by_period_query = RetentionActorsByPeriod
 
     def __init__(self, base_uri="/"):
@@ -24,17 +26,18 @@ class Retention:
         if filter.breakdowns:
             return self.process_breakdown_table_result(retention_by_breakdown, filter)
         else:
-            return self.process_table_result(retention_by_breakdown, filter)
+            return self.process_table_result(retention_by_breakdown, filter, team)
 
     def _get_retention_by_breakdown_values(
-        self, filter: RetentionFilter, team: Team,
+        self, filter: RetentionFilter, team: Team
     ) -> Dict[CohortKey, Dict[str, Any]]:
 
         actor_query = build_actor_activity_query(filter=filter, team=team, retention_events_query=self.event_query)
-
-        result = sync_execute(
-            RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query,),
+        result = insight_sync_execute(
+            RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query),
             settings={"timeout_before_checking_execution_speed": 60},
+            filter=filter,
+            query_type="retention_by_breakdown_values",
             client_query_id=filter.client_query_id,
             client_query_team_id=team.pk,
         )
@@ -44,7 +47,7 @@ class Retention:
                 "count": count,
                 "people": [],
                 "people_url": self._construct_people_url_for_trend_breakdown_interval(
-                    filter=filter, breakdown_values=breakdown_values, selected_interval=intervals_from_base,
+                    filter=filter, breakdown_values=breakdown_values, selected_interval=intervals_from_base
                 ),
             }
             for (breakdown_values, intervals_from_base, count) in result
@@ -53,16 +56,14 @@ class Retention:
         return result_dict
 
     def _construct_people_url_for_trend_breakdown_interval(
-        self, filter: RetentionFilter, selected_interval: int, breakdown_values: BreakdownValues,
+        self, filter: RetentionFilter, selected_interval: int, breakdown_values: BreakdownValues
     ):
         params = RetentionFilter(
             {**filter._data, "breakdown_values": breakdown_values, "selected_interval": selected_interval}
         ).to_params()
         return f"{self._base_uri}api/person/retention/?{urlencode(params)}"
 
-    def process_breakdown_table_result(
-        self, resultset: Dict[CohortKey, Dict[str, Any]], filter: RetentionFilter,
-    ):
+    def process_breakdown_table_result(self, resultset: Dict[CohortKey, Dict[str, Any]], filter: RetentionFilter):
         result = [
             {
                 "values": [
@@ -81,9 +82,7 @@ class Retention:
 
         return result
 
-    def process_table_result(
-        self, resultset: Dict[CohortKey, Dict[str, Any]], filter: RetentionFilter,
-    ):
+    def process_table_result(self, resultset: Dict[CohortKey, Dict[str, Any]], filter: RetentionFilter, team: Team):
         """
         Constructs a response for the rest api when there is no breakdown specified
 
@@ -106,7 +105,9 @@ class Retention:
                     for day in range(filter.total_intervals - first_day)
                 ],
                 "label": "{} {}".format(filter.period, first_day),
-                "date": (filter.date_from + RetentionFilter.determine_time_delta(first_day, filter.period)[0]),
+                "date": (filter.date_from + RetentionFilter.determine_time_delta(first_day, filter.period)[0]).replace(
+                    tzinfo=pytz.timezone(team.timezone)
+                ),
                 "people_url": construct_url(first_day),
             }
             for first_day in range(filter.total_intervals)
@@ -114,13 +115,7 @@ class Retention:
 
         return result
 
-    def actors(self, filter: RetentionFilter, team: Team):
-
-        _, serialized_actors, _ = self.actors_query(team=team, filter=filter).get_actors()
-
-        return serialized_actors
-
-    def actors_in_period(self, filter: RetentionFilter, team: Team):
+    def actors_in_period(self, filter: RetentionFilter, team: Team) -> Tuple[list, int]:
         """
         Creates a response of the form
 

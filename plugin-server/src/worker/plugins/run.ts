@@ -3,8 +3,8 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { Hub, PluginConfig, PluginTaskType, VMMethods } from '../../types'
 import { processError } from '../../utils/db/error'
 import { instrument } from '../../utils/metrics'
+import { runRetriableFunction } from '../../utils/retries'
 import { IllegalOperationError } from '../../utils/utils'
-import { runRetriableFunction } from '../retries'
 
 export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise<void> {
     const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.team_id, 'onEvent')
@@ -21,9 +21,22 @@ export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise
                         tag: pluginConfig.plugin?.name || '?',
                     },
                     () =>
-                        runRetriableFunction('on_event', hub, pluginConfig, {
+                        runRetriableFunction({
+                            hub,
+                            metricName: 'plugin.on_event',
+                            metricTags: {
+                                plugin: pluginConfig.plugin?.name ?? '?',
+                                teamId: event.team_id.toString(),
+                            },
                             tryFn: async () => await onEvent!(event),
-                            event,
+                            catchFn: async (error) => await processError(hub, pluginConfig, error, event),
+                            payload: event,
+                            appMetric: {
+                                teamId: event.team_id,
+                                pluginConfigId: pluginConfig.id,
+                                category: 'onEvent',
+                            },
+                            appMetricErrorContext: { event },
                         })
                 )
             )
@@ -45,9 +58,16 @@ export async function runOnSnapshot(hub: Hub, event: ProcessedPluginEvent): Prom
                         tag: pluginConfig.plugin?.name || '?',
                     },
                     () =>
-                        runRetriableFunction('on_snapshot', hub, pluginConfig, {
+                        runRetriableFunction({
+                            hub,
+                            metricName: 'plugin.on_snapshot',
+                            metricTags: {
+                                plugin: pluginConfig.plugin?.name ?? '?',
+                                teamId: event.team_id.toString(),
+                            },
                             tryFn: async () => await onSnapshot!(event),
-                            event,
+                            catchFn: async (error) => await processError(hub, pluginConfig, error, event),
+                            payload: event,
                         })
                 )
             )
@@ -82,6 +102,12 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
                     throw new IllegalOperationError('Plugin tried to change event.team_id')
                 }
                 pluginsSucceeded.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
+                await hub.appMetrics.queueMetric({
+                    teamId,
+                    pluginConfigId: pluginConfig.id,
+                    category: 'processEvent',
+                    successes: 1,
+                })
             } catch (error) {
                 await processError(hub, pluginConfig, error, returnedEvent)
                 hub.statsd?.increment(`plugin.process_event.ERROR`, {
@@ -89,6 +115,18 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
                     teamId: String(event.team_id),
                 })
                 pluginsFailed.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
+                await hub.appMetrics.queueError(
+                    {
+                        teamId,
+                        pluginConfigId: pluginConfig.id,
+                        category: 'processEvent',
+                        failures: 1,
+                    },
+                    {
+                        error,
+                        event,
+                    }
+                )
             }
             hub.statsd?.timing(`plugin.process_event`, timer, {
                 plugin: pluginConfig.plugin?.name ?? '?',
@@ -129,14 +167,18 @@ export async function runPluginTask(
     const timer = new Date()
     let response
     const pluginConfig = hub.pluginConfigs.get(pluginConfigId)
-    const teamIdStr = pluginConfig?.team_id.toString() || '?'
+    const teamId = pluginConfig?.team_id
+    let shouldQueueAppMetric = false
+
     try {
         const task = await pluginConfig?.vm?.getTask(taskName, taskType)
         if (!task) {
             throw new Error(
-                `Task "${taskName}" not found for plugin "${pluginConfig?.plugin?.name}" with config id ${pluginConfig}`
+                `Task "${taskName}" not found for plugin "${pluginConfig?.plugin?.name}" with config id ${pluginConfigId}`
             )
         }
+
+        shouldQueueAppMetric = taskType === PluginTaskType.Schedule && !task.__ignoreForAppMetrics
         response = await instrument(
             hub.statsd,
             {
@@ -150,6 +192,15 @@ export async function runPluginTask(
             },
             () => (payload ? task?.exec(payload) : task?.exec())
         )
+
+        if (shouldQueueAppMetric && teamId) {
+            await hub.appMetrics.queueMetric({
+                teamId: teamId,
+                pluginConfigId: pluginConfigId,
+                category: 'scheduledTask',
+                successes: 1,
+            })
+        }
     } catch (error) {
         await processError(hub, pluginConfig || null, error)
 
@@ -157,12 +208,24 @@ export async function runPluginTask(
             taskType: taskType,
             taskName: taskName,
             pluginConfigId: pluginConfigId.toString(),
-            teamId: teamIdStr,
+            teamId: teamId?.toString() ?? '?',
         })
+
+        if (shouldQueueAppMetric && teamId) {
+            await hub.appMetrics.queueError(
+                {
+                    teamId: teamId,
+                    pluginConfigId: pluginConfigId,
+                    category: 'scheduledTask',
+                    failures: 1,
+                },
+                { error }
+            )
+        }
     }
     hub.statsd?.timing(`plugin.task`, timer, {
         plugin: pluginConfig?.plugin?.name ?? '?',
-        teamId: teamIdStr,
+        teamId: teamId?.toString() ?? '?',
     })
     return response
 }

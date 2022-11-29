@@ -1,4 +1,3 @@
-import React from 'react'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { pluralize } from 'lib/utils'
 import { useActions, useValues } from 'kea'
@@ -22,7 +21,7 @@ export function EventBufferNotice({ additionalInfo, className }: EventBufferNoti
             Note that some events with a never-before-seen distinct ID are deliberately delayed by{' '}
             {pluralize(preflight?.buffer_conversion_seconds, 'second')}
             {additionalInfo}.{' '}
-            <a href="https://posthog.com/docs/integrate/ingest-live-data/#event-ingestion-nuances">
+            <a href="https://posthog.com/docs/integrate/ingest-live-data#event-ingestion-nuances">
                 Learn more about event buffering in PostHog Docs.
             </a>
         </AlertMessage>

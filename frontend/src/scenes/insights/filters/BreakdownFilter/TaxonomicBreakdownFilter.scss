@@ -27,18 +27,6 @@
             color: var(--bg-depth);
         }
     }
-
-    .property-key-info {
-        display: flex;
-        white-space: unset;
-        align-items: center;
-        font-size: 0.9rem;
-        line-height: 1.1rem;
-
-        .property-key-info-logo {
-            margin-right: 0.25rem;
-        }
-    }
 }
 .histogram-bin-input {
     width: 60px;

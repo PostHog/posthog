@@ -1,5 +1,5 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { PropertyDefinition } from '~/types'
+import { Breadcrumb, PropertyDefinition } from '~/types'
 import api from 'lib/api'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import {
@@ -10,6 +10,7 @@ import type { eventPropertyDefinitionsTableLogicType } from './eventPropertyDefi
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { loaders } from 'kea-loaders'
+import { urls } from 'scenes/urls'
 
 export interface Filters {
     property: string
@@ -121,6 +122,21 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
     selectors(({ cache }) => ({
         // Expose for testing
         apiCache: [() => [], () => cache.apiCache],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => {
+                return [
+                    {
+                        name: `Data Management`,
+                        path: urls.eventDefinitions(),
+                    },
+                    {
+                        name: 'Event Properties',
+                        path: urls.eventPropertyDefinitions(),
+                    },
+                ]
+            },
+        ],
     })),
     listeners(({ actions, values, cache }) => ({
         setFilters: () => {

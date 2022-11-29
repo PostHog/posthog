@@ -42,27 +42,24 @@ class TestTeam(BaseTest):
                     "key": "$host",
                     "operator": "is_not",
                     "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000", "localhost:3000"],
-                },
+                }
             ],
         )
 
     def test_create_team_sets_primary_dashboard(self):
         team = Team.objects.create_with_data(organization=self.organization)
-        self.assertIsInstance(
-            team.primary_dashboard, Dashboard,
-        )
+        self.assertIsInstance(team.primary_dashboard, Dashboard)
 
         # Ensure insights are created and linked
         self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 6)
 
     @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
     def test_preinstalled_are_autoenabled(self, mock_get):
-        with self.settings(
-            MULTI_TENANCY=False, PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]
-        ):
-            _, _, new_team = Organization.objects.bootstrap(
-                self.user, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
-            )
+        with self.is_cloud(False):
+            with self.settings(PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]):
+                _, _, new_team = Organization.objects.bootstrap(
+                    self.user, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
+                )
 
         self.assertEqual(PluginConfig.objects.filter(team=new_team, enabled=True).count(), 1)
         self.assertEqual(PluginConfig.objects.filter(team=new_team, enabled=True).get().plugin.name, "helloworldplugin")
@@ -70,22 +67,27 @@ class TestTeam(BaseTest):
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_team_on_cloud_uses_feature_flag_to_determine_person_on_events(self, mock_feature_enabled):
-        with self.settings(MULTI_TENANCY=True):
+        with self.is_cloud(True):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
                 team = Team.objects.create_with_data(organization=self.organization)
                 self.assertTrue(team.actor_on_events_querying_enabled)
                 mock_feature_enabled.assert_called_once_with(
                     "person-on-events-enabled",
                     str(team.uuid),
-                    groups={"project": str(team.uuid)},
-                    group_properties={"project": {"id": str(team.pk)}},
+                    groups={"organization": str(self.organization.id)},
+                    group_properties={
+                        "organization": {
+                            "id": str(self.organization.id),
+                            "created_at": self.organization.created_at,
+                        }
+                    },
                     only_evaluate_locally=True,
                 )
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=False)
     def test_team_on_self_hosted_uses_instance_setting_to_determine_person_on_events(self, mock_feature_enabled):
 
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
                 team = Team.objects.create_with_data(organization=self.organization)
                 self.assertTrue(team.actor_on_events_querying_enabled)

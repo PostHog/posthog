@@ -1,4 +1,5 @@
-import { kea } from 'kea'
+import { kea, path, actions, connect, reducers, selectors, events, listeners } from 'kea'
+import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import type { billingLogicType } from './billingLogicType'
 import { PlanInterface, BillingType } from '~/types'
@@ -10,11 +11,15 @@ import { lemonToast } from 'lib/components/lemonToast'
 import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { windowValues } from 'kea-window-values'
+import { getBreakpoint } from 'lib/utils/responsiveUtils'
+import { urlToAction } from 'kea-router'
+import { urls } from 'scenes/urls'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { billingLogic as billingLogicV2 } from './v2/billingLogic'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
-export const FREE_PLAN_MAX_EVENTS = 1000000
-export const FREE_PLAN_EVENTS_THRESHOLD = 0.85
 
 export enum BillingAlertType {
     SetupBilling = 'setup_billing',
@@ -23,15 +28,42 @@ export enum BillingAlertType {
     FreeUsageNearLimit = 'free_usage_near_limit',
 }
 
-export const billingLogic = kea<billingLogicType>({
-    path: ['scenes', 'billing', 'billingLogic'],
-    actions: {
+export const billingLogic = kea<billingLogicType>([
+    path(['scenes', 'billing', 'billingLogic']),
+    actions({
         registerInstrumentationProps: true,
-    },
-    connect: {
-        values: [featureFlagLogic, ['featureFlags']],
-    },
-    loaders: ({ actions, values }) => ({
+        toggleUsageTiers: true,
+        setPlans: (plans: PlanInterface[]) => ({ plans }),
+        referer: (referer: string) => ({ referer }),
+    }),
+    connect({
+        values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags'], billingLogicV2, ['billingVersion']],
+        actions: [eventUsageLogic, ['reportIngestionBillingCancelled']],
+    }),
+    reducers({
+        showUsageTiers: [
+            false as boolean,
+            {
+                toggleUsageTiers: (state) => !state,
+            },
+        ],
+        billingSuccessRedirect: [
+            urls.projectHomepage() as string,
+            {
+                referer: (_, { referer }) => {
+                    if (referer === 'ingestion') {
+                        return urls.events()
+                    } else {
+                        return urls.projectHomepage()
+                    }
+                },
+            },
+        ],
+    }),
+    windowValues({
+        isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
+    }),
+    loaders(({ actions }) => ({
         billing: [
             null as BillingType | null,
             {
@@ -39,15 +71,8 @@ export const billingLogic = kea<billingLogicType>({
                     const response = await api.get('api/billing/')
                     if (!response?.plan) {
                         actions.loadPlans()
-                    }
-                    if (
-                        response.current_usage > FREE_PLAN_MAX_EVENTS &&
-                        response.should_setup_billing &&
-                        router.values.location.pathname !== '/organization/billing/locked' &&
-                        values.featureFlags[FEATURE_FLAGS.BILLING_LOCK_EVERYTHING]
-                    ) {
-                        posthog.capture('billing locked screen shown')
-                        router.actions.replace('/organization/billing/locked')
+                    } else {
+                        actions.setPlans([response.plan])
                     }
                     actions.registerInstrumentationProps()
                     return response as BillingType
@@ -67,6 +92,7 @@ export const billingLogic = kea<billingLogicType>({
                     const response = await api.get('api/plans?self_serve=1')
                     return response.results
                 },
+                setPlans: ({ plans }) => plans,
             },
         ],
         billingSubscription: [
@@ -77,8 +103,27 @@ export const billingLogic = kea<billingLogicType>({
                 },
             },
         ],
-    }),
-    selectors: {
+        planDetails: [
+            null as string | null,
+            {
+                loadPlanDetails: async (plan) => {
+                    const response = await fetch(`/api/plans/${plan}/template/`)
+                    if (response.ok) {
+                        return await response.text()
+                    }
+                    return null
+                },
+            },
+        ],
+    })),
+    selectors({
+        upgradeLink: [
+            (s) => [s.preflight, s.billingVersion],
+            (preflight, billingVersion): string =>
+                billingVersion === 'v2' || preflight?.cloud
+                    ? '/organization/billing'
+                    : 'https://license.posthog.com?utm_medium=in-product&utm_campaign=in-product-upgrade',
+        ],
         eventAllocation: [(s) => [s.billing], (billing: BillingType) => billing?.event_allocation],
         percentage: [
             (s) => [s.eventAllocation, s.billing],
@@ -87,15 +132,6 @@ export const billingLogic = kea<billingLogicType>({
                     return null
                 }
                 return Math.min(Math.round((billing.current_usage / eventAllocation) * 100) / 100, 1)
-            },
-        ],
-        freePlanPercentage: [
-            (s) => [s.billing],
-            (billing: BillingType) => {
-                if (!billing?.current_usage) {
-                    return null
-                }
-                return Math.min(Math.round((billing.current_usage / FREE_PLAN_MAX_EVENTS) * 100) / 100, 1)
             },
         ],
         strokeColor: [
@@ -120,18 +156,21 @@ export const billingLogic = kea<billingLogicType>({
             },
         ],
         alertToShow: [
-            (s) => [s.eventAllocation, s.percentage, s.freePlanPercentage, s.billing, sceneLogic.selectors.scene],
+            (s) => [s.eventAllocation, s.percentage, s.billing, sceneLogic.selectors.scene, s.billingVersion],
             (
                 eventAllocation: number | null,
                 percentage: number,
-                freePlanPercentage: number,
                 billing: BillingType,
-                scene: Scene
+                scene: Scene,
+                billingVersion: string
             ): BillingAlertType | undefined => {
-                // Determines which billing alert/warning to show to the user (if any)
-
-                // Priority 1: In-progress incomplete billing setup
+                if (billingVersion === 'v2') {
+                    return
+                }
                 if (billing?.should_setup_billing && billing?.subscription_url) {
+                    // Determines which billing alert/warning to show to the user (if any)
+
+                    // Priority 1: In-progress incomplete billing setup
                     return BillingAlertType.SetupBilling
                 }
 
@@ -143,6 +182,7 @@ export const billingLogic = kea<billingLogicType>({
                 // Priority 3: Event allowance near threshold
                 if (
                     scene !== Scene.Billing &&
+                    billing?.is_billing_active &&
                     billing?.current_usage &&
                     eventAllocation &&
                     percentage >= ALLOCATION_THRESHOLD_ALERT
@@ -151,24 +191,20 @@ export const billingLogic = kea<billingLogicType>({
                 }
 
                 // Priority 4: Users on free account that are almost reaching free events threshold
-                if (
-                    !billing?.is_billing_active &&
-                    billing?.current_usage &&
-                    freePlanPercentage > FREE_PLAN_EVENTS_THRESHOLD
-                ) {
+                if (!billing?.is_billing_active && billing?.current_usage && percentage > ALLOCATION_THRESHOLD_ALERT) {
                     return BillingAlertType.FreeUsageNearLimit
                 }
             },
         ],
-    },
-    events: ({ actions }) => ({
+    }),
+    events(({ actions }) => ({
         afterMount: () => {
             if (preflightLogic.values.preflight?.cloud) {
                 actions.loadBilling()
             }
         },
-    }),
-    listeners: ({ values }) => ({
+    })),
+    listeners(({ values }) => ({
         subscribeSuccess: ({ billingSubscription }) => {
             if (billingSubscription?.subscription_url) {
                 window.location.href = billingSubscription.subscription_url
@@ -188,5 +224,33 @@ export const billingLogic = kea<billingLogicType>({
                 })
             }
         },
-    }),
-})
+
+        loadBillingSuccess: () => {
+            if (!values.billing) {
+                return
+            }
+
+            if (
+                values.billingVersion === 'v1' &&
+                values.billing.event_allocation &&
+                (values.billing.current_usage || 0) > values.billing.event_allocation &&
+                values.billing.should_setup_billing &&
+                router.values.location.pathname !== '/organization/billing/locked' &&
+                values.featureFlags[FEATURE_FLAGS.BILLING_LOCK_EVERYTHING]
+            ) {
+                posthog.capture('billing locked screen shown')
+                router.actions.replace(urls.billingLocked())
+            }
+        },
+    })),
+    urlToAction(({ actions }) => ({
+        '/ingestion/billing': (_, params) => {
+            if (params.reason === 'cancelled') {
+                actions.reportIngestionBillingCancelled()
+            }
+        },
+        '/organization/billing/subscribed': (_, { referer }) => {
+            actions.referer(referer)
+        },
+    })),
+])

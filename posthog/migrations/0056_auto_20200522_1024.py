@@ -11,7 +11,11 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(model_name="action", name="is_calculating", field=models.BooleanField(default=False),),
+        migrations.AddField(
+            model_name="action",
+            name="is_calculating",
+            field=models.BooleanField(default=False),
+        ),
         migrations.AddField(
             model_name="actionstep",
             name="properties",

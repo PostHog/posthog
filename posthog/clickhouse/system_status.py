@@ -93,11 +93,7 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
 
     dead_letter_queue_size = get_dead_letter_queue_size()
 
-    yield {
-        "key": "dead_letter_queue_size",
-        "metric": "Dead letter queue size",
-        "value": dead_letter_queue_size,
-    }
+    yield {"key": "dead_letter_queue_size", "metric": "Dead letter queue size", "value": dead_letter_queue_size}
 
     dead_letter_queue_events_last_day = get_dead_letter_queue_events_last_24h()
 
@@ -268,7 +264,7 @@ def get_flamegraphs(query_id: str) -> Dict:
 
             flamegraphs = {}
             for file_path in glob.glob(join(tmpdirname, "*/*/global*.svg")):
-                with open(file_path) as file:
+                with open(file_path, "r", encoding="utf_8") as file:
                     flamegraphs[basename(file_path)] = file.read()
 
             return flamegraphs

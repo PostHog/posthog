@@ -89,7 +89,7 @@ class ExportedAsset(models.Model):
 def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:
     if not expiry_delta:
         expiry_delta = timedelta(days=PUBLIC_ACCESS_TOKEN_EXP_DAYS)
-    return encode_jwt({"id": asset.id}, expiry_delta=expiry_delta, audience=PosthogJwtAudience.EXPORTED_ASSET,)
+    return encode_jwt({"id": asset.id}, expiry_delta=expiry_delta, audience=PosthogJwtAudience.EXPORTED_ASSET)
 
 
 def asset_for_token(token: str) -> ExportedAsset:

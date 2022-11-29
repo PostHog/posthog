@@ -1,4 +1,3 @@
-import React from 'react'
 import { Button, Card, Col, Input, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -13,7 +12,7 @@ export function SourcePlugin(): JSX.Element {
     return (
         <div style={{ marginTop: 16 }}>
             <Card>
-                <Title level={5}>App Editor</Title>
+                <Title level={5}>App editor</Title>
                 <Paragraph>
                     Write your app directly in PostHog.{' '}
                     <a href="https://posthog.com/docs/apps" target="_blank">
@@ -36,7 +35,7 @@ export function SourcePlugin(): JSX.Element {
                             type="default"
                             onClick={() => installPlugin(sourcePluginName, PluginInstallationType.Source)}
                         >
-                            Start Coding
+                            Start coding
                         </Button>
                     </Col>
                 </Row>

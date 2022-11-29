@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 import { ExportedAssetType, ExporterFormat } from '~/types'
 import { lemonToast } from '../lemonToast'
 import { useEffect, useState } from 'react'
-import React from 'react'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { Spinner } from 'lib/components/Spinner/Spinner'
@@ -15,8 +14,8 @@ const MAX_CSV_POLL = 60
 
 async function downloadExportedAsset(asset: ExportedAssetType): Promise<void> {
     const downloadUrl = api.exports.determineExportUrl(asset.id)
-    const res = await api.getRaw(downloadUrl)
-    const blobObject = await res.blob()
+    const response = await api.getResponse(downloadUrl)
+    const blobObject = await response.blob()
     const blob = window.URL.createObjectURL(blobObject)
     const anchor = document.createElement('a')
     anchor.style.display = 'none'

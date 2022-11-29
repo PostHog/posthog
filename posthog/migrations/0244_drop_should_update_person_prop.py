@@ -8,5 +8,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL("DROP FUNCTION IF EXISTS should_update_person_prop"),
+        migrations.RunSQL("DROP FUNCTION IF EXISTS should_update_person_prop", reverse_sql=""),
     ]

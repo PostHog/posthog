@@ -1,22 +1,22 @@
 import posthog from 'posthog-js'
-import { parsePeopleParams, PeopleParamType } from 'scenes/trends/personsModalLogic'
 import {
     ActionType,
-    ActorType,
-    AnnotationType,
+    RawAnnotationType,
     CohortType,
-    CombinedEventType,
+    EventDefinitionType,
     DashboardCollaboratorType,
     DashboardType,
     EventDefinition,
     EventType,
     ExportedAssetType,
     FeatureFlagType,
-    FilterType,
     InsightModel,
     IntegrationType,
     LicenseType,
     OrganizationType,
+    PersonListParams,
+    PersonProperty,
+    PersonType,
     PluginLogEntry,
     PropertyDefinition,
     SharingConfigurationType,
@@ -24,6 +24,17 @@ import {
     SubscriptionType,
     TeamType,
     UserType,
+    MediaUploadResponse,
+    SessionRecordingsResponse,
+    SessionRecordingPropertiesType,
+    EventsListQueryParams,
+    SessionRecordingPlaylistType,
+    RoleType,
+    RoleMemberType,
+    OrganizationResourcePermissionType,
+    RolesListParams,
+    FeatureFlagAssociatedRoleType,
+    SessionRecordingType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -32,9 +43,10 @@ import { toParams } from 'lib/utils'
 import { DashboardPrivilegeLevel } from './constants'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
-import { PersonFilters } from 'scenes/persons/personsLogic'
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
+import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { UpdatedRecordingResponse } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -45,8 +57,12 @@ export interface PaginatedResponse<T> {
     missing_persons?: number
 }
 
-export interface CountedPaginatedResponse extends PaginatedResponse<ActivityLogItem> {
+export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
     total_count: number
+}
+
+export interface ApiMethodOptions {
+    signal?: AbortSignal
 }
 
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
@@ -66,7 +82,7 @@ export function getCookie(name: string): string | null {
     return cookieValue
 }
 
-async function getJSONOrThrow(response: Response): Promise<any> {
+export async function getJSONOrThrow(response: Response): Promise<any> {
     try {
         return await response.json()
     } catch (e) {
@@ -129,6 +145,14 @@ class ApiRequest {
 
     public organizationsDetail(id: OrganizationType['id'] = getCurrentOrganizationId()): ApiRequest {
         return this.organizations().addPathComponent(id)
+    }
+
+    public organizationResourceAccess(): ApiRequest {
+        return this.organizations().current().addPathComponent('resource_access')
+    }
+
+    public organizationResourceAccessDetail(id: OrganizationResourcePermissionType['id']): ApiRequest {
+        return this.organizationResourceAccess().addPathComponent(id)
     }
 
     // # Projects
@@ -197,6 +221,10 @@ class ApiRequest {
         return this.events(teamId).addPathComponent(id)
     }
 
+    public tags(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('tags')
+    }
+
     // # Data management
     public eventDefinitions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('event_definitions')
@@ -228,6 +256,25 @@ class ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId)
     }
 
+    // Recordings
+    public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('session_recordings').addPathComponent(recordingId)
+    }
+    public recordings(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('session_recordings')
+    }
+    public recordingPlaylists(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('session_recording_playlists')
+    }
+    public recordingPlaylist(
+        playlistId?: SessionRecordingPlaylistType['short_id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('session_recording_playlists')
+            .addPathComponent(String(playlistId))
+    }
+
     // # Dashboards
     public dashboards(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('dashboards')
@@ -253,13 +300,31 @@ class ApiRequest {
         return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
     }
 
-    // # Persons
-    public persons(): ApiRequest {
-        return this.addPathComponent('person')
+    // # Roles
+
+    public roles(): ApiRequest {
+        return this.organizations().current().addPathComponent('roles')
     }
 
-    public person(id: string | number): ApiRequest {
-        return this.persons().addPathComponent(id)
+    public rolesDetail(roleId: RoleType['id']): ApiRequest {
+        return this.roles().addPathComponent(roleId)
+    }
+
+    public roleMemberships(roleId: RoleType['id']): ApiRequest {
+        return this.rolesDetail(roleId).addPathComponent('role_memberships')
+    }
+
+    public roleMembershipsDetail(roleId: RoleType['id'], userUuid: UserType['uuid']): ApiRequest {
+        return this.roleMemberships(roleId).addPathComponent(userUuid)
+    }
+
+    // # Persons
+    public persons(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('persons')
+    }
+
+    public person(id: string | number, teamId?: TeamType['id']): ApiRequest {
+        return this.persons(teamId).addPathComponent(id)
     }
 
     public personActivity(id: string | number | undefined): ApiRequest {
@@ -274,7 +339,7 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('annotations')
     }
 
-    public annotation(id: AnnotationType['id'], teamId?: TeamType['id']): ApiRequest {
+    public annotation(id: RawAnnotationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.annotations(teamId).addPathComponent(id)
     }
 
@@ -328,14 +393,31 @@ class ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('channels')
     }
 
-    // Request finalization
-
-    public async get(options?: { signal?: AbortSignal }): Promise<any> {
-        return await api.get(this.assembleFullUrl(), options?.signal)
+    public media(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('uploaded_media')
     }
 
-    public async getRaw(options?: { signal?: AbortSignal }): Promise<Response> {
-        return await api.getRaw(this.assembleFullUrl(), options?.signal)
+    // Resource Access Permissions
+
+    public featureFlagAccessPermissions(flagId: FeatureFlagType['id']): ApiRequest {
+        return this.featureFlag(flagId, getCurrentTeamId()).addPathComponent('role_access')
+    }
+
+    public featureFlagAccessPermissionsDetail(
+        flagId: FeatureFlagType['id'],
+        id: FeatureFlagAssociatedRoleType['id']
+    ): ApiRequest {
+        return this.featureFlagAccessPermissions(flagId).addPathComponent(id)
+    }
+
+    // Request finalization
+
+    public async get(options?: ApiMethodOptions): Promise<any> {
+        return await api.get(this.assembleFullUrl(), options)
+    }
+
+    public async getResponse(options?: ApiMethodOptions): Promise<Response> {
+        return await api.getResponse(this.assembleFullUrl(), options)
     }
 
     public async update(options?: { data: any }): Promise<any> {
@@ -398,32 +480,11 @@ const api = {
         async list(params?: string): Promise<PaginatedResponse<ActionType>> {
             return await new ApiRequest().actions().withQueryString(params).get()
         },
-        async getPeople(
-            peopleParams: PeopleParamType,
-            filters: Partial<FilterType>,
-            searchTerm?: string
-        ): Promise<PaginatedResponse<{ people: ActorType[]; count: number }>> {
-            return await new ApiRequest()
-                .actions()
-                .withAction('people')
-                .withQueryString(
-                    parsePeopleParams(peopleParams, filters) +
-                        (searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : '')
-                )
-                .get()
-        },
         async getCount(actionId: ActionType['id']): Promise<number> {
             return (await new ApiRequest().actionsDetail(actionId).withAction('count').get()).count
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().actions().assembleEndpointUrl()
-        },
-        determinePeopleCsvUrl(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
-            return new ApiRequest()
-                .actions()
-                .withAction('people')
-                .withQueryString(parsePeopleParams(peopleParams, filters))
-                .assembleFullUrl(true)
         },
     },
 
@@ -432,7 +493,7 @@ const api = {
             activityLogProps: ActivityLogProps,
             page: number = 1,
             teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<CountedPaginatedResponse> {
+        ): Promise<CountedPaginatedResponse<ActivityLogItem>> {
             const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest> = {
                 [ActivityScope.FEATURE_FLAG]: (props) => {
                     return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, teamId)
@@ -493,20 +554,26 @@ const api = {
             return await apiRequest.get()
         },
         async list(
-            filters: Partial<FilterType>,
+            filters: EventsListQueryParams,
             limit: number = 10,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): Promise<PaginatedResponse<EventType[]>> {
-            const params: Record<string, any> = { ...filters, limit, orderBy: ['-timestamp'] }
+            const params: EventsListQueryParams = { ...filters, limit, orderBy: ['-timestamp'] }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).get()
         },
         determineListEndpoint(
-            filters: Partial<FilterType>,
+            filters: EventsListQueryParams,
             limit: number = 10,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): string {
-            const params: Record<string, any> = { ...filters, limit, orderBy: ['-timestamp'] }
+            const params: EventsListQueryParams = { ...filters, limit, orderBy: ['-timestamp'] }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).assembleFullUrl()
+        },
+    },
+
+    tags: {
+        async list(teamId: TeamType['id'] = getCurrentTeamId()): Promise<string[]> {
+            return new ApiRequest().tags(teamId).get()
         },
     },
 
@@ -531,7 +598,7 @@ const api = {
             limit?: number
             offset?: number
             teamId?: TeamType['id']
-            event_type?: CombinedEventType
+            event_type?: EventDefinitionType
         }): Promise<PaginatedResponse<EventDefinition>> {
             return new ApiRequest()
                 .eventDefinitions(teamId)
@@ -546,7 +613,7 @@ const api = {
             limit?: number
             offset?: number
             teamId?: TeamType['id']
-            event_type?: CombinedEventType
+            event_type?: EventDefinitionType
         }): string {
             return new ApiRequest()
                 .eventDefinitions(teamId)
@@ -647,8 +714,8 @@ const api = {
         determineDeleteEndpoint(): string {
             return new ApiRequest().cohorts().assembleEndpointUrl()
         },
-        determineCSVUrl(cohortId: number | 'new', filters: PersonFilters): string {
-            return `/api/cohort/${cohortId}/persons?${toParams(filters)}`
+        determineListUrl(cohortId: number | 'new', params: PersonListParams): string {
+            return `/api/cohort/${cohortId}/persons?${toParams(params)}`
         },
     },
 
@@ -675,9 +742,106 @@ const api = {
         },
     },
 
-    person: {
-        determineCSVUrl(filters: PersonFilters): string {
-            return new ApiRequest().persons().withQueryString(toParams(filters)).assembleFullUrl()
+    resourceAccessPermissions: {
+        featureFlags: {
+            async create(featureFlagId: number, roleId: RoleType['id']): Promise<FeatureFlagAssociatedRoleType> {
+                return await new ApiRequest().featureFlagAccessPermissions(featureFlagId).create({
+                    data: {
+                        role_id: roleId,
+                    },
+                })
+            },
+            async list(featureFlagId: number): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
+                return await new ApiRequest().featureFlagAccessPermissions(featureFlagId).get()
+            },
+
+            async delete(
+                featureFlagId: number,
+                id: FeatureFlagAssociatedRoleType['id']
+            ): Promise<PaginatedResponse<FeatureFlagAssociatedRoleType>> {
+                return await new ApiRequest().featureFlagAccessPermissionsDetail(featureFlagId, id).delete()
+            },
+        },
+    },
+
+    roles: {
+        async get(roleId: RoleType['id']): Promise<RoleType> {
+            return await new ApiRequest().rolesDetail(roleId).get()
+        },
+        async list(params: RolesListParams = {}): Promise<PaginatedResponse<RoleType>> {
+            return await new ApiRequest().roles().withQueryString(toParams(params)).get()
+        },
+        async delete(roleId: RoleType['id']): Promise<void> {
+            return await new ApiRequest().rolesDetail(roleId).delete()
+        },
+        async create(
+            roleName: RoleType['name'],
+            featureFlagAccessLevel: RoleType['feature_flags_access_level']
+        ): Promise<RoleType> {
+            return await new ApiRequest().roles().create({
+                data: {
+                    name: roleName,
+                    feature_flags_access_level: featureFlagAccessLevel,
+                },
+            })
+        },
+        async update(roleId: RoleType['id'], roleData: Partial<RoleType>): Promise<ActionType> {
+            return await new ApiRequest().rolesDetail(roleId).update({ data: roleData })
+        },
+        members: {
+            async list(roleId: RoleType['id']): Promise<PaginatedResponse<RoleMemberType>> {
+                return await new ApiRequest().roleMemberships(roleId).get()
+            },
+            async create(roleId: RoleType['id'], userUuid: UserType['uuid']): Promise<RoleMemberType> {
+                return await new ApiRequest().roleMemberships(roleId).create({
+                    data: {
+                        user_uuid: userUuid,
+                    },
+                })
+            },
+            async get(roleId: RoleType['id'], userUuid: UserType['uuid']): Promise<void> {
+                return await new ApiRequest().roleMembershipsDetail(roleId, userUuid).get()
+            },
+            async delete(roleId: RoleType['id'], userUuid: UserType['uuid']): Promise<void> {
+                return await new ApiRequest().roleMembershipsDetail(roleId, userUuid).delete()
+            },
+        },
+    },
+
+    persons: {
+        async getProperties(): Promise<PersonProperty[]> {
+            return new ApiRequest().persons().withAction('properties').get()
+        },
+
+        async update(id: number, person: Partial<PersonType>): Promise<PersonType> {
+            return new ApiRequest().person(id).update({ data: person })
+        },
+        async updateProperty(id: number, property: string, value: any): Promise<void> {
+            return new ApiRequest()
+                .person(id)
+                .withAction('update_property')
+                .create({
+                    data: {
+                        key: property,
+                        value: value,
+                    },
+                })
+        },
+        async deleteProperty(id: number, property: string): Promise<void> {
+            return new ApiRequest()
+                .person(id)
+                .withAction('delete_property')
+                .create({
+                    data: {
+                        $unset: property,
+                    },
+                })
+        },
+        async list(params: PersonListParams = {}): Promise<PaginatedResponse<PersonType>> {
+            return await new ApiRequest().persons().withQueryString(toParams(params)).get()
+        },
+        determineListUrl(params: PersonListParams = {}): string {
+            return new ApiRequest().persons().withQueryString(toParams(params)).assembleFullUrl()
         },
     },
 
@@ -745,21 +909,21 @@ const api = {
     },
 
     annotations: {
-        async get(annotationId: AnnotationType['id']): Promise<AnnotationType> {
+        async get(annotationId: RawAnnotationType['id']): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).get()
         },
         async update(
-            annotationId: AnnotationType['id'],
-            data: Pick<AnnotationType, 'date_marker' | 'scope' | 'content'>
-        ): Promise<AnnotationType> {
+            annotationId: RawAnnotationType['id'],
+            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+        ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
         },
-        async list(): Promise<PaginatedResponse<AnnotationType>> {
+        async list(): Promise<PaginatedResponse<RawAnnotationType>> {
             return await new ApiRequest().annotations().get()
         },
         async create(
-            data: Pick<AnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
-        ): Promise<AnnotationType> {
+            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+        ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotations().create({ data })
         },
         determineDeleteEndpoint(): string {
@@ -774,11 +938,42 @@ const api = {
         async list(): Promise<PaginatedResponse<LicenseType>> {
             return await new ApiRequest().licenses().get()
         },
-        async create(key: LicenseType['key']): Promise<LicenseType> {
+        async create(key: string): Promise<LicenseType> {
             return await new ApiRequest().licenses().create({ data: { key } })
         },
         async delete(licenseId: LicenseType['id']): Promise<LicenseType> {
             return await new ApiRequest().license(licenseId).delete()
+        },
+    },
+
+    recordings: {
+        async list(params: string): Promise<SessionRecordingsResponse> {
+            return await new ApiRequest().recordings().withQueryString(params).get()
+        },
+        async listProperties(params: string): Promise<PaginatedResponse<SessionRecordingPropertiesType>> {
+            return await new ApiRequest().recordings().withAction('properties').withQueryString(params).get()
+        },
+        async updateRecording(
+            recordingId: SessionRecordingType['id'],
+            recording: Partial<SessionRecordingType>,
+            params?: string
+        ): Promise<UpdatedRecordingResponse> {
+            return await new ApiRequest().recording(recordingId).withQueryString(params).update({ data: recording })
+        },
+        async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {
+            return await new ApiRequest().recordingPlaylists().withQueryString(params).get()
+        },
+        async getPlaylist(playlistId: SessionRecordingPlaylistType['short_id']): Promise<SessionRecordingPlaylistType> {
+            return await new ApiRequest().recordingPlaylist(playlistId).get()
+        },
+        async createPlaylist(playlist: Partial<SessionRecordingPlaylistType>): Promise<SessionRecordingPlaylistType> {
+            return await new ApiRequest().recordingPlaylists().create({ data: playlist })
+        },
+        async updatePlaylist(
+            playlistId: SessionRecordingPlaylistType['short_id'],
+            playlist: Partial<SessionRecordingPlaylistType>
+        ): Promise<SessionRecordingPlaylistType> {
+            return await new ApiRequest().recordingPlaylist(playlistId).update({ data: playlist })
         },
     },
 
@@ -830,18 +1025,41 @@ const api = {
         },
     },
 
-    async get(url: string, signal?: AbortSignal): Promise<any> {
-        const res = await api.getRaw(url, signal)
+    resourcePermissions: {
+        async list(): Promise<PaginatedResponse<OrganizationResourcePermissionType>> {
+            return await new ApiRequest().organizationResourceAccess().get()
+        },
+        async create(data: Partial<OrganizationResourcePermissionType>): Promise<OrganizationResourcePermissionType> {
+            return await new ApiRequest().organizationResourceAccess().create({ data })
+        },
+        async update(
+            resourceId: OrganizationResourcePermissionType['id'],
+            data: Partial<OrganizationResourcePermissionType>
+        ): Promise<OrganizationResourcePermissionType> {
+            return await new ApiRequest().organizationResourceAccessDetail(resourceId).update({
+                data,
+            })
+        },
+    },
+
+    media: {
+        async upload(data: FormData): Promise<MediaUploadResponse> {
+            return await new ApiRequest().media().create({ data })
+        },
+    },
+
+    async get(url: string, options?: ApiMethodOptions): Promise<any> {
+        const res = await api.getResponse(url, options)
         return await getJSONOrThrow(res)
     },
 
-    async getRaw(url: string, signal?: AbortSignal): Promise<Response> {
+    async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         let response
         const startTime = new Date().getTime()
         try {
-            response = await fetch(url, { signal })
+            response = await fetch(url, { signal: options?.signal })
         } catch (e) {
             throw { status: 0, message: e }
         }
@@ -854,7 +1072,7 @@ const api = {
         return response
     },
 
-    async update(url: string, data: any): Promise<any> {
+    async update(url: string, data: any, options?: ApiMethodOptions): Promise<any> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
@@ -866,6 +1084,7 @@ const api = {
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: isFormData ? data : JSON.stringify(data),
+            signal: options?.signal,
         })
 
         if (!response.ok) {
@@ -879,7 +1098,12 @@ const api = {
         return await getJSONOrThrow(response)
     },
 
-    async create(url: string, data?: any, signal?: AbortSignal): Promise<any> {
+    async create(url: string, data?: any, options?: ApiMethodOptions): Promise<any> {
+        const res = await api.createResponse(url, data, options)
+        return await getJSONOrThrow(res)
+    },
+
+    async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
@@ -891,7 +1115,7 @@ const api = {
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
-            signal,
+            signal: options?.signal,
         })
 
         if (!response.ok) {
@@ -902,7 +1126,7 @@ const api = {
             }
             throw { status: response.status, ...jsonData }
         }
-        return await getJSONOrThrow(response)
+        return response
     },
 
     async delete(url: string): Promise<any> {

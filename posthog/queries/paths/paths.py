@@ -5,11 +5,11 @@ from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.materialized_columns import ColumnName
-from posthog.client import sync_execute
 from posthog.constants import LIMIT, PATH_EDGE_LIMIT
 from posthog.models import Filter, Team
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property import PropertyName
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.paths.paths_event_query import PathEventQuery
 from posthog.queries.paths.sql import PATH_ARRAY_QUERY
 
@@ -37,7 +37,7 @@ class Paths:
     _extra_event_fields: List[ColumnName]
     _extra_event_properties: List[PropertyName]
 
-    def __init__(self, filter: PathFilter, team: Team, funnel_filter: Optional[Filter] = None,) -> None:
+    def __init__(self, filter: PathFilter, team: Team, funnel_filter: Optional[Filter] = None) -> None:
         self._filter = filter
         self._team = team
         self.params = {
@@ -79,15 +79,18 @@ class Paths:
 
         resp = []
         for res in results:
-            resp.append(
-                {"source": res[0], "target": res[1], "value": res[2], "average_conversion_time": res[3],}
-            )
+            resp.append({"source": res[0], "target": res[1], "value": res[2], "average_conversion_time": res[3]})
         return resp
 
     def _exec_query(self) -> List[Tuple]:
         query = self.get_query()
-        return sync_execute(
-            query, self.params, client_query_id=self._filter.client_query_id, client_query_team_id=self._team.pk
+        return insight_sync_execute(
+            query,
+            self.params,
+            query_type="paths",
+            filter=self._filter,
+            client_query_id=self._filter.client_query_id,
+            client_query_team_id=self._team.pk,
         )
 
     def get_query(self) -> str:
@@ -255,10 +258,7 @@ class Paths:
             ]
         )
 
-        return (
-            clause,
-            params,
-        )
+        return (clause, params)
 
     # Implemented in /ee
     def get_array_compacting_function(self) -> Literal["arrayResize", "arraySlice"]:

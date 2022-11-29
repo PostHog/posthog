@@ -6,13 +6,13 @@ import structlog
 from django.conf import settings
 
 from ee.tasks.subscriptions.subscription_utils import generate_assets
+from posthog.celery import app
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.sharing_configuration import SharingConfiguration
 
 logger = structlog.get_logger(__name__)
 
-from posthog.celery import app
 
 SHARED_LINK_REGEX = r"\/(?:shared_dashboard|shared|embedded)\/(.+)"
 

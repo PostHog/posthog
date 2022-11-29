@@ -232,7 +232,7 @@ class HedgeboxPerson(SimPerson):
             next_session_datetime += dt.timedelta(
                 seconds=self.cluster.random.betavariate(2.5, 1 + self.need)
                 * (36_000 if self.has_signed_up else 172_800)
-                + 24,
+                + 24
             )
             time_appropriateness: float
             # Check if it's night
@@ -269,9 +269,9 @@ class HedgeboxPerson(SimPerson):
             possible_intents_with_weights.append((HedgeboxSessionIntent.VIEW_SHARED_FILE, 1))
         elif not self.has_signed_up:
             if self.all_time_pageview_counts[URL_HOME] < 2:
-                possible_intents_with_weights.append((HedgeboxSessionIntent.CONSIDER_PRODUCT, 2),)
+                possible_intents_with_weights.append((HedgeboxSessionIntent.CONSIDER_PRODUCT, 2))
             if self.watches_marius_tech_tips and not self.all_time_pageview_counts[URL_MARIUS_TECH_TIPS]:
-                possible_intents_with_weights.append((HedgeboxSessionIntent.CHECK_MARIUS_TECH_TIPS_LINK, 1),)
+                possible_intents_with_weights.append((HedgeboxSessionIntent.CHECK_MARIUS_TECH_TIPS_LINK, 1))
         else:
             assert self.account is not None
             file_count = len(self.account.files)
@@ -459,7 +459,7 @@ class HedgeboxPerson(SimPerson):
         if success:
             self.active_client.capture(EVENT_LOGGED_IN)
             self.advance_timer(self.cluster.random.uniform(0.1, 0.2))
-            self.active_client.identify(self.person_id)
+            self.active_client.identify(self.in_product_id)
             self.go_to_files()  # Redirect
 
     def go_to_files(self):
@@ -586,7 +586,7 @@ class HedgeboxPerson(SimPerson):
         )
         self.active_client.capture(EVENT_SIGNED_UP, {"from_invite": False})
         self.advance_timer(self.cluster.random.uniform(0.1, 0.2))
-        self.active_client.identify(self.person_id, {"email": self.email, "name": self.name})
+        self.active_client.identify(self.in_product_id, {"email": self.email, "name": self.name})
         self.active_client.group(
             GROUP_TYPE_ACCOUNT,
             self.account.id,
@@ -622,7 +622,7 @@ class HedgeboxPerson(SimPerson):
         self.active_client.group(
             GROUP_TYPE_ACCOUNT,
             self.account.id,
-            {"used_mb": self.account.current_used_mb, "file_count": len(self.account.files),},
+            {"used_mb": self.account.current_used_mb, "file_count": len(self.account.files)},
         )
         self.satisfaction += self.cluster.random.uniform(-0.19, 0.2)
         if self.satisfaction > 0.9:
@@ -642,7 +642,7 @@ class HedgeboxPerson(SimPerson):
         self.active_client.group(
             GROUP_TYPE_ACCOUNT,
             self.account.id,
-            {"used_mb": self.account.current_used_mb, "file_count": len(self.account.files),},
+            {"used_mb": self.account.current_used_mb, "file_count": len(self.account.files)},
         )
 
     def share_file(self, file: HedgeboxFile):
@@ -661,7 +661,7 @@ class HedgeboxPerson(SimPerson):
         if new_plan is None:
             raise ValueError("There's no successor plan")
         self.active_client.capture(
-            EVENT_UPGRADED_PLAN, {"previous_plan": str(previous_plan), "new_plan": str(new_plan),}
+            EVENT_UPGRADED_PLAN, {"previous_plan": str(previous_plan), "new_plan": str(new_plan)}
         )
         self.advance_timer(self.cluster.random.betavariate(1.2, 1.2) * 2)
         self.schedule_effect(
@@ -686,7 +686,7 @@ class HedgeboxPerson(SimPerson):
         if new_plan is None:
             raise ValueError("There's no predecessor plan")
         self.active_client.capture(
-            EVENT_DOWNGRADED_PLAN, {"previous_plan": str(previous_plan), "new_plan": str(new_plan),}
+            EVENT_DOWNGRADED_PLAN, {"previous_plan": str(previous_plan), "new_plan": str(new_plan)}
         )
         self.account.plan = new_plan
 
@@ -716,7 +716,7 @@ class HedgeboxPerson(SimPerson):
             self.cluster.matrix.server_client.capture(
                 EVENT_PAID_BILL,
                 {"amount_usd": self.account.current_monthly_bill_usd, "plan": self.account.plan},
-                distinct_id=self.person_id,
+                distinct_id=self.in_product_id,
             )
 
     def enter_app(self):

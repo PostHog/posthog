@@ -33,7 +33,7 @@ def process_found_event_table_deletions(deletions: List[AsyncDeletion]):
 
     logger.info(
         "Starting AsyncDeletion on `events` table in ClickHouse",
-        {"count": len(deletions), "team_ids": list(set(row.team_id for row in deletions)),},
+        {"count": len(deletions), "team_ids": list(set(row.team_id for row in deletions))},
     )
 
     conditions, args = _conditions(deletions)
@@ -54,7 +54,7 @@ def process_found_event_table_deletions(deletions: List[AsyncDeletion]):
 
     logger.info(
         "Starting AsyncDeletion for teams on other tables",
-        {"count": len(team_deletions), "team_ids": list(set(row.team_id for row in deletions)),},
+        {"count": len(team_deletions), "team_ids": list(set(row.team_id for row in deletions))},
     )
     conditions, args = _conditions(team_deletions)
     for table in TABLES_TO_DELETE_TEAM_DATA_FROM:
@@ -82,7 +82,7 @@ def mark_deletions_done():
         AsyncDeletion.objects.filter(pk__in=[row.pk for row in to_verify]).update(delete_verified_at=timezone.now())
         logger.info(
             "Updated `delete_verified_at` for AsyncDeletion",
-            {"count": len(to_verify), "team_ids": list(set(row.team_id for row in to_verify)),},
+            {"count": len(to_verify), "team_ids": list(set(row.team_id for row in to_verify))},
         )
 
 

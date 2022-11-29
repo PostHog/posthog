@@ -42,7 +42,6 @@ export function instrument<T>(
         },
         async () => {
             const timer = new Date()
-
             statsd?.increment(`${options.metricName}.total`, tags)
             try {
                 return await runQuery()

@@ -91,9 +91,7 @@ class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
         )
 
         events_before = sync_execute("select event, $group_0, group0_properties from events")
-        self.assertEqual(
-            events_before, [("event1", "my_group", ""), ("event2", "my_group", "")],
-        )
+        self.assertEqual(events_before, [("event1", "my_group", ""), ("event2", "my_group", "")])
 
         run_backfill({"team_id": 1, "live_run": True})
 
@@ -101,6 +99,4 @@ class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
         sleep(10)
 
         events_after = sync_execute("select event, $group_0, group0_properties from events")
-        self.assertEqual(
-            events_after, [("event1", "my_group", group_props), ("event2", "my_group", group_props)],
-        )
+        self.assertEqual(events_after, [("event1", "my_group", group_props), ("event2", "my_group", group_props)])

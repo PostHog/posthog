@@ -1,5 +1,5 @@
 import './UniversalSearch.scss'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { LemonButtonWithPopupProps } from '../LemonButton'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps, TaxonomicFilterValue } from '../TaxonomicFilter/types'
 import { Popup } from 'lib/components/Popup/Popup'
@@ -196,6 +196,7 @@ export function UniversalSearchPopup({
                             type="search"
                             placeholder={'Search...'}
                             value={searchQuery}
+                            transparentBackground
                         />
                     )}
                 </div>

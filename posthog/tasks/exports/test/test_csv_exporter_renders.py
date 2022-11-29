@@ -33,7 +33,7 @@ def test_csv_rendering(mock_settings, mock_request, filename):
         fixture = json.loads(f.read())
 
     asset = ExportedAsset(
-        team=team, export_format=ExportedAsset.ExportFormat.CSV, export_context={"path": "/api/literally/anything"},
+        team=team, export_format=ExportedAsset.ExportFormat.CSV, export_context={"path": "/api/literally/anything"}
     )
     asset.save()
 

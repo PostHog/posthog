@@ -53,14 +53,8 @@ def _get_sharing_configuration(team_id: int, dashboard: Optional[Dashboard] = No
     return instance
 
 
-class SharingConfigurationViewSet(
-    StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet,
-):
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     pagination_class = None
     queryset = SharingConfiguration.objects.select_related("dashboard", "insight")
     serializer_class = SharingConfigurationSerializer

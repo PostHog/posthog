@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { Lettermark, LettermarkColor, LettermarkProps } from './Lettermark'
 import { range } from 'lib/utils'
@@ -7,6 +6,7 @@ export default {
     title: 'Lemon UI/Lettermark',
     component: Lettermark,
     parameters: {
+        chromatic: { disableSnapshot: false },
         docs: {
             description: {
                 component:

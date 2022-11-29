@@ -14,7 +14,15 @@ def migrate_plugin_source(apps, schema_editor):
         PluginSourceFile.objects.update_or_create(
             plugin=plugin,
             filename="plugin.json",
-            defaults={"source": json.dumps({"name": plugin.name, "config": plugin.config_schema or [],}, indent=4,),},
+            defaults={
+                "source": json.dumps(
+                    {
+                        "name": plugin.name,
+                        "config": plugin.config_schema or [],
+                    },
+                    indent=4,
+                ),
+            },
         )
 
 

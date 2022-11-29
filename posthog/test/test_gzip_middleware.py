@@ -11,7 +11,7 @@ custom_headers = {"HTTP_ACCEPT_ENCODING": "gzip"}
 
 class TestGzipMiddleware(APIBaseTest):
     def _get_path(self, path):
-        return self.client.get(path, data=None, follow=False, secure=False, **custom_headers,)
+        return self.client.get(path, data=None, follow=False, secure=False, **custom_headers)
 
     def test_does_not_compress_outside_of_allow_list(self) -> None:
         with self.settings(GZIP_RESPONSE_ALLOW_LIST=["something-else", "not-root"]):

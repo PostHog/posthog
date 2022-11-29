@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
@@ -59,6 +59,7 @@ export function Cohorts(): JSX.Element {
         },
         {
             title: 'Users in cohort',
+            align: 'right',
             render: function RenderCount(_: any, cohort: CohortType) {
                 return cohort.count?.toLocaleString()
             },
@@ -121,11 +122,26 @@ export function Cohorts(): JSX.Element {
                                 </LemonButton>
                                 <LemonButton
                                     status="stealth"
+                                    onClick={() =>
+                                        exportCohortPersons(cohort.id, [
+                                            'distinct_ids.0',
+                                            'id',
+                                            'name',
+                                            'properties.email',
+                                        ])
+                                    }
+                                    tooltip="Export specific columns for users belonging to this cohort in CSV format. Includes distinct id, internal id, email, and name"
+                                    fullWidth
+                                >
+                                    Export important columns for users
+                                </LemonButton>
+                                <LemonButton
+                                    status="stealth"
                                     onClick={() => exportCohortPersons(cohort.id)}
                                     tooltip="Export all users belonging to this cohort in CSV format."
                                     fullWidth
                                 >
-                                    Export users
+                                    Export all columns for users
                                 </LemonButton>
                                 <LemonDivider />
                                 <LemonButton status="danger" onClick={() => deleteCohort(cohort)} fullWidth>

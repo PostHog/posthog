@@ -1,44 +1,56 @@
-import { kea } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import api from 'lib/api'
 import { insightLogic } from '../insights/insightLogic'
-import { InsightLogicProps, FilterType, InsightType, TrendResult, ActionFilter, ChartDisplayType } from '~/types'
+import {
+    InsightLogicProps,
+    FilterType,
+    TrendResult,
+    ActionFilter,
+    ChartDisplayType,
+    TrendsFilterType,
+    LifecycleFilterType,
+    StickinessFilterType,
+} from '~/types'
 import type { trendsLogicType } from './trendsLogicType'
 import { IndexedTrendResult } from 'scenes/trends/types'
-import { isTrendsInsight, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { personsModalLogic } from './personsModalLogic'
-import { groupsModel } from '~/models/groupsModel'
+import {
+    isFilterWithDisplay,
+    isLifecycleFilter,
+    isStickinessFilter,
+    isTrendsInsight,
+    keyForInsightLogicProps,
+} from 'scenes/insights/sharedUtils'
+import { Noun, groupsModel } from '~/models/groupsModel'
+import { subscriptions } from 'kea-subscriptions'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
-export const trendsLogic = kea<trendsLogicType>({
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps('all_trends'),
-    path: (key) => ['scenes', 'trends', 'trendsLogic', key],
+export const trendsLogic = kea<trendsLogicType>([
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps('all_trends')),
+    path((key) => ['scenes', 'trends', 'trendsLogic', key]),
 
-    connect: (props: InsightLogicProps) => ({
+    connect((props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters', 'insight', 'insightLoading', 'hiddenLegendKeys'],
+            ['filters as inflightFilters', 'insight', 'insightLoading', 'hiddenLegendKeys', 'localFilters'],
             groupsModel,
             ['aggregationLabel'],
         ],
-        actions: [
-            insightLogic(props),
-            ['loadResultsSuccess', 'toggleVisibility', 'setHiddenById'],
-            personsModalLogic,
-            ['loadPeople', 'loadPeopleFromUrl'],
-        ],
-    }),
+        actions: [insightLogic(props), ['loadResultsSuccess', 'toggleVisibility', 'setHiddenById']],
+    })),
 
-    actions: () => ({
-        setFilters: (filters: Partial<FilterType>, mergeFilters = true) => ({ filters, mergeFilters }),
+    actions(() => ({
+        setFilters: (filters: Partial<TrendsFilterType>, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
         toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
         setTargetAction: (action: ActionFilter) => ({ action }),
-    }),
+        setIsFormulaOn: (enabled: boolean) => ({ enabled }),
+    })),
 
-    reducers: () => ({
+    reducers(({ props }) => ({
         toggledLifecycles: [
             ['new', 'resurrecting', 'returning', 'dormant'],
             {
@@ -62,12 +74,31 @@ export const trendsLogic = kea<trendsLogicType>({
                 setBreakdownValuesLoading: (_, { loading }) => loading,
             },
         ],
-    }),
+        isFormulaOn: [
+            () => isTrendsFilter(props.cachedInsight?.filters) && !!props.cachedInsight?.filters?.formula,
+            {
+                setIsFormulaOn: (_, { enabled }) => enabled,
+            },
+        ],
+    })),
 
-    selectors: {
+    selectors({
+        filters: [
+            (s) => [s.inflightFilters],
+            (
+                inflightFilters
+            ): Partial<TrendsFilterType> | Partial<StickinessFilterType> | Partial<LifecycleFilterType> =>
+                inflightFilters &&
+                (isTrendsFilter(inflightFilters) ||
+                    isStickinessFilter(inflightFilters) ||
+                    isLifecycleFilter(inflightFilters))
+                    ? inflightFilters
+                    : {},
+        ],
         loadedFilters: [
             (s) => [s.insight],
-            ({ filters }): Partial<FilterType> => (isTrendsInsight(filters?.insight) ? filters ?? {} : {}),
+            ({ filters }): Partial<TrendsFilterType> =>
+                filters && (isFilterWithDisplay(filters) || isLifecycleFilter(filters)) ? filters : {},
         ],
         results: [
             (s) => [s.insight],
@@ -87,37 +118,21 @@ export const trendsLogic = kea<trendsLogicType>({
             (s) => [s.filters, s.results, s.toggledLifecycles],
             (filters, _results, toggledLifecycles): IndexedTrendResult[] => {
                 let results = _results || []
-                if (filters.insight === InsightType.LIFECYCLE) {
-                    results = results.filter((result) => toggledLifecycles.includes(String(result.status)))
-                }
-                if (filters.display === ChartDisplayType.ActionsBarValue) {
+                if (
+                    isFilterWithDisplay(filters) &&
+                    (filters.display === ChartDisplayType.ActionsBarValue ||
+                        filters.display === ChartDisplayType.ActionsPie)
+                ) {
                     results.sort((a, b) => b.aggregated_value - a.aggregated_value)
+                } else if (isLifecycleFilter(filters)) {
+                    results = results.filter((result) => toggledLifecycles.includes(String(result.status)))
                 }
                 return results.map((result, index) => ({ ...result, id: index }))
             },
         ],
-        showModalActions: [
-            (s) => [s.filters],
-            (filters): boolean => {
-                const isNotAggregatingByGroup = (entity: Record<string, any>): boolean =>
-                    entity.math_group_type_index == undefined
-
-                return (
-                    (filters.events || []).every(isNotAggregatingByGroup) &&
-                    (filters.actions || []).every(isNotAggregatingByGroup) &&
-                    filters.breakdown_type !== 'group'
-                )
-            },
-        ],
         aggregationTargetLabel: [
             (s) => [s.aggregationLabel, s.targetAction],
-            (
-                aggregationLabel,
-                targetAction
-            ): {
-                singular: string
-                plural: string
-            } => {
+            (aggregationLabel, targetAction): Noun => {
                 return aggregationLabel(targetAction.math_group_type_index)
             },
         ],
@@ -149,20 +164,14 @@ export const trendsLogic = kea<trendsLogicType>({
                     : 'none' // mixed group types
             },
         ],
-    },
+    }),
 
-    listeners: ({ actions, values, props }) => ({
-        loadPeople: ({ peopleParams: { action } }) => {
-            action && actions.setTargetAction(action)
-        },
-        loadPeopleFromUrl: ({ action }) => {
-            action && actions.setTargetAction(action)
-        },
+    listeners(({ actions, values, props }) => ({
         setFilters: async ({ filters, mergeFilters }) => {
             insightLogic(props).actions.setFilters(mergeFilters ? { ...values.filters, ...filters } : filters)
         },
         setDisplay: async ({ display }) => {
-            insightLogic(props).actions.setFilters({ ...values.filters, display })
+            actions.setFilters({ display }, true)
         },
         loadMoreBreakdownValues: async () => {
             if (!values.loadMoreBreakdownUrl) {
@@ -180,5 +189,19 @@ export const trendsLogic = kea<trendsLogicType>({
             })
             actions.setBreakdownValuesLoading(false)
         },
-    }),
-})
+        setIsFormulaOn: ({ enabled }) => {
+            if (!enabled) {
+                actions.setFilters({ formula: undefined })
+            }
+        },
+    })),
+    subscriptions(({ values, actions }) => ({
+        filters: (filters: Partial<FilterType>) => {
+            const shouldFormulaBeOn = isTrendsFilter(filters) && !!filters.formula
+            // Prevent too many renders by only firing the action if needed
+            if (values.isFormulaOn !== shouldFormulaBeOn) {
+                actions.setIsFormulaOn(shouldFormulaBeOn)
+            }
+        },
+    })),
+])

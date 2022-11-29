@@ -19,6 +19,10 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(model_name="team", name="is_demo", field=models.BooleanField(default=False),),
+        migrations.AddField(
+            model_name="team",
+            name="is_demo",
+            field=models.BooleanField(default=False),
+        ),
         migrations.RunPython(forward, reverse),
     ]

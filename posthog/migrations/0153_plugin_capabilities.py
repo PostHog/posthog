@@ -10,5 +10,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(model_name="plugin", name="capabilities", field=models.JSONField(default=dict),),
+        migrations.AddField(
+            model_name="plugin",
+            name="capabilities",
+            field=models.JSONField(default=dict),
+        ),
     ]

@@ -1,9 +1,9 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
 import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function PersonDisplayNameProperties(): JSX.Element {
@@ -17,7 +17,7 @@ export function PersonDisplayNameProperties(): JSX.Element {
     )
 
     if (!currentTeam) {
-        return <Skeleton paragraph={{ rows: 0 }} active />
+        return <LemonSkeleton className="w-1/2" />
     }
 
     return (

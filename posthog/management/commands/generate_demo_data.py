@@ -2,14 +2,11 @@ import datetime as dt
 import logging
 import secrets
 from time import monotonic
-from typing import cast
 
 from django.core import exceptions
 from django.core.management.base import BaseCommand
-from django.db import transaction
 
 from posthog.demo.matrix import Matrix, MatrixManager
-from posthog.demo.matrix.models import SimEvent
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 
 logging.getLogger("kafka").setLevel(logging.WARNING)  # Hide kafka-python's logspam
@@ -21,7 +18,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--seed", type=str, help="Simulation seed for deterministic output")
         parser.add_argument(
-            "--now", type=dt.datetime.fromisoformat, help="Simulation 'now' datetime in ISO format (default: now)",
+            "--now", type=dt.datetime.fromisoformat, help="Simulation 'now' datetime in ISO format (default: now)"
         )
         parser.add_argument(
             "--days-past",
@@ -41,10 +38,10 @@ class Command(BaseCommand):
             "--reset-master", action="store_true", help="Reset master project instead of creating a demo project"
         )
         parser.add_argument(
-            "--email", type=str, default="test@posthog.com", help="Email of the demo user (default: test@posthog.com)",
+            "--email", type=str, default="test@posthog.com", help="Email of the demo user (default: test@posthog.com)"
         )
         parser.add_argument(
-            "--password", type=str, default="12345678", help="Password of the demo user (default: 12345678)",
+            "--password", type=str, default="12345678", help="Password of the demo user (default: 12345678)"
         )
 
     def handle(self, *args, **options):
@@ -66,24 +63,26 @@ class Command(BaseCommand):
             email = options["email"]
             password = options["password"]
             matrix_manager = MatrixManager(matrix, print_steps=True)
-            with transaction.atomic():
-                try:
-                    if options["reset_master"]:
-                        matrix_manager.reset_master()
-                    else:
-                        matrix_manager.ensure_account_and_save(
-                            email, "Employee 427", "Hedgebox Inc.", password=password, disallow_collision=True
-                        )
-                except exceptions.ValidationError as e:
-                    print(f"Error: {e}")
+            try:
+                if options["reset_master"]:
+                    matrix_manager.reset_master()
                 else:
-                    print(
-                        "Master project reset!"
-                        if options["reset_master"]
-                        else f"Demo data ready! Log in as {email} with password {password}.\n"
-                        "If running DEMO mode locally, log in instantly with this link:\n"
-                        f"http://localhost:8000/signup?email={email}"
+                    matrix_manager.ensure_account_and_save(
+                        email, "Employee 427", "Hedgebox Inc.", password=password, disallow_collision=True
                     )
+            except exceptions.ValidationError as e:
+                print(f"Error: {e}")
+            else:
+                print(
+                    "Master project reset!"
+                    if options["reset_master"]
+                    else f"\nDemo data ready for {email}!\n\n"
+                    "Pre-fill the login form with this link:\n"
+                    f"http://localhost:8000/login?email={email}\n"
+                    f"The password is {password}.\n\n"
+                    "If running demo mode (DEMO=1), log in instantly with this link:\n"
+                    f"http://localhost:8000/signup?email={email}\n"
+                )
         else:
             print("Dry run - not saving results.")
 
@@ -95,12 +94,12 @@ class Command(BaseCommand):
         summary_lines = [f"Matrix: {matrix.PRODUCT_NAME}. Seed: {seed}."]
         for cluster in matrix.clusters:
             summary_lines.append(
-                f"    Cluster {cluster.index}: {cluster}. Radius = {cluster.radius}. Population = {len(cluster.people_matrix) * len(cluster.people_matrix[0])}.",
+                f"    Cluster {cluster.index}: {cluster}. Radius = {cluster.radius}. Population = {len(cluster.people_matrix) * len(cluster.people_matrix[0])}."
             )
             for y, person_row in enumerate(cluster.people_matrix):
                 for x, person in enumerate(person_row):
                     if verbosity >= 2:
-                        summary_lines.append(f"        Person {x, y}: {person}",)
+                        summary_lines.append(f"        Person {x, y}: {person}")
                     total_event_count += len(person.past_events) + len(person.future_events)
                     future_event_count += len(person.future_events)
                     if person.all_events:
@@ -110,20 +109,21 @@ class Command(BaseCommand):
                         for event in person.all_events:
                             if session_id := event.properties.get("$session_id"):
                                 if active_session_id != session_id:
-                                    summary_lines.append(f"            Session {session_id}:",)
+                                    summary_lines.append(f"            Session {session_id}:")
                                 active_session_id = session_id
-                            summary_lines.append(f"            {event}",)
+                            summary_lines.append(f"            {event}")
                     elif verbosity >= 2:
                         event_count = len(person.past_events) + len(person.future_events)
                         if not event_count:
-                            summary_lines.append("            No events",)
+                            summary_lines.append("            No events")
                         else:
+                            assert person.first_seen_at is not None and person.last_seen_at is not None
                             session_count = len(set(event.properties.get("$session_id") for event in person.all_events))
                             summary_lines.append(
                                 f"            {event_count} event{'' if event_count == 1 else 's'} "
                                 f"across {session_count} session{'' if session_count == 1 else 's'} "
-                                f"between {cast(SimEvent, person.first_event).timestamp.strftime('%Y-%m-%d %H:%M:%S')} "
-                                f"and {cast(SimEvent, person.last_event).timestamp.strftime('%Y-%m-%d %H:%M:%S')}",
+                                f"between {person.first_seen_at.strftime('%Y-%m-%d %H:%M:%S')} "
+                                f"and {person.last_seen_at.strftime('%Y-%m-%d %H:%M:%S')}"
                             )
         summary_lines.append(
             f"All in all, in {duration * 1000:.2f} ms "

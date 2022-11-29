@@ -1,5 +1,3 @@
-import React from 'react'
-
 import { ProfileBubbles as ProfileBubblesComponent, ProfileBubblesProps } from './ProfileBubbles'
 import { ComponentMeta } from '@storybook/react'
 import { alphabet, range } from 'lib/utils'
@@ -14,6 +12,7 @@ const DUMMIES: ProfileBubblesProps['people'] = [
 export default {
     title: 'Lemon UI/Profile Bubbles',
     component: ProfileBubblesComponent,
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         people: {
             defaultValue: DUMMIES,

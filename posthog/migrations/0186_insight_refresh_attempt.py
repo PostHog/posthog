@@ -11,6 +11,8 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="insight", name="refresh_attempt", field=models.IntegerField(blank=True, null=True),
+            model_name="insight",
+            name="refresh_attempt",
+            field=models.IntegerField(blank=True, null=True),
         ),
     ]

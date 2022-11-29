@@ -1,18 +1,20 @@
 import React, { MutableRefObject, Ref, useEffect, useRef } from 'react'
 import { Handler, viewportResizeDimension } from 'rrweb/typings/types'
 import { useActions, useValues } from 'kea'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { SessionPlayerState, SessionRecordingPlayerProps } from '~/types'
-import { IconPlay } from 'scenes/session-recordings/player/icons'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import useSize from '@react-hook/size'
+import './PlayerFrame.scss'
 
 export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
-    { sessionRecordingId, playerKey }: SessionRecordingPlayerProps,
+    { sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps,
     ref: Ref<HTMLDivElement>
 ): JSX.Element {
     const replayDimensionRef = useRef<viewportResizeDimension>()
-    const { currentPlayerState, player } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
-    const { togglePlayPause, setScale } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+    const { player } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+    const { setScale } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const frameRef = ref as MutableRefObject<HTMLDivElement>
     const containerRef = useRef<HTMLDivElement | null>(null)
     const containerDimensions = useSize(containerRef)
@@ -58,27 +60,9 @@ export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
         setScale(scale)
     }
 
-    const renderPlayerState = (): JSX.Element | null => {
-        if (currentPlayerState === SessionPlayerState.BUFFER) {
-            return <div className="rrweb-overlay">Buffering...</div>
-        }
-        if (currentPlayerState === SessionPlayerState.PAUSE) {
-            return (
-                <div className="rrweb-overlay">
-                    <IconPlay className="rrweb-overlay-play-icon" />
-                </div>
-            )
-        }
-        if (currentPlayerState === SessionPlayerState.SKIP) {
-            return <div className="rrweb-overlay">Skipping inactivity</div>
-        }
-        return null
-    }
-
     return (
-        <div ref={containerRef} className="rrweb-player" onClick={togglePlayPause}>
-            <div className="player-frame" ref={ref} style={{ position: 'absolute' }} />
-            <div className="rrweb-overlay-container">{renderPlayerState()}</div>
+        <div ref={containerRef} className="PlayerFrame ph-no-capture">
+            <div className="PlayerFrame__content" ref={ref} />
         </div>
     )
 })

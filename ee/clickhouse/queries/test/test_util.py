@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytz
 from freezegun.api import freeze_time
@@ -12,18 +12,19 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.test.base import _create_event
 
 
-@freeze_time("2021-01-21")
 def test_get_earliest_timestamp(db, team):
-    _create_event(team=team, event="sign up", distinct_id="1", timestamp="2020-01-04T14:10:00Z")
-    _create_event(team=team, event="sign up", distinct_id="1", timestamp="2020-01-06T14:10:00Z")
+    with freeze_time("2021-01-21") as frozen_time:
+        _create_event(team=team, event="sign up", distinct_id="1", timestamp="2020-01-04T14:10:00Z")
+        _create_event(team=team, event="sign up", distinct_id="1", timestamp="2020-01-06T14:10:00Z")
 
-    assert get_earliest_timestamp(team.id) == datetime(2020, 1, 4, 14, 10, tzinfo=pytz.UTC)
+        assert get_earliest_timestamp(team.id) == datetime(2020, 1, 4, 14, 10, tzinfo=pytz.UTC)
 
-    _create_event(team=team, event="sign up", distinct_id="1", timestamp="1984-01-06T14:10:00Z")
-    _create_event(team=team, event="sign up", distinct_id="1", timestamp="2014-01-01T01:00:00Z")
-    _create_event(team=team, event="sign up", distinct_id="1", timestamp="2015-01-01T01:00:00Z")
+        frozen_time.tick(timedelta(seconds=1))
+        _create_event(team=team, event="sign up", distinct_id="1", timestamp="1984-01-06T14:10:00Z")
+        _create_event(team=team, event="sign up", distinct_id="1", timestamp="2014-01-01T01:00:00Z")
+        _create_event(team=team, event="sign up", distinct_id="1", timestamp="2015-01-01T01:00:00Z")
 
-    assert get_earliest_timestamp(team.id) == datetime(2015, 1, 1, 1, tzinfo=pytz.UTC)
+        assert get_earliest_timestamp(team.id) == datetime(2015, 1, 1, 1, tzinfo=pytz.UTC)
 
 
 @freeze_time("2021-01-21")
@@ -34,7 +35,7 @@ def test_get_earliest_timestamp_with_no_events(db, team):
 def test_parse_breakdown_cohort_query(db, team):
     action = Action.objects.create(team=team, name="$pageview")
     ActionStep.objects.create(action=action, event="$pageview")
-    cohort1 = Cohort.objects.create(team=team, groups=[{"action_id": action.pk, "days": 3}], name="cohort1",)
+    cohort1 = Cohort.objects.create(team=team, groups=[{"action_id": action.pk, "days": 3}], name="cohort1")
     queries, params = _parse_breakdown_cohorts([cohort1])
     assert len(queries) == 1
     sync_execute(queries[0], params)

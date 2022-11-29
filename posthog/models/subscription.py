@@ -158,7 +158,7 @@ class Subscription(models.Model):
             summary = f"sent every {str(self.interval) + ' ' if self.interval > 1 else ''}{human_frequency}"
 
             if self.byweekday and self.bysetpos:
-                human_bysetpos = {1: "first", 2: "second", 3: "third", 4: "fourth", -1: "last",}[self.bysetpos]
+                human_bysetpos = {1: "first", 2: "second", 3: "third", 4: "fourth", -1: "last"}[self.bysetpos]
                 summary += (
                     f" on the {human_bysetpos} {self.byweekday[0].capitalize() if len(self.byweekday) == 1 else 'day'}"
                 )
@@ -192,12 +192,12 @@ def subscription_saved(sender, instance, created, raw, using, **kwargs):
 
 
 def to_rrule_weekdays(weekday: Subscription.SubscriptionByWeekDay):
-    return set([RRULE_WEEKDAY_MAP.get(x) for x in weekday])
+    return {RRULE_WEEKDAY_MAP.get(x) for x in weekday}
 
 
 def get_unsubscribe_token(subscription: Subscription, email: str) -> str:
     return encode_jwt(
-        {"id": subscription.id, "email": email,},
+        {"id": subscription.id, "email": email},
         expiry_delta=timedelta(days=UNSUBSCRIBE_TOKEN_EXP_DAYS),
         audience=PosthogJwtAudience.UNSUBSCRIBE,
     )

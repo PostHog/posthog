@@ -1,15 +1,13 @@
-import React from 'react'
 import { useValues, useActions } from 'kea'
 import {
     annotationScopeToLevel,
     annotationScopeToName,
-    annotationsPageLogic,
+    annotationModalLogic,
     ANNOTATION_DAYJS_FORMAT,
-} from './annotationsPageLogic'
+} from './annotationModalLogic'
 import { PageHeader } from 'lib/components/PageHeader'
-import { AnnotationType, AnnotationScope, InsightShortId } from '~/types'
+import { AnnotationScope, InsightShortId, AnnotationType } from '~/types'
 import { SceneExport } from 'scenes/sceneTypes'
-import { dayjs } from 'lib/dayjs'
 import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/components/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -21,18 +19,19 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { AnnotationModal } from './AnnotationModal'
+import { shortTimeZone } from 'lib/utils'
 
 export const scene: SceneExport = {
     component: Annotations,
-    logic: annotationsPageLogic,
+    logic: annotationModalLogic,
 }
 
 export function Annotations(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { annotations, annotationsLoading, next, loadingNext } = useValues(annotationsPageLogic)
+    const { annotations, annotationsLoading, next, loadingNext, timezone } = useValues(annotationModalLogic)
     const { loadAnnotationsNext, openModalToCreateAnnotation, openModalToEditAnnotation } =
-        useActions(annotationsPageLogic)
+        useActions(annotationModalLogic)
 
     const columns: LemonTableColumns<AnnotationType> = [
         {
@@ -44,13 +43,13 @@ export function Annotations(): JSX.Element {
             },
         },
         {
-            title: 'Date and time',
+            title: `Date and time (${shortTimeZone(timezone)})`,
             dataIndex: 'date_marker',
             render: function RenderDateMarker(_, annotation: AnnotationType): string {
                 // Format marker. Minute precision is used, because that's as detailed as our graphs can be
-                return dayjs(annotation.date_marker).format(ANNOTATION_DAYJS_FORMAT)
+                return annotation.date_marker.format(ANNOTATION_DAYJS_FORMAT)
             },
-            sorter: (a, b) => dayjs(a.date_marker).diff(b.date_marker),
+            sorter: (a, b) => a.date_marker.diff(b.date_marker),
         },
         {
             title: 'Scope',
@@ -65,7 +64,7 @@ export function Annotations(): JSX.Element {
                         : `This annotation applies to all insights in the ${currentOrganization?.name} organization`
                 return (
                     <Tooltip title={tooltip} placement="right">
-                        <LemonTag>
+                        <LemonTag className="uppercase">
                             {annotation.scope === AnnotationScope.Insight ? (
                                 <Link
                                     to={urls.insightView(annotation.insight_short_id as InsightShortId)}
@@ -115,7 +114,11 @@ export function Annotations(): JSX.Element {
                     </>
                 }
                 buttons={
-                    <LemonButton type="primary" data-attr="create-annotation" onClick={openModalToCreateAnnotation}>
+                    <LemonButton
+                        type="primary"
+                        data-attr="create-annotation"
+                        onClick={() => openModalToCreateAnnotation()}
+                    >
                         New annotation
                     </LemonButton>
                 }

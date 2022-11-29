@@ -78,7 +78,7 @@
                     "breakdown_value": "AU",
                     "breakdown_type": "event"
                 },
-                "url": "api/projects/1/actions/people/?breakdown=%24geoip_country_code&breakdown_type=event&date_from=2022-03-28T00%3A00%3A00%2B00%3A00&date_to=2022-04-04T19%3A28%3A41.487993%2B00%3A00&display=WorldMap&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&breakdown_value=AU"
+                "url": "api/projects/1/persons/trends/?breakdown=%24geoip_country_code&breakdown_type=event&date_from=2022-03-28T00%3A00%3A00%2B00%3A00&date_to=2022-04-04T19%3A28%3A41.487993%2B00%3A00&display=WorldMap&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&breakdown_value=AU"
             },
             "breakdown_value": "AU"
         },
@@ -127,7 +127,7 @@
                     "breakdown_value": "IS",
                     "breakdown_type": "event"
                 },
-                "url": "api/projects/1/actions/people/?breakdown=%24geoip_country_code&breakdown_type=event&date_from=2022-03-28T00%3A00%3A00%2B00%3A00&date_to=2022-04-04T19%3A28%3A41.487993%2B00%3A00&display=WorldMap&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&breakdown_value=IS"
+                "url": "api/projects/1/persons/trends/?breakdown=%24geoip_country_code&breakdown_type=event&date_from=2022-03-28T00%3A00%3A00%2B00%3A00&date_to=2022-04-04T19%3A28%3A41.487993%2B00%3A00&display=WorldMap&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&breakdown_value=IS"
             },
             "breakdown_value": "IS"
         }

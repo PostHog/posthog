@@ -9,8 +9,8 @@ export default {
     decorators: [
         mswDecorator({
             get: {
-                '/api/person/retention': sampleRetentionPeopleResponse,
-                '/api/person/properties': samplePersonProperties,
+                '/api/projects/:team_id/persons/retention': sampleRetentionPeopleResponse,
+                '/api/projects/:team_id/persons/properties': samplePersonProperties,
             },
             post: {
                 '/api/projects/:projectId/cohorts/': { id: 1 },
@@ -26,6 +26,8 @@ export const TrendsBar = createInsightScene(require('./__mocks__/trendsBar.json'
 export const TrendsBarBreakdown = createInsightScene(require('./__mocks__/trendsBarBreakdown.json'))
 export const TrendsValue = createInsightScene(require('./__mocks__/trendsValue.json'))
 export const TrendsValueBreakdown = createInsightScene(require('./__mocks__/trendsValueBreakdown.json'))
+export const TrendsArea = createInsightScene(require('./__mocks__/trendsArea.json'))
+export const TrendsAreaBreakdown = createInsightScene(require('./__mocks__/trendsAreaBreakdown.json'))
 export const TrendsNumber = createInsightScene(require('./__mocks__/trendsNumber.json'))
 export const TrendsTable = createInsightScene(require('./__mocks__/trendsTable.json'))
 export const TrendsTableBreakdown = createInsightScene(require('./__mocks__/trendsTableBreakdown.json'))

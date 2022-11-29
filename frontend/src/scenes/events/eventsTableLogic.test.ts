@@ -1,9 +1,9 @@
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { lemonToast } from 'lib/components/lemonToast'
-import { EmptyPropertyFilter, EventType, PropertyFilter, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, EventType, PropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
 import { fromParamsGivenUrl } from 'lib/utils'
@@ -13,14 +13,24 @@ const errorToastSpy = jest.spyOn(lemonToast, 'error')
 
 const timeNow = '2021-05-05T00:00:00.000Z'
 
+import * as exporter from 'lib/components/ExportButton/exporter'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 jest.mock('lib/dayjs', () => {
-    const dayjs = jest.requireActual('lib/dayjs')
-    return { ...dayjs, now: () => dayjs.dayjs(timeNow) }
+    const mod = jest.requireActual('lib/dayjs')
+    return {
+        ...mod,
+        now: () => mod.dayjs(timeNow),
+    }
 })
 
-import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { MOCK_TEAM_ID } from 'lib/api.mock'
-jest.mock('lib/components/ExportButton/exporter')
+jest.mock('lib/components/ExportButton/exporter', () => {
+    const mod = jest.requireActual('lib/components/ExportButton/exporter')
+    return {
+        ...mod,
+        triggerExport: jest.fn(),
+    }
+})
 
 const randomBool = (): boolean => Math.random() < 0.5
 
@@ -29,8 +39,8 @@ const randomString = (): string => Math.random().toString(36).substring(2, 5)
 const makeEvent = (id: string = '1', timestamp: string = randomString()): EventType => ({
     id: id,
     timestamp,
+    distinct_id: 'distinct_id',
     elements: [],
-    elements_hash: '',
     event: '',
     properties: {},
 })
@@ -38,7 +48,7 @@ const makeEvent = (id: string = '1', timestamp: string = randomString()): EventT
 const makePropertyFilter = (value: string = randomString()): PropertyFilter => ({
     key: value,
     operator: PropertyOperator.Exact,
-    type: 't',
+    type: PropertyFilterType.Person,
     value: 'v',
 })
 
@@ -47,7 +57,7 @@ const secondEvent = makeEvent('1', '2023-05-05T00:00:00.000Z')
 
 const beforeLastEventsTimestamp = '2023-05-05T00:00:00.000Z'
 const afterTheFirstEvent = 'the first timestamp'
-const afterOneYearAgo = '2020-05-05T00:00:00.000Z'
+const fourMonthsAgo = '2021-01-05T00:00:00.000Z'
 const fiveDaysAgo = '2021-04-30T00:00:00.000Z'
 const orderByTimestamp = '["-timestamp"]'
 const emptyProperties = '[]'
@@ -84,11 +94,50 @@ describe('eventsTableLogic', () => {
             expect(logic.key).toEqual('all-test-person-key-/person/first-part%7Csecond-part')
         })
 
-        it('triggers url to action', async () => {
+        it('same properties does not trigger url to action', async () => {
             // before https://github.com/PostHog/posthog/pull/11585 any sceneURLs with encoded characters
             // e.g. `|` becoming `%7C` could not trigger `urlToAction` for this logic
-            router.actions.push(personUrl)
-            await expectLogic(logic).toDispatchActions(['setProperties'])
+            router.actions.push(combineUrl(personUrl, { properties: [] }).url)
+            await expectLogic(logic).toNotHaveDispatchedActions(['setProperties'])
+        })
+
+        it('same event filter does not trigger url to action', async () => {
+            // before https://github.com/PostHog/posthog/pull/11585 any sceneURLs with encoded characters
+            // e.g. `|` becoming `%7C` could not trigger `urlToAction` for this logic
+            router.actions.push(combineUrl(personUrl, { eventFilter: '' }).url)
+            await expectLogic(logic).toNotHaveDispatchedActions(['setEventFilter'])
+        })
+
+        it('different properties triggers url to action', async () => {
+            const properties = [makePropertyFilter()]
+            router.actions.push(combineUrl(personUrl, { properties }).url)
+            await expectLogic(logic).toDispatchActions(['setProperties', 'fetchEvents'])
+        })
+
+        it('different event filter triggers url to action', async () => {
+            const eventFilter = '$pageview'
+            router.actions.push(combineUrl(personUrl, { eventFilter }).url)
+            await expectLogic(logic).toDispatchActions(['setEventFilter', 'fetchEvents'])
+        })
+    })
+
+    describe('with fixed event filters', () => {
+        beforeEach(() => {
+            router.actions.push(urls.events())
+            logic = eventsTableLogic({
+                key: 'test-key',
+                sceneUrl: urls.events(),
+                fixedFilters: {
+                    event_filter: 'dashboard updated',
+                },
+            })
+            logic.mount()
+        })
+
+        it('can not set the fixed event filter', async () => {
+            await expectLogic(logic, () => logic.actions.setEventFilter('')).toMatchValues({
+                eventFilter: 'dashboard updated',
+            })
         })
     })
 
@@ -98,6 +147,7 @@ describe('eventsTableLogic', () => {
             logic = eventsTableLogic({
                 key: 'test-key',
                 sceneUrl: urls.events(),
+                fetchMonths: 4,
             })
             logic.mount()
         })
@@ -266,7 +316,7 @@ describe('eventsTableLogic', () => {
                     })
                 })
 
-                it('fetch events sets after to 5 days ago and then a year ago when there are no events', async () => {
+                it('fetch events sets after to 5 days ago and then fetchMonhs ago when there are no events', async () => {
                     ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
 
                     await expectLogic(logic, () => {
@@ -285,7 +335,7 @@ describe('eventsTableLogic', () => {
                     expect(getUrlParameters(lastGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
-                        after: afterOneYearAgo,
+                        after: fourMonthsAgo,
                     })
                 })
 
@@ -493,7 +543,7 @@ describe('eventsTableLogic', () => {
                     expect(getUrlParameters(lastGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
-                        after: afterOneYearAgo,
+                        after: fourMonthsAgo,
                         before: beforeLastEventsTimestamp,
                     })
                 })
@@ -620,7 +670,7 @@ describe('eventsTableLogic', () => {
 
                 it('can filter partial properties inside the array', async () => {
                     const propertyFilter = makePropertyFilter()
-                    const partialPropertyFilter = { type: 't' } as EmptyPropertyFilter
+                    const partialPropertyFilter = { type: PropertyFilterType.Person } as AnyPropertyFilter
                     await expectLogic(logic, () => {
                         logic.actions.setProperties([propertyFilter, partialPropertyFilter])
                     }).toMatchValues({ properties: [propertyFilter] })
@@ -679,7 +729,8 @@ describe('eventsTableLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.setEventFilter(eventFilter)
                 })
-                expect(router.values.searchParams).toHaveProperty('eventFilter', eventFilter)
+                expect(router.values.searchParams).toHaveProperty('eventFilter')
+                expect(router.values.searchParams.eventFilter.toString()).toEqual(eventFilter)
             })
 
             it('fires two actions to change state, but just one API.get', async () => {
@@ -808,7 +859,7 @@ describe('eventsTableLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.startDownload()
                 })
-                expect(triggerExport).toHaveBeenCalledWith({
+                expect(exporter.triggerExport).toHaveBeenCalledWith({
                     export_context: {
                         max_limit: 3500,
                         path: `/api/projects/${MOCK_TEAM_ID}/events?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D`,

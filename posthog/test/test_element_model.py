@@ -23,8 +23,8 @@ class TestElement(ClickhouseTestMixin, BaseTest):
                 ),
                 Element(tag_name="button", attr_class=["btn", "btn-primary"], nth_child=0, nth_of_type=0),
                 Element(tag_name="div", nth_child=0, nth_of_type=0),
-                Element(tag_name="div", nth_child=0, nth_of_type=0, attr_id="nested",),
-            ],
+                Element(tag_name="div", nth_child=0, nth_of_type=0, attr_id="nested"),
+            ]
         )
 
         self.assertEqual(

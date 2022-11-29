@@ -2,17 +2,18 @@ from datetime import datetime
 from unittest.mock import patch
 
 import pytz
+from django.utils.timezone import now
 from rest_framework import status
 
 from posthog.models import Annotation, Organization, Team, User
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
-class TestAnnotation(APIBaseTest):
+class TestAnnotation(APIBaseTest, QueryMatchingTest):
     @patch("posthog.api.annotation.report_user_action")
     def test_retrieving_annotation(self, mock_capture):
         Annotation.objects.create(
-            organization=self.organization, team=self.team, created_at="2020-01-04T12:00:00Z", content="hello world!",
+            organization=self.organization, team=self.team, created_at="2020-01-04T12:00:00Z", content="hello world!"
         )
 
         # Annotation creation is not reported to PostHog because it has no created_by
@@ -21,6 +22,40 @@ class TestAnnotation(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual(response["results"][0]["content"], "hello world!")
+
+    @patch("posthog.api.annotation.report_user_action")
+    @snapshot_postgres_queries
+    def test_retrieving_annotation_is_not_n_plus_1(self, _mock_capture) -> None:
+        """
+        see https://sentry.io/organizations/posthog/issues/3706110236/events/db0167ece56649f59b013cbe9de7ba7a/?project=1899813
+        """
+        with self.assertNumQueries(6):
+            response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
+            self.assertEqual(len(response["results"]), 0)
+
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_at="2020-01-04T12:00:00Z",
+            created_by=User.objects.create_and_join(self.organization, "one", ""),
+            content=now().isoformat(),
+        )
+
+        with self.assertNumQueries(7):
+            response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
+            self.assertEqual(len(response["results"]), 1)
+
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_at="2020-01-04T12:00:00Z",
+            created_by=User.objects.create_and_join(self.organization, "two", ""),
+            content=now().isoformat(),
+        )
+
+        with self.assertNumQueries(7):
+            response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
+            self.assertEqual(len(response["results"]), 2)
 
     def test_org_scoped_annotations_are_returned_between_projects(self):
         second_team = Team.objects.create(organization=self.organization, name="Second team")
@@ -87,7 +122,7 @@ class TestAnnotation(APIBaseTest):
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
-            self.user, "annotation created", {"scope": "organization", "date_marker": date_marker},
+            self.user, "annotation created", {"scope": "organization", "date_marker": date_marker}
         )
 
     @patch("posthog.api.annotation.report_user_action")
@@ -100,7 +135,7 @@ class TestAnnotation(APIBaseTest):
         self.client.force_login(self.user)
 
         response = self.client.patch(
-            f"/api/projects/{second_team.id}/annotations/{test_annotation.pk}/", {"scope": Annotation.Scope.PROJECT},
+            f"/api/projects/{second_team.id}/annotations/{test_annotation.pk}/", {"scope": Annotation.Scope.PROJECT}
         )
         test_annotation.refresh_from_db()
 

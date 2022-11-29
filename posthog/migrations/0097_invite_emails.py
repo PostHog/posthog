@@ -11,6 +11,8 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="organizationinvite", name="emailing_attempt_made", field=models.BooleanField(default=False),
+            model_name="organizationinvite",
+            name="emailing_attempt_made",
+            field=models.BooleanField(default=False),
         ),
     ]

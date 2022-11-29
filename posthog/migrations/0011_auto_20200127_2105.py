@@ -11,8 +11,14 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(model_name="element", name="team",),
-        migrations.RemoveField(model_name="person", name="distinct_ids",),
+        migrations.RemoveField(
+            model_name="element",
+            name="team",
+        ),
+        migrations.RemoveField(
+            model_name="person",
+            name="distinct_ids",
+        ),
         migrations.AddField(
             model_name="event",
             name="distinct_id",
@@ -20,29 +26,55 @@ class Migration(migrations.Migration):
             preserve_default=False,
         ),
         migrations.AlterField(
-            model_name="element", name="nth_child", field=models.IntegerField(blank=True, null=True),
+            model_name="element",
+            name="nth_child",
+            field=models.IntegerField(blank=True, null=True),
         ),
         migrations.AlterField(
-            model_name="element", name="nth_of_type", field=models.IntegerField(blank=True, null=True),
+            model_name="element",
+            name="nth_of_type",
+            field=models.IntegerField(blank=True, null=True),
         ),
-        migrations.AlterField(model_name="element", name="order", field=models.IntegerField(blank=True, null=True),),
         migrations.AlterField(
-            model_name="event", name="ip", field=models.GenericIPAddressField(blank=True, null=True),
+            model_name="element",
+            name="order",
+            field=models.IntegerField(blank=True, null=True),
+        ),
+        migrations.AlterField(
+            model_name="event",
+            name="ip",
+            field=models.GenericIPAddressField(blank=True, null=True),
         ),
         migrations.AlterField(
             model_name="funnelstep",
             name="funnel",
             field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE, related_name="steps", to="posthog.Funnel",
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="steps",
+                to="posthog.Funnel",
             ),
         ),
         migrations.CreateModel(
             name="PersonDistinctId",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID",),),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("distinct_id", models.CharField(max_length=400)),
-                ("person", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Person"),),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Team"),),
+                (
+                    "person",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Person"),
+                ),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Team"),
+                ),
             ],
         ),
         migrations.AddConstraint(

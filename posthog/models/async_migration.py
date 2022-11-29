@@ -23,7 +23,7 @@ class AsyncMigrationError(models.Model):
 
 class AsyncMigration(models.Model):
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["name"], name="unique name",)]
+        constraints = [models.UniqueConstraint(fields=["name"], name="unique name")]
 
     id: models.BigAutoField = models.BigAutoField(primary_key=True)
     name: models.CharField = models.CharField(max_length=50, null=False, blank=False)

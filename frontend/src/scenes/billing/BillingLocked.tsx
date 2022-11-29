@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'
 import { billingLogic } from './billingLogic'
@@ -36,7 +35,8 @@ export function BillingLocked(): JSX.Element | null {
                     type="primary"
                     center={true}
                     fullWidth
-                    href={billing?.subscription_url}
+                    to={billing?.subscription_url}
+                    disableClientSideRouting
                 >
                     Continue to verify card
                 </LemonButton>

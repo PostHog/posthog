@@ -23,7 +23,7 @@ SAML_MOCK_SETTINGS = {
     "SOCIAL_AUTH_SAML_SECURITY_CONFIG": {
         "wantAttributeStatement": False,  # already present in settings
         "allowSingleLabelDomains": True,  # to allow `http://testserver` in tests
-    },
+    }
 }
 
 GOOGLE_MOCK_SETTINGS = {
@@ -31,10 +31,7 @@ GOOGLE_MOCK_SETTINGS = {
     "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET": "google_secret",
 }
 
-GITHUB_MOCK_SETTINGS = {
-    "SOCIAL_AUTH_GITHUB_KEY": "github_key",
-    "SOCIAL_AUTH_GITHUB_SECRET": "github_secret",
-}
+GITHUB_MOCK_SETTINGS = {"SOCIAL_AUTH_GITHUB_KEY": "github_key", "SOCIAL_AUTH_GITHUB_SECRET": "github_secret"}
 
 CURRENT_FOLDER = os.path.dirname(__file__)
 
@@ -161,9 +158,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
 
     def test_cannot_reset_password_with_enforced_sso(self):
         self.create_enforced_domain()
-        with self.settings(
-            **GOOGLE_MOCK_SETTINGS, EMAIL_HOST="localhost", SITE_URL="https://my.posthog.net",
-        ):
+        with self.settings(**GOOGLE_MOCK_SETTINGS, EMAIL_HOST="localhost", SITE_URL="https://my.posthog.net"):
             response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -338,14 +333,11 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         _session = self.client.session
-        _session.update(
-            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
-        )
+        _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
         _session.save()
 
-        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r")
-        saml_response = f.read()
-        f.close()
+        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r", encoding="utf_8") as f:
+            saml_response = f.read()
 
         response = self.client.post(
             "/complete/saml/",
@@ -377,14 +369,13 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         _session = self.client.session
-        _session.update(
-            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
-        )
+        _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
         _session.save()
 
-        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_alt_attribute_names"), "r")
-        saml_response = f.read()
-        f.close()
+        with open(
+            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_alt_attribute_names"), "r", encoding="utf_8"
+        ) as f:
+            saml_response = f.read()
 
         user_count = User.objects.count()
 
@@ -440,21 +431,18 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         _session = self.client.session
-        _session.update(
-            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
-        )
+        _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
         _session.save()
 
-        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r")
-        saml_response = f.read()
-        f.close()
+        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r", encoding="utf_8") as f:
+            saml_response = f.read()
 
         user_count = User.objects.count()
 
         with self.assertRaises(AuthFailed) as e:
             response = self.client.post(
                 "/complete/saml/",
-                {"SAMLResponse": saml_response, "RelayState": str(self.organization_domain.id),},
+                {"SAMLResponse": saml_response, "RelayState": str(self.organization_domain.id)},
                 format="multipart",
                 follow=True,
             )
@@ -476,14 +464,11 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         _session = self.client.session
-        _session.update(
-            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
-        )
+        _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
         _session.save()
 
-        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r")
-        saml_response = f.read()
-        f.close()
+        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r", encoding="utf_8") as f:
+            saml_response = f.read()
 
         user_count = User.objects.count()
 
@@ -510,14 +495,13 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         _session = self.client.session
-        _session.update(
-            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
-        )
+        _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
         _session.save()
 
-        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_no_first_name"), "r")
-        saml_response = f.read()
-        f.close()
+        with open(
+            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_no_first_name"), "r", encoding="utf_8"
+        ) as f:
+            saml_response = f.read()
 
         user_count = User.objects.count()
 
@@ -545,14 +529,11 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.organization_domain.save()
 
         _session = self.client.session
-        _session.update(
-            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
-        )
+        _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
         _session.save()
 
-        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r")
-        saml_response = f.read()
-        f.close()
+        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r", encoding="utf_8") as f:
+            saml_response = f.read()
 
         with self.assertRaises(AuthFailed) as e:
             response = self.client.post(
@@ -625,14 +606,11 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         # Attempting to use SAML fails
         _session = self.client.session
-        _session.update(
-            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
-        )
+        _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
         _session.save()
 
-        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r")
-        saml_response = f.read()
-        f.close()
+        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r", encoding="utf_8") as f:
+            saml_response = f.read()
 
         with self.assertRaises(AuthFailed) as e:
             response = self.client.post(

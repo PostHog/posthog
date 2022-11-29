@@ -8,9 +8,9 @@ export const worldMapLogic = kea<worldMapLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('new'),
     path: (key) => ['scenes', 'insights', 'WorldMap', 'worldMapLogic', key],
-    connect: {
+    connect: () => ({
         values: [insightLogic, ['insight', 'filters']],
-    },
+    }),
     actions: {
         showTooltip: (countryCode: string, countrySeries: TrendResult | null) => ({ countryCode, countrySeries }),
         hideTooltip: true,

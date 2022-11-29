@@ -1,10 +1,8 @@
-import React from 'react'
 import './ProjectHomepage.scss'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 
 import { CompactList } from 'lib/components/CompactList/CompactList'
-import { LemonButton } from 'lib/components/LemonButton'
 import { urls } from 'scenes/urls'
 import { PersonType } from '~/types'
 
@@ -12,26 +10,21 @@ import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { projectHomepageLogic } from './projectHomepageLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { asDisplay } from 'scenes/persons/PersonHeader'
+import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
 
 function PersonRow({ person }: { person: PersonType }): JSX.Element {
     const { reportPersonOpenedFromNewlySeenPersonsList } = useActions(eventUsageLogic)
 
     return (
-        <LemonButton
-            fullWidth
+        <ProjectHomePageCompactListItem
             to={urls.person(person.distinct_ids[0])}
+            title={asDisplay(person)}
+            subtitle={`First seen ${dayjs(person.created_at).fromNow()}`}
+            prefix={<ProfilePicture name={asDisplay(person)} />}
             onClick={() => {
                 reportPersonOpenedFromNewlySeenPersonsList()
             }}
-        >
-            <div className="ProjectHomePage__listrow">
-                <ProfilePicture name={asDisplay(person)} />
-                <div className="ProjectHomePage__listrow__details">
-                    <div>{asDisplay(person)}</div>
-                    <div>First seen {dayjs(person.created_at).fromNow()}</div>
-                </div>
-            </div>
-        </LemonButton>
+        />
     )
 }
 

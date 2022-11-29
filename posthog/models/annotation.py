@@ -24,7 +24,7 @@ class Annotation(models.Model):
     organization: models.ForeignKey = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE, null=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     scope = models.CharField(max_length=24, choices=Scope.choices, default=Scope.INSIGHT)
-    creation_type = models.CharField(max_length=3, choices=CreationType.choices, default=CreationType.USER,)
+    creation_type = models.CharField(max_length=3, choices=CreationType.choices, default=CreationType.USER)
     date_marker: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
 

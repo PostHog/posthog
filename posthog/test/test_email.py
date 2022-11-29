@@ -37,16 +37,12 @@ class TestEmail(BaseTest):
         with override_instance_config("EMAIL_HOST", None):
             with self.assertRaises(ImproperlyConfigured) as e:
                 EmailMessage("test_campaign", "Subject", "template")
-            self.assertEqual(
-                str(e.exception), "Email is not enabled in this instance.",
-            )
+            self.assertEqual(str(e.exception), "Email is not enabled in this instance.")
 
         with override_instance_config("EMAIL_ENABLED", False):
             with self.assertRaises(ImproperlyConfigured) as e:
                 EmailMessage("test_campaign", "Subject", "template")
-            self.assertEqual(
-                str(e.exception), "Email is not enabled in this instance.",
-            )
+            self.assertEqual(str(e.exception), "Email is not enabled in this instance.")
 
     def test_cant_send_same_campaign_twice(self) -> None:
         with override_instance_config("EMAIL_HOST", "localhost"):

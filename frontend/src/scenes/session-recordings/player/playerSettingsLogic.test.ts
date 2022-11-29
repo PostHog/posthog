@@ -32,4 +32,20 @@ describe('playerSettingsLogic', () => {
             }).toMatchValues({ skipInactivitySetting: false })
         })
     })
+    describe('setShowOnlyMatching', () => {
+        it('start as false', async () => {
+            await expectLogic(logic).toMatchValues({
+                showOnlyMatching: false,
+            })
+        })
+        it('happy case', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setShowOnlyMatching(true)
+            })
+                .toDispatchActions(['setShowOnlyMatching'])
+                .toMatchValues({
+                    showOnlyMatching: true,
+                })
+        })
+    })
 })

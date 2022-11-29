@@ -52,7 +52,7 @@ DEAD_LETTER_QUEUE_METRICS = {
 }
 
 
-class DeadLetterQueueMetric(object):
+class DeadLetterQueueMetric:
     key: str = ""
     metric: str = ""
     value: Union[str, bool, int, None] = None

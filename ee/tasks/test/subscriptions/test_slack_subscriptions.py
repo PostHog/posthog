@@ -154,13 +154,13 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
         assert second_call["channel"] == "C12345"
         assert second_call["thread_ts"] == "1.234"
         assert second_call["blocks"] == [
-            {"type": "image", "image_url": second_call["blocks"][0]["image_url"], "alt_text": "My Test subscription",}
+            {"type": "image", "image_url": second_call["blocks"][0]["image_url"], "alt_text": "My Test subscription"}
         ]
 
         # Third call - other asset
         third_call = post_message_calls[2].kwargs
         assert third_call["blocks"] == [
-            {"type": "image", "image_url": third_call["blocks"][0]["image_url"], "alt_text": "My Test subscription",}
+            {"type": "image", "image_url": third_call["blocks"][0]["image_url"], "alt_text": "My Test subscription"}
         ]
 
         # Fourth call - notice that more exists

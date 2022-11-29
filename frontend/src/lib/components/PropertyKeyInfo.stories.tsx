@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentStory, ComponentMeta } from '@storybook/react'
 
 import { PropertyKeyInfo } from './PropertyKeyInfo'
@@ -6,6 +5,7 @@ import { PropertyKeyInfo } from './PropertyKeyInfo'
 export default {
     title: 'Components/Property Key Info',
     component: PropertyKeyInfo,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof PropertyKeyInfo>
 
 const Template: ComponentStory<typeof PropertyKeyInfo> = (args) => {

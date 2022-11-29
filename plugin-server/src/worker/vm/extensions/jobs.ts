@@ -1,6 +1,4 @@
 import { Hub, PluginConfig, PluginLogEntryType } from '../../../types'
-import { instrument } from '../../../utils/metrics'
-import { JobName } from './../../../types'
 
 type JobRunner = {
     runAt: (date: Date) => Promise<void>
@@ -42,35 +40,22 @@ export function durationToMs(duration: number, unit: string): number {
 export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
     const runJob = async (type: string, payload: Record<string, any>, timestamp: number) => {
         try {
-            await instrument(
-                server.statsd,
-                {
-                    metricName: 'vm.enqueuePluginJob',
-                    key: 'plugin',
-                    tag: pluginConfig.plugin?.name ?? '?',
-                    tags: {
-                        type,
-                    },
-                    data: {
-                        type,
-                        payload,
-                        timestamp,
-                    },
-                },
-                () =>
-                    server.jobQueueManager.enqueue(JobName.PLUGIN_JOB, {
-                        type,
-                        payload,
-                        timestamp,
-                        pluginConfigId: pluginConfig.id,
-                        pluginConfigTeam: pluginConfig.team_id,
-                    })
-            )
+            const job = {
+                type,
+                payload,
+                timestamp,
+                pluginConfigId: pluginConfig.id,
+                pluginConfigTeam: pluginConfig.team_id,
+            }
+            server.statsd?.increment('job_enqueue_attempt')
+            await server.enqueuePluginJob(job)
         } catch (e) {
             await pluginConfig.vm?.createLogEntry(
                 `Failed to enqueue job ${type} with error: ${e.message}`,
                 PluginLogEntryType.Error
             )
+
+            throw e
         }
     }
 

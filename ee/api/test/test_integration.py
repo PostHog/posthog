@@ -29,10 +29,7 @@ class TestIntegration(APILicensedTest):
             ).hexdigest()
         )
 
-        return {
-            "HTTP_X_SLACK_SIGNATURE": signature,
-            "HTTP_X_SLACK_REQUEST_TIMESTAMP": str(slack_time),
-        }
+        return {"HTTP_X_SLACK_SIGNATURE": signature, "HTTP_X_SLACK_REQUEST_TIMESTAMP": str(slack_time)}
 
     def test_validates_payload(self):
         body = {"type": "url_verification", "challenge": "to-a-duel!"}

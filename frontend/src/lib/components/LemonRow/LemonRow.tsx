@@ -1,8 +1,8 @@
-import React from 'react'
 import clsx from 'clsx'
 import './LemonRow.scss'
 import { Tooltip } from '../Tooltip'
 import { Spinner } from '../Spinner/Spinner'
+import React from 'react'
 
 // Implement function type inference for forwardRef,
 // so that function components wrapped with forwardRef (i.e. LemonRow) can be generic.

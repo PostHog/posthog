@@ -1,4 +1,3 @@
-import React from 'react'
 import { systemStatusLogic } from './systemStatusLogic'
 import { useValues } from 'kea'
 import { SystemStatusRow, SystemStatusSubrows } from '~/types'
@@ -55,7 +54,6 @@ export function OverviewTab(): JSX.Element {
 }
 
 function Subrows(props: SystemStatusSubrows): JSX.Element {
-    console.log(props)
     return (
         <LemonTable
             dataSource={props.rows}

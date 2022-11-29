@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from './LemonSelect'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -6,6 +5,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 export default {
     title: 'Lemon UI/Lemon Select',
     component: LemonSelect,
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         options: {
             defaultValue: [
@@ -59,7 +59,15 @@ SectionedOptions.args = {
                     <div className="text-muted mx-2 mb-2">I can put whatever I want here</div>
                 </div>
             ),
-            options: [{ value: 'tomato', label: 'Tomato??' }],
+            options: [{ value: 'tomato', label: 'Tomato??', disabled: true }],
+            footer: (
+                <div className="bg-side rounded p-2">
+                    <p className="text-muted" style={{ maxWidth: '15rem' }}>
+                        I am a custom footer! <br />
+                        This might be a good time to tell you about our premium features...
+                    </p>
+                </div>
+            ),
         },
     ] as LemonSelectOptions<string>,
 }
@@ -74,6 +82,21 @@ MixedValuesTypes.args = {
         { value: '4', label: 'Potato - string 4' },
         { value: 'lettuce', label: 'Lettuce' },
         { value: 6, label: 'Tomato - 6' },
+    ] as LemonSelectOptions<string | number>,
+}
+
+export const NestedSelect = Template.bind({})
+NestedSelect.args = {
+    dropdownMatchSelectWidth: false,
+    options: [
+        { label: 'Capybara', value: 'capybara' },
+        {
+            label: 'Elephant',
+            options: [
+                { label: 'African elephant', value: 'elephant-african' },
+                { label: 'Asian elephant', value: 'elephant-asian' },
+            ],
+        },
     ] as LemonSelectOptions<string | number>,
 }
 

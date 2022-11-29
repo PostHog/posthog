@@ -1,7 +1,6 @@
 import { Alert } from 'antd'
 import { PluginTab } from 'scenes/plugins/types'
 import { Subtitle } from 'lib/components/PageHeader'
-import React from 'react'
 import { SourcePlugin } from 'scenes/plugins/tabs/advanced/SourcePlugin'
 import { CustomPlugin } from 'scenes/plugins/tabs/advanced/CustomPlugin'
 import { LocalPlugin } from 'scenes/plugins/tabs/advanced/LocalPlugin'
@@ -16,7 +15,7 @@ export function AdvancedTab(): JSX.Element {
     return (
         <>
             <Alert
-                message="Advanced Features Ahead"
+                message="Advanced features ahead"
                 description={
                     <>
                         Create and install your <b>own apps</b> or apps from <b>third-parties</b>. If you're looking for

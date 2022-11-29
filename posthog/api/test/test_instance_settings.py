@@ -114,22 +114,20 @@ class TestInstanceSettings(APIBaseTest):
         self.assertEqual(response.json()["value"], "hellohello@posthog.com")
 
         self.assertEqual(mail.outbox[0].from_email, "hellohello@posthog.com")
-        self.assertEqual(
-            mail.outbox[0].subject, "This is a test email of your PostHog instance",
-        )
+        self.assertEqual(mail.outbox[0].subject, "This is a test email of your PostHog instance")
         html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
         self.validate_basic_html(html_message, "http://localhost:8000", preheader="Email successfully set up!")
 
     def test_update_integer_setting(self):
         response = self.client.patch(
-            f"/api/instance_settings/ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT", {"value": 48343943943},
+            f"/api/instance_settings/ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT", {"value": 48343943943}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["value"], 48343943943)
         self.assertEqual(get_instance_setting("ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT"), 48343943943)
 
     def test_cant_update_setting_that_is_not_overridable(self):
-        response = self.client.patch(f"/api/instance_settings/MATERIALIZED_COLUMNS_ENABLED", {"value": False},)
+        response = self.client.patch(f"/api/instance_settings/MATERIALIZED_COLUMNS_ENABLED", {"value": False})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),

@@ -10,8 +10,14 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(model_name="experiment", name="archived", field=models.BooleanField(default=False),),
         migrations.AddField(
-            model_name="experiment", name="secondary_metrics", field=models.JSONField(default=list, null=True),
+            model_name="experiment",
+            name="archived",
+            field=models.BooleanField(default=False),
+        ),
+        migrations.AddField(
+            model_name="experiment",
+            name="secondary_metrics",
+            field=models.JSONField(default=list, null=True),
         ),
     ]

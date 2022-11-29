@@ -183,10 +183,7 @@ def materialize_properties_task(
     else:
         logger.info("Found no columns to materialize.")
 
-    properties: Dict[TableWithProperties, List[Tuple[PropertyName, TableColumn]]] = {
-        "events": [],
-        "person": [],
-    }
+    properties: Dict[TableWithProperties, List[Tuple[PropertyName, TableColumn]]] = {"events": [], "person": []}
     for table, table_column, property_name, cost in result[:maximum]:
         logger.info(f"Materializing column. table={table}, property_name={property_name}, cost={cost}")
 

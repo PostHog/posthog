@@ -16,10 +16,7 @@ AXES_HANDLER = "axes.handlers.cache.AxesCacheHandler"
 AXES_FAILURE_LIMIT = get_from_env("AXES_FAILURE_LIMIT", 30, type_cast=int)
 AXES_COOLOFF_TIME = timedelta(minutes=10)
 AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axes_locked_out"
-AXES_META_PRECEDENCE_ORDER = [
-    "HTTP_X_FORWARDED_FOR",
-    "REMOTE_ADDR",
-]
+AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
 
 # Application definition
 
@@ -107,9 +104,9 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
-            ],
+            ]
         },
-    },
+    }
 ]
 
 WSGI_APPLICATION = "posthog.wsgi.application"
@@ -142,12 +139,7 @@ SOCIAL_AUTH_PIPELINE = (
 
 SOCIAL_AUTH_STRATEGY = "social_django.strategy.DjangoStrategy"
 SOCIAL_AUTH_STORAGE = "social_django.models.DjangoStorage"
-SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = [
-    "invite_id",
-    "user_name",
-    "email_opt_in",
-    "organization_name",
-]
+SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = ["invite_id", "user_name", "email_opt_in", "organization_name"]
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
 SOCIAL_AUTH_GITHUB_KEY = os.getenv("SOCIAL_AUTH_GITHUB_KEY")
 SOCIAL_AUTH_GITHUB_SECRET = os.getenv("SOCIAL_AUTH_GITHUB_SECRET")
@@ -161,9 +153,7 @@ SOCIAL_AUTH_GITLAB_API_URL = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gi
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
 
-AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
-]
+AUTH_PASSWORD_VALIDATORS = [{"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"}]
 
 PASSWORD_RESET_TIMEOUT = 86_400  # 1 day
 
@@ -186,9 +176,7 @@ USE_TZ = True
 
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 STATIC_URL = "/static/"
-STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, "frontend/dist"),
-]
+STATICFILES_DIRS = [os.path.join(BASE_DIR, "frontend/dist")]
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 AUTH_USER_MODEL = "posthog.User"
@@ -212,6 +200,7 @@ REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "STRICT_JSON": False,
 }
 if DEBUG:
     REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"].append("rest_framework.renderers.BrowsableAPIRenderer")  # type: ignore
@@ -225,9 +214,6 @@ if RATE_LIMIT_ENABLED or TEST:
         "posthog.rate_limit.PassThroughBurstRateThrottle",
         "posthog.rate_limit.PassThroughSustainedRateThrottle",
     ]
-    REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {"burst": "120/minute", "sustained": "1000/hour"}
-
-DESTROY_CLICKHOUSE_MODEL_THROTTLE_RATE = get_from_env("DESTROY_CLICKHOUSE_MODEL_THROTTLE_RATE", "20/hour")
 
 SPECTACULAR_SETTINGS = {
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
@@ -235,9 +221,7 @@ SPECTACULAR_SETTINGS = {
     "POSTPROCESSING_HOOKS": ["posthog.api.documentation.custom_postprocessing_hook"],
 }
 
-EXCEPTIONS_HOG = {
-    "EXCEPTION_REPORTING": "posthog.exceptions.exception_reporting",
-}
+EXCEPTIONS_HOG = {"EXCEPTION_REPORTING": "posthog.exceptions.exception_reporting"}
 
 
 def add_recorder_js_headers(headers, path, url):
@@ -266,7 +250,12 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/?api/projects/\\d+/actions/?$",
                 "^/?api/projects/\\d+/session_recordings/?$",
                 "^/?api/projects/\\d+/exports/\\d+/content/?$",
+                "^/?api/projects/\\d+/activity_log/important_changes/?$",
+                "^/?api/projects/\\d+/uploaded_media/?$",
+                "^/uploaded_media/.*$",
             ]
         ),
     )
 )
+
+KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS", None) or 10)

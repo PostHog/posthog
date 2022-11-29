@@ -1,10 +1,9 @@
 /*
 Scene to request a password reset email.
 */
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { passwordResetLogic } from './passwordResetLogic'
 import { router } from 'kea-router'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -55,16 +54,18 @@ function EmailUnavailable(): JSX.Element {
             <LemonDivider className="my-6" />
             <div className="mt-4">
                 If you're an administrator:
-                <ul>
-                    <li>
-                        Password reset is unavailable because email service is not configured.{' '}
-                        <a href="https://posthog.com/docs/self-host/configure/email?utm_medium=in-product&utm_campaign=password-reset">
-                            Read the docs
-                        </a>{' '}
-                        on how to set this up.
-                    </li>
-                    <li>To reset the password manually, run the following command in your instance.</li>
-                </ul>
+                <p>
+                    <ul>
+                        <li>
+                            Password reset is unavailable because email service is not configured.{' '}
+                            <a href="https://posthog.com/docs/self-host/configure/email?utm_medium=in-product&utm_campaign=password-reset">
+                                Read the docs
+                            </a>{' '}
+                            on how to set this up.
+                        </li>
+                        <li>To reset the password manually, run the following command in your instance.</li>
+                    </ul>
+                </p>
                 <CodeSnippet language={Language.Bash} wrap>
                     {'python manage.py changepassword [account email]'}
                 </CodeSnippet>

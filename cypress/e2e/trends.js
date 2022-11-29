@@ -38,8 +38,8 @@ describe('Trends', () => {
         cy.get('[data-attr=math-selector-0]').click()
         cy.get('[data-attr=math-total-0]').should('be.visible')
 
-        // Use `force = true` because clicking the element without dragging the mouse makes the dropdown disappear
-        cy.get('[data-attr=math-avg-0]').click({ force: true })
+        cy.get('[data-attr=math-node-property-value-0]').click()
+        cy.get('[data-attr=math-avg-0]').click()
         cy.get('[data-attr=math-property-select]').should('exist')
     })
 
@@ -59,7 +59,7 @@ describe('Trends', () => {
         // in the test that doesn't happen
         cy.get('body').then(($body) => {
             if ($body.find('[data-attr=prop-val-0]').length === 0) {
-                cy.get('.taxonomic-value-select').click()
+                cy.get('[data-attr=taxonomic-value-select]').click()
             }
         })
         cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
@@ -80,7 +80,7 @@ describe('Trends', () => {
         // in the test that doesn't happen
         cy.get('body').then(($body) => {
             if ($body.find('[data-attr=prop-val-0]').length === 0) {
-                cy.get('.taxonomic-value-select').click()
+                cy.get('[data-attr=taxonomic-value-select]').click()
             }
         })
         cy.get('[data-attr=prop-val-0]').click({ force: true })
@@ -146,7 +146,7 @@ describe('Trends', () => {
         // in the test that doesn't happen
         cy.get('body').then(($body) => {
             if ($body.find('[data-attr=prop-val-0]').length === 0) {
-                cy.get('.taxonomic-value-select').click()
+                cy.get('[data-attr=taxonomic-value-select]').click()
             }
         })
 

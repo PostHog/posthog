@@ -4,7 +4,7 @@ const exceptions = ['.ant-select-dropdown *', '.click-outside-block', '.click-ou
 
 export function useOutsideClickHandler(
     refOrRefs: string | React.MutableRefObject<any> | (React.MutableRefObject<any> | string)[],
-    handleClickOutside?: (event: Event) => void,
+    handleClickOutside: (event: Event) => void,
     extraDeps: any[] = [],
     exceptTagNames?: string[] // list of tag names that don't trigger the callback even if outside
 ): void {

@@ -1,13 +1,11 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { BreakdownAttributionType, EditorFilterProps, StepOrderValue } from '~/types'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 
-export function Attribution({ filters, insightProps }: EditorFilterProps): JSX.Element {
-    const { setFilters } = useActions(trendsLogic(insightProps))
-    const { breakdownAttributionStepOptions } = useValues(funnelLogic(insightProps))
+export function Attribution({ insightProps }: EditorFilterProps): JSX.Element {
+    const { setFilters } = useActions(funnelLogic(insightProps))
+    const { filters, breakdownAttributionStepOptions } = useValues(funnelLogic(insightProps))
 
     return (
         <LemonSelect
@@ -16,7 +14,7 @@ export function Attribution({ filters, insightProps }: EditorFilterProps): JSX.E
             options={[
                 { value: BreakdownAttributionType.FirstTouch, label: 'First touchpoint' },
                 { value: BreakdownAttributionType.LastTouch, label: 'Last touchpoint' },
-                { value: BreakdownAttributionType.AllSteps, label: 'All Steps' },
+                { value: BreakdownAttributionType.AllSteps, label: 'All steps' },
                 filters.funnel_order_type === StepOrderValue.UNORDERED
                     ? { value: BreakdownAttributionType.Step, label: 'Any step' }
                     : {

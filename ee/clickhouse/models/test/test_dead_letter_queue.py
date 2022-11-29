@@ -16,9 +16,7 @@ from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.settings import KAFKA_HOSTS
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
-TEST_EVENT_RAW_PAYLOAD = json.dumps(
-    {"event": "some event", "properties": {"distinct_id": 2, "token": "invalid token",},}
-)
+TEST_EVENT_RAW_PAYLOAD = json.dumps({"event": "some event", "properties": {"distinct_id": 2, "token": "invalid token"}})
 
 
 def get_dlq_event():
@@ -84,9 +82,7 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
 
     def test_direct_table_insert(self):
         inserted_dlq_event = get_dlq_event()
-        sync_execute(
-            INSERT_DEAD_LETTER_QUEUE_EVENT_SQL, inserted_dlq_event,
-        )
+        sync_execute(INSERT_DEAD_LETTER_QUEUE_EVENT_SQL, inserted_dlq_event)
         query_result = sync_execute(f"SELECT * FROM {DEAD_LETTER_QUEUE_TABLE}")
         events_returned = convert_query_result_to_dlq_event_dicts(query_result)
         # TRICKY: because it's hard to truncate the dlq table, we just check if the event is in the table along with events from other tests

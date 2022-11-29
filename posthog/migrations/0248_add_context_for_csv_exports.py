@@ -16,6 +16,8 @@ class Migration(migrations.Migration):
             field=models.TextField(blank=True, max_length=1000, null=True),
         ),
         migrations.AddField(
-            model_name="exportedasset", name="export_context", field=models.JSONField(blank=True, null=True),
+            model_name="exportedasset",
+            name="export_context",
+            field=models.JSONField(blank=True, null=True),
         ),
     ]

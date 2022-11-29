@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Invites } from './Invites'
 import { Members } from './Members'
@@ -6,12 +6,17 @@ import { organizationLogic } from '../../organizationLogic'
 import { useActions, useValues } from 'kea'
 import { DangerZone } from './DangerZone'
 import { RestrictedArea, RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
-import { OrganizationMembershipLevel } from '../../../lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from '../../../lib/constants'
 import { userLogic } from 'scenes/userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { VerifiedDomains } from './VerifiedDomains/VerifiedDomains'
 import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { Roles } from './Roles/Roles'
+import { Permissions } from './Permissions/Permissions'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { AvailableFeature } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const scene: SceneExport = {
     component: OrganizationSettings,
@@ -72,6 +77,7 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
 
 export function OrganizationSettings(): JSX.Element {
     const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     useAnchor(location.hash)
 
     return (
@@ -85,6 +91,17 @@ export function OrganizationSettings(): JSX.Element {
                 <LemonDivider className="my-6" />
                 <Invites />
                 <LemonDivider className="my-6" />
+                {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
+                    <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                        <RestrictedArea
+                            Component={Permissions}
+                            minimumAccessLevel={OrganizationMembershipLevel.Admin}
+                        />
+                        <LemonDivider className="my-6" />
+                        <RestrictedArea Component={Roles} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
+                        <LemonDivider className="my-6" />
+                    </PayGateMini>
+                )}
                 {user && <Members user={user} />}
                 <LemonDivider className="my-6" />
                 <RestrictedArea Component={VerifiedDomains} minimumAccessLevel={OrganizationMembershipLevel.Admin} />

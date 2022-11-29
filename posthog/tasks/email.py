@@ -9,6 +9,7 @@ from django.contrib.auth.tokens import default_token_generator
 from django.utils import timezone
 
 from posthog.celery import app
+from posthog.cloud_utils import is_cloud
 from posthog.email import EmailMessage, is_email_available
 from posthog.event_usage import report_first_ingestion_reminder_email_sent, report_second_ingestion_reminder_email_sent
 from posthog.models import Organization, OrganizationInvite, OrganizationMembership, Plugin, PluginConfig, Team, User
@@ -65,15 +66,15 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
 @app.task(max_retries=1)
 def send_password_reset(user_id: int) -> None:
     user = User.objects.get(pk=user_id)
-    token = default_token_generator.make_token(user)
+    password_reset_token = default_token_generator.make_token(user)
     message = EmailMessage(
         campaign_key=f"password-reset-{user.uuid}-{timezone.now().timestamp()}",
         subject=f"Reset your PostHog password",
         template_name="password_reset",
         template_context={
             "preheader": "Please follow the link inside to reset your password.",
-            "link": f"/reset/{user.uuid}/{token}",
-            "cloud": settings.MULTI_TENANCY,
+            "link": f"/reset/{user.uuid}/{password_reset_token}",
+            "cloud": is_cloud(),
             "site_url": settings.SITE_URL,
             "social_providers": list(user.social_auth.values_list("provider", flat=True)),
         },
@@ -98,6 +99,7 @@ def send_fatal_plugin_error(
         template_name="fatal_plugin_error",
         template_context={"plugin": plugin, "team": team, "error": error, "is_system_error": is_system_error},
     )
+
     memberships_to_email = [
         membership
         for membership in OrganizationMembership.objects.select_related("user", "organization").filter(
@@ -106,6 +108,7 @@ def send_fatal_plugin_error(
         # Only send the email to users who have access to the affected project
         # Those without access have `effective_membership_level` of `None`
         if team.get_effective_membership_level_for_parent_membership(membership) is not None
+        and membership.user.notification_settings["plugin_disabled"]
     ]
     if memberships_to_email:
         for membership in memberships_to_email:
@@ -123,6 +126,26 @@ def send_canary_email(user_email: str) -> None:
     )
     message.add_recipient(email=user_email)
     message.send()
+
+
+@app.task(max_retries=1)
+def send_email_change_emails(now_iso: str, user_name: str, old_address: str, new_address: str) -> None:
+    message_old_address = EmailMessage(
+        campaign_key=f"email_change_old_address_{now_iso}",
+        subject="This is no longer your PostHog account email",
+        template_name="email_change_old_address",
+        template_context={"user_name": user_name, "old_address": old_address, "new_address": new_address},
+    )
+    message_new_address = EmailMessage(
+        campaign_key=f"email_change_new_address_{now_iso}",
+        subject="This is your new PostHog account email",
+        template_name="email_change_new_address",
+        template_context={"user_name": user_name, "old_address": old_address, "new_address": new_address},
+    )
+    message_old_address.add_recipient(email=old_address)
+    message_new_address.add_recipient(email=new_address)
+    message_old_address.send(send_async=False)
+    message_new_address.send(send_async=False)
 
 
 @app.task(max_retries=1)
@@ -157,7 +180,7 @@ def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_c
     # Get all users for organization that haven't ingested any events
     users = []
     recently_created_organizations = Organization.objects.filter(
-        created_at__gte=org_created_from, created_at__lte=org_created_to,
+        created_at__gte=org_created_from, created_at__lte=org_created_to
     )
 
     for organization in recently_created_organizations:

@@ -25,5 +25,5 @@ class DeliverHook(Task):
             if response.status_code >= 500:
                 response.raise_for_status()
         except requests.ConnectionError:
-            delay_in_seconds = 2 ** self.request.retries
+            delay_in_seconds = 2**self.request.retries
             self.retry(countdown=delay_in_seconds)

@@ -67,7 +67,7 @@ def materialize_session_and_window_id(database):
         # expected mat_{property_name}. However, that would only happen if the customer manually
         # materialized the column or renamed the column, and then ran the 0004_...  async migration
         # before this migration runs.
-        possible_old_column_names = set(["mat_" + property_name])
+        possible_old_column_names = {"mat_" + property_name}
         current_materialized_column_name = materialized_columns.get(property_name, None)
         if current_materialized_column_name != property_name:
             possible_old_column_names.add(current_materialized_column_name)

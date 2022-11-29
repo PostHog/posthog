@@ -30,11 +30,11 @@ class ElementGroupManager(models.Manager):
                     group = super().create(*args, **kwargs)
             except:
                 return ElementGroup.objects.get(
-                    hash=kwargs["hash"], team_id=kwargs["team"].pk if kwargs.get("team") else kwargs["team_id"],
+                    hash=kwargs["hash"], team_id=kwargs["team"].pk if kwargs.get("team") else kwargs["team_id"]
                 )
-            for index, element in enumerate(elements):
+            for element in elements:
                 element.group = group
-                setattr(element, "pk", None)
+                element.pk = None
             Element.objects.bulk_create(elements)
             return group
 

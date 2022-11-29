@@ -1,6 +1,5 @@
 import './index.scss'
 
-import React from 'react'
 import { Alert, Tabs } from 'antd'
 import { systemStatusLogic, InstanceStatusTabName } from './systemStatusLogic'
 import { useActions, useValues } from 'kea'
@@ -105,7 +104,10 @@ export function SystemStatus(): JSX.Element {
                         <Tabs.TabPane
                             tab={
                                 <>
-                                    Settings <LemonTag type="warning">Beta</LemonTag>
+                                    Settings{' '}
+                                    <LemonTag type="warning" className="uppercase">
+                                        Beta
+                                    </LemonTag>
                                 </>
                             }
                             key="settings"
@@ -123,7 +125,10 @@ export function SystemStatus(): JSX.Element {
                     <Tabs.TabPane
                         tab={
                             <>
-                                Kafka Inspector <LemonTag type="warning">Beta</LemonTag>
+                                Kafka Inspector{' '}
+                                <LemonTag type="warning" className="uppercase">
+                                    Beta
+                                </LemonTag>
                             </>
                         }
                         key="kafka_inspector"

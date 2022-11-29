@@ -1,8 +1,10 @@
 from django.db.models import Prefetch, Q
-from rest_framework import serializers, viewsets
+from rest_framework import response, serializers, status, viewsets
+from rest_framework.viewsets import GenericViewSet
 
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.constants import AvailableFeature
-from posthog.models import Tag, TaggedItem
+from posthog.models import Tag, TaggedItem, User
 from posthog.models.tag import tagify
 
 
@@ -31,7 +33,7 @@ class TaggedItemSerializerMixin(serializers.Serializer):
             return
 
         # Normalize and dedupe tags
-        deduped_tags = list(set([tagify(t) for t in tags]))
+        deduped_tags = list({tagify(t) for t in tags})
         tagged_item_objects = []
 
         # Create tags
@@ -70,13 +72,18 @@ class TaggedItemSerializerMixin(serializers.Serializer):
         return instance
 
 
+def is_licensed_for_tagged_items(user: User) -> bool:
+    return (
+        not user.is_anonymous
+        # The below triggers an extra query to resolve user's organization.
+        and user.organization is not None
+        and user.organization.is_feature_available(AvailableFeature.TAGGING)
+    )
+
+
 class TaggedItemViewSetMixin(viewsets.GenericViewSet):
     def is_licensed(self):
-        return (
-            not self.request.user.is_anonymous
-            # The below triggers an extra query to resolve user's organization.
-            and self.request.user.organization.is_feature_available(AvailableFeature.TAGGING)  # type: ignore
-        )
+        return is_licensed_for_tagged_items(self.request.user)  # type: ignore
 
     def get_queryset(self):
         queryset = super(TaggedItemViewSetMixin, self).get_queryset()
@@ -85,3 +92,21 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
                 Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
             )
         return queryset
+
+
+class TaggedItemSerializer(serializers.Serializer):
+    tag = serializers.SerializerMethodField()
+
+    def get_tag(self, obj: TaggedItem) -> str:
+        return obj.tag.name
+
+
+class TaggedItemViewSet(StructuredViewSetMixin, GenericViewSet):
+    serializer_class = TaggedItemSerializer
+    queryset = Tag.objects.none()
+
+    def list(self, request, *args, **kwargs) -> response.Response:
+        if not is_licensed_for_tagged_items(self.request.user):  # type: ignore
+            return response.Response([], status=status.HTTP_402_PAYMENT_REQUIRED)
+
+        return response.Response(Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct())

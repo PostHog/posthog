@@ -1,12 +1,14 @@
 import Piscina from '@posthog/piscina'
 
-import { KafkaQueue } from '../../src/main/ingestion-queues/kafka-queue'
+import { GraphileWorker } from '../../src/main/graphile-worker/graphile-worker'
+import { startGraphileWorker } from '../../src/main/graphile-worker/worker-setup'
+import { IngestionConsumer } from '../../src/main/ingestion-queues/kafka-queue'
 import { startQueues } from '../../src/main/ingestion-queues/queue'
-import { startJobQueueConsumer } from '../../src/main/job-queues/job-queue-consumer'
 import { Hub, LogLevel } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 
 jest.mock('../../src/main/ingestion-queues/kafka-queue')
+jest.mock('../../src/main/graphile-worker/schedule')
 
 describe('capabilities', () => {
     let hub: Hub
@@ -17,7 +19,7 @@ describe('capabilities', () => {
         ;[hub, closeHub] = await createHub({
             LOG_LEVEL: LogLevel.Warn,
         })
-        piscina = { run: jest.fn() } as any
+        piscina = { run: jest.fn(), on: jest.fn() } as any
     })
 
     afterEach(async () => {
@@ -29,7 +31,7 @@ describe('capabilities', () => {
             const queues = await startQueues(hub, piscina)
 
             expect(queues).toEqual({
-                ingestion: expect.any(KafkaQueue),
+                ingestion: expect.any(IngestionConsumer),
             })
         })
 
@@ -45,42 +47,70 @@ describe('capabilities', () => {
         })
     })
 
-    describe('startJobQueueConsumer()', () => {
-        it('sets up bufferJob handler if ingestion is on', async () => {
-            hub.jobQueueManager.startConsumer = jest.fn()
-            hub.capabilities.ingestion = true
-            hub.capabilities.processPluginJobs = false
-
-            await startJobQueueConsumer(hub, piscina)
-
-            expect(hub.jobQueueManager.startConsumer).toHaveBeenCalledWith({
-                bufferJob: expect.anything(),
-            })
-        })
-
+    describe('startGraphileWorker()', () => {
         it('sets up pluginJob handler if processPluginJobs is on', async () => {
-            hub.jobQueueManager.startConsumer = jest.fn()
+            const graphileWorker = new GraphileWorker(hub)
+            jest.spyOn(graphileWorker, 'start').mockImplementation(jest.fn())
             hub.capabilities.ingestion = false
             hub.capabilities.processPluginJobs = true
+            hub.capabilities.pluginScheduledTasks = false
 
-            await startJobQueueConsumer(hub, piscina)
+            await startGraphileWorker(hub, graphileWorker, piscina)
 
-            expect(hub.jobQueueManager.startConsumer).toHaveBeenCalledWith({
-                pluginJob: expect.anything(),
-            })
+            expect(graphileWorker.start).toHaveBeenCalledWith(
+                {
+                    pluginJob: expect.anything(),
+                },
+                []
+            )
         })
 
-        it('sets up bufferJob and pluginJob handlers if ingestion and processPluginJobs are on', async () => {
-            hub.jobQueueManager.startConsumer = jest.fn()
-            hub.capabilities.ingestion = true
-            hub.capabilities.processPluginJobs = true
+        it('sets up scheduled task handlers if pluginScheduledTasks is on', async () => {
+            const graphileWorker = new GraphileWorker(hub)
+            jest.spyOn(graphileWorker, 'start').mockImplementation(jest.fn())
 
-            await startJobQueueConsumer(hub, piscina)
+            hub.capabilities.ingestion = false
+            hub.capabilities.processPluginJobs = false
+            hub.capabilities.pluginScheduledTasks = true
 
-            expect(hub.jobQueueManager.startConsumer).toHaveBeenCalledWith({
-                bufferJob: expect.anything(),
-                pluginJob: expect.anything(),
-            })
+            await startGraphileWorker(hub, graphileWorker, piscina)
+
+            expect(graphileWorker.start).toHaveBeenCalledWith(
+                {
+                    runEveryMinute: expect.anything(),
+                    runEveryHour: expect.anything(),
+                    runEveryDay: expect.anything(),
+                },
+                [
+                    {
+                        identifier: 'runEveryMinute',
+                        options: {
+                            backfillPeriod: 0,
+                            maxAttempts: 1,
+                        },
+                        pattern: '* * * * *',
+                        task: 'runEveryMinute',
+                    },
+                    {
+                        identifier: 'runEveryHour',
+                        options: {
+                            backfillPeriod: 0,
+                            maxAttempts: 5,
+                        },
+                        pattern: '0 * * * *',
+                        task: 'runEveryHour',
+                    },
+                    {
+                        identifier: 'runEveryDay',
+                        options: {
+                            backfillPeriod: 0,
+                            maxAttempts: 10,
+                        },
+                        pattern: '0 0 * * *',
+                        task: 'runEveryDay',
+                    },
+                ]
+            )
         })
     })
 })

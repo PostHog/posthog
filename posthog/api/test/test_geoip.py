@@ -14,7 +14,7 @@ local_ip = "127.0.0.1"
 
 
 @pytest.mark.parametrize(
-    "test_input,expected", [(australia_ip, "Australia"), (uk_ip, "United Kingdom"), (uk_ip_v6, "United Kingdom"),],
+    "test_input,expected", [(australia_ip, "Australia"), (uk_ip, "United Kingdom"), (uk_ip_v6, "United Kingdom")]
 )
 def test_geoip_results(test_input, expected):
     properties = get_geoip_properties(test_input)

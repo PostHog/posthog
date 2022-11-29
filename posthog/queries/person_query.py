@@ -18,6 +18,7 @@ from posthog.models.property.util import (
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.queries.trends.util import COUNT_PER_ACTOR_MATH_FUNCTIONS
 
 
 class PersonQuery:
@@ -138,8 +139,11 @@ class PersonQuery:
         "Returns whether properties or any other columns are actually being queried"
         if any(self._uses_person_id(prop) for prop in self._filter.property_groups.flat):
             return True
-        if any(self._uses_person_id(prop) for entity in self._filter.entities for prop in entity.property_groups.flat):
-            return True
+        for entity in self._filter.entities:
+            if entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS or any(
+                self._uses_person_id(prop) for prop in entity.property_groups.flat
+            ):
+                return True
 
         return len(self._column_optimizer.person_columns_to_query) > 0
 
@@ -151,7 +155,7 @@ class PersonQuery:
         #   We use the result from column_optimizer to figure out counts of all properties to be filtered and queried.
         #   Here, we remove the ones only to be used for filtering.
         # The same property might be present for both querying and filtering, and hence the Counter.
-        properties_to_query = self._column_optimizer._used_properties_with_type("person")
+        properties_to_query = self._column_optimizer.used_properties_with_type("person")
         if self._inner_person_properties:
             properties_to_query -= extract_tables_and_properties(self._inner_person_properties.flat)
 

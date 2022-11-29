@@ -13,10 +13,11 @@ export const mocksToHandlers = (mocks: Mocks): ReturnType<typeof rest['get']>[] 
     const response: ReturnType<typeof rest['get']>[] = []
     Object.entries(mocks).map(([method, mockHandlers]) => {
         Object.entries(mockHandlers).map(([path, handler]) => {
+            const pathWithoutTrailingSlash = path.replace(/\/$/, '')
             response.push(
-                (rest[method] as typeof rest['get'])(path, async (req, res, ctx) => {
+                (rest[method] as typeof rest['get'])(pathWithoutTrailingSlash, async (req, res, ctx) => {
                     if (typeof handler === 'function') {
-                        const responseArray = handler(req, res, ctx)
+                        const responseArray = await handler(req, res, ctx)
                         if (responseArray.length === 2 && typeof responseArray[0] === 'number') {
                             return res(ctx.status(responseArray[0]), ctx.json(responseArray[1] ?? null))
                         }

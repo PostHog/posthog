@@ -16,6 +16,7 @@ class Migration(migrations.Migration):
             field=models.CharField(blank=True, max_length=400, null=True),
         ),
         migrations.AddIndex(
-            model_name="dashboardtile", index=models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx"),
+            model_name="dashboardtile",
+            index=models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx"),
         ),
     ]

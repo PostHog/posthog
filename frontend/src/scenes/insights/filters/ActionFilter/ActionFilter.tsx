@@ -182,6 +182,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                             {localFilters.map((filter, index) => (
                                 <SortableActionFilterRow
                                     key={index}
+                                    typeKey={typeKey}
                                     filter={filter as ActionFilterType}
                                     index={index}
                                     filterIndex={index}
@@ -197,6 +198,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                 filter={filter as ActionFilterType}
                                 index={index}
                                 key={index}
+                                typeKey={typeKey}
                                 singleFilter={singleFilter}
                                 hideFilter={hideFilter || readOnly}
                                 filterCount={localFilters.length}
@@ -211,7 +213,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                         {!singleFilter && (
                             <LemonButton
                                 type={buttonType}
-                                size="small"
                                 onClick={() => addFilter()}
                                 data-attr="add-action-event-button"
                                 icon={<IconPlusMini />}

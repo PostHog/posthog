@@ -97,6 +97,11 @@ class Cohort(models.Model):
 
     @property
     def properties(self) -> PropertyGroup:
+
+        if self.filters:
+            # Do not try simplifying properties at this stage. We'll let this happen at query time.
+            return Filter(data={**self.filters, "is_simplified": True}, team=self.team).property_groups
+
         # convert deprecated groups to properties
         if self.groups:
             property_groups = []
@@ -147,7 +152,7 @@ class Cohort(models.Model):
                                     time_value=group.get("days") or 365,
                                     operator=group.get("count_operator"),
                                     operator_value=count,
-                                ),
+                                )
                             ],
                         )
                     )
@@ -156,10 +161,6 @@ class Cohort(models.Model):
                     return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
 
             return PropertyGroup(PropertyOperatorType.OR, property_groups)
-
-        if self.filters:
-            # Do not try simplifying properties at this stage. We'll let this happen at query time.
-            return Filter(data={**self.filters, "is_simplified": True}, team=self.team).property_groups
 
         return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))
 
@@ -215,7 +216,7 @@ class Cohort(models.Model):
 
                 cursor += batch_size
                 persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
-                if len(persons) > 0 and not TEST:
+                if persons.exists() and not TEST:
                     time.sleep(5)
 
         except Exception as err:
@@ -299,7 +300,7 @@ class Cohort(models.Model):
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
                     values_query=sql.replace(
-                        'FROM "posthog_person"', f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"', 1,
+                        'FROM "posthog_person"', f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"', 1
                     ),
                 )
                 cursor.execute(query, params)
@@ -328,7 +329,7 @@ class Cohort(models.Model):
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
                     values_query=sql.replace(
-                        'FROM "posthog_person"', f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"', 1,
+                        'FROM "posthog_person"', f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"', 1
                     ),
                 )
                 cursor.execute(query, params)
@@ -371,9 +372,7 @@ class CohortPeople(models.Model):
     version: models.IntegerField = models.IntegerField(blank=True, null=True)
 
     class Meta:
-        indexes = [
-            models.Index(fields=["cohort_id", "person_id"]),
-        ]
+        indexes = [models.Index(fields=["cohort_id", "person_id"])]
 
 
 def batch_delete_cohort_people(cohort_id: int, version: int, batch_size: int = 1000):

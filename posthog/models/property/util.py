@@ -37,6 +37,7 @@ from posthog.models.property import (
     PropertyIdentifier,
     PropertyName,
 )
+from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.session_query import SessionQuery
@@ -219,7 +220,7 @@ def parse_prop_clauses(
                 final.append(
                     " {property_operator} {table_name}distinct_id IN ({filter_query})".format(
                         filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
-                            filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
+                            filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id)
                         ),
                         table_name=table_formatted,
                         property_operator=property_operator,
@@ -235,7 +236,7 @@ def parse_prop_clauses(
                 idx,
                 prepend=f"personquery_{prepend}",
                 allow_denormalized_props=True,
-                transform_expression=lambda column_name: f"argMax(person.{column_name}, _timestamp)",
+                transform_expression=lambda column_name: f"argMax(person.{column_name}, version)",
                 property_operator=property_operator,
             )
             final.append(filter_query)
@@ -258,7 +259,11 @@ def parse_prop_clauses(
             if query:
                 final.append(f"{property_operator} {query}")
                 params.update(filter_params)
-        elif prop.type == "group" and person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+        elif (
+            prop.type == "group"
+            and person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS
+            and groups_on_events_querying_enabled()
+        ):
             group_column = f"group{prop.group_type_index}_properties"
             filter_query, filter_params = prop_filter_json_extract(
                 prop,
@@ -286,7 +291,7 @@ def parse_prop_clauses(
             else:
                 # :TRICKY: offer groups support for queries which don't support automatically joining with groups table yet (e.g. lifecycle)
                 filter_query, filter_params = prop_filter_json_extract(
-                    prop, idx, prepend, prop_var=f"group_properties", allow_denormalized_props=False,
+                    prop, idx, prepend, prop_var=f"group_properties", allow_denormalized_props=False
                 )
                 group_type_index_var = f"{prepend}_group_type_index_{idx}"
                 groups_subquery = GET_GROUP_IDS_BY_PROPERTY_SQL.format(
@@ -301,7 +306,7 @@ def parse_prop_clauses(
             cohort_id = cast(int, prop.value)
 
             method = format_static_cohort_query if prop.type == "static-cohort" else format_precalculated_cohort_query
-            filter_query, filter_params = method(cohort_id, idx, prepend=prepend,)  # type: ignore
+            filter_query, filter_params = method(cohort_id, idx, prepend=prepend)  # type: ignore
             filter_query = f"""{person_id_joined_alias if not person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else 'person_id'} IN ({filter_query})"""
 
             if has_person_id_joined or person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
@@ -309,7 +314,7 @@ def parse_prop_clauses(
             else:
                 # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
                 subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(
-                    filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
+                    filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id)
                 )
                 final.append(f"{property_operator} {table_formatted}distinct_id IN ({subquery})")
             params.update(filter_params)
@@ -446,7 +451,7 @@ def prop_filter_json_extract(
             )
         return (
             " {property_operator} (isNull({left}) OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s))".format(
-                idx=idx, prepend=prepend, prop_var=prop_var, left=property_expr, property_operator=property_operator,
+                idx=idx, prepend=prepend, prop_var=prop_var, left=property_expr, property_operator=property_operator
             ),
             params,
         )
@@ -463,10 +468,7 @@ def prop_filter_json_extract(
             parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
         )) = %({prop_value_param_key})s"""
 
-        return (
-            query,
-            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value,},
-        )
+        return (query, {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value})
     elif operator == "is_date_after":
         # TODO introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
@@ -488,10 +490,7 @@ def prop_filter_json_extract(
 
         query = f"""{property_operator} {first_of_date_or_timestamp} > {adjusted_value}"""
 
-        return (
-            query,
-            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value,},
-        )
+        return (query, {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value})
     elif operator == "is_date_before":
         # TODO introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
@@ -501,10 +500,7 @@ def prop_filter_json_extract(
         first_of_date_or_timestamp = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
         query = f"""{property_operator} {first_of_date_or_timestamp} < %({prop_value_param_key})s"""
 
-        return (
-            query,
-            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value,},
-        )
+        return (query, {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value})
     elif operator in ["gt", "lt", "gte", "lte"]:
         count_operator = get_count_operator(operator)
 
@@ -550,6 +546,7 @@ def get_single_or_multi_property_string_expr(
     column: str,
     allow_denormalized_props=True,
     materialised_table_column: str = "properties",
+    normalize_url: bool = False,
 ):
     """
     When querying for breakdown properties:
@@ -574,6 +571,8 @@ def get_single_or_multi_property_string_expr(
             allow_denormalized_props,
             materialised_table_column=materialised_table_column,
         )
+
+        expression = normalize_url_breakdown(expression, normalize_url)
     else:
         expressions = []
         for b in breakdown:
@@ -585,7 +584,7 @@ def get_single_or_multi_property_string_expr(
                 allow_denormalized_props,
                 materialised_table_column=materialised_table_column,
             )
-            expressions.append(expr)
+            expressions.append(normalize_url_breakdown(expr, normalize_url))
 
         expression = f"array({','.join(expressions)})"
 
@@ -593,6 +592,15 @@ def get_single_or_multi_property_string_expr(
         return expression
 
     return f"{expression} AS {query_alias}"
+
+
+def normalize_url_breakdown(breakdown_value, breakdown_normalize_url: bool = True):
+    if breakdown_normalize_url:
+        return (
+            f"if( empty(trim(TRAILING '/?#' from {breakdown_value})), '/', trim(TRAILING '/?#' from {breakdown_value}))"
+        )
+
+    return breakdown_value
 
 
 def get_property_string_expr(
@@ -623,7 +631,11 @@ def get_property_string_expr(
 
     table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
 
-    if allow_denormalized_props and (property_name, materialised_table_column) in materialized_columns:
+    if (
+        allow_denormalized_props
+        and (property_name, materialised_table_column) in materialized_columns
+        and ("group" not in materialised_table_column or groups_on_events_querying_enabled())
+    ):
         return f'{table_string}"{materialized_columns[(property_name, materialised_table_column)]}"', True
 
     return trim_quotes_expr(f"JSONExtractRaw({table_string}{column}, {var})"), False
@@ -760,3 +772,16 @@ def get_session_property_filter_statement(prop: Property, idx: int, prepend: str
 
     else:
         raise exceptions.ValidationError(f"Property '{prop.key}' is not allowed in session property filters.")
+
+
+def clear_excess_levels(prop: Union["PropertyGroup", "Property"], skip=False):
+    if isinstance(prop, PropertyGroup):
+        if len(prop.values) == 1:
+            if skip:
+                prop.values = [clear_excess_levels(p) for p in prop.values]
+            else:
+                return clear_excess_levels(prop.values[0])
+        else:
+            prop.values = [clear_excess_levels(p, skip=True) for p in prop.values]
+
+    return prop

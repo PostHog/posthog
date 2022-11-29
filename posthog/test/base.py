@@ -19,6 +19,7 @@ from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.client import ch_pool, sync_execute
+from posthog.cloud_utils import TEST_clear_cloud_cache
 from posthog.models import Organization, Team, User
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
@@ -41,6 +42,7 @@ from posthog.models.session_recording_event.sql import (
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
 from posthog.settings import CLICKHOUSE_REPLICATION
+from posthog.settings.utils import get_from_env, str_to_bool
 
 persons_cache_tests: List[Dict[str, Any]] = []
 events_cache_tests: List[Dict[str, Any]] = []
@@ -52,9 +54,7 @@ def _setup_test_data(klass):
     klass.team = Team.objects.create(
         organization=klass.organization,
         api_token=klass.CONFIG_API_TOKEN,
-        test_account_filters=[
-            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
-        ],
+        test_account_filters=[{"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}],
     )
     if klass.CONFIG_EMAIL:
         klass.user = User.objects.create_and_join(klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD)
@@ -71,22 +71,12 @@ class ErrorResponsesMixin:
     }
 
     def not_found_response(self, message: str = "Not found.") -> Dict[str, Optional[str]]:
-        return {
-            "type": "invalid_request",
-            "code": "not_found",
-            "detail": message,
-            "attr": None,
-        }
+        return {"type": "invalid_request", "code": "not_found", "detail": message, "attr": None}
 
     def permission_denied_response(
-        self, message: str = "You do not have permission to perform this action.",
+        self, message: str = "You do not have permission to perform this action."
     ) -> Dict[str, Optional[str]]:
-        return {
-            "type": "authentication_error",
-            "code": "permission_denied",
-            "detail": message,
-            "attr": None,
-        }
+        return {"type": "authentication_error", "code": "permission_denied", "detail": message, "attr": None}
 
     def method_not_allowed_response(self, method: str) -> Dict[str, Optional[str]]:
         return {
@@ -99,22 +89,12 @@ class ErrorResponsesMixin:
     def unauthenticated_response(
         self, message: str = "Authentication credentials were not provided.", code: str = "not_authenticated"
     ) -> Dict[str, Optional[str]]:
-        return {
-            "type": "authentication_error",
-            "code": code,
-            "detail": message,
-            "attr": None,
-        }
+        return {"type": "authentication_error", "code": code, "detail": message, "attr": None}
 
     def validation_error_response(
-        self, message: str = "Malformed request", code: str = "invalid_input", attr: Optional[str] = None,
+        self, message: str = "Malformed request", code: str = "invalid_input", attr: Optional[str] = None
     ) -> Dict[str, Optional[str]]:
-        return {
-            "type": "validation_error",
-            "code": code,
-            "detail": message,
-            "attr": attr,
-        }
+        return {"type": "validation_error", "code": code, "detail": message, "attr": attr}
 
 
 class TestMixin:
@@ -187,6 +167,10 @@ class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     Read more: https://docs.djangoproject.com/en/3.1/topics/testing/tools/#testcase
     """
 
+    def is_cloud(self, value: bool):
+        TEST_clear_cloud_cache()
+        return self.settings(MULTI_TENANCY=value)
+
 
 class NonAtomicBaseTest(TestMixin, ErrorResponsesMixin, TransactionTestCase):
     """
@@ -207,6 +191,10 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
 
     def setUp(self):
         super().setUp()
+
+        # Clear the cached "is_cloud" setting so that it's recalculated for each test
+        TEST_clear_cloud_cache()
+
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
 
@@ -214,6 +202,10 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
         stripped_response1 = stripResponse(response1, remove=remove)
         stripped_response2 = stripResponse(response2, remove=remove)
         self.assertDictEqual(stripped_response1[0], stripped_response2[0])
+
+    def is_cloud(self, value: bool):
+        TEST_clear_cloud_cache()
+        return self.settings(MULTI_TENANCY=value)
 
 
 def stripResponse(response, remove=("action", "label", "persons_urls", "filter")):
@@ -259,7 +251,12 @@ def cleanup_materialized_columns():
 
 
 def test_with_materialized_columns(
-    event_properties=[], person_properties=[], group_properties=[], verify_no_jsonextract=True
+    event_properties=[],
+    person_properties=[],
+    group_properties=[],
+    verify_no_jsonextract=True,
+    # :TODO: Remove this when groups-on-events is released
+    materialize_only_with_person_on_events=False,
 ):
     """
     Runs the test twice on clickhouse - once verifying it works normally, once with materialized columns.
@@ -271,6 +268,12 @@ def test_with_materialized_columns(
         from ee.clickhouse.materialized_columns.analyze import materialize
     except:
         # EE not available? Just run the main test
+        return lambda fn: fn
+
+    if materialize_only_with_person_on_events and not get_from_env(
+        "PERSON_ON_EVENTS_ENABLED", False, type_cast=str_to_bool
+    ):
+        # Don't run materialized test unless PERSON_ON_EVENTS_ENABLED
         return lambda fn: fn
 
     def decorator(fn):
@@ -325,24 +328,24 @@ class QueryMatchingTest:
 
         # Replace organization_id lookups, for postgres
         query = re.sub(
-            fr"""("organization_id"|"posthog_organization"\."id") = '[^']+'::uuid""",
+            rf"""("organization_id"|"posthog_organization"\."id") = '[^']+'::uuid""",
             r"""\1 = '00000000-0000-0000-0000-000000000000'::uuid""",
             query,
         )
         query = re.sub(
-            fr"""("organization_id"|"posthog_organization"\."id") IN \('[^']+'::uuid\)""",
+            rf"""("organization_id"|"posthog_organization"\."id") IN \('[^']+'::uuid\)""",
             r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid)""",
             query,
         )
 
         # Replace tag id lookups for postgres
         query = re.sub(
-            fr"""("posthog_tag"\."id") IN \(('[^']+'::uuid)+(, ('[^']+'::uuid)+)*\)""",
+            rf"""("posthog_tag"\."id") IN \(('[^']+'::uuid)+(, ('[^']+'::uuid)+)*\)""",
             r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid /* ... */)""",
             query,
         )
 
-        query = re.sub(fr"""user_id:([0-9]+) request:[a-zA-Z0-9-_]+""", r"""user_id:0 request:_snapshot_""", query)
+        query = re.sub(rf"""user_id:([0-9]+) request:[a-zA-Z0-9-_]+""", r"""user_id:0 request:_snapshot_""", query)
 
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
@@ -375,25 +378,25 @@ def snapshot_postgres_queries(fn):
 
 class BaseTestMigrations(QueryMatchingTest):
     @property
-    def app(self):
+    def app(self) -> str:
         return apps.get_containing_app_config(type(self).__module__).name  # type: ignore
 
-    migrate_from = None
-    migrate_to = None
+    migrate_from: str
+    migrate_to: str
     apps = None
     assert_snapshots = False
 
     def setUp(self):
-        assert (
-            self.migrate_from and self.migrate_to  # type: ignore
+        assert hasattr(self, "migrate_from") and hasattr(
+            self, "migrate_to"
         ), "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
-        self.migrate_from = [(self.app, self.migrate_from)]  # type: ignore
-        self.migrate_to = [(self.app, self.migrate_to)]
+        migrate_from = [(self.app, self.migrate_from)]
+        migrate_to = [(self.app, self.migrate_to)]
         executor = MigrationExecutor(connection)
-        old_apps = executor.loader.project_state(self.migrate_from).apps
+        old_apps = executor.loader.project_state(migrate_from).apps
 
         # Reverse to the original migration
-        executor.migrate(self.migrate_from)
+        executor.migrate(migrate_from)  # type: ignore
 
         self.setUpBeforeMigration(old_apps)
 
@@ -404,13 +407,14 @@ class BaseTestMigrations(QueryMatchingTest):
         if self.assert_snapshots:
             self._execute_migration_with_snapshots(executor)
         else:
-            executor.migrate(self.migrate_to)
+            executor.migrate(migrate_to)  # type: ignore
 
-        self.apps = executor.loader.project_state(self.migrate_to).apps
+        self.apps = executor.loader.project_state(migrate_to).apps
 
     @snapshot_postgres_queries
     def _execute_migration_with_snapshots(self, executor):
-        executor.migrate(self.migrate_to)
+        migrate_to = [(self.app, self.migrate_to)]
+        executor.migrate(migrate_to)
 
     def setUpBeforeMigration(self, apps):
         pass
@@ -488,7 +492,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
     snapshot: Any
 
     def capture_select_queries(self):
-        return self.capture_queries(("SELECT", "WITH",))
+        return self.capture_queries(("SELECT", "WITH"))
 
     @contextmanager
     def capture_queries(self, query_prefixes: Union[str, Tuple[str, str]]):
@@ -552,7 +556,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
             ]
         )
         run_clickhouse_statement_in_parallel(
-            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL(),]
+            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
         )
         if CLICKHOUSE_REPLICATION:
             run_clickhouse_statement_in_parallel(
@@ -571,7 +575,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
             ]
         )
         run_clickhouse_statement_in_parallel(
-            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL(),]
+            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
         )
         if CLICKHOUSE_REPLICATION:
             run_clickhouse_statement_in_parallel(

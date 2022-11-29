@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import React from 'react'
 import './index.scss'
 import clsx from 'clsx'
 import { SocialLoginIcon } from './SocialLoginIcon'
@@ -37,7 +36,8 @@ export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProp
     return (
         <LemonButton
             size="small"
-            href={`/login/${provider}/${queryString || ''}${extraParam}`}
+            to={`/login/${provider}/${queryString || ''}${extraParam}`}
+            disableClientSideRouting
             icon={SocialLoginIcon(provider)}
         >
             <span>{SSO_PROVIDER_NAMES[provider]}</span>

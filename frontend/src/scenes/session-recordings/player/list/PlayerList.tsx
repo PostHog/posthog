@@ -1,8 +1,9 @@
 import './PlayerList.scss'
-import React, { useEffect, useRef } from 'react'
+import { ReactElement, useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
+import { SessionRecordingPlayerTab } from '~/types'
 import {
+    DEFAULT_EXPANDED_ROW_HEIGHT,
     DEFAULT_ROW_HEIGHT,
     listLogic,
     OVERSCANNED_ROW_COUNT,
@@ -17,6 +18,11 @@ import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { ExpandableConfig } from 'lib/components/LemonTable'
 import { ListRowOptions, PlayerListRow } from 'scenes/session-recordings/player/list/PlayerListRow'
+import { getRowExpandedState } from 'scenes/session-recordings/player/playerUtils'
+import { teamLogic } from 'scenes/teamLogic'
+import { LemonButton } from 'lib/components/LemonButton'
+import { openSessionRecordingSettingsDialog } from 'scenes/session-recordings/settings/SessionRecordingSettings'
+import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 
 interface RowConfig<T extends Record<string, any>> {
     /** Class to append to each row. */
@@ -24,16 +30,21 @@ interface RowConfig<T extends Record<string, any>> {
     /** Status of each row. Defaults no status */
     status?: RowStatus | ((record: T) => RowStatus | null)
     /** Callback to render main content on left side of row */
-    content?: JSX.Element | ((record: T) => JSX.Element | null)
+    content?: ReactElement | ((record: T, index: number, expanded: boolean) => ReactElement | null)
     /** Callback to render main content on right side of row */
-    sideContent?: JSX.Element | ((record: T) => JSX.Element | null)
+    sideContent?: ReactElement | ((record: T, index: number, expanded: boolean) => ReactElement | null)
     /** Side menu options for each row in the list **/
     options?: ListRowOptions<T> | ((record: T, index: number) => ListRowOptions<T>)
 }
 
-export interface PlayerListProps<T> extends SessionRecordingPlayerProps {
-    tab: SessionRecordingTab
-    expandable?: ExpandableConfig<T>
+export interface PlayerListExpandableConfig<T extends Record<string, any>> extends ExpandableConfig<T> {
+    /** If specified, replace the preview content in the row with custom render */
+    expandedPreviewContentRender?: (record: T, recordIndex: number) => any
+}
+
+export interface PlayerListProps<T> extends SessionRecordingPlayerLogicProps {
+    tab: SessionRecordingPlayerTab
+    expandable?: PlayerListExpandableConfig<T>
     row?: RowConfig<T>
 }
 
@@ -46,9 +57,14 @@ export function PlayerList<T extends Record<string, any>>({
 }: PlayerListProps<T>): JSX.Element {
     const listRef = useRef<List>(null)
     const logic = listLogic({ tab, sessionRecordingId, playerKey })
-    const { data, showPositionFinder, isCurrent, isDirectionUp } = useValues(logic)
-    const { setRenderedRows, setList, scrollTo, disablePositionFinder, handleRowClick } = useActions(logic)
-    const { sessionEventsDataLoading } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
+    const { data, showPositionFinder, isCurrent, isDirectionUp, expandedRows } = useValues(logic)
+    const { setRenderedRows, setList, scrollTo, disablePositionFinder, handleRowClick, expandRow, collapseRow } =
+        useActions(logic)
+    const { sessionEventsDataLoading, sessionPlayerMetaDataLoading, windowIds } = useValues(
+        sessionRecordingDataLogic({ sessionRecordingId, playerKey })
+    )
+    const { currentTeam } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
 
     useEffect(() => {
         if (listRef?.current) {
@@ -58,7 +74,7 @@ export function PlayerList<T extends Record<string, any>>({
 
     return (
         <div className="PlayerList">
-            {sessionEventsDataLoading ? (
+            {!data.length && (sessionEventsDataLoading || sessionPlayerMetaDataLoading) ? (
                 <SpinnerOverlay />
             ) : (
                 <>
@@ -88,18 +104,47 @@ export function PlayerList<T extends Record<string, any>>({
                             return (
                                 <List
                                     ref={listRef}
-                                    className="event-list-virtual"
+                                    className="player-list-virtual"
                                     height={height}
                                     width={width}
                                     onRowsRendered={setRenderedRows}
-                                    noRowsRenderer={() => (
-                                        <div className="event-list-empty-container">
-                                            <Empty
-                                                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                                                description="No events fired in this recording."
-                                            />
-                                        </div>
-                                    )}
+                                    noRowsRenderer={() =>
+                                        tab === SessionRecordingPlayerTab.CONSOLE &&
+                                        !currentTeam?.capture_console_log_opt_in ? (
+                                            <div className="flex flex-col items-center h-full w-full pt-16 px-4 bg-white">
+                                                <h4 className="text-xl font-medium">Introducing Console Logs</h4>
+                                                <p className="text-muted">
+                                                    Capture all console logs that are fired as part of a recording.
+                                                </p>
+                                                <LemonButton
+                                                    className="mb-2"
+                                                    onClick={() => {
+                                                        updateCurrentTeam({ capture_console_log_opt_in: true })
+                                                    }}
+                                                    type="primary"
+                                                >
+                                                    Turn on console log capture for future recordings
+                                                </LemonButton>
+                                                <LemonButton
+                                                    onClick={() => openSessionRecordingSettingsDialog()}
+                                                    targetBlank
+                                                >
+                                                    Configure in settings
+                                                </LemonButton>
+                                            </div>
+                                        ) : (
+                                            <div className="flex justify-center h-full pt-20">
+                                                <Empty
+                                                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                                    description={`No ${
+                                                        tab === SessionRecordingPlayerTab.EVENTS
+                                                            ? 'events'
+                                                            : 'console logs'
+                                                    } captured in this recording.`}
+                                                />
+                                            </div>
+                                        )
+                                    }
                                     overscanRowCount={OVERSCANNED_ROW_COUNT} // in case autoscrolling scrolls faster than we render.
                                     overscanIndicesGetter={({
                                         cellCount,
@@ -117,6 +162,12 @@ export function PlayerList<T extends Record<string, any>>({
                                     rowCount={data.length}
                                     rowRenderer={({ index, style, key }) => {
                                         const record = data[index] as T
+                                        const expandedDetermined = getRowExpandedState(
+                                            record,
+                                            index,
+                                            expandable,
+                                            expandedRows.has(index)
+                                        )
                                         const rowKeyDetermined = key ?? index
                                         const rowClassNameDetermined =
                                             typeof row?.className === 'function'
@@ -126,10 +177,12 @@ export function PlayerList<T extends Record<string, any>>({
                                             typeof row?.status === 'function' ? row.status(record) : row?.status
                                         const rowCurrentDetermined = isCurrent(index)
                                         const rowContentDetermined =
-                                            typeof row?.content === 'function' ? row.content(record) : row?.content
+                                            typeof row?.content === 'function'
+                                                ? row.content(record, index, expandedDetermined)
+                                                : row?.content
                                         const rowSideContentDetermined =
                                             typeof row?.sideContent === 'function'
-                                                ? row.sideContent(record)
+                                                ? row.sideContent(record, index, expandedDetermined)
                                                 : row?.sideContent
                                         const optionsDetermined =
                                             typeof row?.options === 'function'
@@ -146,17 +199,48 @@ export function PlayerList<T extends Record<string, any>>({
                                                 statusDetermined={rowStatusDetermined}
                                                 currentDetermined={rowCurrentDetermined}
                                                 style={style}
-                                                expandable={expandable}
+                                                expandable={
+                                                    expandable
+                                                        ? {
+                                                              ...expandable,
+                                                              onRowExpand: (record, index) => {
+                                                                  expandable?.onRowExpand?.(record, index)
+                                                                  expandRow(index)
+                                                                  listRef?.current?.recomputeRowHeights(index)
+                                                              },
+                                                              onRowCollapse: (_, index) => {
+                                                                  expandable?.onRowCollapse?.(record, index)
+                                                                  collapseRow(index)
+                                                                  listRef?.current?.recomputeRowHeights(index)
+                                                              },
+                                                          }
+                                                        : undefined
+                                                }
                                                 contentDetermined={rowContentDetermined}
                                                 sideContentDetermined={rowSideContentDetermined}
                                                 onClick={(record) => {
                                                     handleRowClick(record.playerPosition)
                                                 }}
                                                 optionsDetermined={optionsDetermined ?? []}
+                                                expandedDetermined={expandedDetermined}
+                                                loading={sessionEventsDataLoading}
+                                                windowNumber={
+                                                    windowIds.length > 1
+                                                        ? windowIds.indexOf(record.playerPosition.windowId) + 1 ||
+                                                          undefined
+                                                        : undefined
+                                                }
                                             />
                                         )
                                     }}
-                                    rowHeight={DEFAULT_ROW_HEIGHT}
+                                    rowHeight={({ index }) => {
+                                        const record = data[index] as T
+                                        if (getRowExpandedState(record, index, expandable, expandedRows.has(index))) {
+                                            return DEFAULT_EXPANDED_ROW_HEIGHT
+                                        }
+
+                                        return DEFAULT_ROW_HEIGHT
+                                    }}
                                 />
                             )
                         }}

@@ -5,17 +5,15 @@ import {
     InsightEditorFilter,
     InsightEditorFilterGroup,
     InsightLogicProps,
-    InsightType,
 } from '~/types'
 import { CSSTransition } from 'react-transition-group'
-import { TrendsSteps } from 'scenes/insights/EditorFilters/TrendsSteps'
+import { TrendsSeries, TrendsSeriesLabel } from 'scenes/insights/EditorFilters/TrendsSeries'
 import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
-import { TrendsGlobalAndOrFilters } from 'scenes/insights/EditorFilters/TrendsGlobalAndOrFilters'
-import { TrendsFormula } from 'scenes/insights/EditorFilters/TrendsFormula'
-import { TrendsBreakdown } from 'scenes/insights/EditorFilters/TrendsBreakdown'
+import { GlobalAndOrFilters } from 'scenes/insights/EditorFilters/GlobalAndOrFilters'
+import { TrendsFormula, TrendsFormulaLabel } from 'scenes/insights/EditorFilters/TrendsFormula'
+import { Breakdown } from 'scenes/insights/EditorFilters/Breakdown'
 import { LifecycleToggles } from 'scenes/insights/EditorFilters/LifecycleToggles'
 import { LifecycleGlobalFilters } from 'scenes/insights/EditorFilters/LifecycleGlobalFilters'
-import React from 'react'
 import { RetentionSummary } from './RetentionSummary'
 import { PathsEventTypes } from './PathsEventTypes'
 import { PathsWildcardGroups } from './PathsWildcardGroups'
@@ -36,6 +34,14 @@ import { InsightTypeSelector } from './InsightTypeSelector'
 import './EditorFilters.scss'
 import clsx from 'clsx'
 import { Attribution } from './AttributionFilter'
+import {
+    isFunnelsFilter,
+    isLifecycleFilter,
+    isPathsFilter,
+    isRetentionFilter,
+    isStickinessFilter,
+    isTrendsFilter,
+} from 'scenes/insights/sharedUtils'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
@@ -55,25 +61,25 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
     const { featureFlags } = useValues(featureFlagLogic)
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
 
-    const isTrends = !filters.insight || filters.insight === InsightType.TRENDS
-    const isLifecycle = filters.insight === InsightType.LIFECYCLE
-    const isStickiness = filters.insight === InsightType.STICKINESS
-    const isRetention = filters.insight === InsightType.RETENTION
-    const isPaths = filters.insight === InsightType.PATHS
-    const isFunnels = filters.insight === InsightType.FUNNELS
+    const isTrends = isTrendsFilter(filters)
+    const isLifecycle = isLifecycleFilter(filters)
+    const isStickiness = isStickinessFilter(filters)
+    const isRetention = isRetentionFilter(filters)
+    const isPaths = isPathsFilter(filters)
+    const isFunnels = isFunnelsFilter(filters)
     const isTrendsLike = isTrends || isLifecycle || isStickiness
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(filters.display || ChartDisplayType.ActionsLineGraph)) ||
         (isRetention &&
             featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
-            filters.display !== ChartDisplayType.ActionsLineGraph) ||
+            (filters as any).display !== ChartDisplayType.ActionsLineGraph) ||
         (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
     const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isFunnels && filters.funnel_viz_type === FunnelVizType.Steps
 
-    const advancedOptionsCount = advancedOptionsUsedCount + (filters.formula ? 1 : 0)
+    const advancedOptionsCount = advancedOptionsUsedCount + (isTrends && filters.formula ? 1 : 0)
     const advancedOptionsExpanded = !!advancedOptionsCount
 
     const editorFilters: InsightEditorFilterGroup[] = [
@@ -137,13 +143,20 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             ]),
         },
         {
-            title: 'Steps',
-
+            title: 'Series',
             editorFilters: filterFalsy([
                 isTrendsLike && {
-                    key: 'steps',
-                    component: TrendsSteps,
+                    key: 'series',
+                    label: isTrends ? TrendsSeriesLabel : undefined,
+                    component: TrendsSeries,
                 },
+                isTrends
+                    ? {
+                          key: 'formula',
+                          label: TrendsFormulaLabel,
+                          component: TrendsFormula,
+                      }
+                    : null,
             ]),
         },
         {
@@ -167,12 +180,12 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                           component: LifecycleToggles,
                       }
                     : null,
-                hasPropertyFilters && filters.properties
+                hasPropertyFilters
                     ? {
                           key: 'properties',
                           label: !usingEditorPanels ? 'Filters' : undefined,
                           position: 'right',
-                          component: TrendsGlobalAndOrFilters,
+                          component: GlobalAndOrFilters,
                       }
                     : null,
             ]),
@@ -194,7 +207,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                                   give you the event volume for each URL your users have visited.
                               </>
                           ),
-                          component: TrendsBreakdown,
+                          component: Breakdown,
                       }
                     : null,
                 hasAttribution
@@ -206,7 +219,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                           tooltip: (
                               <div>
                                   Attribution type determines which property value to use for the entire funnel.
-                                  <ul style={{ paddingLeft: '1.2rem' }}>
+                                  <ul className="list-disc pl-4">
                                       <li>First step: the first property value seen from all steps is chosen.</li>
                                       <li>Last step: last property value seen from all steps is chosen.</li>
                                       <li>Specific step: the property value seen at that specific step is chosen.</li>
@@ -243,21 +256,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             defaultExpanded: advancedOptionsExpanded,
             count: advancedOptionsCount,
             editorFilters: filterFalsy([
-                isTrends
-                    ? {
-                          key: 'formula',
-                          label: 'Formula',
-                          position: 'right',
-                          tooltip: (
-                              <>
-                                  Apply math operations to your series. You can do operations among series (e.g.{' '}
-                                  <code>A / B</code>) or simple arithmetic operations on a single series (e.g.{' '}
-                                  <code>A / 100</code>)
-                              </>
-                          ),
-                          component: TrendsFormula,
-                      }
-                    : null,
                 isPaths &&
                     (hasPathsAdvanced
                         ? {

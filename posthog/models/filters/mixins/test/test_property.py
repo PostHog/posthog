@@ -13,10 +13,7 @@ def test_property_group_multi_level_parsing():
             "properties": {
                 "type": "AND",
                 "values": [
-                    {
-                        "type": "AND",
-                        "values": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
-                    },
+                    {"type": "AND", "values": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}]},
                     {"type": "OR", "values": [{"key": "attr", "value": "val_2"}]},
                 ],
             }
@@ -72,7 +69,7 @@ def test_property_group_invalid_parsing():
         data={
             "properties": {
                 "type": "XaND",
-                "values": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"},],
+                "values": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
             }
         }
     )
@@ -107,10 +104,7 @@ def test_property_multi_level_to_dict():
             "properties": {
                 "type": "AND",
                 "values": [
-                    {
-                        "type": "AND",
-                        "values": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],
-                    },
+                    {"type": "AND", "values": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}]},
                     {"type": "OR", "values": [{"key": "attr", "value": "val_2"}]},
                 ],
             }
@@ -155,7 +149,7 @@ def test_property_group_simple_json_parsing():
     filter = Filter(
         data={
             "properties": json.dumps(
-                {"type": "AND", "values": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}],}
+                {"type": "AND", "values": [{"key": "attr", "value": "val_1"}, {"key": "attr_2", "value": "val_2"}]}
             )
         }
     )

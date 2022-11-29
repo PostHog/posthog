@@ -6,19 +6,29 @@
     display: flex;
     flex-direction: column;
     flex: 1;
-    min-height: 100vh;
     overflow: hidden;
+    min-height: 100vh;
 
     .BridgePage__main {
         display: flex;
         justify-content: center;
         align-items: center;
-        padding: 2rem;
         flex: 1;
+        padding: 1rem;
     }
 
     .BridgePage__content-wrapper {
         max-width: 100%;
+    }
+
+    .BridgePage__art-wrapper {
+        margin-right: 60px;
+        display: none;
+
+        @include screen($md) {
+            display: block;
+            visibility: visible;
+        }
     }
 
     .BridgePage__content {
@@ -47,13 +57,12 @@
 
     .BridgePage__art {
         position: relative;
-        margin-right: 60px;
         margin-top: 160px;
         visibility: none;
         display: none;
 
         img {
-            width: 390px;
+            height: 300px;
         }
 
         .BridgePage__art__message {
@@ -104,9 +113,19 @@
         }
     }
 
+    .BridgePage__cta {
+        max-width: 400px;
+    }
+
     .BridgePage__header-logo {
+        &.mobile {
+            display: block;
+            @include screen($md) {
+                display: none;
+            }
+        }
         .header-logo {
-            padding-bottom: 2rem;
+            padding-bottom: 3rem;
             text-align: center;
             img {
                 height: 24px;

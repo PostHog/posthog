@@ -44,7 +44,16 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         self.assertCountEqual(get_materialized_columns("person"), [])
         self.assertEqual(
             get_materialized_columns("session_recording_events"),
-            {("has_full_snapshot", "properties"): "has_full_snapshot"},
+            {
+                ("has_full_snapshot", "properties"): "has_full_snapshot",
+                ("events_summary", "properties"): "events_summary",
+                ("click_count", "properties"): "click_count",
+                ("keypress_count", "properties"): "keypress_count",
+                ("timestamps_summary", "properties"): "timestamps_summary",
+                ("first_event_timestamp", "properties"): "first_event_timestamp",
+                ("last_event_timestamp", "properties"): "last_event_timestamp",
+                ("urls", "properties"): "urls",
+            },
         )
 
     def test_caching_and_materializing(self):

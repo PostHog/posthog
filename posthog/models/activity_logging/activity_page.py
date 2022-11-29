@@ -10,7 +10,7 @@ def activity_page_response(
 ) -> response.Response:
     return response.Response(
         {
-            "results": ActivityLogSerializer(activity_page.results, many=True,).data,
+            "results": ActivityLogSerializer(activity_page.results, many=True).data,
             "next": format_query_params_absolute_url(request, page + 1, limit, offset_alias="page")
             if activity_page.has_next
             else None,

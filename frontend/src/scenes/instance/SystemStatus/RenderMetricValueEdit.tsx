@@ -1,6 +1,5 @@
 import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import React from 'react'
 import { MetricValue } from './RenderMetricValue'
 
 interface MetricValueEditInterface extends MetricValue {
@@ -19,7 +18,11 @@ export function RenderMetricValueEdit({
             <LemonCheckbox
                 defaultChecked={!!value}
                 onChange={(val) => onValueChanged(key, val)}
-                label={<LemonTag type={value ? 'success' : 'danger'}>{value ? 'Yes' : 'No'}</LemonTag>}
+                label={
+                    <LemonTag type={value ? 'success' : 'danger'} className="uppercase">
+                        {value ? 'Yes' : 'No'}
+                    </LemonTag>
+                }
             />
         )
     }

@@ -1,4 +1,4 @@
-from rest_framework import response, status
+from rest_framework import mixins
 
 from posthog.event_usage import report_user_action
 
@@ -14,7 +14,7 @@ def log_deletion_metadata_to_posthog(func):
     def wrapper(*args, **kwargs):
         instance = args[0].get_object()
         user = args[1].user
-        metadata = instance.get_analytics_metadata() if hasattr(instance, "get_analytics_metadata",) else {}
+        metadata = instance.get_analytics_metadata() if hasattr(instance, "get_analytics_metadata") else {}
 
         func_result = func(*args, **kwargs)
 
@@ -25,7 +25,7 @@ def log_deletion_metadata_to_posthog(func):
     return wrapper
 
 
-class AnalyticsDestroyModelMixin:
+class AnalyticsDestroyModelMixin(mixins.DestroyModelMixin):
     """
     DestroyModelMixin enhancement that provides reporting of when an object is deleted.
 
@@ -35,8 +35,4 @@ class AnalyticsDestroyModelMixin:
 
     @log_deletion_metadata_to_posthog
     def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()  # type: ignore
-
-        instance.delete()
-
-        return response.Response(status=status.HTTP_204_NO_CONTENT)
+        return super().destroy(request, *args, **kwargs)

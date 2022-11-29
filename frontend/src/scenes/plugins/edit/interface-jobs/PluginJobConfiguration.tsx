@@ -1,49 +1,31 @@
-import React from 'react'
+import { useMemo } from 'react'
 import { PlayCircleOutlined, CheckOutlined, CloseOutlined, SettingOutlined } from '@ant-design/icons'
-import { Tooltip, Form, Input, Radio, InputNumber, DatePicker } from 'antd'
-import Modal from 'antd/lib/modal/Modal'
+import { Tooltip, Radio, InputNumber, DatePicker } from 'antd'
+import { ChildFunctionProps, Form } from 'kea-forms'
+import { Field } from 'lib/forms/Field'
 import MonacoEditor from '@monaco-editor/react'
 import { useValues, useActions } from 'kea'
-import { JobSpec } from '~/types'
-import { validateJsonFormItem } from 'lib/utils'
-import { interfaceJobsLogic } from './interfaceJobsLogic'
-
-interface PluginJobConfigurationProps {
-    jobName: string
-    jobSpec: JobSpec
-    pluginConfigId: number
-    pluginId: number
-}
-
-const requiredRule = {
-    required: true,
-    message: 'Please enter a value!',
-}
+import { userLogic } from 'scenes/userLogic'
+import { JobPayloadFieldOptions } from '~/types'
+import { interfaceJobsLogic, InterfaceJobsProps } from './interfaceJobsLogic'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import moment from 'moment'
+import { LemonModal } from 'lib/components/LemonModal'
+import { LemonButton } from 'lib/components/LemonButton'
+import { LemonCalendarRangeInline } from 'lib/components/LemonCalendarRange/LemonCalendarRangeInline'
+import { dayjs } from 'lib/dayjs'
+import { formatDate, formatDateRange } from 'lib/utils'
 
 // keep in sync with plugin-server's export-historical-events.ts
-const HISTORICAL_EXPORT_JOB_NAME = 'Export historical events'
-const HISTORICAL_EXPORT_JOB_NAME_V2 = 'Export historical events V2'
+export const HISTORICAL_EXPORT_JOB_NAME = 'Export historical events'
+export const HISTORICAL_EXPORT_JOB_NAME_V2 = 'Export historical events V2'
 
-export function PluginJobConfiguration({
-    jobName,
-    jobSpec,
-    pluginConfigId,
-    pluginId,
-}: PluginJobConfigurationProps): JSX.Element {
-    if ([HISTORICAL_EXPORT_JOB_NAME, HISTORICAL_EXPORT_JOB_NAME_V2].includes(jobName)) {
-        jobSpec.payload = {
-            dateFrom: { type: 'date' },
-            dateTo: { type: 'date' },
-        }
-    }
-
-    const logicProps = { jobName, pluginConfigId, pluginId, jobSpecPayload: jobSpec.payload }
-    const { setIsJobModalOpen, runJob, playButtonOnClick } = useActions(interfaceJobsLogic(logicProps))
-    const { runJobAvailable, isJobModalOpen } = useValues(interfaceJobsLogic(logicProps))
+export function PluginJobConfiguration(props: InterfaceJobsProps): JSX.Element {
+    const { jobName, jobSpec, pluginConfigId, pluginId } = props
+    const { playButtonOnClick } = useActions(interfaceJobsLogic(props))
+    const { runJobAvailable } = useValues(interfaceJobsLogic(props))
 
     const jobHasEmptyPayload = Object.keys(jobSpec.payload || {}).length === 0
-
-    const [form] = Form.useForm()
 
     const configureOrRunJobTooltip = runJobAvailable
         ? jobHasEmptyPayload
@@ -53,13 +35,7 @@ export function PluginJobConfiguration({
 
     return (
         <>
-            <span
-                style={{
-                    marginLeft: 10,
-                    marginRight: 5,
-                }}
-                onClick={() => playButtonOnClick(form, jobHasEmptyPayload)}
-            >
+            <span className="ml-1" onClick={() => playButtonOnClick(jobHasEmptyPayload)}>
                 <Tooltip title={configureOrRunJobTooltip}>
                     {jobHasEmptyPayload ? (
                         <PlayCircleOutlined
@@ -73,70 +49,123 @@ export function PluginJobConfiguration({
                 </Tooltip>
             </span>
 
-            <Modal
-                visible={isJobModalOpen}
-                onCancel={() => setIsJobModalOpen(false)}
-                onOk={() => runJob(form)}
-                okText={'Run job now'}
-                title={`Configuring job '${jobName}'`}
-            >
-                {jobSpec.payload ? (
-                    <Form form={form} layout="vertical">
-                        {Object.entries(jobSpec.payload).map(([key, options]) => (
-                            <span key={key}>
-                                <Form.Item
-                                    style={{ marginBottom: 15 }}
-                                    name={key}
-                                    required={!!options.required}
-                                    rules={
-                                        options.required
-                                            ? [
-                                                  requiredRule,
-                                                  ...(options.type === 'json'
-                                                      ? [{ validator: validateJsonFormItem }]
-                                                      : []),
-                                              ]
-                                            : []
-                                    }
-                                    label={key}
-                                >
-                                    {options.type === 'string' ? (
-                                        <Input />
-                                    ) : options.type === 'number' ? (
-                                        <InputNumber />
-                                    ) : options.type === 'json' ? (
-                                        <MonacoEditor
-                                            options={{ codeLens: false }}
-                                            className="plugin-job-json-editor"
-                                            language="json"
-                                            height={200}
-                                        />
-                                    ) : options.type === 'boolean' ? (
-                                        <Radio.Group id="propertyValue" buttonStyle="solid">
-                                            <Radio.Button value={true} defaultChecked>
-                                                <CheckOutlined /> True
-                                            </Radio.Button>
-                                            <Radio.Button value={false}>
-                                                <CloseOutlined /> False
-                                            </Radio.Button>
-                                        </Radio.Group>
-                                    ) : options.type === 'date' ? (
-                                        <DatePicker
-                                            popupStyle={{ zIndex: 1061 }}
-                                            allowClear
-                                            placeholder="Today"
-                                            className="retention-date-picker"
-                                            suffixIcon={null}
-                                            use12Hours
-                                            showTime
-                                        />
-                                    ) : null}
-                                </Form.Item>
-                            </span>
-                        ))}
-                    </Form>
-                ) : null}
-            </Modal>
+            <PluginJobModal jobName={jobName} jobSpec={jobSpec} pluginConfigId={pluginConfigId} pluginId={pluginId} />
         </>
     )
+}
+
+export function PluginJobModal(props: InterfaceJobsProps): JSX.Element {
+    const { jobName, jobSpec } = props
+    const { setIsJobModalOpen, submitJobPayload } = useActions(interfaceJobsLogic(props))
+    const { isJobModalOpen } = useValues(interfaceJobsLogic(props))
+    const { user } = useValues(userLogic)
+
+    const shownFields = useMemo(() => {
+        return Object.entries(jobSpec.payload || {})
+            .filter(([, options]) => !options.staff_only || user?.is_staff || user?.is_impersonated)
+            .sort((a, b) => a[0].localeCompare(b[0]))
+    }, [jobSpec, user])
+
+    return (
+        <LemonModal
+            isOpen={isJobModalOpen}
+            onClose={() => setIsJobModalOpen(false)}
+            title={`Configuring job '${jobName}'`}
+            footer={
+                <>
+                    <LemonButton type="secondary" className="mr-2" onClick={() => setIsJobModalOpen(false)}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton data-attr="run-job" type="primary" onClick={() => submitJobPayload()}>
+                        Run job now
+                    </LemonButton>
+                </>
+            }
+        >
+            {shownFields.length > 0 ? (
+                <Form logic={interfaceJobsLogic} props={props} formKey="jobPayload">
+                    {shownFields.map(([key, options]) => (
+                        <Field name={key} label={options.title || key} key={key} className="mb-4">
+                            {(props) => <FieldInput options={options} {...props} />}
+                        </Field>
+                    ))}
+                </Form>
+            ) : null}
+        </LemonModal>
+    )
+}
+
+function FieldInput({
+    options,
+    value,
+    onChange,
+}: { options: JobPayloadFieldOptions } & ChildFunctionProps): JSX.Element {
+    switch (options.type) {
+        case 'string':
+            return <LemonInput value={value || ''} onChange={onChange} />
+        case 'number':
+            return <InputNumber value={value} onChange={onChange} />
+        case 'json':
+            return (
+                <MonacoEditor
+                    theme="vs-dark"
+                    options={{ codeLens: false, lineNumbers: 'off' }}
+                    className="plugin-job-json-editor"
+                    language="json"
+                    height={200}
+                    value={value}
+                    onChange={onChange}
+                />
+            )
+        case 'boolean':
+            return (
+                <Radio.Group
+                    id="propertyValue"
+                    buttonStyle="solid"
+                    value={value}
+                    onChange={(e) => onChange(e.target.value)}
+                >
+                    <Radio.Button value={true} defaultChecked>
+                        <CheckOutlined /> True
+                    </Radio.Button>
+                    <Radio.Button value={false}>
+                        <CloseOutlined /> False
+                    </Radio.Button>
+                </Radio.Group>
+            )
+        case 'date':
+            return (
+                <DatePicker
+                    popupStyle={{ zIndex: 1061 }}
+                    allowClear
+                    placeholder="Choose a date"
+                    className="retention-date-picker"
+                    suffixIcon={null}
+                    use12Hours
+                    showTime
+                    value={value ? moment(value) : null}
+                    onChange={(date: moment.Moment | null) => onChange(date?.toISOString())}
+                />
+            )
+        case 'daterange':
+            return (
+                <div className="border rounded p-4">
+                    <div className="pb-4">
+                        <LemonCalendarRangeInline value={value || null} onChange={onChange} />
+                    </div>
+                    <div className="border-t pt-4">
+                        <span className="text-muted">Selected period:</span>{' '}
+                        {value ? (
+                            <span>
+                                {value[0] === value[1]
+                                    ? formatDate(dayjs(value[0]))
+                                    : formatDateRange(dayjs(value[0]), dayjs(value[1]))}
+                            </span>
+                        ) : (
+                            <span className="italic">No period selected.</span>
+                        )}
+                    </div>
+                </div>
+            )
+    }
 }

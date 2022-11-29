@@ -5,20 +5,19 @@ import {
 } from 'scenes/performance/webPerformanceLogic'
 import { Col, Collapse, Row, Typography } from 'antd'
 import { areObjectValuesEmpty, humanizeBytes } from 'lib/utils'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Popup } from 'lib/components/Popup/Popup'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
-import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
+import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TZLabel } from 'lib/components/TimezoneAware'
+import { TZLabel } from 'lib/components/TZLabel'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import './WebPerformance.scss'
 import Text from 'antd/lib/typography/Text'
 import { getSeriesColor } from 'lib/colors'
-import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
-import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 
 interface PerfBlockProps {
     resourceTiming: ResourceTiming
@@ -249,7 +248,7 @@ const VerticalMarker = ({
 
 function WaterfallChart(): JSX.Element {
     const { eventToDisplay, currentEvent, sessionRecording } = useValues(webPerformanceLogic)
-    const { openSessionPlayer, closeSessionPlayer } = useActions(sessionPlayerDrawerLogic)
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
 
     return (
         <>
@@ -272,10 +271,8 @@ function WaterfallChart(): JSX.Element {
                                 <MultiRecordingButton
                                     sessionRecordings={sessionRecording}
                                     onOpenRecording={(matchedRecording) => {
-                                        openSessionPlayer(
-                                            matchedRecording.session_id,
-                                            RecordingWatchedSource.WebPerformance
-                                        )
+                                        matchedRecording?.session_id &&
+                                            openSessionPlayer({ id: matchedRecording.session_id })
                                     }}
                                 />
                             </div>
@@ -283,7 +280,7 @@ function WaterfallChart(): JSX.Element {
                     </Row>
                 </>
             )}
-            <SessionPlayerDrawer onClose={closeSessionPlayer} />
+            <SessionPlayerModal />
             {eventToDisplay && (
                 <Row>
                     <Col span={24}>

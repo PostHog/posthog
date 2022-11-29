@@ -1,37 +1,37 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
 exports[`histogramLogic values has proper defaults 1`] = `
-Object {
-  "config": Object {
-    "axisFn": Object {
+{
+  "config": {
+    "axisFn": {
       "x": [Function],
       "y": [Function],
     },
     "borderRadius": 4,
     "gridlineTickSize": 445,
     "height": 352,
-    "inner": Object {
+    "inner": {
       "height": 312,
       "width": 440,
     },
     "layout": "vertical",
-    "margin": Object {
+    "margin": {
       "bottom": 20,
       "left": 40,
       "right": 20,
       "top": 20,
     },
-    "ranges": Object {
-      "x": Array [
+    "ranges": {
+      "x": [
         40,
         480,
       ],
-      "y": Array [
+      "y": [
         332,
         20,
       ],
     },
-    "spacing": Object {
+    "spacing": {
       "barLabelPadding": 8,
       "btwnBins": 6,
       "labelLineHeight": 1.2,
@@ -39,7 +39,7 @@ Object {
       "xLabel": 8,
       "yLabel": 5,
     },
-    "transforms": Object {
+    "transforms": {
       "x": "translate(0,332)",
       "y": "translate(40,0)",
       "yGrid": "translate(35,0)",
