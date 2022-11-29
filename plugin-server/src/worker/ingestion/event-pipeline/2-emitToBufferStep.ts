@@ -111,7 +111,10 @@ export function shouldSendEventToBuffer(
 
     // shouldBufferAnonymousEvents indicated buffering should happen
     // for all anonymous events, irrespective of the person existing or not
-    const sendToBuffer = shouldBufferAnonymousEvents || !processEventImmediately
+    let sendToBuffer = !processEventImmediately
+    if (shouldBufferAnonymousEvents) {
+        sendToBuffer = !isIdentifyingEvent
+    }
 
     if (sendToBuffer) {
         hub.statsd?.increment('conversion_events_buffer_size', { teamId: event.team_id.toString() })
