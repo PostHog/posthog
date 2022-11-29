@@ -1,4 +1,235 @@
-# name: TestFOSSTrends.test_breakdown_filtering_with_properties_in_new_format
+# name: TestTrends.test_breakdown_by_group_props_person_on_events
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestTrends.test_breakdown_by_group_props_person_on_events.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+              FROM numbers(12)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['finance', 'technology'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') as breakdown_value
+           FROM events e
+           INNER JOIN
+             (SELECT group_key,
+                     argMax(group_properties, _timestamp) AS group_properties_0
+              FROM groups
+              WHERE team_id = 2
+                AND group_type_index = 0
+              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+           WHERE e.team_id = 2
+             AND event = 'sign up'
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance', 'technology'])
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
+# name: TestTrends.test_breakdown_by_group_props_person_on_events.2
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT person_id AS actor_id,
+         count() AS actor_value
+  FROM
+    (SELECT e.timestamp as timestamp,
+            pdi.person_id as person_id,
+            e.distinct_id as distinct_id,
+            e.team_id as team_id
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) )
+  GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
+  LIMIT 100
+  OFFSET 0
+  '
+---
+# name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id
+        FROM person
+        WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND (has(['value'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', ''))) )
+        GROUP BY id
+        HAVING max(is_deleted) = 0
+        AND (has(['value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))) person ON pdi.person_id = person.id
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+              FROM numbers(12)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['finance'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') as breakdown_value
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id
+              FROM person
+              WHERE team_id = 2
+                AND id IN
+                  (SELECT id
+                   FROM person
+                   WHERE team_id = 2
+                     AND (has(['value'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', ''))) )
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+              AND (has(['value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))) person ON person.id = pdi.person_id
+           INNER JOIN
+             (SELECT group_key,
+                     argMax(group_properties, _timestamp) AS group_properties_0
+              FROM groups
+              WHERE team_id = 2
+                AND group_type_index = 0
+              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+           WHERE e.team_id = 2
+             AND event = 'sign up'
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance'])
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
+# name: TestTrends.test_breakdown_filtering_with_properties_in_new_format
   '
   
   SELECT groupArray(value)
@@ -19,7 +250,7 @@
      OFFSET 0)
   '
 ---
-# name: TestFOSSTrends.test_breakdown_filtering_with_properties_in_new_format.1
+# name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.1
   '
   
   SELECT groupArray(day_start) as date,
@@ -68,7 +299,7 @@
   ORDER BY breakdown_value
   '
 ---
-# name: TestFOSSTrends.test_breakdown_filtering_with_properties_in_new_format.2
+# name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.2
   '
   
   SELECT groupArray(value)
@@ -89,7 +320,7 @@
      OFFSET 0)
   '
 ---
-# name: TestFOSSTrends.test_breakdown_filtering_with_properties_in_new_format.3
+# name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.3
   '
   SELECT [now()] AS date,
          [0] AS data,
@@ -97,7 +328,7 @@
   LIMIT 0
   '
 ---
-# name: TestFOSSTrends.test_breakdown_weekly_active_users_based_on_action
+# name: TestTrends.test_breakdown_weekly_active_users_based_on_action
   '
   
   SELECT groupArray(value)
@@ -142,7 +373,7 @@
      OFFSET 0)
   '
 ---
-# name: TestFOSSTrends.test_breakdown_weekly_active_users_based_on_action.1
+# name: TestTrends.test_breakdown_weekly_active_users_based_on_action.1
   '
   
   SELECT groupArray(day_start) as date,
@@ -238,7 +469,232 @@
   ORDER BY breakdown_value
   '
 ---
-# name: TestFOSSTrends.test_person_property_filtering
+# name: TestTrends.test_breakdown_with_filter_groups_person_on_events
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestTrends.test_breakdown_with_filter_groups_person_on_events.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+              FROM numbers(12)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['uh', 'oh'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
+           FROM events e
+           INNER JOIN
+             (SELECT group_key,
+                     argMax(group_properties, _timestamp) AS group_properties_0
+              FROM groups
+              WHERE team_id = 2
+                AND group_type_index = 0
+              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+           WHERE e.team_id = 2
+             AND event = 'sign up'
+             AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['uh', 'oh'])
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
+# name: TestTrends.test_filtering_by_multiple_groups_person_on_events
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-12 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM
+          (SELECT e.timestamp as timestamp
+           FROM events e
+           INNER JOIN
+             (SELECT group_key,
+                     argMax(group_properties, _timestamp) AS group_properties_0
+              FROM groups
+              WHERE team_id = 2
+                AND group_type_index = 0
+              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+           INNER JOIN
+             (SELECT group_key,
+                     argMax(group_properties, _timestamp) AS group_properties_2
+              FROM groups
+              WHERE team_id = 2
+                AND group_type_index = 2
+              GROUP BY group_key) groups_2 ON "$group_2" == groups_2.group_key
+           WHERE team_id = 2
+             AND event = 'sign up'
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
+                  AND has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', ''))) )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestTrends.test_filtering_by_multiple_groups_person_on_events.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT person_id AS actor_id,
+         count() AS actor_value
+  FROM
+    (SELECT e.timestamp as timestamp,
+            pdi.person_id as person_id,
+            e.distinct_id as distinct_id,
+            e.team_id as team_id
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_2
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 2
+        GROUP BY group_key) groups_2 ON "$group_2" == groups_2.group_key
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
+       AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+            AND (has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', '')))) )
+  GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
+  LIMIT 100
+  OFFSET 0
+  '
+---
+# name: TestTrends.test_filtering_with_group_props_person_on_events
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-12 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM
+          (SELECT e.timestamp as timestamp,
+                  pdi.person_id as person_id
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id
+              FROM person
+              WHERE team_id = 2
+                AND id IN
+                  (SELECT id
+                   FROM person
+                   WHERE team_id = 2
+                     AND ((has(['value'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))) )
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+              AND ((has(['value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+           INNER JOIN
+             (SELECT group_key,
+                     argMax(group_properties, _timestamp) AS group_properties_0
+              FROM groups
+              WHERE team_id = 2
+                AND group_type_index = 0
+              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+           WHERE team_id = 2
+             AND event = '$pageview'
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))) )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestTrends.test_person_property_filtering
   '
   
   SELECT groupArray(day_start) as date,
@@ -286,7 +742,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_person_property_filtering_clashing_with_event_property
+# name: TestTrends.test_person_property_filtering_clashing_with_event_property
   '
   
   SELECT groupArray(day_start) as date,
@@ -334,7 +790,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_person_property_filtering_clashing_with_event_property.1
+# name: TestTrends.test_person_property_filtering_clashing_with_event_property.1
   '
   
   SELECT groupArray(day_start) as date,
@@ -364,7 +820,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_person_property_filtering_clashing_with_event_property_materialized
+# name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized
   '
   
   SELECT groupArray(day_start) as date,
@@ -412,7 +868,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_person_property_filtering_clashing_with_event_property_materialized.1
+# name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized.1
   '
   
   SELECT groupArray(day_start) as date,
@@ -442,7 +898,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_person_property_filtering_materialized
+# name: TestTrends.test_person_property_filtering_materialized
   '
   
   SELECT groupArray(day_start) as date,
@@ -490,7 +946,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_timezone_weekly
+# name: TestTrends.test_timezone_weekly
   '
   
   SELECT groupArray(day_start) as date,
@@ -518,7 +974,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_timezones
+# name: TestTrends.test_timezones
   '
   
   SELECT groupArray(day_start) as date,
@@ -546,7 +1002,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_timezones.1
+# name: TestTrends.test_timezones.1
   '
   
   SELECT groupArray(day_start) as date,
@@ -582,7 +1038,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_timezones.2
+# name: TestTrends.test_timezones.2
   '
   
   SELECT groupArray(day_start) as date,
@@ -638,7 +1094,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_timezones.3
+# name: TestTrends.test_timezones.3
   '
   
   SELECT groupArray(day_start) as date,
@@ -666,7 +1122,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_timezones.4
+# name: TestTrends.test_timezones.4
   '
   
   SELECT groupArray(value)
@@ -684,7 +1140,7 @@
      OFFSET 0)
   '
 ---
-# name: TestFOSSTrends.test_timezones.5
+# name: TestTrends.test_timezones.5
   '
   
   SELECT groupArray(day_start) as date,
@@ -737,7 +1193,7 @@
   ORDER BY breakdown_value
   '
 ---
-# name: TestFOSSTrends.test_timezones.6
+# name: TestTrends.test_timezones.6
   '
   
   SELECT groupArray(day_start) as date,
@@ -765,7 +1221,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_timezones.7
+# name: TestTrends.test_timezones.7
   '
   
   SELECT groupArray(day_start) as date,
@@ -793,7 +1249,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_timezones_hourly
+# name: TestTrends.test_timezones_hourly
   '
   
   SELECT groupArray(day_start) as date,
@@ -829,7 +1285,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_timezones_hourly.1
+# name: TestTrends.test_timezones_hourly.1
   '
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
@@ -858,7 +1314,7 @@
   OFFSET 0
   '
 ---
-# name: TestFOSSTrends.test_timezones_hourly.2
+# name: TestTrends.test_timezones_hourly.2
   '
   
   SELECT groupArray(day_start) as date,
@@ -886,7 +1342,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies
+# name: TestTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies
   '
   
   SELECT groupArray(day_start) as date,
@@ -916,7 +1372,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies.1
+# name: TestTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies.1
   '
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
@@ -939,7 +1395,7 @@
   OFFSET 0
   '
 ---
-# name: TestFOSSTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies.2
+# name: TestTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies.2
   '
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
@@ -962,7 +1418,7 @@
   OFFSET 5
   '
 ---
-# name: TestFOSSTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies.3
+# name: TestTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies.3
   '
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
@@ -985,7 +1441,7 @@
   OFFSET 10
   '
 ---
-# name: TestFOSSTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns
+# name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns
   '
   
   SELECT groupArray(value)
@@ -1027,7 +1483,7 @@
      OFFSET 0)
   '
 ---
-# name: TestFOSSTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.1
+# name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.1
   '
   
   SELECT groupArray(day_start) as date,
@@ -1097,7 +1553,7 @@
   ORDER BY breakdown_value
   '
 ---
-# name: TestFOSSTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.2
+# name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.2
   '
   
   SELECT groupArray(value)
@@ -1140,7 +1596,7 @@
      OFFSET 0)
   '
 ---
-# name: TestFOSSTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.3
+# name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.3
   '
   
   SELECT groupArray(day_start) as date,
@@ -1211,7 +1667,7 @@
   ORDER BY breakdown_value
   '
 ---
-# name: TestFOSSTrends.test_trends_aggregate_by_distinct_id
+# name: TestTrends.test_trends_aggregate_by_distinct_id
   '
   
   SELECT groupArray(day_start) as date,
@@ -1240,7 +1696,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_trends_aggregate_by_distinct_id.1
+# name: TestTrends.test_trends_aggregate_by_distinct_id.1
   '
   
   SELECT groupArray(day_start) as date,
@@ -1289,7 +1745,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_trends_aggregate_by_distinct_id.2
+# name: TestTrends.test_trends_aggregate_by_distinct_id.2
   '
   
   SELECT groupArray(value)
@@ -1321,7 +1777,7 @@
      OFFSET 0)
   '
 ---
-# name: TestFOSSTrends.test_trends_aggregate_by_distinct_id.3
+# name: TestTrends.test_trends_aggregate_by_distinct_id.3
   '
   
   SELECT groupArray(day_start) as date,
@@ -1381,7 +1837,7 @@
   ORDER BY breakdown_value
   '
 ---
-# name: TestFOSSTrends.test_trends_aggregate_by_distinct_id.4
+# name: TestTrends.test_trends_aggregate_by_distinct_id.4
   '
   
   SELECT groupArray(day_start) as date,
@@ -1430,7 +1886,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_trends_aggregate_by_distinct_id.5
+# name: TestTrends.test_trends_aggregate_by_distinct_id.5
   '
   
   SELECT groupArray(day_start) as date,
@@ -1479,7 +1935,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_trends_aggregate_by_distinct_id.6
+# name: TestTrends.test_trends_aggregate_by_distinct_id.6
   '
   
   SELECT groupArray(value)
@@ -1497,7 +1953,7 @@
      OFFSET 0)
   '
 ---
-# name: TestFOSSTrends.test_trends_aggregate_by_distinct_id.7
+# name: TestTrends.test_trends_aggregate_by_distinct_id.7
   '
   
   SELECT groupArray(day_start) as date,
@@ -1543,7 +1999,7 @@
   ORDER BY breakdown_value
   '
 ---
-# name: TestFOSSTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown
+# name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown
   '
   
   SELECT groupArray(value)
@@ -1570,7 +2026,7 @@
      OFFSET 0)
   '
 ---
-# name: TestFOSSTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
+# name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
   '
   
   SELECT quantile(0.50)(session_duration) AS total,
@@ -1603,7 +2059,7 @@
   ORDER BY breakdown_value
   '
 ---
-# name: TestFOSSTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.2
+# name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.2
   '
   
   SELECT groupArray(value)
@@ -1630,7 +2086,7 @@
      OFFSET 0)
   '
 ---
-# name: TestFOSSTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.3
+# name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.3
   '
   
   SELECT quantile(0.50)(session_duration) AS total,
@@ -1663,7 +2119,7 @@
   ORDER BY breakdown_value
   '
 ---
-# name: TestFOSSTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown
+# name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown
   '
   
   SELECT groupArray(value)
@@ -1704,7 +2160,7 @@
      OFFSET 0)
   '
 ---
-# name: TestFOSSTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
+# name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
   '
   
   SELECT quantile(0.50)(session_duration) AS total,
@@ -1751,7 +2207,7 @@
   ORDER BY breakdown_value
   '
 ---
-# name: TestFOSSTrends.test_trends_with_session_property_single_aggregate_math
+# name: TestTrends.test_trends_with_session_property_single_aggregate_math
   '
   
   SELECT quantile(0.50)(session_duration) as data
@@ -1779,7 +2235,7 @@
      GROUP BY $session_id)
   '
 ---
-# name: TestFOSSTrends.test_trends_with_session_property_single_aggregate_math.1
+# name: TestTrends.test_trends_with_session_property_single_aggregate_math.1
   '
   
   SELECT quantile(0.50)(session_duration) as data
@@ -1807,7 +2263,7 @@
      GROUP BY $session_id)
   '
 ---
-# name: TestFOSSTrends.test_trends_with_session_property_total_volume_math
+# name: TestTrends.test_trends_with_session_property_total_volume_math
   '
   
   SELECT groupArray(day_start) as date,
@@ -1850,7 +2306,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_trends_with_session_property_total_volume_math.1
+# name: TestTrends.test_trends_with_session_property_total_volume_math.1
   '
   
   SELECT groupArray(day_start) as date,
@@ -1893,7 +2349,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_trends_with_session_property_total_volume_math_with_breakdowns
+# name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns
   '
   
   SELECT groupArray(value)
@@ -1920,7 +2376,7 @@
      OFFSET 0)
   '
 ---
-# name: TestFOSSTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.1
+# name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.1
   '
   
   SELECT groupArray(day_start) as date,
@@ -1987,7 +2443,7 @@
   ORDER BY breakdown_value
   '
 ---
-# name: TestFOSSTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.2
+# name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.2
   '
   
   SELECT groupArray(value)
@@ -2014,7 +2470,7 @@
      OFFSET 0)
   '
 ---
-# name: TestFOSSTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.3
+# name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.3
   '
   
   SELECT groupArray(day_start) as date,
@@ -2081,7 +2537,7 @@
   ORDER BY breakdown_value
   '
 ---
-# name: TestFOSSTrends.test_weekly_active_users_daily
+# name: TestTrends.test_weekly_active_users_daily
   '
   
   SELECT groupArray(day_start) as date,
@@ -2137,7 +2593,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_weekly_active_users_hourly
+# name: TestTrends.test_weekly_active_users_hourly
   '
   
   SELECT groupArray(day_start) as date,
@@ -2193,7 +2649,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_weekly_active_users_monthly
+# name: TestTrends.test_weekly_active_users_monthly
   '
   
   SELECT groupArray(day_start) as date,
@@ -2249,7 +2705,7 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
-# name: TestFOSSTrends.test_weekly_active_users_weekly
+# name: TestTrends.test_weekly_active_users_weekly
   '
   
   SELECT groupArray(day_start) as date,
