@@ -280,6 +280,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
     person = serializers.SerializerMethodField()
     elements = serializers.SerializerMethodField()
     elements_chain = serializers.SerializerMethodField()
+    source_table = serializers.SerializerMethodField()
 
     def get_id(self, event):
         return str(event["uuid"])
@@ -294,8 +295,15 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return event["event"]
 
     def get_timestamp(self, event):
-        dt = event["timestamp"].replace(tzinfo=timezone.utc)
+        timestamp_field = "timestamp"
+        if "ts" in event:
+            timestamp_field = "ts"
+    
+        dt = event[timestamp_field].replace(tzinfo=timezone.utc)
         return dt.astimezone().isoformat()
+    
+    def get_source_table(self, event):
+        return event["source_table"] if "source_table" in event else "events"
 
     def get_person(self, event):
         if not self.context.get("people") or event["distinct_id"] not in self.context["people"]:

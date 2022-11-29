@@ -5,15 +5,24 @@ from typing import Dict, List, Optional, Tuple, Union
 from dateutil.parser import isoparse
 from django.utils.timezone import now
 
+import structlog
 from posthog.api.utils import get_pk_or_uuid
 from posthog.client import query_with_columns
 from posthog.models import Action, Filter, Person, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.event.sql import (
-    SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
+    # SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
 )
+from posthog.models.live_events.sql import (
+    SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
+    SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_SQL
+)
 from posthog.models.property.util import parse_prop_grouped_clauses
+
+from posthog.settings import CLICKHOUSE_DATABASE
+
+logger = structlog.get_logger(__name__)
 
 
 def determine_event_conditions(
@@ -86,18 +95,26 @@ def query_events_list(
         prop_filter_params = {**prop_filter_params, **params}
 
     if prop_filters != "":
-        return query_with_columns(
-            SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
+        print('##########')
+        print('##########')
+        res = query_with_columns(
+            SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
+                database=CLICKHOUSE_DATABASE,
                 conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
             ),
             {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
         )
+        print(res)
+        return res
     else:
-        return query_with_columns(
-            SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
+        print('##########')
+        print('##########')
+        res = query_with_columns(
+            SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_SQL.format(database=CLICKHOUSE_DATABASE,conditions=conditions, limit=limit_sql, order=order),
             {"team_id": team.pk, "limit": limit, **condition_params},
         )
-
+        print(res)
+        return res
 
 def parse_order_by(order_by_param: Optional[str]) -> List[str]:
     return ["-timestamp"] if not order_by_param else list(json.loads(order_by_param))

@@ -60,6 +60,8 @@ def parse_kafka_event_data(
         "now": now.isoformat(),
         "sent_at": sent_at.isoformat() if sent_at else "",
         "token": token,
+        "event": data["event"],
+        "properties": json.dumps(data["properties"])
     }
 
 

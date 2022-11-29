@@ -812,6 +812,7 @@ export interface EventType {
     elements_chain?: string | null
     /** Used in session recording events list */
     colonTimestamp?: string
+    source_table?: 'live_events' | 'events'
 }
 
 export interface RecordingTimeMixinType {

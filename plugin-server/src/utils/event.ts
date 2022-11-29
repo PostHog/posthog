@@ -92,6 +92,7 @@ export function formPipelineEvent(message: KafkaMessage): PipelineEvent {
     // TODO: inefficient to do this twice?
     const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
     const combinedEvent = { ...JSON.parse(dataStr), ...rawEvent }
+    delete combinedEvent['properties']
     const event: PipelineEvent = normalizeEvent({
         ...combinedEvent,
         site_url: combinedEvent.site_url || null,

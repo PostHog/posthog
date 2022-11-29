@@ -19,9 +19,15 @@
         height: 2rem;
         text-align: center;
     }
+
     .event-row-is-exception {
         background-color: var(--danger-highlight);
     }
+
+    .event-row-is-unprocessed-event {
+        background-color: var(--mid);
+    }
+
     td {
         max-width: 20rem;
     }

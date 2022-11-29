@@ -612,6 +612,7 @@ export function EventsTable({
                             'event-row': row.event,
                             highlighted: row.event && highlightEvents[row.event.id],
                             'event-row-is-exception': row.event && row.event.event === '$exception',
+                            'event-row-is-unprocessed-event': row.event && row.event.source_table === 'live_events',
                             'event-row-date-separator': row.date_break,
                             'event-row-new': row.new_events,
                         })
