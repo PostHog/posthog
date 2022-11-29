@@ -258,9 +258,12 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             actions.getSessionRecordingsProperties({})
         },
     })),
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, props }) => ({
         staticRecordings: (staticRecording, oldStaticRecording) => {
-            if (!equal(staticRecording, oldStaticRecording)) {
+            if (!props.isStatic) {
+                return
+            }
+            if (!equal(staticRecording || [], oldStaticRecording || [])) {
                 actions.getSessionRecordings({})
             }
         },
@@ -313,7 +316,12 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         ],
     }),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
+        const hashParams = router.values.hashParams
+        const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
+        if (nulledSessionRecordingId !== values.selectedRecordingId) {
+            actions.setSelectedRecordingId(nulledSessionRecordingId)
+        }
         actions.getSessionRecordings({})
     }),
 

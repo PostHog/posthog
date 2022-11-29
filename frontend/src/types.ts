@@ -2315,21 +2315,33 @@ export enum ExporterFormat {
     PNG = 'image/png',
     CSV = 'text/csv',
     PDF = 'application/pdf',
+    JSON = 'application/json',
 }
+
+/** Exporting directly from the browser to a file */
+export type LocalExportContext = {
+    localData: string
+    filename: string
+    mediaType: ExporterFormat
+}
+
+export type OnlineExportContext = {
+    method?: string
+    path: string
+    query?: any
+    body?: any
+    filename?: string
+    max_limit?: number
+}
+
+export type ExportContext = OnlineExportContext | LocalExportContext
 
 export interface ExportedAssetType {
     id: number
     export_format: ExporterFormat
     dashboard?: number
     insight?: number
-    export_context?: {
-        method?: string
-        path: string
-        query?: any
-        body?: any
-        filename?: string
-        max_limit?: number
-    }
+    export_context?: ExportContext
     has_content: boolean
     filename: string
 }
