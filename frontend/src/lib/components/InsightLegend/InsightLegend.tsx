@@ -93,8 +93,8 @@ function InsightLegendRow({
     const compare = isTrendsFilter(filters) && !!filters.compare
 
     return (
-        <div key={item.id} className="InsightLegendMenu-item p-2 w-full flex flex-row" ref={rowRef}>
-            <div key={item.id} className={clsx('InsightLegendMenu-item p-2 w-full flex flex-row')} {...highlightStyle}>
+        <div key={item.id} className="InsightLegendMenu-item p-2 w-full flex flex-row" ref={rowRef} {...highlightStyle}>
+            <div className={'grow'}>
                 <LemonCheckbox
                     className="text-xs mr-4"
                     color={getSeriesColor(item.id, compare)}
@@ -115,10 +115,10 @@ function InsightLegendRow({
                         />
                     }
                 />
-                {isTrendsFilter(filters) && filters.display === ChartDisplayType.ActionsPie && (
-                    <div className={'text-muted'}>{formatAggregationAxisValue(filters, item.aggregated_value)}</div>
-                )}
             </div>
+            {isTrendsFilter(filters) && filters.display === ChartDisplayType.ActionsPie && (
+                <div className={'text-muted grow-0'}>{formatAggregationAxisValue(filters, item.aggregated_value)}</div>
+            )}
         </div>
     )
 }
@@ -131,27 +131,25 @@ export function InsightLegend({ horizontal, inCardView, readOnly = false }: Insi
 
     return shouldShowLegend(filters, activeView) ? (
         <div
-            className={clsx('InsightLegendMenu', {
+            className={clsx('InsightLegendMenu', 'flex flex-col overflow-auto w-full border rounded', {
                 'InsightLegendMenu--horizontal': horizontal,
                 'InsightLegendMenu--readonly': readOnly,
                 'InsightLegendMenu--in-card-view': inCardView,
             })}
         >
-            <div className="InsightLegendMenu-scroll">
-                {indexedResults &&
-                    indexedResults.map((item, index) => (
-                        <InsightLegendRow
-                            key={index}
-                            hiddenLegendKeys={hiddenLegendKeys}
-                            item={item}
-                            rowIndex={index}
-                            hasMultipleSeries={indexedResults.length > 1}
-                            highlighted={shouldHighlightThisRow(hiddenLegendKeys, index, highlightedSeries)}
-                            toggleVisibility={toggleVisibility}
-                            filters={filters}
-                        />
-                    ))}
-            </div>
+            {indexedResults &&
+                indexedResults.map((item, index) => (
+                    <InsightLegendRow
+                        key={index}
+                        hiddenLegendKeys={hiddenLegendKeys}
+                        item={item}
+                        rowIndex={index}
+                        hasMultipleSeries={indexedResults.length > 1}
+                        highlighted={shouldHighlightThisRow(hiddenLegendKeys, index, highlightedSeries)}
+                        toggleVisibility={toggleVisibility}
+                        filters={filters}
+                    />
+                ))}
         </div>
     ) : null
 }
