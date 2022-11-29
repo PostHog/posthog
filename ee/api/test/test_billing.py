@@ -42,7 +42,7 @@ def create_billing_customer(**kwargs) -> Dict[str, Any]:
         "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
         "current_total_amount_usd": "100.00",
         "available_features": [],
-        "deativated": False,
+        "deactivated": False,
         "products": [
             {
                 "name": "Product OS",
@@ -229,7 +229,7 @@ class TestBillingAPI(APILicensedTest):
             "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
             "current_total_amount_usd": "100.00",
             "available_features": [],
-            "deativated": False,
+            "deactivated": False,
             "products": [
                 {
                     "name": "Product OS",
