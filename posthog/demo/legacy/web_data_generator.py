@@ -165,10 +165,10 @@ class WebDataGenerator(DataGenerator):
 
     @cached_property
     def demo_data(self) -> List[Dict[str, Any]]:
-        with open(get_absolute_path("demo/demo_people.json"), "r") as demo_data_file:
+        with open(get_absolute_path("demo/legacy/demo_people.json"), "r") as demo_data_file:
             return json.load(demo_data_file)
 
     @cached_property
     def demo_recording(self) -> Dict[str, Any]:
-        with open(get_absolute_path("demo/hogflix_session_recording.json"), "r") as demo_session_file:
+        with open(get_absolute_path("demo/legacy/hogflix_session_recording.json"), "r") as demo_session_file:
             return json.load(demo_session_file)
