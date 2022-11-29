@@ -1,6 +1,5 @@
-/* eslint-disable react/forbid-dom-props */
 import './Seekbar.scss'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
@@ -25,6 +24,15 @@ function PlayerSeekbarTick({ event, sessionRecordingId, playerKey, status, numEv
     const { handleTickClick } = useActions(seekbarLogic({ sessionRecordingId, playerKey }))
     const { reportRecordingPlayerSeekbarEventHovered } = useActions(eventUsageLogic)
     const zIndexOffset = !!status ? numEvents : 0 // Bump up the important events
+
+    const hoverTimeoutRef = useRef<any>(null)
+
+    useEffect(() => {
+        return () => {
+            clearTimeout(hoverTimeoutRef.current)
+        }
+    }, [])
+
     return (
         <div
             className={clsx('PlayerSeekbarTick', status === RowStatus.Match && 'PlayerSeekbarTick--match')}
@@ -37,12 +45,14 @@ function PlayerSeekbarTick({ event, sessionRecordingId, playerKey, status, numEv
                 e.stopPropagation()
                 event.playerPosition && handleTickClick(event.playerPosition)
             }}
-            onMouseEnter={(e) => {
-                e.stopPropagation()
-                reportRecordingPlayerSeekbarEventHovered()
+            onMouseEnter={() => {
+                // We only want to report the event hover if the user is hovering over the tick for more than 1 second
+                hoverTimeoutRef.current = setTimeout(() => {
+                    reportRecordingPlayerSeekbarEventHovered()
+                }, 500)
             }}
-            onMouseLeave={(e) => {
-                e.stopPropagation()
+            onMouseLeave={() => {
+                clearTimeout(hoverTimeoutRef.current)
             }}
         >
             <div className="PlayerSeekbarTick__info">
