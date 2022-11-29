@@ -123,13 +123,3 @@
          AND "posthog_group"."group_type_index" = 2)
   '
 ---
-# name: TestFeatureFlagMatcher.test_multiple_flags.8
-  '
-  SELECT ("posthog_group"."group_properties" -> 'name') IN ('"foo.inc"') AS "flag_X_condition_0",
-         ("posthog_group"."group_properties" -> 'name') IN ('"foo2.inc"') AS "flag_X_condition_0"
-  FROM "posthog_group"
-  WHERE ("posthog_group"."team_id" = 2
-         AND "posthog_group"."group_key" = 'foo2'
-         AND "posthog_group"."group_type_index" = 2)
-  '
----
