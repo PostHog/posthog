@@ -68,7 +68,7 @@ def sentry_init() -> None:
     if not TEST and os.getenv("SENTRY_DSN"):
         sentry_sdk.utils.MAX_STRING_LENGTH = 10_000_000
         # https://docs.sentry.io/platforms/python/
-        sentry_logging = sentry_logging = LoggingIntegration(level=logging.INFO, event_level=None)
+        sentry_logging = LoggingIntegration(level=logging.INFO, event_level=None)
         profiles_sample_rate = get_from_env("SENTRY_PROFILES_SAMPLE_RATE", type_cast=float, default=0.0)
 
         sentry_sdk.init(
