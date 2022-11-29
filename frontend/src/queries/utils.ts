@@ -5,6 +5,10 @@ import {
     LegacyQuery,
     TrendsQuery,
     FunnelsQuery,
+    RetentionQuery,
+    PathsQuery,
+    StickinessQuery,
+    LifecycleQuery,
     Node,
     NodeKind,
 } from '~/queries/schema'
@@ -35,4 +39,17 @@ export function isTrendsQuery(node?: Node): node is TrendsQuery {
 
 export function isFunnelsQuery(node?: Node): node is FunnelsQuery {
     return node?.kind === NodeKind.FunnelsQuery
+}
+
+export function isRetentionQuery(node?: Node): node is RetentionQuery {
+    return node?.kind === NodeKind.RetentionQuery
+}
+export function isPathsQuery(node?: Node): node is PathsQuery {
+    return node?.kind === NodeKind.PathsQuery
+}
+export function isStickinessQuery(node?: Node): node is StickinessQuery {
+    return node?.kind === NodeKind.StickinessQuery
+}
+export function isLifecycleQuery(node?: Node): node is LifecycleQuery {
+    return node?.kind === NodeKind.LifecycleQuery
 }

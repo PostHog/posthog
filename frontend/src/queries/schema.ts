@@ -14,6 +14,10 @@ import {
     FilterType,
     TrendsFilterType,
     FunnelsFilterType,
+    RetentionFilterType,
+    PathsFilterType,
+    StickinessFilterType,
+    LifecycleFilterType,
 } from '~/types'
 
 export enum NodeKind {
@@ -28,6 +32,10 @@ export enum NodeKind {
     // New queries, not yet implemented
     TrendsQuery = 'TrendsQuery',
     FunnelsQuery = 'FunnelsQuery',
+    RetentionQuery = 'RetentionQuery',
+    PathsQuery = 'PathsQuery',
+    StickinessQuery = 'StickinessQuery',
+    LifecycleQuery = 'LifecycleQuery',
 }
 
 export type QuerySchema =
@@ -42,6 +50,10 @@ export type QuerySchema =
     // New queries, not yet implemented
     | TrendsQuery
     | FunnelsQuery
+    | RetentionQuery
+    | PathsQuery
+    | StickinessQuery
+    | LifecycleQuery
 
 /** Node base class, everything else inherits from here */
 export interface Node {
@@ -136,6 +148,35 @@ export interface FunnelsQuery extends InsightsQueryBase {
     funnelsFilter?: Omit<FunnelsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
     /** Breakdown of the events and actions */
     breakdown?: BreakdownFilter
+}
+
+export interface RetentionQuery extends InsightsQueryBase {
+    kind: NodeKind.RetentionQuery
+    /** Properties specific to the retention insight */
+    retentionFilter?: Omit<RetentionFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+}
+
+export interface PathsQuery extends InsightsQueryBase {
+    kind: NodeKind.PathsQuery
+    /** Properties specific to the paths insight */
+    pathsFilter?: Omit<PathsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+}
+
+export interface StickinessQuery extends InsightsQueryBase {
+    kind: NodeKind.StickinessQuery
+    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    interval?: IntervalType
+    /** Events and actions to include */
+    series: (EventsNode | ActionsNode)[]
+    /** Properties specific to the stickiness insight */
+    stickinessFilter?: Omit<StickinessFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+}
+export interface LifecycleQuery extends InsightsQueryBase {
+    kind: NodeKind.LifecycleQuery
+    /** Events and actions to include */
+    series: (EventsNode | ActionsNode)[]
+    /** Properties specific to the lifecycle insight */
+    lifecycleFilter?: Omit<LifecycleFilterType, keyof FilterType> // using everything except what it inherits from FilterType
 }
 
 // TODO: not supported by "ts-json-schema-generator" nor "typescript-json-schema" :(
