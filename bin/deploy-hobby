@@ -157,6 +157,7 @@ sudo usermod -aG docker "${USER}" || true
 # start up the stack
 echo "Configuring Docker Compose...."
 rm -f docker-compose.yml
+cp posthog/docker-compose.base.yml docker-compose.base.yml
 cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
 envsubst < docker-compose.yml.tmpl > docker-compose.yml
 rm docker-compose.yml.tmpl
