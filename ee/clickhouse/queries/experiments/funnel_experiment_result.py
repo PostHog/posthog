@@ -144,8 +144,8 @@ class ClickhouseFunnelExperimentResult:
         if not control_variant:
             raise ValidationError("No control variant data found", code="no_data")
 
-        if len(test_variants) > 3:
-            raise ValidationError("Can't calculate A/B test results for more than 4 variants", code="too_much_data")
+        if len(test_variants) >= 10:
+            raise ValidationError("Can't calculate A/B test results for more than 10 variants", code="too_much_data")
 
         if len(test_variants) < 1:
             raise ValidationError("Can't calculate A/B test results for less than 2 variants", code="no_data")
@@ -256,35 +256,14 @@ def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[P
     """
     Calculates the probability of winning for each variant.
     """
-    if len(variants) == 2:
-        # simple case
-        probability = simulate_winning_variant_for_conversion(variants[1], [variants[0]])
-        return [max(0, 1 - probability), probability]
+    if len(variants) > 10:
+        raise ValidationError("Can't calculate A/B test results for more than 10 variants", code="too_much_data")
 
-    elif len(variants) == 3:
-        probability_third_wins = simulate_winning_variant_for_conversion(variants[2], [variants[0], variants[1]])
-        probability_second_wins = simulate_winning_variant_for_conversion(variants[1], [variants[0], variants[2]])
-        return [
-            max(0, 1 - probability_third_wins - probability_second_wins),
-            probability_second_wins,
-            probability_third_wins,
-        ]
+    probabilities = []
+    # simulate winning for each test variant
+    for index, variant in enumerate(variants):
+        probabilities.append(simulate_winning_variant_for_conversion(variant, variants[:index] + variants[index + 1 :]))
 
-    elif len(variants) == 4:
-        probability_second_wins = simulate_winning_variant_for_conversion(
-            variants[1], [variants[0], variants[2], variants[3]]
-        )
-        probability_third_wins = simulate_winning_variant_for_conversion(
-            variants[2], [variants[0], variants[1], variants[3]]
-        )
-        probability_fourth_wins = simulate_winning_variant_for_conversion(
-            variants[3], [variants[0], variants[1], variants[2]]
-        )
-        return [
-            max(0, 1 - probability_second_wins - probability_third_wins - probability_fourth_wins),
-            probability_second_wins,
-            probability_third_wins,
-            probability_fourth_wins,
-        ]
-    else:
-        raise ValidationError("Can't calculate A/B test results for more than 4 variants", code="too_much_data")
+    total_test_probabilities = sum(probabilities[1:])
+
+    return [max(0, 1 - total_test_probabilities), *probabilities[1:]]
