@@ -221,6 +221,10 @@ class ApiRequest {
         return this.events(teamId).addPathComponent(id)
     }
 
+    public tags(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('tags')
+    }
+
     // # Data management
     public eventDefinitions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('event_definitions')
@@ -564,6 +568,12 @@ const api = {
         ): string {
             const params: EventsListQueryParams = { ...filters, limit, orderBy: ['-timestamp'] }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).assembleFullUrl()
+        },
+    },
+
+    tags: {
+        async list(teamId: TeamType['id'] = getCurrentTeamId()): Promise<string[]> {
+            return new ApiRequest().tags(teamId).get()
         },
     },
 

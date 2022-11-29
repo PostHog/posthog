@@ -8,10 +8,10 @@ from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.urls.base import resolve
 from django.utils.cache import add_never_cache_headers
+from statshog.defaults.django import statsd
 
 from posthog.api.decide import get_decide
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
-from posthog.internal_metrics import incr
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 
 from .auth import PersonalAPIKeyAuthentication
@@ -178,7 +178,7 @@ class CHQueries:
         response: HttpResponse = self.get_response(request)
 
         if "api/" in request.path and "capture" not in request.path:
-            incr("http_api_request_response", tags={"id": route_id, "status_code": response.status_code})
+            statsd.incr("http_api_request_response", tags={"id": route_id, "status_code": response.status_code})
 
         reset_query_tags()
 

@@ -21,8 +21,6 @@ export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { tab, newPlaylistLoading } = useValues(sessionRecordingsLogic)
     const { saveNewPlaylist } = useActions(sessionRecordingsLogic)
-    const recentRecordings = <SessionRecordingsPlaylist logicKey="recents" updateSearchParams />
-
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
 
     return (
@@ -131,7 +129,7 @@ export function SessionsRecordings(): JSX.Element {
             {!tab ? (
                 <Spinner />
             ) : tab === SessionRecordingsTabs.Recent ? (
-                recentRecordings
+                <SessionRecordingsPlaylist logicKey="recents" updateSearchParams />
             ) : (
                 <SavedSessionRecordingPlaylists tab={SessionRecordingsTabs.Playlists} />
             )}

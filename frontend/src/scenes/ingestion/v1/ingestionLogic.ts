@@ -16,7 +16,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { urls } from 'scenes/urls'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { windowValues } from 'kea-window-values'
@@ -24,6 +23,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { subscriptions } from 'kea-subscriptions'
 import { BillingType, TeamType } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
 
 export enum INGESTION_STEPS {
     START = 'Get started',

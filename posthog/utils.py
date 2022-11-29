@@ -307,7 +307,6 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
         context["js_posthog_host"] = "'https://app.posthog.com'"
 
-    context["js_capture_internal_metrics"] = settings.CAPTURE_INTERNAL_METRICS
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_url"] = get_js_url(request)
 
@@ -957,8 +956,16 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
 
 
 def should_refresh(request: Request) -> bool:
-    query_param = request.query_params.get("refresh")
-    data_value = request.data.get("refresh")
+    return _request_has_key_set("refresh", request)
+
+
+def should_ignore_dashboard_items_field(request: Request) -> bool:
+    return _request_has_key_set("no_items_field", request)
+
+
+def _request_has_key_set(key: str, request: Request) -> bool:
+    query_param = request.query_params.get(key)
+    data_value = request.data.get(key)
 
     return (query_param is not None and (query_param == "" or query_param.lower() == "true")) or data_value is True
 

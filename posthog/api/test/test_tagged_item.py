@@ -1,6 +1,6 @@
 from rest_framework import status
 
-from posthog.models import Dashboard, Tag
+from posthog.models import Dashboard, Insight, Tag
 from posthog.models.tagged_item import TaggedItem
 from posthog.test.base import APIBaseTest
 
@@ -79,3 +79,16 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["tags"], [])
         self.assertEqual(Tag.objects.all().count(), 1)
+
+    def test_can_list_tags_on_non_ee_and_get_empty_list(self) -> None:
+        dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
+        tag = Tag.objects.create(name="dashboard tag", team_id=self.team.id)
+        dashboard.tagged_items.create(tag_id=tag.id)
+
+        insight = Insight.objects.create(team_id=self.team.id, name="empty insight")
+        tag = Tag.objects.create(name="insight tag", team_id=self.team.id)
+        insight.tagged_items.create(tag_id=tag.id)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/tags")
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+        assert response.json() == []

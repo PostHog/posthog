@@ -27,7 +27,7 @@ from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
 from posthog.models.team.team import get_available_features_for_team
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.utils import should_refresh
+from posthog.utils import should_ignore_dashboard_items_field, should_refresh
 
 logger = structlog.get_logger(__name__)
 
@@ -342,7 +342,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
     @extend_schema(deprecated=True, description="items is deprecated, use tiles instead")
     def get_items(self, dashboard: Dashboard):
-        if self.context["view"].action == "list":
+        if self.context["view"].action == "list" or should_ignore_dashboard_items_field(self.context["request"]):
             return None
 
         # used by insight serializer to load insight filters in correct context

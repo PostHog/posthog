@@ -1,14 +1,7 @@
 import posthog from 'posthog-js'
 import api from 'lib/api'
 
-interface InternalMetricsPayload {
-    method: 'incr' | 'timing'
-    metric: string
-    value: number
-    tags: Record<string, any>
-}
-
-interface TimeToSeeDataPayload {
+export interface TimeToSeeDataPayload {
     type: 'insight_load' | 'dashboard_load'
     context: 'insight' | 'dashboard'
     time_to_see_data_ms: number
@@ -23,12 +16,6 @@ interface TimeToSeeDataPayload {
     insights_fetched_cached: number
     min_last_refresh?: string | null
     max_last_refresh?: string | null
-}
-
-export async function captureInternalMetric(payload: InternalMetricsPayload): Promise<void> {
-    if (window.JS_CAPTURE_INTERNAL_METRICS) {
-        await api.create('api/instance_status/capture', payload)
-    }
 }
 
 export async function captureTimeToSeeData(teamId: number | null, payload: TimeToSeeDataPayload): Promise<void> {

@@ -48,7 +48,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { EventsTable } from 'scenes/events'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
-import { ResourcePermissionModal } from 'scenes/ResourcePermissionModal'
+import { ResourcePermission, ResourcePermissionModal } from 'scenes/ResourcePermissionModal'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 export const scene: SceneExport = {
@@ -241,6 +241,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </Field>
                             </Col>
                             <Col span={12}>
+                                <LemonButton type="secondary" onClick={() => setModalOpen(true)} className="mb-4">
+                                    Set permissions
+                                </LemonButton>
                                 <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
                             </Col>
                         </Row>
@@ -388,13 +391,19 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         <Tabs.TabPane tab="Permissions" key="permissions">
                                             <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
                                                 {featureFlag.can_edit && (
-                                                    <LemonButton
-                                                        type="secondary"
-                                                        onClick={() => setModalOpen(true)}
-                                                        className="mb-4"
-                                                    >
-                                                        Set permissions
-                                                    </LemonButton>
+                                                    <ResourcePermission
+                                                        resourceType={Resource.FEATURE_FLAGS}
+                                                        isNewResource={id === 'new'}
+                                                        onChange={(roleIds) => setRolesToAdd(roleIds)}
+                                                        rolesToAdd={rolesToAdd}
+                                                        addableRoles={addableRoles}
+                                                        addableRolesLoading={unfilteredAddableRolesLoading}
+                                                        onAdd={() => addAssociatedRoles()}
+                                                        roles={derivedRoles}
+                                                        deleteAssociatedRole={(id) =>
+                                                            deleteAssociatedRole({ roleId: id })
+                                                        }
+                                                    />
                                                 )}
                                             </PayGateMini>
                                         </Tabs.TabPane>

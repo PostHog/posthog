@@ -76,7 +76,7 @@ describe('Dashboard', () => {
     it('Create an empty dashboard', () => {
         cy.get('[data-attr="new-dashboard"]').click()
         cy.get('[data-attr=dashboard-name-input]').clear().type('New Dashboard')
-        cy.get('button').contains('Create').click()
+        cy.get('[data-attr="dashboard-submit-and-go"]').contains('Create and go to dashboard').click()
 
         cy.contains('New Dashboard').should('exist')
         cy.get('.EmptyDashboard').should('exist')

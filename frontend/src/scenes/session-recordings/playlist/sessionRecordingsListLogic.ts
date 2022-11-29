@@ -258,13 +258,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             actions.getSessionRecordingsProperties({})
         },
     })),
-    subscriptions(({ actions }) => ({
-        staticRecordings: (staticRecording, oldStaticRecording) => {
-            if (!equal(staticRecording, oldStaticRecording)) {
-                actions.getSessionRecordings({})
-            }
-        },
-    })),
     selectors({
         sessionRecordingIdToProperties: [
             (s) => [s.sessionRecordingsPropertiesResponse],
@@ -311,10 +304,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             (filters) =>
                 (filters?.actions?.length || 0) + (filters?.events?.length || 0) + (filters?.properties?.length || 0),
         ],
-    }),
-
-    afterMount(({ actions }) => {
-        actions.getSessionRecordings({})
     }),
 
     actionToUrl(({ props, values }) => {
@@ -369,5 +358,21 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         return {
             '*': urlToAction,
         }
+    }),
+
+    subscriptions(({ actions, props }) => ({
+        staticRecordings: (staticRecording, oldStaticRecording) => {
+            if (!props.isStatic) {
+                return
+            }
+            if (!equal(staticRecording || [], oldStaticRecording || [])) {
+                actions.getSessionRecordings({})
+            }
+        },
+    })),
+
+    // NOTE: It is important this comes after urlToAction, as it will override the default behavior
+    afterMount(({ actions }) => {
+        actions.getSessionRecordings({})
     }),
 ])

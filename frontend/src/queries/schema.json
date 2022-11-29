@@ -2,6 +2,56 @@
     "$ref": "#/definitions/QuerySchema",
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
+        "ActionsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "kind": {
+                    "const": "ActionsNode",
+                    "type": "string"
+                },
+                "math": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BaseMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/CountPerActorMathType"
+                        }
+                    ]
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                }
+            },
+            "required": ["id", "kind"],
+            "type": "object"
+        },
         "AggregationAxisFormat": {
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled"],
             "type": "string"
@@ -1076,6 +1126,10 @@
                 }
             ]
         },
+        "BaseMathType": {
+            "enum": ["total", "dau", "weekly_active", "monthly_active", "unique_session"],
+            "type": "string"
+        },
         "BinCountValue": {
             "anyOf": [
                 {
@@ -1106,6 +1160,43 @@
         "BreakdownAttributionType": {
             "enum": ["first_touch", "last_touch", "all_events", "step"],
             "type": "string"
+        },
+        "BreakdownFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_group_type_index": {
+                    "type": "number"
+                },
+                "breakdown": {
+                    "$ref": "#/definitions/BreakdownKeyType"
+                },
+                "breakdown_group_type_index": {
+                    "type": ["number", "null"]
+                },
+                "breakdown_normalize_url": {
+                    "type": "boolean"
+                },
+                "breakdown_type": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BreakdownType"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "breakdown_value": {
+                    "type": ["string", "number"]
+                },
+                "breakdowns": {
+                    "items": {
+                        "$ref": "#/definitions/Breakdown"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
         },
         "BreakdownKeyType": {
             "anyOf": [
@@ -1141,6 +1232,18 @@
                 "ActionsBarValue",
                 "WorldMap",
                 "BoldNumber"
+            ],
+            "type": "string"
+        },
+        "CountPerActorMathType": {
+            "enum": [
+                "avg_count_per_actor",
+                "min_count_per_actor",
+                "max_count_per_actor",
+                "median_count_per_actor",
+                "p90_count_per_actor",
+                "p95_count_per_actor",
+                "p99_count_per_actor"
             ],
             "type": "string"
         },
@@ -1223,6 +1326,20 @@
                     "type": "string"
                 }
             ]
+        },
+        "DateRange": {
+            "additionalProperties": false,
+            "properties": {
+                "date_from": {
+                    "description": "TODO",
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "description": "ISO 8601 date string, TODO: relative_date_parse",
+                    "type": ["string", "null"]
+                }
+            },
+            "type": "object"
         },
         "ElementType": {
             "additionalProperties": false,
@@ -1325,6 +1442,9 @@
         "EventsNode": {
             "additionalProperties": false,
             "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
                 "event": {
                     "type": "string"
                 },
@@ -1335,18 +1455,34 @@
                 "limit": {
                     "type": "number"
                 },
-                "properties": {
+                "math": {
                     "anyOf": [
                         {
-                            "items": {
-                                "$ref": "#/definitions/AnyPropertyFilter"
-                            },
-                            "type": "array"
+                            "$ref": "#/definitions/BaseMathType"
                         },
                         {
-                            "$ref": "#/definitions/PropertyGroupFilter"
+                            "$ref": "#/definitions/PropertyMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/CountPerActorMathType"
                         }
                     ]
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "additionalProperties": false,
@@ -1496,6 +1632,10 @@
             "required": ["type", "values"],
             "type": "object"
         },
+        "PropertyMathType": {
+            "enum": ["avg", "sum", "min", "max", "median", "p90", "p95", "p99"],
+            "type": "string"
+        },
         "PropertyOperator": {
             "description": "Sync with plugin-server/src/types.ts",
             "enum": [
@@ -1527,10 +1667,16 @@
                     "$ref": "#/definitions/EventsNode"
                 },
                 {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
                     "$ref": "#/definitions/DataTableNode"
                 },
                 {
                     "$ref": "#/definitions/LegacyQuery"
+                },
+                {
+                    "$ref": "#/definitions/TrendsQuery"
                 }
             ]
         },
@@ -1545,6 +1691,108 @@
         "StepOrderValue": {
             "enum": ["strict", "unordered", "ordered"],
             "type": "string"
+        },
+        "TrendsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown": {
+                    "$ref": "#/definitions/BreakdownFilter"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+                },
+                "kind": {
+                    "const": "TrendsQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
+                },
+                "series": {
+                    "description": "Events and actions to include",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/EventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/ActionsNode"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "trendsFilter": {
+                    "additionalProperties": false,
+                    "description": "Properties specific to the trends insight",
+                    "properties": {
+                        "aggregation_axis_format": {
+                            "$ref": "#/definitions/AggregationAxisFormat"
+                        },
+                        "aggregation_axis_postfix": {
+                            "type": "string"
+                        },
+                        "aggregation_axis_prefix": {
+                            "type": "string"
+                        },
+                        "breakdown_histogram_bin_count": {
+                            "type": "number"
+                        },
+                        "compare": {
+                            "type": "boolean"
+                        },
+                        "display": {
+                            "$ref": "#/definitions/ChartDisplayType"
+                        },
+                        "formula": {},
+                        "hidden_legend_keys": {
+                            "additionalProperties": {
+                                "anyOf": [
+                                    {
+                                        "type": "boolean"
+                                    },
+                                    {
+                                        "not": {}
+                                    }
+                                ]
+                            },
+                            "type": "object"
+                        },
+                        "show_legend": {
+                            "type": "boolean"
+                        },
+                        "shown_as": {
+                            "$ref": "#/definitions/ShownAsValue"
+                        },
+                        "smoothing_intervals": {
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "required": ["kind", "series"],
+            "type": "object"
         }
     }
 }

@@ -39,7 +39,6 @@ class Stickiness:
         WHERE num_intervals <= %(num_intervals)s
         GROUP BY num_intervals
         ORDER BY num_intervals
-        SETTINGS optimize_move_to_prewhere = 0
         """
 
         counts = insight_sync_execute(

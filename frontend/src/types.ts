@@ -330,13 +330,19 @@ export interface ElementType {
 }
 
 export type ToolbarUserIntent = 'add-action' | 'edit-action'
+export type ToolbarSource = 'url' | 'localstorage'
+export type ToolbarVersion = 'toolbar'
 
-export interface EditorProps {
+/* sync with posthog-js */
+export interface ToolbarParams {
     apiURL?: string
     jsURL?: string
-    temporaryToken?: string
+    token?: string /** public posthog-js token */
+    temporaryToken?: string /** private temporary user token */
     actionId?: number
     userIntent?: ToolbarUserIntent
+    source?: ToolbarSource
+    toolbarVersion?: ToolbarVersion
     instrument?: boolean
     distinctId?: string
     userEmail?: string
@@ -344,7 +350,7 @@ export interface EditorProps {
     featureFlags?: Record<string, string | boolean>
 }
 
-export interface ToolbarProps extends EditorProps {
+export interface ToolbarProps extends ToolbarParams {
     posthog?: PostHog
     disableExternalStyles?: boolean
 }
@@ -1444,9 +1450,6 @@ export interface SystemStatusRow {
 
 export interface SystemStatus {
     overview: SystemStatusRow[]
-    internal_metrics: {
-        clickhouse?: DashboardType
-    }
 }
 
 export type QuerySummary = { duration: string } & Record<string, string>
@@ -1772,7 +1775,6 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
 
 export enum DashboardPlacement {
     Dashboard = 'dashboard', // When on the standard dashboard page
-    InternalMetrics = 'internal-metrics', // When embedded in /instance/status
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
     Public = 'public', // When viewing the dashboard publicly
     Export = 'export', // When the dashboard is being exported (alike to being printed)
@@ -2314,21 +2316,33 @@ export enum ExporterFormat {
     PNG = 'image/png',
     CSV = 'text/csv',
     PDF = 'application/pdf',
+    JSON = 'application/json',
 }
+
+/** Exporting directly from the browser to a file */
+export type LocalExportContext = {
+    localData: string
+    filename: string
+    mediaType: ExporterFormat
+}
+
+export type OnlineExportContext = {
+    method?: string
+    path: string
+    query?: any
+    body?: any
+    filename?: string
+    max_limit?: number
+}
+
+export type ExportContext = OnlineExportContext | LocalExportContext
 
 export interface ExportedAssetType {
     id: number
     export_format: ExporterFormat
     dashboard?: number
     insight?: number
-    export_context?: {
-        method?: string
-        path: string
-        query?: any
-        body?: any
-        filename?: string
-        max_limit?: number
-    }
+    export_context?: ExportContext
     has_content: boolean
     filename: string
 }

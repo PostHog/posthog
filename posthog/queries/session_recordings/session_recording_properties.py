@@ -31,6 +31,7 @@ class SessionRecordingProperties(EventQuery):
         "$host",
         "$pathname",
         "$geoip_country_code",
+        "$geoip_country_name",
     }
 
     # First $pageview event in a recording is used to extract metadata (brower, location, etc.) without

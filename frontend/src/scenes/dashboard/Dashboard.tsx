@@ -101,11 +101,7 @@ function DashboardScene(): JSX.Element {
             ) : (
                 <div>
                     <div className="flex space-x-4 justify-between">
-                        {![
-                            DashboardPlacement.Public,
-                            DashboardPlacement.Export,
-                            DashboardPlacement.InternalMetrics,
-                        ].includes(placement) && (
+                        {![DashboardPlacement.Public, DashboardPlacement.Export].includes(placement) && (
                             <div className="flex space-x-4">
                                 <div className="flex items-center h-8">
                                     <DateFilter
@@ -135,9 +131,7 @@ function DashboardScene(): JSX.Element {
                                     className="left-item"
                                     style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
                                 >
-                                    {[DashboardPlacement.Public, DashboardPlacement.InternalMetrics].includes(
-                                        placement
-                                    ) ? (
+                                    {[DashboardPlacement.Public].includes(placement) ? (
                                         <LastRefreshText />
                                     ) : (
                                         <DashboardReloadAction />

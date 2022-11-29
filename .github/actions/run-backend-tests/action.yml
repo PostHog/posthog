@@ -36,8 +36,8 @@ runs:
           shell: bash
           run: |
               export CLICKHOUSE_SERVER_IMAGE=${{ inputs.clickhouse-server-image }}
-              docker-compose -f docker-compose.dev.yml down
-              docker-compose -f docker-compose.dev.yml up -d
+              docker compose -f docker-compose.dev.yml down
+              docker compose -f docker-compose.dev.yml up -d
 
         - name: Add Kafka to /etc/hosts
           shell: bash
