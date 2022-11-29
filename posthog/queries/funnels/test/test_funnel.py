@@ -5,7 +5,7 @@ from unittest.mock import patch
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
 
-from posthog.caching.update_caching import update_cache_item
+from posthog.caching.update_cache import update_cache_item
 from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS
 from posthog.models import Action, ActionStep, Element
 from posthog.models.cohort import Cohort
