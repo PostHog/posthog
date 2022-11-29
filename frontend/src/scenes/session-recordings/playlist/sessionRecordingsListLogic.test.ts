@@ -255,6 +255,23 @@ describe('sessionRecordingsListLogic', () => {
             })
         })
 
+        describe('set recording from hash param', () => {
+            it('loads the correct recording from the hash params', async () => {
+                router.actions.push('/recordings/recent', {}, { sessionRecordingId: 'abc' })
+
+                logic = sessionRecordingsListLogic({
+                    key: 'hash-recording-tests',
+                })
+                logic.mount()
+
+                await expectLogic(logic).toDispatchActions(['getSessionRecordingsSuccess']).toMatchValues({
+                    selectedRecordingId: 'abc',
+                })
+
+                logic.actions.setSelectedRecordingId('1234')
+            })
+        })
+
         describe('sessionRecording.viewed', () => {
             it('changes when setSelectedRecordingId is called', () => {
                 expectLogic(logic, () => {

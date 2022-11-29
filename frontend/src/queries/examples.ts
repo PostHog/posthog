@@ -1,6 +1,13 @@
 // This file contains example queries, used in storybook and in the /query interface.
-import { EventsNode, DataTableNode, LegacyQuery, Node, NodeKind } from '~/queries/schema'
-import { ChartDisplayType, InsightType, PropertyFilterType, PropertyOperator } from '~/types'
+import { EventsNode, DataTableNode, LegacyQuery, Node, NodeKind, TrendsQuery } from '~/queries/schema'
+import {
+    ChartDisplayType,
+    InsightType,
+    PropertyFilterType,
+    PropertyOperator,
+    PropertyMathType,
+    FilterLogicalOperator,
+} from '~/types'
 import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/DataTable'
 
 const Events: EventsNode = {
@@ -28,10 +35,87 @@ const LegacyTrendsQuery: LegacyQuery = {
     },
 }
 
+const InsightTrendsQuery: TrendsQuery = {
+    kind: NodeKind.TrendsQuery,
+    interval: 'day',
+    dateRange: {
+        date_from: '-7d',
+    },
+    series: [
+        {
+            kind: NodeKind.EventsNode,
+            name: '$pageview',
+            custom_name: 'Views',
+            event: '$pageview',
+            properties: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$browser',
+                    operator: PropertyOperator.Exact,
+                    value: 'Chrome',
+                },
+                {
+                    type: PropertyFilterType.Cohort,
+                    key: 'id',
+                    value: 2,
+                },
+            ],
+            limit: 100, // TODO - can't find a use for `limits` in insights/trends
+        },
+        {
+            kind: NodeKind.ActionsNode,
+            id: 1,
+            name: 'Interacted with file',
+            custom_name: 'Interactions',
+            properties: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$geoip_country_code',
+                    operator: PropertyOperator.Exact,
+                    value: ['US'],
+                },
+            ],
+            math: PropertyMathType.Average,
+            math_property: '$session_duration',
+        },
+    ],
+    filterTestAccounts: false,
+    properties: {
+        type: FilterLogicalOperator.And,
+        values: [
+            {
+                type: FilterLogicalOperator.Or,
+                values: [
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$current_url',
+                        operator: PropertyOperator.Exact,
+                        value: ['https://hedgebox.net/files/'],
+                    },
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$geoip_country_code',
+                        operator: PropertyOperator.Exact,
+                        value: ['US', 'AU'],
+                    },
+                ],
+            },
+        ],
+    },
+    trendsFilter: {
+        display: ChartDisplayType.ActionsAreaGraph,
+    },
+    breakdown: {
+        breakdown: '$geoip_country_code',
+        breakdown_type: 'event',
+    },
+}
+
 export const examples: Record<string, Node> = {
     Events,
     EventsTable,
     LegacyTrendsQuery,
+    InsightTrendsQuery,
 }
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(
