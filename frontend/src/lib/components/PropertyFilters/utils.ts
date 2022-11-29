@@ -20,11 +20,12 @@ import {
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { flattenPropertyGroup, isPropertyGroup } from 'lib/utils'
 
+/** Make sure unverified user property filter input has at least a "type" */
 export function sanitizePropertyFilter(propertyFilter: AnyPropertyFilter): AnyPropertyFilter {
-    if (!propertyFilter.type && propertyFilter.value) {
+    if (!propertyFilter.type) {
         return {
             ...propertyFilter,
-            type: 'event',
+            type: PropertyFilterType.Event,
         }
     }
     return propertyFilter
