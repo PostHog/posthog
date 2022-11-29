@@ -9,6 +9,12 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from pytest import fixture
 
+from posthog.caching.update_caching import (
+    ensure_is_date,
+    synchronously_update_insight_cache,
+    update_cache_item,
+    update_cached_items,
+)
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, INSIGHT_STICKINESS
 from posthog.decorators import CacheType
 from posthog.models import Dashboard, DashboardTile, EventDefinition, Filter, Insight
@@ -19,12 +25,6 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team
 from posthog.queries.util import get_earliest_timestamp
-from posthog.tasks.update_cache import (
-    ensure_is_date,
-    synchronously_update_insight_cache,
-    update_cache_item,
-    update_cached_items,
-)
 from posthog.test.base import APIBaseTest
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key, get_safe_cache
@@ -115,7 +115,7 @@ class TestSynchronousCacheUpdate(APIBaseTest):
     @fixture(scope="class", autouse=True)
     def redis_recency(self) -> Generator[List[int], None, None]:
         """The current team is always recent for these tests"""
-        with patch("posthog.tasks.update_cache.get_client") as mock_redis_get_client:
+        with patch("posthog.caching.update_caching.get_client") as mock_redis_get_client:
             recent_teams = [(self.team.id, 1)]
             mock_redis_get_client.return_value.zrange.return_value = recent_teams
 
@@ -191,7 +191,7 @@ class TestUpdateCache(APIBaseTest):
     @fixture(scope="class", autouse=True)
     def redis_recency(self) -> Generator[List[int], None, None]:
         """The current team is always recent for these tests"""
-        with patch("posthog.tasks.update_cache.get_client") as mock_redis_get_client:
+        with patch("posthog.caching.update_caching.get_client") as mock_redis_get_client:
             recent_teams = [(self.team.id, 1)]
             mock_redis_get_client.return_value.zrange.return_value = recent_teams
 
@@ -211,7 +211,7 @@ class TestUpdateCache(APIBaseTest):
         assert insight_one.filters_hash == insight_two.filters_hash
         assert insight_two.filters_hash == insight_three.filters_hash
 
-    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.caching.update_caching.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     def test_refresh_dashboard_cache(self, patch_update_cache_item: MagicMock, _: MagicMock) -> None:
         # There's two things we want to refresh
@@ -331,7 +331,7 @@ class TestUpdateCache(APIBaseTest):
         self.assertEqual(get_safe_cache(funnel_key)["result"][0]["count"], 0)
 
     @freeze_time("2012-01-15")
-    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.caching.update_caching.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     def test_refresh_dashboard_cache_types(
         self, patch_update_cache_item: MagicMock, _patch_apply_async: MagicMock
@@ -391,8 +391,8 @@ class TestUpdateCache(APIBaseTest):
     @freeze_time("2012-01-15")
     @patch("posthog.queries.funnels.ClickhouseFunnelUnordered", create=True)
     @patch("posthog.queries.funnels.ClickhouseFunnelStrict", create=True)
-    @patch("posthog.tasks.update_cache.ClickhouseFunnelTimeToConvert", create=True)
-    @patch("posthog.tasks.update_cache.ClickhouseFunnelTrends", create=True)
+    @patch("posthog.caching.update_caching.ClickhouseFunnelTimeToConvert", create=True)
+    @patch("posthog.caching.update_caching.ClickhouseFunnelTrends", create=True)
     @patch("posthog.queries.funnels.ClickhouseFunnel", create=True)
     def test_update_cache_item_calls_right_funnel_class_clickhouse(
         self,
@@ -514,7 +514,7 @@ class TestUpdateCache(APIBaseTest):
         )
         return insight, dashboard_to_cache
 
-    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.caching.update_caching.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     @freeze_time("2012-01-15")
     def test_stickiness_regression(self, patch_update_cache_item: MagicMock, _patch_apply_async: MagicMock) -> None:
@@ -560,7 +560,7 @@ class TestUpdateCache(APIBaseTest):
             ["10-Jan-2012", "11-Jan-2012", "12-Jan-2012", "13-Jan-2012", "14-Jan-2012", "15-Jan-2012"],
         )
 
-    @patch("posthog.tasks.update_cache._calculate_by_filter")
+    @patch("posthog.caching.update_caching._calculate_by_filter")
     def test_errors_refreshing(self, patch_calculate_by_filter: MagicMock) -> None:
         """
         When there are no filters on the dashboard, the tile and insight cache keys match
@@ -619,7 +619,7 @@ class TestUpdateCache(APIBaseTest):
             self.assertEqual(Insight.objects.get().refresh_attempt, 0)
             self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
 
-    @patch("posthog.tasks.update_cache._calculate_by_filter")
+    @patch("posthog.caching.update_caching._calculate_by_filter")
     def test_errors_refreshing_dashboard_tile(self, patch_calculate_by_filter: MagicMock) -> None:
         """
         When a filters_hash matches the dashboard tile and not the insight the cache update doesn't touch the Insight
@@ -741,7 +741,7 @@ class TestUpdateCache(APIBaseTest):
         self.assertEqual(number_of_results, number_of_days_in_results)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
-    @patch("posthog.tasks.update_cache.insight_update_task_params")
+    @patch("posthog.caching.update_caching.insight_update_task_params")
     def test_broken_insights(self, dashboard_item_update_task_params: MagicMock) -> None:
         # sometimes we have broken insights, add a test to catch
         dashboard = create_shared_dashboard(team=self.team, is_shared=True)
@@ -752,7 +752,7 @@ class TestUpdateCache(APIBaseTest):
 
         self.assertEqual(dashboard_item_update_task_params.call_count, 0)
 
-    @patch("posthog.tasks.update_cache.insight_update_task_params")
+    @patch("posthog.caching.update_caching.insight_update_task_params")
     def test_broken_exception_insights(self, dashboard_item_update_task_params: MagicMock) -> None:
         dashboard_item_update_task_params.side_effect = Exception()
         dashboard = create_shared_dashboard(team=self.team, is_shared=True)
@@ -764,7 +764,7 @@ class TestUpdateCache(APIBaseTest):
 
         self.assertEquals(Insight.objects.get().refresh_attempt, 1)
 
-    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.caching.update_caching.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     @freeze_time("2022-01-03T00:00:00.000Z")
     def test_refresh_insight_cache(self, patch_update_cache_item: MagicMock, _patch_apply_async: MagicMock) -> None:
@@ -878,7 +878,7 @@ class TestUpdateCache(APIBaseTest):
         insight.refresh_from_db()
         assert insight.refresh_attempt == 1
 
-    @patch("posthog.tasks.update_cache.statsd.gauge")
+    @patch("posthog.caching.update_caching.statsd.gauge")
     def test_never_refreshed_tiles_are_gauged(self, statsd_gauge: MagicMock) -> None:
         dashboard = create_shared_dashboard(team=self.team, is_shared=True)
         filter = {"events": [{"id": "$pageview"}]}
@@ -892,7 +892,7 @@ class TestUpdateCache(APIBaseTest):
         statsd_gauge.assert_any_call("update_cache_queue.never_refreshed", 1)
 
     @freeze_time("2022-12-01T13:54:00.000Z")
-    @patch("posthog.tasks.update_cache.statsd.gauge")
+    @patch("posthog.caching.update_caching.statsd.gauge")
     def test_refresh_age_of_tiles_is_gauged(self, statsd_gauge: MagicMock) -> None:
         tile_one = _a_dashboard_tile_with_known_last_refresh(self.team, datetime.now(pytz.utc) - timedelta(hours=1))
         tile_two = _a_dashboard_tile_with_known_last_refresh(self.team, datetime.now(pytz.utc) - timedelta(hours=0.5))
@@ -930,8 +930,8 @@ class TestUpdateCache(APIBaseTest):
         ]
         assert len(lag_calls) == 2
 
-    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "None"})
-    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.caching.update_caching._calculate_by_filter", return_value={"not": "None"})
+    @patch("posthog.caching.update_caching.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     def test_update_skips_items_refreshed_in_last_three_minutes(
         self, patch_update_cache_item: MagicMock, _patch_apply_async: MagicMock, _patch_generate_results: MagicMock
@@ -971,11 +971,11 @@ class TestUpdateCache(APIBaseTest):
             assert insight_one.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
             assert insight_two.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
 
-    @patch("posthog.tasks.update_cache.cache.set")
-    @patch("posthog.tasks.update_cache._calculate_by_filter")
-    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.caching.update_caching.cache.set")
+    @patch("posthog.caching.update_caching._calculate_by_filter")
+    @patch("posthog.caching.update_caching.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
-    @patch("posthog.tasks.update_cache.statsd.incr")
+    @patch("posthog.caching.update_caching.statsd.incr")
     def test_update_insight_cache_reports_zero_filters_hashes_updated_when_tile_has_correct_filters_hash(
         self,
         statsd_incr: MagicMock,
@@ -993,10 +993,10 @@ class TestUpdateCache(APIBaseTest):
         assert [mock_call.args[0] for mock_call in statsd_incr.mock_calls] == ["update_cache_item_success"]
 
     @freeze_time("2021-08-25T22:09:14.252Z")
-    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not", "an empty result"})
-    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.caching.update_caching._calculate_by_filter", return_value={"not", "an empty result"})
+    @patch("posthog.caching.update_caching.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
-    @patch("posthog.tasks.update_cache.statsd.incr")
+    @patch("posthog.caching.update_caching.statsd.incr")
     def test_update_insight_filters_hash(
         self,
         statsd_incr: MagicMock,
@@ -1019,9 +1019,9 @@ class TestUpdateCache(APIBaseTest):
         statsd_incr.assert_any_call("update_cache_item_success", tags=ANY)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
-    @patch("posthog.tasks.update_cache.cache.set")
-    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
-    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.caching.update_caching.cache.set")
+    @patch("posthog.caching.update_caching._calculate_by_filter", return_value={"not": "empty result"})
+    @patch("posthog.caching.update_caching.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     def test_update_dashboard_tile_updates_tile_and_insight_filters_hash_when_dashboard_has_no_filters(
         self,
@@ -1046,9 +1046,9 @@ class TestUpdateCache(APIBaseTest):
         assert tile.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
 
     @freeze_time("2021-08-25T22:09:14.252Z")
-    @patch("posthog.tasks.update_cache.cache.set")
-    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
-    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.caching.update_caching.cache.set")
+    @patch("posthog.caching.update_caching._calculate_by_filter", return_value={"not": "empty result"})
+    @patch("posthog.caching.update_caching.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     def test_update_dashboard_tile_updates_only_tile_when_different_filters(
         self,
@@ -1082,15 +1082,15 @@ class TestUpdateCacheForSharedInsights(APIBaseTest):
     @fixture(scope="class", autouse=True)
     def redis_recency(self) -> Generator[List[int], None, None]:
         """The current team is always recent for these tests"""
-        with patch("posthog.tasks.update_cache.get_client") as mock_redis_get_client:
+        with patch("posthog.caching.update_caching.get_client") as mock_redis_get_client:
             recent_teams = [(self.team.id, 1)]
             mock_redis_get_client.return_value.zrange.return_value = recent_teams
 
             yield [i for i, _ in recent_teams]
 
-    @patch("posthog.tasks.update_cache.cache.set")
-    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
-    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.caching.update_caching.cache.set")
+    @patch("posthog.caching.update_caching._calculate_by_filter", return_value={"not": "empty result"})
+    @patch("posthog.caching.update_caching.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     def test_updates_insight_with_incorrect_filters_hash(
         self,
@@ -1109,9 +1109,9 @@ class TestUpdateCacheForSharedInsights(APIBaseTest):
         assert insight.filters_hash != test_hash
         assert insight.last_refresh is not None
 
-    @patch("posthog.tasks.update_cache.cache.set")
-    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
-    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.caching.update_caching.cache.set")
+    @patch("posthog.caching.update_caching._calculate_by_filter", return_value={"not": "empty result"})
+    @patch("posthog.caching.update_caching.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     def test_updates_insight_with_null_filters_hash(
         self,
@@ -1135,15 +1135,15 @@ class TestCacheEventsLastSeenUsedToSkipQueries(APIBaseTest):
     @fixture(scope="class", autouse=True)
     def redis_recency(self) -> Generator[List[int], None, None]:
         """The current team is always recent for these tests"""
-        with patch("posthog.tasks.update_cache.get_client") as mock_redis_get_client:
+        with patch("posthog.caching.update_caching.get_client") as mock_redis_get_client:
             recent_teams = [(self.team.id, 1)]
             mock_redis_get_client.return_value.zrange.return_value = recent_teams
 
             yield [i for i, _ in recent_teams]
 
-    @patch("posthog.tasks.update_cache.cache.set")
-    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
-    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.caching.update_caching.cache.set")
+    @patch("posthog.caching.update_caching._calculate_by_filter", return_value={"not": "empty result"})
+    @patch("posthog.caching.update_caching.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     def test_events_not_recently_ingested_are_not_queried(
         self,
@@ -1171,9 +1171,9 @@ class TestCacheEventsLastSeenUsedToSkipQueries(APIBaseTest):
 
         patch_calculate_by_filter.assert_not_called()
 
-    @patch("posthog.tasks.update_cache.cache.set")
-    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
-    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.caching.update_caching.cache.set")
+    @patch("posthog.caching.update_caching._calculate_by_filter", return_value={"not": "empty result"})
+    @patch("posthog.caching.update_caching.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     def test_trends_with_actions_are_always_queried(
         self,
@@ -1213,9 +1213,9 @@ class TestCacheEventsLastSeenUsedToSkipQueries(APIBaseTest):
 
         patch_calculate_by_filter.assert_any_call(ANY, shared_insight.filters_hash, self.team, "Trends")
 
-    @patch("posthog.tasks.update_cache.cache.set")
-    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
-    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.caching.update_caching.cache.set")
+    @patch("posthog.caching.update_caching._calculate_by_filter", return_value={"not": "empty result"})
+    @patch("posthog.caching.update_caching.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     def test_events_not_recently_ingested_are_always_queried_for_retention_insight(
         self,
@@ -1254,9 +1254,9 @@ class TestCacheEventsLastSeenUsedToSkipQueries(APIBaseTest):
 
         patch_calculate_by_filter.assert_any_call(ANY, shared_insight.filters_hash, self.team, "Retention")
 
-    @patch("posthog.tasks.update_cache.cache.set")
-    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
-    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.caching.update_caching.cache.set")
+    @patch("posthog.caching.update_caching._calculate_by_filter", return_value={"not": "empty result"})
+    @patch("posthog.caching.update_caching.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     def test_events_not_recently_ingested_are_always_queried_for_paths_insight(
         self,
@@ -1294,9 +1294,9 @@ class TestCacheEventsLastSeenUsedToSkipQueries(APIBaseTest):
 
         patch_calculate_by_filter.assert_any_call(ANY, shared_insight.filters_hash, self.team, "Path")
 
-    @patch("posthog.tasks.update_cache.cache.set")
-    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
-    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.caching.update_caching.cache.set")
+    @patch("posthog.caching.update_caching._calculate_by_filter", return_value={"not": "empty result"})
+    @patch("posthog.caching.update_caching.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     def test_only_one_of_several_events_not_recently_ingested_still_runs_cache_update(
         self,
@@ -1339,8 +1339,8 @@ class TestCacheTeamRecency(APIBaseTest):
         mock_redis_get_client.return_value.zrange.return_value = recent_teams
         mock_redis_get_client.return_value.zadd.return_value = MagicMock
 
-    @patch("posthog.tasks.update_cache.sync_execute")
-    @patch("posthog.tasks.update_cache.get_client")
+    @patch("posthog.caching.update_caching.sync_execute")
+    @patch("posthog.caching.update_caching.get_client")
     def test_queries_clickhouse_if_no_recent_teams(
         self, mock_redis_get_client: MagicMock, mock_sync_execute: MagicMock
     ) -> None:
@@ -1353,7 +1353,7 @@ class TestCacheTeamRecency(APIBaseTest):
 
         mock_redis_get_client.return_value.zadd.assert_called_once()
 
-    @patch("posthog.tasks.update_cache.get_client")
+    @patch("posthog.caching.update_caching.get_client")
     def test_does_not_query_clickhouse_if_recent_teams(self, mock_redis_get_client: MagicMock) -> None:
         recent_teams: List[Tuple[bytes, float]] = [(b"1", 1.0)]
         self._mock_redis_team_recency(mock_redis_get_client, recent_teams)
@@ -1362,8 +1362,8 @@ class TestCacheTeamRecency(APIBaseTest):
 
         mock_redis_get_client.return_value.zadd.assert_not_called()
 
-    @patch("posthog.tasks.update_cache.group.apply_async")
-    @patch("posthog.tasks.update_cache.get_client")
+    @patch("posthog.caching.update_caching.group.apply_async")
+    @patch("posthog.caching.update_caching.get_client")
     @patch("posthog.celery.update_cache_item_task.s")
     def test_does_not_update_cache_for_non_recent_teams(
         self, patch_update_cache_item: MagicMock, mock_redis_get_client: MagicMock, _mock_group_apply: MagicMock

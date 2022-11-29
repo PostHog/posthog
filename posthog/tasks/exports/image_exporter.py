@@ -17,9 +17,9 @@ from statshog.defaults.django import statsd
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.utils import ChromeType
 
+from posthog.caching.update_caching import synchronously_update_insight_cache
 from posthog.logging.timing import timed
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
-from posthog.tasks.update_cache import synchronously_update_insight_cache
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)

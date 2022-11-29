@@ -12,6 +12,7 @@ from rest_framework import status
 from ee.api.test.base import LicensedTestMixin
 from ee.models import DashboardPrivilege
 from ee.models.explicit_team_membership import ExplicitTeamMembership
+from posthog.caching.update_caching import synchronously_update_insight_cache
 from posthog.models import (
     Cohort,
     Dashboard,
@@ -24,7 +25,6 @@ from posthog.models import (
     User,
 )
 from posthog.models.organization import OrganizationMembership
-from posthog.tasks.update_cache import synchronously_update_insight_cache
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, _create_event, _create_person
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_journeys import journeys_for
