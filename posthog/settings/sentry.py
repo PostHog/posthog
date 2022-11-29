@@ -7,6 +7,7 @@ from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.logging import LoggingIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
 
+from posthog.settings import get_from_env
 from posthog.settings.base_variables import TEST
 
 
@@ -68,6 +69,8 @@ def sentry_init() -> None:
         sentry_sdk.utils.MAX_STRING_LENGTH = 10_000_000
         # https://docs.sentry.io/platforms/python/
         sentry_logging = sentry_logging = LoggingIntegration(level=logging.INFO, event_level=None)
+        profiles_sample_rate = get_from_env("SENTRY_PROFILES_SAMPLE_RATE", type_cast=float, default=0.0)
+
         sentry_sdk.init(
             dsn=os.environ["SENTRY_DSN"],
             environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
@@ -80,7 +83,7 @@ def sentry_init() -> None:
             _experiments={
                 # https://docs.sentry.io/platforms/python/profiling/
                 # The profiles_sample_rate setting is relative to the traces_sample_rate setting.
-                "profiles_sample_rate": 0.1,
+                "profiles_sample_rate": profiles_sample_rate,
             },
         )
 
