@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { useState } from 'react'
-import { getDemoSnackMaybe, ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
+import { ProjectName, ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
     IconApps,
     IconBarChart,
@@ -71,8 +71,7 @@ function Pages(): JSX.Element {
                     currentTeam?.name ? (
                         <>
                             <span>
-                                {currentTeam.name}
-                                {getDemoSnackMaybe(currentTeam, 'primary-extralight')}
+                                <ProjectName team={currentTeam} />
                             </span>
                         </>
                     ) : (
