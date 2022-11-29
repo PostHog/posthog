@@ -21,13 +21,14 @@ import { NewInsightButton } from 'scenes/saved-insights/SavedInsights'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 export function ProjectHomepage(): JSX.Element {
-    const { dashboardLogic } = useValues(projectHomepageLogic)
+    const { dashboardLogicProps } = useValues(projectHomepageLogic)
     const { currentTeam } = useValues(teamLogic)
     const {
         allItems: dashboard, // dashboard but directly on dashboardLogic not via dashboardsModel
-    } = useValues(dashboardLogic)
+    } = useValues(dashboardLogic(dashboardLogicProps))
     const { showInviteModal } = useActions(inviteLogic)
     const { showPrimaryDashboardModal } = useActions(primaryDashboardModalLogic)
     const topListContainerRef = useRef<HTMLDivElement | null>(null)
