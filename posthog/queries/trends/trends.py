@@ -9,6 +9,7 @@ from dateutil import parser
 from django.db.models.query import Prefetch
 from sentry_sdk import push_scope
 
+from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import (
     NON_BREAKDOWN_DISPLAY_TYPES,
     TREND_FILTER_TYPE_ACTIONS,
@@ -144,14 +145,8 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         return merged_results
 
-    def _run_query_for_threading(
-        self,
-        result: List,
-        index: int,
-        query_type,
-        sql,
-        params,
-    ):
+    def _run_query_for_threading(self, result: List, index: int, query_type, sql, params, query_tags: Dict):
+        tag_queries(**query_tags)
         with push_scope() as scope:
             scope.set_context("query", {"sql": sql, "params": params})
             result[index] = insight_sync_execute(sql, params, query_type=query_type)
@@ -170,13 +165,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             sql_statements_with_params[entity.index] = (sql, params)
             thread = threading.Thread(
                 target=self._run_query_for_threading,
-                args=(
-                    result,
-                    entity.index,
-                    query_type,
-                    sql,
-                    params,
-                ),
+                args=(result, entity.index, query_type, sql, params, get_query_tags()),
             )
             jobs.append(thread)
 
