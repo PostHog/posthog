@@ -20,6 +20,17 @@ import {
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { flattenPropertyGroup, isPropertyGroup } from 'lib/utils'
 
+/** Make sure unverified user property filter input has at least a "type" */
+export function sanitizePropertyFilter(propertyFilter: AnyPropertyFilter): AnyPropertyFilter {
+    if (!propertyFilter.type) {
+        return {
+            ...propertyFilter,
+            type: PropertyFilterType.Event,
+        }
+    }
+    return propertyFilter
+}
+
 export function parseProperties(
     input: AnyPropertyFilter[] | PropertyGroupFilter | Record<string, string> | null | undefined
 ): AnyPropertyFilter[] {
