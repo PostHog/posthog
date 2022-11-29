@@ -1,25 +1,11 @@
-import {
-    isDataNode,
-    isDataTableNode,
-    isLegacyQuery,
-    isTrendsQuery,
-    isFunnelsQuery,
-    isRetentionQuery,
-    isPathsQuery,
-    isStickinessQuery,
-    isLifecycleQuery,
-} from '../utils'
+import { isDataNode, isDataTableNode, isLegacyQuery, isInsightQuery } from '../utils'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { Node } from '~/queries/schema'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyInsightQuery'
-import { TrendsInsightQuery } from '~/queries/nodes/TrendsInsightQuery/TrendsInsightQuery'
-import { FunnelsInsightQuery } from '~/queries/nodes/FunnelsInsightQuery/FunnelsInsightQuery'
-import { RetentionInsightQuery } from '~/queries/nodes/RetentionInsightQuery/RetentionInsightQuery'
-import { PathsInsightQuery } from '~/queries/nodes/PathsInsightQuery/PathsInsightQuery'
-import { StickinessInsightQuery } from '~/queries/nodes/StickinessInsightQuery/StickinessInsightQuery'
-import { LifecycleInsightQuery } from '~/queries/nodes/LifecycleInsightQuery/LifecycleInsightQuery'
+
+import { InsightQuery } from '~/queries/nodes/InsightQuery/InsightQuery'
 
 export interface QueryProps {
     query: Node | string
@@ -42,18 +28,8 @@ export function Query(props: QueryProps): JSX.Element {
         component = <DataTable query={query} setQuery={setQuery} />
     } else if (isDataNode(query)) {
         component = <DataNode query={query} />
-    } else if (isTrendsQuery(query)) {
-        component = <TrendsInsightQuery query={query} />
-    } else if (isFunnelsQuery(query)) {
-        component = <FunnelsInsightQuery query={query} />
-    } else if (isRetentionQuery(query)) {
-        component = <RetentionInsightQuery query={query} />
-    } else if (isPathsQuery(query)) {
-        component = <PathsInsightQuery query={query} />
-    } else if (isStickinessQuery(query)) {
-        component = <StickinessInsightQuery query={query} />
-    } else if (isLifecycleQuery(query)) {
-        component = <LifecycleInsightQuery query={query} />
+    } else if (isInsightQuery(query)) {
+        component = <InsightQuery query={query} />
     }
 
     if (component) {

@@ -179,6 +179,9 @@ export interface LifecycleQuery extends InsightsQueryBase {
     lifecycleFilter?: Omit<LifecycleFilterType, keyof FilterType> // using everything except what it inherits from FilterType
 }
 
+export type InsightQuery = TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery
+export type InsightNodeKind = InsightQuery['kind']
+
 // TODO: not supported by "ts-json-schema-generator" nor "typescript-json-schema" :(
 // export type PropertyColumnString = `${PropertyFilterType}.${string}`
 export type PropertyColumnString = string
