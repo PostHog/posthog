@@ -113,7 +113,7 @@ export function shouldSendEventToBuffer(
     // for all anonymous events, irrespective of the person existing or not
     let sendToBuffer = !processEventImmediately
     if (shouldBufferAnonymousEvents) {
-        sendToBuffer = !isIdentifyingEvent
+        sendToBuffer = !isIdentifyingEvent && !isMobileLibrary
     }
 
     if (sendToBuffer) {
