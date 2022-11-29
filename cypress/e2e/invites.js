@@ -6,7 +6,7 @@ describe('Invite Signup', () => {
         cy.get('[data-attr=top-menu-item-org-settings]').click()
 
         cy.location('pathname').should('eq', '/organization/settings')
-        cy.get('h2').contains('Pending Invites').should('exist')
+        cy.get('[id="invites"]').contains('Pending Invites').should('exist')
 
         // Test invite creation flow
         cy.get('[data-attr=invite-teammate-button]').click()
@@ -23,7 +23,7 @@ describe('Invite Signup', () => {
 
         // Delete the invite
         cy.visit('/organization/members')
-        cy.get('[data-attr=invites-table] [data-attr=invite-delete]').click()
+        cy.get('[data-attr=invites-table] [data-attr=invite-delete]').first().click()
         cy.get('.LemonModal .LemonButton').contains('Yes, cancel invite').click()
         cy.get('.Toastify__toast-body').should('contain', 'Invite for charlie@posthog.com has been canceled')
         cy.get('[data-attr=invites-table] tbody td').should('not.contain', 'charlie@posthog.com')
