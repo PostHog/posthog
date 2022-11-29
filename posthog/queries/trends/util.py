@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import structlog
 from rest_framework.exceptions import ValidationError
-from sentry_sdk import capture_exception
+from sentry_sdk import capture_exception, push_scope
 
 from posthog.constants import UNIQUE_USERS, WEEKLY_ACTIVE
 from posthog.models.entity import Entity
@@ -130,13 +130,15 @@ def enumerate_time_range(filter: Filter, seconds_in_interval: int) -> List[str]:
     return time_range
 
 
-def ensure_value_is_json_serializable(value: float) -> Optional[float]:
+def ensure_value_is_json_serializable(value: Any) -> Optional[float]:
     """Protect against the undesirable cases of a value being NaN or Infinity, and track occurences of those.
 
     This function returns a null as fallback, so that JSON (de)serialization doesn't trip over the NaN."""
-    if isnan(value) or isinf(value):
+    if not isinstance(value, (float, int)) or isnan(value) or isinf(value):
         exception = Exception("Non-serializable value found in insight result")
         logger.error("queries.trends.non_serializable_value", exc=exception, exc_info=True)
-        capture_exception(exception)
+        with push_scope() as scope:
+            scope.set_tag("value", value)
+            capture_exception(exception)
         return None
     return value
