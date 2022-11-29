@@ -29,7 +29,6 @@ from posthog.api import (
 )
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.cloud_utils import is_cloud
-from posthog.demo import demo_route
 from posthog.models import User
 
 from .utils import render_template
@@ -145,7 +144,6 @@ urlpatterns = [
     path("exporter", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
     path("exporter/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
-    re_path(r"^demo.*", login_required(demo_route)),
     # ingestion
     opt_slash_path("decide", decide.get_decide),
     opt_slash_path("e", capture.get_event),
