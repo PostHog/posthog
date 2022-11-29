@@ -131,8 +131,6 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
                 params,
                 query_type=query_type,
                 filter=adjusted_filter,
-                client_query_id=filter.client_query_id,
-                client_query_team_id=team.pk,
             )
             result = parse_function(result)
             serialized_data = self._format_serialized(entity, result)
@@ -151,9 +149,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
     ):
         with push_scope() as scope:
             scope.set_context("query", {"sql": sql, "params": params})
-            result[index] = insight_sync_execute(
-                sql, params, query_type=query_type, client_query_id=client_query_id, client_query_team_id=team_id
-            )
+            result[index] = insight_sync_execute(sql, params, query_type=query_type)
 
     def _run_parallel(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         result: List[Optional[List[Dict[str, Any]]]] = [None] * len(filter.entities)
@@ -169,7 +165,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             sql_statements_with_params[entity.index] = (sql, params)
             thread = threading.Thread(
                 target=self._run_query_for_threading,
-                args=(result, entity.index, query_type, sql, params, filter.client_query_id, team.pk),
+                args=(result, entity.index, query_type, sql, params, team.pk),
             )
             jobs.append(thread)
 
