@@ -6,7 +6,6 @@
 # If you are looking at self-hosted deployment options check
 # https://posthog.com/docs/self-host
 #
-version: '3'
 
 services:
     db:
