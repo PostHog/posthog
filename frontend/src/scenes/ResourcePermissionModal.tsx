@@ -15,10 +15,7 @@ import {
 import { rolesLogic } from './organization/Settings/Roles/rolesLogic'
 import { organizationLogic } from './organizationLogic'
 
-interface ResourcePermissionModalProps {
-    title: string
-    visible: boolean
-    onClose: () => void
+interface ResourcePermissionProps {
     addableRoles: RoleType[]
     addableRolesLoading: boolean
     onChange: (newValue: string[]) => void
@@ -28,6 +25,12 @@ interface ResourcePermissionModalProps {
     deleteAssociatedRole: (id: RoleType['id']) => void
     isNewResource: boolean
     resourceType: Resource
+}
+
+interface ResourcePermissionModalProps extends ResourcePermissionProps {
+    title: string
+    visible: boolean
+    onClose: () => void
 }
 
 export function roleLemonSelectOptions(roles: RoleType[]): LemonSelectMultipleOptionItem[] {
@@ -54,21 +57,49 @@ export function ResourcePermissionModal({
     roles,
     deleteAssociatedRole,
     isNewResource,
-    resourceType,
 }: ResourcePermissionModalProps): JSX.Element {
+    return (
+        <>
+            <LemonModal title={title} isOpen={visible} onClose={onClose}>
+                <ResourcePermission
+                    resourceType={Resource.FEATURE_FLAGS}
+                    isNewResource={isNewResource}
+                    onChange={onChange}
+                    rolesToAdd={rolesToAdd}
+                    addableRoles={addableRoles}
+                    addableRolesLoading={addableRolesLoading}
+                    onAdd={onAdd}
+                    roles={roles}
+                    deleteAssociatedRole={deleteAssociatedRole}
+                />
+            </LemonModal>
+        </>
+    )
+}
+
+export function ResourcePermission({
+    rolesToAdd,
+    addableRoles,
+    onChange,
+    addableRolesLoading,
+    onAdd,
+    roles,
+    deleteAssociatedRole,
+    isNewResource,
+    resourceType,
+}: ResourcePermissionProps): JSX.Element {
     const { allPermissions } = useValues(permissionsLogic)
     const { roles: possibleRolesWithAccess } = useValues(rolesLogic)
     const { isAdminOrOwner } = useValues(organizationLogic)
 
     const resourceLevel = allPermissions.find((permission) => permission.resource === resourceType)
-
     // TODO: feature_flag_access_level should eventually be generic in this component
     const rolesWithAccess = possibleRolesWithAccess.filter(
         (role) => role.feature_flags_access_level === AccessLevel.WRITE
     )
 
     return (
-        <LemonModal title={title} isOpen={visible} onClose={onClose}>
+        <>
             {resourceLevel && <OrganizationResourcePermissionLabel resourceLevel={resourceLevel} />}
             {<OrganizationResourcePermissionRoles roles={rolesWithAccess} />}
             {isAdminOrOwner && (
@@ -126,7 +157,7 @@ export function ResourcePermissionModal({
                     )}
                 </>
             )}
-        </LemonModal>
+        </>
     )
 }
 

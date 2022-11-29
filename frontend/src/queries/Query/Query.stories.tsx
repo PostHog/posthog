@@ -37,3 +37,6 @@ EventsTable.args = { query: examples['EventsTable'] }
 
 export const LegacyTrendsQuery = BasicTemplate.bind({})
 LegacyTrendsQuery.args = { query: examples['LegacyTrendsQuery'] }
+
+export const InsightTrendsQuery = BasicTemplate.bind({})
+InsightTrendsQuery.args = { query: examples['InsightTrendsQuery'] }

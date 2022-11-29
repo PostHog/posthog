@@ -2,7 +2,7 @@ import { afterMount, kea, selectors, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { OrganizationResourcePermissionType, Resource, AccessLevel } from '~/types'
-import { permissionsLogicType } from './permissionsLogicType'
+import type { permissionsLogicType } from './permissionsLogicType'
 
 const ResourceDisplayMapping: Record<Resource, string> = {
     [Resource.FEATURE_FLAGS]: 'Feature Flags',

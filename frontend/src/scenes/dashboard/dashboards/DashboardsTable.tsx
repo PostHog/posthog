@@ -167,6 +167,7 @@ export const DashboardsTable = (): JSX.Element => {
                                         <Link to={urls.projectHomepage()}>project home page</Link>.
                                     </span>
                                 </LemonRow>
+
                                 <LemonDivider />
                                 <LemonButton
                                     onClick={() => {

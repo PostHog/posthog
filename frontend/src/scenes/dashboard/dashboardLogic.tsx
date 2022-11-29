@@ -173,6 +173,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
                     await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                         tiles: [{ id: tileId, color }],
+                        no_items_field: true,
                     })
                     const matchingTile = values.tiles.find((tile) => tile.id === tileId)
                     if (matchingTile) {
@@ -184,6 +185,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     try {
                         await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                             tiles: [{ id: tile.id, deleted: true }],
+                            no_items_field: true,
                         })
                         dashboardsModel.actions.tileRemovedFromDashboard({
                             tile: tile,
@@ -208,6 +210,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         }
                         return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                             tiles: [newTile],
+                            no_items_field: true,
                         } as Partial<InsightModel>)
                     } catch (e) {
                         lemonToast.error('Could not duplicate tile: ' + e)
@@ -227,6 +230,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                             {
                                 tile,
                                 toDashboard,
+                                no_items_field: true,
                             }
                         )
                     }
@@ -526,6 +530,44 @@ export const dashboardLogic = kea<dashboardLogicType>({
         ],
     }),
     selectors: () => ({
+        asDashboardTemplate: [
+            (s) => [s.allItems],
+            (dashboard: DashboardType): string => {
+                return dashboard
+                    ? JSON.stringify(
+                          {
+                              template_name: dashboard.name,
+                              description: dashboard.description,
+                              dashboard_filters: dashboard.filters,
+                              tags: dashboard.tags || [],
+                              tiles: dashboard.tiles.map((tile) => {
+                                  if (!!tile.text) {
+                                      return {
+                                          type: 'TEXT',
+                                          body: tile.text.body,
+                                          layouts: tile.layouts,
+                                          color: tile.color,
+                                      }
+                                  }
+                                  if (!!tile.insight) {
+                                      return {
+                                          type: 'INSIGHT',
+                                          name: tile.insight.name,
+                                          description: tile.insight.description || '',
+                                          filters: tile.insight.filters,
+                                          layouts: tile.layouts,
+                                          color: tile.color,
+                                      }
+                                  }
+                                  throw new Error('Unknown tile type')
+                              }),
+                          },
+                          undefined,
+                          4
+                      )
+                    : ''
+            },
+        ],
         placement: [() => [(_, props) => props.placement], (placement) => placement ?? DashboardPlacement.Dashboard],
         apiUrl: [
             () => [(_, props) => props.id],
@@ -533,6 +575,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 return (refresh?: boolean) =>
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
+                        no_items_field: true,
                     })}`
             },
         ],
@@ -806,6 +849,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
             return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                 tiles: values.allItems?.tiles || [],
+                no_items_field: true,
             })
         },
         moveToDashboardSuccess: ({ payload }) => {
@@ -971,6 +1015,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
             await breakpoint(200)
             await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                 filters: values.filters,
+                no_items_field: true,
             })
             actions.loadDashboardItems({ action: 'update_filters' })
         },
