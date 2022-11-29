@@ -90,8 +90,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         # Verify that persons data is in sync every day at 4 AM UTC
         sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
 
-    # PostHog Demo cron jobs
-    if settings.DEMO:
+    if is_cloud() or settings.DEMO:
         # Reset master project data every day at 5 AM UTC
         sender.add_periodic_task(crontab(hour=5, minute=0), demo_reset_master_team.s())
 

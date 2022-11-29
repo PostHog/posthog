@@ -1,17 +1,17 @@
 import { useActions } from 'kea'
-import { ingestionLogicV2 } from 'scenes/ingestion/v2/ingestionLogic'
+import { ingestionLogicV2 } from 'scenes/ingestion/v2/ingestionLogicV2'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { IconArrowRight, IconChevronRight } from 'lib/components/icons'
+import { IconChevronRight } from 'lib/components/icons'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { BOOKMARKLET } from '../constants'
+import { DemoProjectButton } from './PanelComponents'
 
 export function InviteTeamPanel(): JSX.Element {
     const { next } = useActions(ingestionLogicV2)
     const { showInviteModal } = useActions(inviteLogic)
-    const { reportInviteMembersButtonClicked, reportIngestionTryWithBookmarkletClicked } = useActions(eventUsageLogic)
+    const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
 
     return (
         <div>
@@ -56,19 +56,10 @@ export function InviteTeamPanel(): JSX.Element {
                         </p>
                     </div>
                 </LemonButton>
-                <LemonButton
-                    onClick={() => {
-                        reportIngestionTryWithBookmarkletClicked()
-                        next({ isTechnicalUser: false, platform: BOOKMARKLET })
-                    }}
-                    center
-                    fullWidth
-                    size="large"
-                    type="tertiary"
-                    sideIcon={<IconArrowRight />}
-                >
-                    I'm just exploring
-                </LemonButton>
+                <DemoProjectButton
+                    text="I just want to try PostHog with some demo data."
+                    subtext="Explore insights, create dashboards, try out cohorts, and more."
+                />
             </div>
         </div>
     )

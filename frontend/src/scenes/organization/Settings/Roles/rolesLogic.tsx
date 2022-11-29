@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { teamMembersLogic } from 'scenes/project/Settings/teamMembersLogic'
 import { AccessLevel, Resource, RoleMemberType, RoleType, UserBasicType } from '~/types'
-import { rolesLogicType } from './rolesLogicType'
+import type { rolesLogicType } from './rolesLogicType'
 
 export const rolesLogic = kea<rolesLogicType>([
     path(['scenes', 'organization', 'rolesLogic']),
