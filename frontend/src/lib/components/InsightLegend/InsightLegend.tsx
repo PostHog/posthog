@@ -93,7 +93,7 @@ function InsightLegendRow({
     const compare = isTrendsFilter(filters) && !!filters.compare
 
     return (
-        <div key={item.id} className="InsightLegendMenu-item p-2 w-full flex flex-row" ref={rowRef} {...highlightStyle}>
+        <div key={item.id} className="InsightLegendMenu-item p-2 flex flex-row" ref={rowRef} {...highlightStyle}>
             <div className={'grow'}>
                 <LemonCheckbox
                     className="text-xs mr-4"
@@ -131,25 +131,27 @@ export function InsightLegend({ horizontal, inCardView, readOnly = false }: Insi
 
     return shouldShowLegend(filters, activeView) ? (
         <div
-            className={clsx('InsightLegendMenu', 'flex flex-col overflow-auto w-full border rounded', {
+            className={clsx('InsightLegendMenu', 'flex overflow-auto border rounded', {
                 'InsightLegendMenu--horizontal': horizontal,
                 'InsightLegendMenu--readonly': readOnly,
                 'InsightLegendMenu--in-card-view': inCardView,
             })}
         >
-            {indexedResults &&
-                indexedResults.map((item, index) => (
-                    <InsightLegendRow
-                        key={index}
-                        hiddenLegendKeys={hiddenLegendKeys}
-                        item={item}
-                        rowIndex={index}
-                        hasMultipleSeries={indexedResults.length > 1}
-                        highlighted={shouldHighlightThisRow(hiddenLegendKeys, index, highlightedSeries)}
-                        toggleVisibility={toggleVisibility}
-                        filters={filters}
-                    />
-                ))}
+            <div className={'grid grid-cols-1'}>
+                {indexedResults &&
+                    indexedResults.map((item, index) => (
+                        <InsightLegendRow
+                            key={index}
+                            hiddenLegendKeys={hiddenLegendKeys}
+                            item={item}
+                            rowIndex={index}
+                            hasMultipleSeries={indexedResults.length > 1}
+                            highlighted={shouldHighlightThisRow(hiddenLegendKeys, index, highlightedSeries)}
+                            toggleVisibility={toggleVisibility}
+                            filters={filters}
+                        />
+                    ))}
+            </div>
         </div>
     ) : null
 }
