@@ -94,7 +94,7 @@ function InsightLegendRow({
 
     return (
         <div key={item.id} className="InsightLegendMenu-item p-2 flex flex-row" ref={rowRef} {...highlightStyle}>
-            <div className={'grow'}>
+            <div className="grow">
                 <LemonCheckbox
                     className="text-xs mr-4"
                     color={getSeriesColor(item.id, compare)}
