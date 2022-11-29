@@ -16,7 +16,7 @@ def get_query_tags():
 def get_query_tag_value(key: str) -> Optional[Any]:
     try:
         return thread_local_storage.query_tags[key]
-    except KeyError:
+    except (AttributeError, KeyError):
         return None
 
 
