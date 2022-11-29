@@ -11,7 +11,7 @@ import {
     LifecycleQuery,
     Node,
     NodeKind,
-    InsightQuery,
+    InsightQueryNode,
 } from '~/queries/schema'
 
 export function isDataNode(node?: Node): node is EventsNode | ActionsNode {
@@ -62,7 +62,7 @@ export function isLifecycleQuery(node?: Node): node is LifecycleQuery {
     return node?.kind === NodeKind.LifecycleQuery
 }
 
-export function isInsightQuery(node?: Node): node is InsightQuery {
+export function isInsightQueryNode(node?: Node): node is InsightQueryNode {
     return (
         isTrendsQuery(node) ||
         isFunnelsQuery(node) ||

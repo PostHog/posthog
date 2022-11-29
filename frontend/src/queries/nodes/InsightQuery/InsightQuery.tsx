@@ -1,4 +1,4 @@
-import { InsightQuery, EventsNode, ActionsNode, InsightNodeKind, NodeKind } from '~/queries/schema'
+import { InsightQueryNode, EventsNode, ActionsNode, InsightNodeKind, NodeKind } from '~/queries/schema'
 import { InsightLogicProps, FilterType, InsightType, ActionFilter } from '~/types'
 import {
     isEventsNode,
@@ -57,7 +57,7 @@ const filterMap: Record<InsightNodeKind, string> = {
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
 }
 
-const queryNodeToFilter = (query: InsightQuery): Partial<FilterType> => {
+const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> => {
     const filters: Partial<FilterType> = {
         insight: insightMap[query.kind],
         properties: query.properties,
@@ -90,7 +90,7 @@ const queryNodeToFilter = (query: InsightQuery): Partial<FilterType> => {
 }
 
 /** Use new insight queries and transform them into old insight props to display the respective visualization. */
-export function InsightQuery({ query }: { query: InsightQuery }): JSX.Element {
+export function InsightQuery({ query }: { query: InsightQueryNode }): JSX.Element {
     const filters: Partial<FilterType> = queryNodeToFilter(query)
     const insightProps: InsightLogicProps = { dashboardItemId: 'new', cachedInsight: { filters } }
 
