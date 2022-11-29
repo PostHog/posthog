@@ -137,7 +137,7 @@ export function InsightLegend({ horizontal, inCardView, readOnly = false }: Insi
                 'InsightLegendMenu--in-card-view': inCardView,
             })}
         >
-            <div className={'grid grid-cols-1'}>
+            <div className="grid grid-cols-1">
                 {indexedResults &&
                     indexedResults.map((item, index) => (
                         <InsightLegendRow
