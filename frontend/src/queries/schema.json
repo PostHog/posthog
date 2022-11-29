@@ -1327,11 +1327,9 @@
             "additionalProperties": false,
             "properties": {
                 "date_from": {
-                    "description": "TODO",
                     "type": ["string", "null"]
                 },
                 "date_to": {
-                    "description": "ISO 8601 date string, TODO: relative_date_parse",
                     "type": ["string", "null"]
                 }
             },
@@ -1537,6 +1535,170 @@
             "enum": ["steps", "time_to_convert", "trends"],
             "type": "string"
         },
+        "FunnelsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown": {
+                    "$ref": "#/definitions/BreakdownFilter",
+                    "description": "Breakdown of the events and actions"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "funnelsFilter": {
+                    "additionalProperties": false,
+                    "description": "Properties specific to the funnels insight",
+                    "properties": {
+                        "bin_count": {
+                            "$ref": "#/definitions/BinCountValue"
+                        },
+                        "breakdown_attribution_type": {
+                            "$ref": "#/definitions/BreakdownAttributionType"
+                        },
+                        "breakdown_attribution_value": {
+                            "type": "number"
+                        },
+                        "drop_off": {
+                            "type": "boolean"
+                        },
+                        "entrance_period_start": {
+                            "type": "string"
+                        },
+                        "exclusions": {
+                            "items": {
+                                "$ref": "#/definitions/FunnelStepRangeEntityFilter"
+                            },
+                            "type": "array"
+                        },
+                        "funnel_advanced": {
+                            "type": "boolean"
+                        },
+                        "funnel_correlation_person_converted": {
+                            "enum": ["true", "false"],
+                            "type": "string"
+                        },
+                        "funnel_correlation_person_entity": {
+                            "type": "object"
+                        },
+                        "funnel_custom_steps": {
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        "funnel_from_step": {
+                            "type": "number"
+                        },
+                        "funnel_order_type": {
+                            "$ref": "#/definitions/StepOrderValue"
+                        },
+                        "funnel_step": {
+                            "type": "number"
+                        },
+                        "funnel_step_breakdown": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "items": {
+                                        "type": "number"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "funnel_step_reference": {
+                            "$ref": "#/definitions/FunnelStepReference"
+                        },
+                        "funnel_to_step": {
+                            "type": "number"
+                        },
+                        "funnel_viz_type": {
+                            "$ref": "#/definitions/FunnelVizType"
+                        },
+                        "funnel_window_interval": {
+                            "type": "number"
+                        },
+                        "funnel_window_interval_unit": {
+                            "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                        },
+                        "hidden_legend_keys": {
+                            "additionalProperties": {
+                                "anyOf": [
+                                    {
+                                        "type": "boolean"
+                                    },
+                                    {
+                                        "not": {}
+                                    }
+                                ]
+                            },
+                            "type": "object"
+                        },
+                        "layout": {
+                            "$ref": "#/definitions/FunnelLayout"
+                        },
+                        "new_entity": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+                },
+                "kind": {
+                    "const": "FunnelsQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
+                },
+                "series": {
+                    "description": "Events and actions to include",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/EventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/ActionsNode"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "series"],
+            "type": "object"
+        },
         "InsightType": {
             "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS"],
             "type": "string"
@@ -1673,6 +1835,9 @@
                 },
                 {
                     "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsQuery"
                 }
             ]
         },
@@ -1692,7 +1857,8 @@
             "additionalProperties": false,
             "properties": {
                 "breakdown": {
-                    "$ref": "#/definitions/BreakdownFilter"
+                    "$ref": "#/definitions/BreakdownFilter",
+                    "description": "Breakdown of the events and actions"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",

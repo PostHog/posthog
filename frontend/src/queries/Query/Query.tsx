@@ -1,10 +1,11 @@
-import { isDataNode, isDataTableNode, isLegacyQuery, isTrendsQuery } from '../utils'
+import { isDataNode, isDataTableNode, isLegacyQuery, isTrendsQuery, isFunnelsQuery } from '../utils'
 import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyInsightQuery'
 import { TrendsInsightQuery } from '~/queries/nodes/TrendsInsightQuery/TrendsInsightQuery'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { Node } from '~/queries/schema'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { FunnelsInsightQuery } from '../nodes/FunnelsInsightQuery/FunnelsInsightQuery'
 
 export interface QueryProps {
     query: Node | string
@@ -29,6 +30,8 @@ export function Query(props: QueryProps): JSX.Element {
         component = <DataNode query={query} />
     } else if (isTrendsQuery(query)) {
         component = <TrendsInsightQuery query={query} />
+    } else if (isFunnelsQuery(query)) {
+        component = <FunnelsInsightQuery query={query} />
     }
 
     if (component) {

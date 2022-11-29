@@ -13,6 +13,7 @@ import {
     CountPerActorMathType,
     FilterType,
     TrendsFilterType,
+    FunnelsFilterType,
 } from '~/types'
 
 export enum NodeKind {
@@ -26,6 +27,7 @@ export enum NodeKind {
 
     // New queries, not yet implemented
     TrendsQuery = 'TrendsQuery',
+    FunnelsQuery = 'FunnelsQuery',
 }
 
 export type QuerySchema =
@@ -39,6 +41,7 @@ export type QuerySchema =
 
     // New queries, not yet implemented
     | TrendsQuery
+    | FunnelsQuery
 
 /** Node base class, everything else inherits from here */
 export interface Node {
@@ -119,6 +122,19 @@ export interface TrendsQuery extends InsightsQueryBase {
     series: (EventsNode | ActionsNode)[]
     /** Properties specific to the trends insight */
     trendsFilter?: Omit<TrendsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+    /** Breakdown of the events and actions */
+    breakdown?: BreakdownFilter
+}
+
+export interface FunnelsQuery extends InsightsQueryBase {
+    kind: NodeKind.FunnelsQuery
+    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    interval?: IntervalType
+    /** Events and actions to include */
+    series: (EventsNode | ActionsNode)[]
+    /** Properties specific to the funnels insight */
+    funnelsFilter?: Omit<FunnelsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+    /** Breakdown of the events and actions */
     breakdown?: BreakdownFilter
 }
 

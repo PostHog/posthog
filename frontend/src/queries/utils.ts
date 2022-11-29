@@ -1,4 +1,13 @@
-import { EventsNode, ActionsNode, DataTableNode, LegacyQuery, TrendsQuery, Node, NodeKind } from '~/queries/schema'
+import {
+    EventsNode,
+    ActionsNode,
+    DataTableNode,
+    LegacyQuery,
+    TrendsQuery,
+    FunnelsQuery,
+    Node,
+    NodeKind,
+} from '~/queries/schema'
 
 export function isDataNode(node?: Node): node is EventsNode | ActionsNode {
     return isEventsNode(node)
@@ -22,4 +31,8 @@ export function isLegacyQuery(node?: Node): node is LegacyQuery {
 
 export function isTrendsQuery(node?: Node): node is TrendsQuery {
     return node?.kind === NodeKind.TrendsQuery
+}
+
+export function isFunnelsQuery(node?: Node): node is FunnelsQuery {
+    return node?.kind === NodeKind.FunnelsQuery
 }
