@@ -50,7 +50,7 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
     return data ? (
         data[0] && data[0].labels ? (
             <div className={clsx('w-full', inCardView && 'flex flex-row pr-4 h-full items-center')}>
-                <div className={clsx('actions-pie-component', inCardView && 'ActionsPie--card grow')}>
+                <div className={clsx('actions-pie-component', inCardView && 'grow')}>
                     <div className="pie-chart">
                         <PieChart
                             data-attr="trend-pie-graph"
