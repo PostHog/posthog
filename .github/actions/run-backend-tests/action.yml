@@ -7,7 +7,7 @@ inputs:
     python-version:
         required: true
         type: string
-    clickhouse-version:
+    clickhouse-server-image:
         required: true
         type: string
     ee:
@@ -34,7 +34,7 @@ runs:
         - name: Stop/Start stack with Docker Compose
           shell: bash
           run: |
-              export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:${{ inputs.clickhouse-version }}
+              export CLICKHOUSE_SERVER_IMAGE=${{ inputs.clickhouse-server-image }}
               docker-compose -f docker-compose.dev.yml down
               docker-compose -f docker-compose.dev.yml up -d
 
