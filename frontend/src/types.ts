@@ -2312,8 +2312,9 @@ export enum ExporterFormat {
     JSON = 'application/json',
 }
 
+/** Exporting directly from the browser to a file */
 export type LocalExportContext = {
-    localData: string // when exporting directly from the browser to a file
+    localData: string
     filename: string
     mediaType: ExporterFormat
 }
