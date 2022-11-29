@@ -132,6 +132,23 @@ class TestGeneralUtils(TestCase):
         mock_env.return_value = "4"
         self.assertEqual(get_from_env("test_key", type_cast=int), 4)
 
+    @patch("os.getenv")
+    def test_fetching_env_var_parsed_as_float(self, mock_env):
+        mock_env.return_value = ""
+        self.assertEqual(get_from_env("test_key", optional=True, type_cast=float, default=0.0), None)
+
+        mock_env.return_value = ""
+        self.assertEqual(get_from_env("test_key", type_cast=float, default=0.0), 0.0)
+
+        mock_env.return_value = "4"
+        self.assertEqual(get_from_env("test_key", type_cast=float), 4.0)
+
+    @patch("os.getenv")
+    def test_fetching_env_var_parsed_as_float_from_nonsense_input(self, mock_env):
+        with pytest.raises(ValueError):
+            mock_env.return_value = "wat"
+            get_from_env("test_key", type_cast=float)
+
 
 class TestRelativeDateParse(TestCase):
     @freeze_time("2020-01-31T12:22:23")
