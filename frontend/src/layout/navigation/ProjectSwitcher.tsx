@@ -12,18 +12,23 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, TeamBasicType } from '~/types'
 import { navigationLogic } from './navigationLogic'
 
-export const getDemoSnackMaybe = (
-    team: TeamBasicType,
+export function ProjectName({
+    team,
+    color,
+}: {
+    team: TeamBasicType
     color: 'primary-extralight' | 'primary-highlight'
-): JSX.Element | null => {
-    return team.is_demo ? (
+}): JSX.Element {
+    return (
         <>
-            {' '}
-            <LemonSnack title="Demo" className="ml-3 text-xs" color={color}>
-                Demo
-            </LemonSnack>
+            {team.name}
+            {team.is_demo ? (
+                <LemonSnack title="Demo" className="ml-3 text-xs" color={color}>
+                    Demo
+                </LemonSnack>
+            ) : null}
         </>
-    ) : null
+    )
 }
 
 export function ProjectSwitcherOverlay(): JSX.Element {
@@ -84,8 +89,7 @@ function CurrentProjectButton(): JSX.Element | null {
             status="stealth"
             fullWidth
         >
-            {currentTeam.name}
-            {getDemoSnackMaybe(currentTeam, 'primary-extralight')}
+            <ProjectName team={currentTeam} color="primary-extralight" />
         </LemonButtonWithSideAction>
     ) : null
 }
@@ -113,8 +117,7 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
             fullWidth
             disabled={!team.effective_membership_level}
         >
-            {team.name}
-            {getDemoSnackMaybe(team, 'primary-highlight')}
+            <ProjectName team={team} color="primary-extralight" />
         </LemonButtonWithSideAction>
     )
 }

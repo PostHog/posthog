@@ -10,6 +10,8 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
+const DEMO_TEAM_NAME: string = 'Hedgebox'
+
 export function PanelFooter(): JSX.Element {
     const { next } = useActions(ingestionLogicV2)
 
@@ -66,8 +68,6 @@ export function DemoProjectButton({ text, subtext }: { text: string; subtext?: s
     const { updateCurrentTeam } = useActions(userLogic)
     const { reportIngestionTryWithDemoDataClicked, reportProjectCreationSubmitted } = useActions(eventUsageLogic)
 
-    const demoTeamName: string = 'Demo'
-
     return (
         <LemonButton
             onClick={() => {
@@ -76,11 +76,11 @@ export function DemoProjectButton({ text, subtext }: { text: string; subtext?: s
                     updateCurrentTeam(currentOrganization.teams.filter((team) => team.is_demo)[0].id)
                 } else {
                     // Create a new demo team
-                    createTeam({ name: demoTeamName, is_demo: true })
+                    createTeam({ name: DEMO_TEAM_NAME, is_demo: true })
                     next({ isTechnicalUser: false, generatingDemoData: true })
                     reportProjectCreationSubmitted(
                         currentOrganization?.teams ? currentOrganization.teams.length : 0,
-                        demoTeamName.length
+                        DEMO_TEAM_NAME.length
                     )
                 }
                 reportIngestionTryWithDemoDataClicked()

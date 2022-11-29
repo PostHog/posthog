@@ -12,29 +12,27 @@ export function NoDemoIngestionPanel(): JSX.Element {
 
     return (
         <CardContainer>
-            <div className="">
-                <div className="ingestion-generating-demo-data m-6">
-                    <h1 className="ingestion-title pt-4">Whoops!</h1>
-                    <p className="prompt-text mx-0">
-                        New events can't be ingested into a demo project. But, you can switch to another project if
-                        you'd like:
-                    </p>
-                    <div className="w-60 flex flex-col m-auto">
-                        {currentOrganization?.teams
-                            ?.filter((team) => !team.is_demo)
-                            .map((team) => (
-                                <p key={team.id}>
-                                    <LemonButton
-                                        type="secondary"
-                                        sideIcon={<IconArrowRight />}
-                                        fullWidth
-                                        onClick={() => updateCurrentTeam(team.id)}
-                                    >
-                                        {team.name}
-                                    </LemonButton>
-                                </p>
-                            ))}
-                    </div>
+            <div className="ingestion-generating-demo-data m-6">
+                <h1 className="ingestion-title pt-4">Whoops!</h1>
+                <p className="prompt-text mx-0">
+                    New events can't be ingested into a demo project. But, you can switch to another project if you'd
+                    like:
+                </p>
+                <div className="w-60 flex flex-col m-auto">
+                    {currentOrganization?.teams
+                        ?.filter((team) => !team.is_demo)
+                        .map((team) => (
+                            <p key={team.id}>
+                                <LemonButton
+                                    type="secondary"
+                                    sideIcon={<IconArrowRight />}
+                                    fullWidth
+                                    onClick={() => updateCurrentTeam(team.id)}
+                                >
+                                    {team.name}
+                                </LemonButton>
+                            </p>
+                        ))}
                 </div>
             </div>
         </CardContainer>
