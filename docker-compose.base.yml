@@ -1,7 +1,5 @@
 #
-# docker-compose file used ONLY for local development.
-# For more info, see:
-# https://posthog.com/handbook/engineering/developing-locally
+# docker-compose base file used for local development, hobby deploys, and other compose use cases.
 #
 # If you are looking at self-hosted deployment options check
 # https://posthog.com/docs/self-host
