@@ -117,7 +117,7 @@ function InsightLegendRow({
                 />
             </div>
             {isTrendsFilter(filters) && filters.display === ChartDisplayType.ActionsPie && (
-                <div className={'text-muted grow-0'}>{formatAggregationAxisValue(filters, item.aggregated_value)}</div>
+                <div className="text-muted grow-0">{formatAggregationAxisValue(filters, item.aggregated_value)}</div>
             )}
         </div>
     )
