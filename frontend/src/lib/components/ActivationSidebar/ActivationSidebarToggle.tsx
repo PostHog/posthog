@@ -24,6 +24,7 @@ const ActivationSidebarToggle = (): JSX.Element | null => {
                     width={40}
                     format={() => activeTasks.length}
                     strokeWidth={16}
+                    strokeColor="#345cff" // primary-light
                 />
             }
         >

@@ -96,6 +96,7 @@ const ActivationSidebar = (): JSX.Element => {
                                     strokeWidth={10}
                                     percent={completionPercent}
                                     format={() => activeTasks.length}
+                                    strokeColor="#345cff" // primary-light
                                 />
                                 <p className="text-muted mt-2">still to go</p>
                             </div>
