@@ -21,6 +21,7 @@ import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/components/Tooltip'
 import { IconLock } from 'lib/components/icons'
+import { router } from 'kea-router'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -134,12 +135,18 @@ function OverViewTab(): JSX.Element {
                                             : null
                                     }}
                                     id={`feature-flag-${featureFlag.id}-switch`}
+                                    disabled={!featureFlag.can_edit}
                                     fullWidth
                                 >
                                     {featureFlag.active ? 'Disable' : 'Enable'} feature flag
                                 </LemonButton>
                                 {featureFlag.id && (
-                                    <LemonButton status="stealth" to={urls.featureFlag(featureFlag.id)} fullWidth>
+                                    <LemonButton
+                                        status="stealth"
+                                        fullWidth
+                                        disabled={!featureFlag.can_edit}
+                                        onClick={() => router.actions.push(urls.featureFlag(featureFlag.id))}
+                                    >
                                         Edit
                                     </LemonButton>
                                 )}
@@ -166,6 +173,7 @@ function OverViewTab(): JSX.Element {
                                                 callback: loadFeatureFlags,
                                             })
                                         }}
+                                        disabled={!featureFlag.can_edit}
                                         fullWidth
                                     >
                                         Delete feature flag
