@@ -264,14 +264,9 @@ describe('sessionRecordingsListLogic', () => {
                 })
                 logic.mount()
 
-                await expectLogic(logic)
-                    .toDispatchActions([
-                        'getSessionRecordingsSuccess',
-                        logic.actionCreators.setSelectedRecordingId('abc'),
-                    ])
-                    .toMatchValues({
-                        selectedRecordingId: 'abc',
-                    })
+                await expectLogic(logic).toDispatchActions(['getSessionRecordingsSuccess']).toMatchValues({
+                    selectedRecordingId: 'abc',
+                })
 
                 logic.actions.setSelectedRecordingId('1234')
             })
