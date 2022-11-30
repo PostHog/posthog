@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { billingLogic } from './billingTestLogic'
+import { billingTestLogic } from './billingTestLogic'
 import {
     LemonButton,
     LemonDivider,
@@ -35,8 +35,8 @@ export type BillingV2Props = {
 const DEFAULT_BILLING_LIMIT = 500
 
 export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
-    const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingLogic)
-    const { setShowLicenseDirectInput, reportBillingV2Shown } = useActions(billingLogic)
+    const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingTestLogic)
+    const { setShowLicenseDirectInput, reportBillingV2Shown } = useActions(billingTestLogic)
     const { preflight } = useValues(preflightLogic)
     const [enterprisePackage, setEnterprisePackage] = useState(false)
 
@@ -145,7 +145,7 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
                         ) : showLicenseDirectInput ? (
                             <>
                                 <Form
-                                    logic={billingLogic}
+                                    logic={billingTestLogic}
                                     formKey="activateLicense"
                                     enableFormOnSubmit
                                     className="space-y-4"
@@ -177,7 +177,7 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
                                     center
                                     disableClientSideRouting
                                 >
-                                    Setup payment Test6
+                                    Setup payment Test
                                 </LemonButton>
 
                                 <div className="space-y-2">
@@ -235,8 +235,8 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
 }
 
 const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
-    const { billing, billingLoading } = useValues(billingLogic)
-    const { updateBillingLimits } = useActions(billingLogic)
+    const { billing, billingLoading } = useValues(billingTestLogic)
+    const { updateBillingLimits } = useActions(billingTestLogic)
     const [tierAmountType, setTierAmountType] = useState<'individual' | 'total'>('individual')
 
     // The actual stored billing limit

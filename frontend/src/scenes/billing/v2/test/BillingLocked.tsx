@@ -1,11 +1,11 @@
 import { useValues } from 'kea'
-import { billingLogic } from './billingTestLogic'
+import { billingTestLogic } from './billingTestLogic'
 import { Billing } from '../../Billing'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import './BillingLocked.scss'
 
 export function BillingLockedV2(): JSX.Element | null {
-    const { billing } = useValues(billingLogic)
+    const { billing } = useValues(billingTestLogic)
 
     const productOverLimit =
         billing &&
