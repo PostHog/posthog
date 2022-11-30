@@ -1,5 +1,8 @@
+import { Producer } from 'kafkajs'
+
 import { runScheduledTasks } from '../../../src/main/graphile-worker/schedule'
 import { Hub } from '../../../src/types'
+import { KafkaProducerWrapper } from '../../../src/utils/db/kafka-producer-wrapper'
 import { UUID } from '../../../src/utils/utils'
 import { PromiseManager } from '../../../src/worker/vm/promise-manager'
 
@@ -26,25 +29,30 @@ describe('Graphile Worker schedule', () => {
                 runEveryHour: [4, 5, 6],
                 runEveryDay: [7, 8, 9],
             },
+            kafkaProducer: {
+                producer: {
+                    send: jest.fn(),
+                } as unknown as Producer,
+            } as KafkaProducerWrapper,
         }
 
-        await runScheduledTasks(mockHubWithPluginSchedule, mockPiscina as any, 'iDontExist')
+        await runScheduledTasks(mockHubWithPluginSchedule, 'iDontExist')
         expect(mockPiscina.run).not.toHaveBeenCalled()
 
-        await runScheduledTasks(mockHubWithPluginSchedule, mockPiscina as any, 'runEveryMinute')
+        await runScheduledTasks(mockHubWithPluginSchedule, 'runEveryMinute')
 
-        expect(mockPiscina.run).toHaveBeenNthCalledWith(1, { args: { pluginConfigId: 1 }, task: 'runEveryMinute' })
-        expect(mockPiscina.run).toHaveBeenNthCalledWith(2, { args: { pluginConfigId: 2 }, task: 'runEveryMinute' })
-        expect(mockPiscina.run).toHaveBeenNthCalledWith(3, { args: { pluginConfigId: 3 }, task: 'runEveryMinute' })
+        expect(mockPiscina.run).toHaveBeenNthCalledWith(1, { pluginConfigId: 1, taskType: 'runEveryMinute' })
+        expect(mockPiscina.run).toHaveBeenNthCalledWith(2, { pluginConfigId: 2, taskType: 'runEveryMinute' })
+        expect(mockPiscina.run).toHaveBeenNthCalledWith(3, { pluginConfigId: 3, taskType: 'runEveryMinute' })
 
-        await runScheduledTasks(mockHubWithPluginSchedule, mockPiscina as any, 'runEveryHour')
-        expect(mockPiscina.run).toHaveBeenNthCalledWith(4, { args: { pluginConfigId: 4 }, task: 'runEveryHour' })
-        expect(mockPiscina.run).toHaveBeenNthCalledWith(5, { args: { pluginConfigId: 5 }, task: 'runEveryHour' })
-        expect(mockPiscina.run).toHaveBeenNthCalledWith(6, { args: { pluginConfigId: 6 }, task: 'runEveryHour' })
+        await runScheduledTasks(mockHubWithPluginSchedule, 'runEveryHour')
+        expect(mockPiscina.run).toHaveBeenNthCalledWith(4, { pluginConfigId: 4, taskType: 'runEveryHour' })
+        expect(mockPiscina.run).toHaveBeenNthCalledWith(5, { pluginConfigId: 5, taskType: 'runEveryHour' })
+        expect(mockPiscina.run).toHaveBeenNthCalledWith(6, { pluginConfigId: 6, taskType: 'runEveryHour' })
 
-        await runScheduledTasks(mockHubWithPluginSchedule, mockPiscina as any, 'runEveryDay')
-        expect(mockPiscina.run).toHaveBeenNthCalledWith(7, { args: { pluginConfigId: 7 }, task: 'runEveryDay' })
-        expect(mockPiscina.run).toHaveBeenNthCalledWith(8, { args: { pluginConfigId: 8 }, task: 'runEveryDay' })
-        expect(mockPiscina.run).toHaveBeenNthCalledWith(9, { args: { pluginConfigId: 9 }, task: 'runEveryDay' })
+        await runScheduledTasks(mockHubWithPluginSchedule, 'runEveryDay')
+        expect(mockPiscina.run).toHaveBeenNthCalledWith(7, { pluginConfigId: 7, taskType: 'runEveryDay' })
+        expect(mockPiscina.run).toHaveBeenNthCalledWith(8, { pluginConfigId: 8, taskType: 'runEveryDay' })
+        expect(mockPiscina.run).toHaveBeenNthCalledWith(9, { pluginConfigId: 9, taskType: 'runEveryDay' })
     })
 })
