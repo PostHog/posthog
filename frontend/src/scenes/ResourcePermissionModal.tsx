@@ -98,7 +98,6 @@ export function ResourcePermission({
     const rolesWithAccess = possibleRolesWithAccess.filter(
         (role) => role.feature_flags_access_level === AccessLevel.WRITE
     )
-    console.log('roles123', roles)
     interface TableRoleType extends RoleType {
         deletable?: boolean
     }
