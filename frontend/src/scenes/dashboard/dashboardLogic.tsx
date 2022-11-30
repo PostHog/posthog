@@ -158,8 +158,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
                         actions.setInitialLoadResponseBytes(getResponseBytes(dashboardResponse))
 
-                        actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
-
                         return dashboard
                     } catch (error: any) {
                         if (error.status === 404) {
@@ -260,6 +258,11 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 setProperties: (state, { properties }) => ({
                     ...state,
                     properties: properties || null,
+                }),
+                loadDashboardItemsSuccess: (state, { allItems }) => ({
+                    ...state,
+                    date_from: allItems?.filters.date_from || null,
+                    date_to: allItems?.filters.date_to || null,
                 }),
             },
         ],
@@ -1167,9 +1170,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
         },
         abortQuery: ({ queryId }) => {
             const { currentTeamId } = values
-            // TODO this both is and isn't cancelling insights 🤔
             if (values.featureFlags[FEATURE_FLAGS.CANCEL_RUNNING_QUERIES]) {
-                console.log(api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId }))
+                api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId })
             }
         },
     }),
