@@ -35,11 +35,10 @@ class LazyLoader:
     @cached_property
     def recently_viewed_insights(self):
         recently_viewed_insights = (
-            InsightViewed.objects.filter(last_viewed_at=now() - VERY_RECENTLY_VIEWED_THRESHOLD)
-            .values("insight_id")
-            .distinct()
+            InsightViewed.objects.filter(last_viewed_at__gte=now() - VERY_RECENTLY_VIEWED_THRESHOLD)
+            .distinct("insight_id")
         )
-        return set(recently_viewed_insights.values_list(flat=True))
+        return set(recently_viewed_insights.values_list("insight_id", flat=True))
 
 
 def upsert(team: Team, target: Union[DashboardTile, Insight], lazy_loader: Optional[LazyLoader] = None):
