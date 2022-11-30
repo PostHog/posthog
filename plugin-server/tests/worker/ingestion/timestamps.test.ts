@@ -48,6 +48,20 @@ describe('parseEventTimestamp()', () => {
         expect(eventSecondsBeforeNow).toBeLessThan(610)
     })
 
+    it('ignores invalid sent_at', () => {
+        const rightNow = DateTime.utc()
+        const tomorrow = rightNow.plus({ days: 1, hours: 2 })
+
+        const event = {
+            timestamp: tomorrow.toISO(),
+            now: rightNow,
+            sent_at: 'invalid',
+        } as any as PluginEvent
+
+        const timestamp = parseEventTimestamp(event)
+        expect(timestamp).toEqual(tomorrow)
+    })
+
     it('captures sent_at with no timezones', () => {
         const rightNow = DateTime.utc()
         const tomorrow = rightNow.plus({ days: 1, hours: 2 }).setZone('UTC+4')
@@ -107,5 +121,21 @@ describe('parseEventTimestamp()', () => {
 
         const timestamp = parseEventTimestamp(event)
         expect(timestamp.toUTC().toISO()).toEqual('2020-01-01T12:00:05.050Z')
+    })
+
+    it('reports timestamp parsing error and fallbacks to now', () => {
+        const rightNow = DateTime.utc()
+        const event = {
+            team_id: 123,
+            timestamp: 'invalid',
+            now: rightNow,
+        } as any as PluginEvent
+
+        const callbackMock = jest.fn()
+        const timestamp = parseEventTimestamp(event, callbackMock)
+        expect(callbackMock.mock.calls).toEqual([[123]])
+
+        const difference = rightNow.diff(timestamp, 'millisecond').seconds
+        expect(difference).toBeLessThan(1)
     })
 })
