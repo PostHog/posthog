@@ -7,6 +7,8 @@ import { DependencyUnavailableError } from '../../utils/db/error'
 import { status } from '../../utils/status'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 
+const taskTypes = ['runEveryMinute', 'runEveryHour', 'runEveryDay']
+
 export const startScheduledTasksConsumer = async ({
     kafka,
     piscina,
@@ -52,6 +54,13 @@ export const startScheduledTasksConsumer = async ({
                 status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
                     error: error.stack ?? error,
                 })
+                await producer.send({ topic: KAFKA_SCHEDULED_TASKS_DLQ, messages: [message] })
+                resolveOffset(message.offset)
+                continue
+            }
+
+            if (!taskTypes.includes(task.taskType) || isNaN(task.pluginConfigId)) {
+                status.warn('⚠️', `Invalid schema for partition ${batch.partition} offset ${message.offset}.`, task)
                 await producer.send({ topic: KAFKA_SCHEDULED_TASKS_DLQ, messages: [message] })
                 resolveOffset(message.offset)
                 continue

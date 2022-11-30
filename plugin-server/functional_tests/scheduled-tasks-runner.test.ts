@@ -85,7 +85,7 @@ test.concurrent(`handles invalid JSON`, async () => {
     expect(messages.length).toBe(1)
 })
 
-test.concurrent(`handles invalid message schema`, async () => {
+test.concurrent(`handles invalid taskType`, async () => {
     const key = uuidv4()
 
     await producer.send({
@@ -93,7 +93,24 @@ test.concurrent(`handles invalid message schema`, async () => {
         messages: [
             {
                 key: key,
-                value: JSON.stringify({ taskType: 'invalidTaskType', pluginConfigId: 'abc' }),
+                value: JSON.stringify({ taskType: 'invalidTaskType', pluginConfigId: 1 }),
+            },
+        ],
+    })
+
+    const messages = await delayUntilEventIngested(() => dlq.filter((message) => message.key?.toString() === key))
+    expect(messages.length).toBe(1)
+})
+
+test.concurrent(`handles invalid pluginConfigId`, async () => {
+    const key = uuidv4()
+
+    await producer.send({
+        topic: 'scheduled_tasks',
+        messages: [
+            {
+                key: key,
+                value: JSON.stringify({ taskType: 'runEveryMinute', pluginConfigId: 'asdf' }),
             },
         ],
     })
