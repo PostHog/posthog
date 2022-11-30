@@ -116,6 +116,35 @@ test.concurrent(`plugin method tests: event captured, processed, ingested`, asyn
     expect(onEventEvent.properties).toEqual(expect.objectContaining(event.properties))
 })
 
+test.concurrent(`plugin method tests: handles infinite loops`, async () => {
+    const plugin = await createPlugin(postgres, {
+        organization_id: organizationId,
+        name: 'test plugin',
+        plugin_type: 'source',
+        is_global: false,
+        source__index_ts: `
+            export async function processEvent(event) {
+                while(event.properties.triggerLoop) {}
+                return event
+            }
+        `,
+    })
+    const teamId = await createTeam(postgres, organizationId)
+    await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
+
+    // First send an event that will run an infinite loop, then another that
+    // will not. We rely on the design that the events will be run in order
+    // such that if we do not manage to timeout the infinite loop, the second
+    // event will not be processed.
+    await capture(producer, teamId, distinctId, new UUIDT().toString(), 'custom event', { triggerLoop: true })
+    await capture(producer, teamId, distinctId, uuid, 'custom event', { triggerLoop: false })
+
+    const events = await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId, uuid), 1, 500, 80)
+    expect(events.length).toBe(1)
+})
+
 test.concurrent(
     `plugin method tests: correct $autocapture properties included in onEvent calls`,
     async () => {
