@@ -1,5 +1,6 @@
 import Piscina from '@posthog/piscina'
 
+import { KAFKA_SCHEDULED_TASKS } from '../../config/kafka-topics'
 import { Hub, PluginConfigId } from '../../types'
 import { status } from '../../utils/status'
 import { delay } from '../../utils/utils'
@@ -28,10 +29,13 @@ export async function loadPluginSchedule(piscina: Piscina, maxIterations = 2000)
     throw new Error('Could not load plugin schedule in time')
 }
 
-export async function runScheduledTasks(server: Hub, piscina: Piscina, taskType: string): Promise<void> {
+export async function runScheduledTasks(server: Hub, taskType: string): Promise<void> {
     for (const pluginConfigId of server.pluginSchedule?.[taskType] || []) {
         status.info('⏲️', `Running ${taskType} for plugin config with ID ${pluginConfigId}`)
-        await piscina.run({ task: taskType, args: { pluginConfigId } })
+        await server.kafkaProducer.producer.send({
+            topic: KAFKA_SCHEDULED_TASKS,
+            messages: [{ key: pluginConfigId.toString(), value: JSON.stringify({ taskType, pluginConfigId }) }],
+        })
         server.statsd?.increment('completed_scheduled_task', { taskType })
     }
 }
