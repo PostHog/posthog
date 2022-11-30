@@ -1,4 +1,9 @@
-from posthog.models import EventDefinition, Organization, Team
+from typing import cast
+
+from django.http import HttpRequest
+
+from posthog.models import EventDefinition, Organization, Team, User
+from posthog.utils import render_template
 
 from .app_data_generator import AppDataGenerator
 from .revenue_data_generator import RevenueDataGenerator
@@ -6,6 +11,12 @@ from .web_data_generator import WebDataGenerator
 
 ORGANIZATION_NAME = "Hogflix"
 TEAM_NAME = "Hogflix Demo App"
+
+
+def demo_route(request: HttpRequest):
+    user = cast(User, request.user)  # The user must be logged in because of login_required()
+    project_api_token = user.team.api_token if user.team is not None else None
+    return render_template("demo.html", request=request, context={"api_token": project_api_token})
 
 
 def create_demo_team(organization: Organization, *args) -> Team:
