@@ -1083,14 +1083,12 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 actions.refreshAllDashboardItems({ action: 'refresh_above_threshold', initialLoad, dashboardQueryId })
                 allLoaded = false
             } else {
-                const notYetLoadedItems =
-                    values.tiles?.filter((t): t is DashboardTile => !!t.insight && !t.insight.result) || []
-                const loadedItems =
-                    values.tiles?.filter((t): t is DashboardTile => !!t.insight && t.insight.result) || []
+                const tilesWithNoResults = values.tiles?.filter((t) => !!t.insight && !t.insight.result) || []
+                const tilesWithResults = values.tiles?.filter((t) => !!t.insight && t.insight.result) || []
 
-                if (notYetLoadedItems && notYetLoadedItems?.length > 0) {
+                if (tilesWithNoResults && tilesWithNoResults?.length > 0) {
                     actions.refreshAllDashboardItems({
-                        tiles: notYetLoadedItems,
+                        tiles: tilesWithNoResults,
                         action: 'load_missing',
                         initialLoad,
                         dashboardQueryId,
@@ -1098,7 +1096,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     allLoaded = false
                 }
 
-                loadedItems
+                tilesWithResults
                     ?.map((t) => t.insight)
                     .filter((i): i is InsightModel => !!i)
                     .forEach((i) => {
