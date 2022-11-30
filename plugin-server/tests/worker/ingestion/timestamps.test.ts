@@ -133,7 +133,7 @@ describe('parseEventTimestamp()', () => {
 
         const callbackMock = jest.fn()
         const timestamp = parseEventTimestamp(event, callbackMock)
-        expect(callbackMock.mock.calls).toEqual([[123]])
+        expect(callbackMock.mock.calls).toEqual([[]])
 
         const difference = rightNow.diff(timestamp, 'millisecond').seconds
         expect(difference).toBeLessThan(1)
