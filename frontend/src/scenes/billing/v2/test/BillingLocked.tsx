@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { billingLogic } from './billingLogic'
-import { Billing } from '../Billing'
+import { Billing } from '../../Billing'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import './BillingLocked.scss'
 

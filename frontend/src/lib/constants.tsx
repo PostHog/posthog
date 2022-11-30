@@ -136,6 +136,7 @@ export const FEATURE_FLAGS = {
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
     SECONDARY_ONBOARDING_EXPERIMENT: 'secondary-onboarding-experiment', // owner: #team-growth
     DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra
+    BILLING_FEATURES_EXPERIMENT: 'billing-features-experiment', // owner: #team-growth
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

@@ -8,7 +8,7 @@ import { deleteWithUndo, toParams } from 'lib/utils'
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { openBillingPopupModal } from 'scenes/billing/v2/BillingPopup'
+import { openBillingPopupModal } from 'scenes/billing/v2/control/BillingPopup'
 import { PLAYLIST_LIMIT_REACHED_MESSAGE } from 'scenes/session-recordings/sessionRecordingsLogic'
 
 async function createPlaylist(

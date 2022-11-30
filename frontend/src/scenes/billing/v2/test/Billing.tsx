@@ -177,7 +177,7 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
                                     center
                                     disableClientSideRouting
                                 >
-                                    Setup payment
+                                    Setup payment Test
                                 </LemonButton>
 
                                 <div className="space-y-2">

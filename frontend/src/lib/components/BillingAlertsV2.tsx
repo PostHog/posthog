@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
-import { billingLogic } from 'scenes/billing/v2/billingLogic'
+import { billingLogic } from 'scenes/billing/v2/control/billingLogic'
 import { urls } from 'scenes/urls'
 import { AlertMessage } from './AlertMessage'
 
