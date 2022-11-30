@@ -3,6 +3,7 @@ import { StatsD } from 'hot-shots'
 import { EachBatchHandler, Kafka, Producer } from 'kafkajs'
 
 import { KAFKA_SCHEDULED_TASKS, KAFKA_SCHEDULED_TASKS_DLQ } from '../../config/kafka-topics'
+import { DependencyUnavailableError } from '../../utils/db/error'
 import { status } from '../../utils/status'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 
@@ -18,8 +19,8 @@ export const startScheduledTasksConsumer = async ({
     statsd?: StatsD
 }) => {
     /*
-        Consumes from the tasks buffer topic, and enqueues the tasks for execution
-        at a later date.
+        Consumes from the scheduled tasks topic, and executes them within a
+        Piscina worker.
     */
 
     const consumer = kafka.consumer({ groupId: 'scheduled-tasks-runner' })
@@ -57,18 +58,27 @@ export const startScheduledTasksConsumer = async ({
                 continue
             }
 
-            status.debug('⬆️', 'Running scheduled task', {
-                task,
-            })
+            status.debug('⬆️', 'Running scheduled task', task)
 
             try {
                 await piscina.run({ task: task.taskType, args: { pluginConfigId: task.pluginConfigId } })
                 resolveOffset(message.offset)
-                statsd?.increment('tasks_consumer.enqueued')
+                statsd?.increment('scheduled_tasks.success', { taskType: task.taskType })
             } catch (error) {
-                status.error('⚠️', 'Failed to enqueue anonymous event for processing', { error })
-                statsd?.increment('tasks_consumer.enqueue_error')
-                throw error
+                if (error instanceof DependencyUnavailableError) {
+                    // For errors relating to PostHog dependencies that are unavailable,
+                    // e.g. Postgres, Kafka, Redis, we don't want to log the error to Sentry
+                    // but rather bubble this up the stack for someone else to decide on
+                    // what to do with it.
+                    status.warn('⚠️', `Dependency unavailable for scheduled task`, {
+                        pluginConfigId: task.pluginConfigId,
+                    })
+                    statsd?.increment('scheduled_tasks.retriable', { taskType: task.taskType })
+                    throw error
+                }
+
+                status.error('⚠️', 'Failed to run scheduled task', { error: error.stack ?? error })
+                statsd?.increment('scheduled_tasks.failure', { taskType: task.taskType })
             }
 
             // After processing each message, we need to heartbeat to ensure
