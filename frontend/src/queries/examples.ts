@@ -18,7 +18,7 @@ import {
     InsightType,
     PropertyFilterType,
     PropertyOperator,
-    PropertyMathType,
+    // PropertyMathType,
     FilterLogicalOperator,
     StepOrderValue,
     PropertyGroupFilter,
@@ -96,22 +96,22 @@ const series: (EventsNode | ActionsNode)[] = [
         ],
         limit: 100, // TODO - can't find a use for `limits` in insights/trends
     },
-    {
-        kind: NodeKind.ActionsNode,
-        id: 1,
-        name: 'Interacted with file',
-        custom_name: 'Interactions',
-        properties: [
-            {
-                type: PropertyFilterType.Event,
-                key: '$geoip_country_code',
-                operator: PropertyOperator.Exact,
-                value: ['US'],
-            },
-        ],
-        math: PropertyMathType.Average,
-        math_property: '$session_duration',
-    },
+    // {
+    //     kind: NodeKind.ActionsNode,
+    //     id: 1,
+    //     name: 'Interacted with file',
+    //     custom_name: 'Interactions',
+    //     properties: [
+    //         {
+    //             type: PropertyFilterType.Event,
+    //             key: '$geoip_country_code',
+    //             operator: PropertyOperator.Exact,
+    //             value: ['US'],
+    //         },
+    //     ],
+    //     math: PropertyMathType.Average,
+    //     math_property: '$session_duration',
+    // },
 ]
 
 const InsightTrendsQuery: TrendsQuery = {
