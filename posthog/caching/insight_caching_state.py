@@ -40,22 +40,26 @@ class LazyLoader:
         return set(recently_viewed_insights.values_list("insight_id", flat=True))
 
 
-def upsert(team: Team, target: Union[DashboardTile, Insight], lazy_loader: Optional[LazyLoader] = None):
+def upsert(
+    team: Team, target: Union[DashboardTile, Insight], lazy_loader: Optional[LazyLoader] = None
+) -> Optional[InsightCachingState]:
     lazy_loader = lazy_loader or LazyLoader()
     cache_key = calculate_cache_key(team, target)
     if cache_key is None:  # Non-cachable model
-        return
+        return None
 
     target_age = calculate_target_age(team, target, lazy_loader)
-    InsightCachingState.objects.update_or_create(
+    target_age_seconds = target_age.value.total_seconds() if target_age.value is not None else None
+    caching_state, _ = InsightCachingState.objects.update_or_create(
         team_id=team.pk,
-        insight=target if isinstance(target, Insight) else None,
+        insight=target if isinstance(target, Insight) else target.insight,
         dashboard_tile=target if isinstance(target, DashboardTile) else None,
         defaults={
             "cache_key": cache_key,
-            "target_cache_age_seconds": target_age,
+            "target_cache_age_seconds": target_age_seconds,
         },
     )
+    return caching_state
 
 
 def fetch_states_in_need_of_updating(timestamp=None) -> QuerySet[InsightCachingState]:

@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("cache_key", models.CharField(max_length=400)),
-                ("target_cache_age_seconds", models.IntegerField()),
+                ("target_cache_age_seconds", models.IntegerField(null=True)),
                 ("last_refresh", models.DateTimeField(blank=True, null=True)),
                 ("last_refresh_queued_at", models.BooleanField(null=True)),
                 ("refresh_attempt", models.IntegerField(default=0)),

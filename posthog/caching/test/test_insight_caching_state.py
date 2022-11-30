@@ -6,48 +6,23 @@ import pytest
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.caching.insight_caching_state import LazyLoader, TargetCacheAge, calculate_target_age
-from posthog.models import Dashboard, DashboardTile, Insight, InsightViewed, Team, Text, User
+from posthog.caching.insight_caching_state import LazyLoader, TargetCacheAge, calculate_target_age, upsert
+from posthog.models import (
+    Dashboard,
+    DashboardTile,
+    Insight,
+    InsightCachingState,
+    InsightViewed,
+    Team,
+    Text,
+    User,
+)
 from posthog.test.base import BaseTest
 
 filter_dict = {
     "events": [{"id": "$pageview"}],
     "properties": [{"key": "$browser", "value": "Mac OS X"}],
 }
-
-
-class TestLazyLoader(BaseTest):
-    @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_recently_viewed_insights(self):
-        insights = [Insight.objects.create(team=self.team) for _ in range(3)]
-        user2 = User.objects.create(email="testuser@posthog.com")
-
-        InsightViewed.objects.create(
-            insight=insights[0],
-            last_viewed_at=now() - timedelta(hours=50),
-            user=self.user,
-            team=self.team,
-        )
-        InsightViewed.objects.create(
-            insight=insights[1],
-            last_viewed_at=now() - timedelta(hours=50),
-            user=self.user,
-            team=self.team,
-        )
-        InsightViewed.objects.create(
-            insight=insights[1],
-            last_viewed_at=now() - timedelta(hours=35),
-            user=user2,
-            team=self.team,
-        )
-        InsightViewed.objects.create(
-            insight=insights[2],
-            last_viewed_at=now() - timedelta(hours=2),
-            user=self.user,
-            team=self.team,
-        )
-
-        self.assertEqual(LazyLoader().recently_viewed_insights, {insights[1].pk, insights[2].pk})
 
 
 def create_insight(
@@ -176,3 +151,107 @@ def test_calculate_target_age(
     )
     target_age = calculate_target_age(team, item, LazyLoader())
     assert target_age == expected_target_age
+
+
+@pytest.mark.django_db
+@patch("posthog.caching.insight_caching_state.active_teams")
+def test_upsert_new_insight(mock_active_teams, team: Team, user: User):
+    insight = create_insight(team=team, user=user, mock_active_teams=mock_active_teams)
+    caching_state = upsert(team, insight)
+
+    assert InsightCachingState.objects.filter(team=team).count() == 1
+
+    assert caching_state is not None
+    assert caching_state.team_id == team.pk
+    assert caching_state.insight == insight
+    assert caching_state.dashboard_tile is None
+    assert isinstance(caching_state.cache_key, str)
+    assert caching_state.target_cache_age_seconds == TargetCacheAge.MID_PRIORITY.value.total_seconds()
+    assert caching_state.last_refresh is None
+    assert caching_state.last_refresh_queued_at is None
+    assert caching_state.refresh_attempt == 0
+
+
+@pytest.mark.django_db
+@patch("posthog.caching.insight_caching_state.active_teams")
+def test_upsert_update_insight(mock_active_teams, team: Team, user: User):
+    insight = create_insight(team=team, user=user, mock_active_teams=mock_active_teams)
+    caching_state = upsert(team, insight)
+    assert caching_state is not None
+
+    caching_state.last_refresh = now()
+    caching_state.refresh_attempt = 1
+    caching_state.save()
+    insight.deleted = True
+    insight.save()
+
+    updated_caching_state = upsert(team, insight)
+
+    assert InsightCachingState.objects.filter(team=team).count() == 1
+    assert updated_caching_state is not None
+    assert updated_caching_state.target_cache_age_seconds is None
+    assert updated_caching_state.last_refresh == caching_state.last_refresh
+    assert updated_caching_state.refresh_attempt == 1
+
+
+@pytest.mark.django_db
+@patch("posthog.caching.insight_caching_state.active_teams")
+def test_upsert_new_tile(mock_active_teams, team: Team, user: User):
+    tile = create_tile(team=team, user=user, mock_active_teams=mock_active_teams)
+    caching_state = upsert(team, tile)
+
+    assert InsightCachingState.objects.filter(team=team).count() == 1
+
+    assert caching_state is not None
+    assert caching_state.team_id == team.pk
+    assert caching_state.insight == tile.insight
+    assert caching_state.dashboard_tile == tile
+    assert isinstance(caching_state.cache_key, str)
+    assert caching_state.target_cache_age_seconds == TargetCacheAge.LOW_PRIORITY.value.total_seconds()
+    assert caching_state.last_refresh is None
+    assert caching_state.last_refresh_queued_at is None
+    assert caching_state.refresh_attempt == 0
+
+
+@pytest.mark.django_db
+@patch("posthog.caching.insight_caching_state.active_teams")
+def test_upsert_text_tile_does_not_create_record(mock_active_teams, team: Team, user: User):
+    tile = create_tile(team=team, user=user, mock_active_teams=mock_active_teams, text_tile=True)
+    caching_state = upsert(team, tile)
+
+    assert caching_state is None
+    assert InsightCachingState.objects.filter(team=team).count() == 0
+
+
+class TestLazyLoader(BaseTest):
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_recently_viewed_insights(self):
+        insights = [Insight.objects.create(team=self.team) for _ in range(3)]
+        user2 = User.objects.create(email="testuser@posthog.com")
+
+        InsightViewed.objects.create(
+            insight=insights[0],
+            last_viewed_at=now() - timedelta(hours=50),
+            user=self.user,
+            team=self.team,
+        )
+        InsightViewed.objects.create(
+            insight=insights[1],
+            last_viewed_at=now() - timedelta(hours=50),
+            user=self.user,
+            team=self.team,
+        )
+        InsightViewed.objects.create(
+            insight=insights[1],
+            last_viewed_at=now() - timedelta(hours=35),
+            user=user2,
+            team=self.team,
+        )
+        InsightViewed.objects.create(
+            insight=insights[2],
+            last_viewed_at=now() - timedelta(hours=2),
+            user=self.user,
+            team=self.team,
+        )
+
+        self.assertEqual(LazyLoader().recently_viewed_insights, {insights[1].pk, insights[2].pk})

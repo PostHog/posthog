@@ -28,7 +28,7 @@ class InsightCachingState(UUIDModel):
     )
     cache_key: models.CharField = models.CharField(max_length=400, null=False, blank=False)
 
-    target_cache_age_seconds: models.IntegerField = models.IntegerField(null=False)
+    target_cache_age_seconds: models.IntegerField = models.IntegerField(null=True)
 
     last_refresh: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     last_refresh_queued_at: models.BooleanField = models.BooleanField(null=True)
