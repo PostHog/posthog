@@ -44,8 +44,8 @@ describe('Graphile Worker schedule', () => {
                 {
                     key: '1',
                     value: JSON.stringify({
-                        pluginConfigId: 1,
                         taskType: 'runEveryMinute',
+                        pluginConfigId: 1,
                     }),
                 },
             ],
@@ -56,8 +56,8 @@ describe('Graphile Worker schedule', () => {
                 {
                     key: '2',
                     value: JSON.stringify({
-                        pluginConfigId: 2,
                         taskType: 'runEveryMinute',
+                        pluginConfigId: 2,
                     }),
                 },
             ],
@@ -68,8 +68,8 @@ describe('Graphile Worker schedule', () => {
                 {
                     key: '3',
                     value: JSON.stringify({
-                        pluginConfigId: 3,
                         taskType: 'runEveryMinute',
+                        pluginConfigId: 3,
                     }),
                 },
             ],
@@ -82,8 +82,8 @@ describe('Graphile Worker schedule', () => {
                 {
                     key: '4',
                     value: JSON.stringify({
-                        pluginConfigId: 4,
                         taskType: 'runEveryHour',
+                        pluginConfigId: 4,
                     }),
                 },
             ],
@@ -94,8 +94,8 @@ describe('Graphile Worker schedule', () => {
                 {
                     key: '5',
                     value: JSON.stringify({
-                        pluginConfigId: 5,
                         taskType: 'runEveryHour',
+                        pluginConfigId: 5,
                     }),
                 },
             ],
@@ -106,8 +106,8 @@ describe('Graphile Worker schedule', () => {
                 {
                     key: '6',
                     value: JSON.stringify({
-                        pluginConfigId: 6,
                         taskType: 'runEveryHour',
+                        pluginConfigId: 6,
                     }),
                 },
             ],
@@ -120,8 +120,8 @@ describe('Graphile Worker schedule', () => {
                 {
                     key: '7',
                     value: JSON.stringify({
-                        pluginConfigId: 7,
                         taskType: 'runEveryDay',
+                        pluginConfigId: 7,
                     }),
                 },
             ],
@@ -132,8 +132,8 @@ describe('Graphile Worker schedule', () => {
                 {
                     key: '8',
                     value: JSON.stringify({
-                        pluginConfigId: 8,
                         taskType: 'runEveryDay',
+                        pluginConfigId: 8,
                     }),
                 },
             ],
@@ -144,8 +144,8 @@ describe('Graphile Worker schedule', () => {
                 {
                     key: '9',
                     value: JSON.stringify({
-                        pluginConfigId: 9,
                         taskType: 'runEveryDay',
+                        pluginConfigId: 9,
                     }),
                 },
             ],
