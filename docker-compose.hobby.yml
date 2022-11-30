@@ -91,6 +91,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: asyncmigrationscheck
+        image: posthog/posthog:$POSTHOG_APP_TAG
 
 volumes:
     zookeeper-data:
