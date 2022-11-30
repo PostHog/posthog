@@ -5,7 +5,18 @@ import { EachBatchHandler, Kafka, Producer } from 'kafkajs'
 import * as path from 'path'
 import { PluginsServerConfig } from 'types'
 
-import { KAFKA_EVENTS_JSON, KAFKA_EVENTS_JSON_DLQ } from '../../config/kafka-topics'
+import {
+    KAFKA_APP_METRICS,
+    KAFKA_EVENTS_DEAD_LETTER_QUEUE,
+    KAFKA_EVENTS_JSON,
+    KAFKA_EVENTS_JSON_DLQ,
+    KAFKA_GROUPS,
+    KAFKA_INGESTION_WARNINGS,
+    KAFKA_PERSON,
+    KAFKA_PERSON_DISTINCT_ID,
+    KAFKA_PLUGIN_LOG_ENTRIES,
+    KAFKA_SESSION_RECORDING_EVENTS,
+} from '../../config/kafka-topics'
 import { status } from '../../utils/status'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 
@@ -52,6 +63,18 @@ export const startClickHouseConsumer = async ({
             : undefined,
     })
 
+    const topicToTable = {
+        [KAFKA_EVENTS_JSON]: 'writable_events',
+        [KAFKA_EVENTS_DEAD_LETTER_QUEUE]: 'events_dead_letter_queue',
+        [KAFKA_GROUPS]: 'groups',
+        [KAFKA_PERSON]: 'person',
+        [KAFKA_PERSON_DISTINCT_ID]: 'person_distinct_id2',
+        [KAFKA_PLUGIN_LOG_ENTRIES]: 'plugin_log_entries',
+        [KAFKA_SESSION_RECORDING_EVENTS]: 'writable_session_recording_events',
+        [KAFKA_INGESTION_WARNINGS]: 'sharded_ingestion_warnings',
+        [KAFKA_APP_METRICS]: 'sharded_app_metrics',
+    } as const
+
     const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat }) => {
         status.debug('🔁', 'Processing batch', { size: batch.messages.length })
 
@@ -68,12 +91,12 @@ export const startClickHouseConsumer = async ({
             }
 
             try {
-                const event = JSON.parse(message.value.toString())
+                const row = JSON.parse(message.value.toString())
 
-                status.debug('⬆️', 'Inserting event', { event })
+                status.debug('⬆️', 'Inserting row', { row })
 
                 await clickhouse.insert({
-                    table: 'writable_events',
+                    table: topicToTable[batch.topic as keyof typeof topicToTable],
                     values: [event],
                     format: 'JSONEachRow',
                 })
@@ -108,7 +131,9 @@ export const startClickHouseConsumer = async ({
     }
 
     await consumer.connect()
-    await consumer.subscribe({ topic: KAFKA_EVENTS_JSON })
+    await consumer.subscribe({
+        topics: Object.keys(topicToTable),
+    })
     await consumer.run({
         eachBatchAutoResolve: false,
         eachBatch: async (payload) => {
