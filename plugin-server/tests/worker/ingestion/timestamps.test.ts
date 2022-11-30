@@ -1,5 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+import tk from 'timekeeper'
 
 import { parseDate, parseEventTimestamp } from '../../../src/worker/ingestion/timestamps'
 
@@ -30,6 +31,13 @@ describe('parseDate()', () => {
 })
 
 describe('parseEventTimestamp()', () => {
+    beforeEach(() => {
+        tk.freeze(1330688329321) // Back to 2012-03-02
+    })
+    afterEach(() => {
+        tk.reset()
+    })
+
     it('captures sent_at', () => {
         const rightNow = DateTime.utc()
         const tomorrow = rightNow.plus({ days: 1, hours: 2 })
@@ -123,19 +131,16 @@ describe('parseEventTimestamp()', () => {
         expect(timestamp.toUTC().toISO()).toEqual('2020-01-01T12:00:05.050Z')
     })
 
-    it('reports timestamp parsing error and fallbacks to now', () => {
-        const rightNow = DateTime.utc()
+    it('reports timestamp parsing error and fallbacks to DateTime.utc', () => {
         const event = {
             team_id: 123,
             timestamp: 'invalid',
-            now: rightNow,
+            now: DateTime.fromISO('2020-01-01T12:00:05.200Z'),
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
         const timestamp = parseEventTimestamp(event, callbackMock)
         expect(callbackMock.mock.calls).toEqual([[]])
-
-        const difference = rightNow.diff(timestamp, 'millisecond').seconds
-        expect(difference).toBeLessThan(1)
+        expect(timestamp.toUTC().toISO()).toEqual('2012-03-02T11:38:49.321Z')
     })
 })
