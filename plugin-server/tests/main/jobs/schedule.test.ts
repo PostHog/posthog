@@ -42,6 +42,7 @@ describe('Graphile Worker schedule', () => {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
                 {
+                    key: '1',
                     value: JSON.stringify({
                         pluginConfigId: 1,
                         taskType: 'runEveryMinute',
@@ -53,6 +54,7 @@ describe('Graphile Worker schedule', () => {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
                 {
+                    key: '2',
                     value: JSON.stringify({
                         pluginConfigId: 2,
                         taskType: 'runEveryMinute',
@@ -64,6 +66,7 @@ describe('Graphile Worker schedule', () => {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
                 {
+                    key: '3',
                     value: JSON.stringify({
                         pluginConfigId: 3,
                         taskType: 'runEveryMinute',
@@ -77,6 +80,7 @@ describe('Graphile Worker schedule', () => {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
                 {
+                    key: '4',
                     value: JSON.stringify({
                         pluginConfigId: 4,
                         taskType: 'runEveryHour',
@@ -88,6 +92,7 @@ describe('Graphile Worker schedule', () => {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
                 {
+                    key: '5',
                     value: JSON.stringify({
                         pluginConfigId: 5,
                         taskType: 'runEveryHour',
@@ -99,6 +104,7 @@ describe('Graphile Worker schedule', () => {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
                 {
+                    key: '6',
                     value: JSON.stringify({
                         pluginConfigId: 6,
                         taskType: 'runEveryHour',
@@ -112,6 +118,7 @@ describe('Graphile Worker schedule', () => {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
                 {
+                    key: '7',
                     value: JSON.stringify({
                         pluginConfigId: 7,
                         taskType: 'runEveryDay',
@@ -123,6 +130,7 @@ describe('Graphile Worker schedule', () => {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
                 {
+                    key: '8',
                     value: JSON.stringify({
                         pluginConfigId: 8,
                         taskType: 'runEveryDay',
@@ -134,6 +142,7 @@ describe('Graphile Worker schedule', () => {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
                 {
+                    key: '9',
                     value: JSON.stringify({
                         pluginConfigId: 9,
                         taskType: 'runEveryDay',
