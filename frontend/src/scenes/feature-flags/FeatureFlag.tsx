@@ -387,24 +387,20 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
                                         </Tabs.TabPane>
                                     )}
-                                    {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
+                                    {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && featureFlag.can_edit && (
                                         <Tabs.TabPane tab="Permissions" key="permissions">
                                             <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                                                {featureFlag.can_edit && (
-                                                    <ResourcePermission
-                                                        resourceType={Resource.FEATURE_FLAGS}
-                                                        isNewResource={id === 'new'}
-                                                        onChange={(roleIds) => setRolesToAdd(roleIds)}
-                                                        rolesToAdd={rolesToAdd}
-                                                        addableRoles={addableRoles}
-                                                        addableRolesLoading={unfilteredAddableRolesLoading}
-                                                        onAdd={() => addAssociatedRoles()}
-                                                        roles={derivedRoles}
-                                                        deleteAssociatedRole={(id) =>
-                                                            deleteAssociatedRole({ roleId: id })
-                                                        }
-                                                    />
-                                                )}
+                                                <ResourcePermission
+                                                    resourceType={Resource.FEATURE_FLAGS}
+                                                    isNewResource={id === 'new'}
+                                                    onChange={(roleIds) => setRolesToAdd(roleIds)}
+                                                    rolesToAdd={rolesToAdd}
+                                                    addableRoles={addableRoles}
+                                                    addableRolesLoading={unfilteredAddableRolesLoading}
+                                                    onAdd={() => addAssociatedRoles()}
+                                                    roles={derivedRoles}
+                                                    deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+                                                />
                                             </PayGateMini>
                                         </Tabs.TabPane>
                                     )}
