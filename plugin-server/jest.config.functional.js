@@ -15,5 +15,4 @@ module.exports = {
     testMatch: ['<rootDir>/functional_tests/**/*.test.ts'],
     testTimeout: 60000,
     maxConcurrency: 10,
-    maxWorkers: 6,
 }
