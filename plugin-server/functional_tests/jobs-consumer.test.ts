@@ -1,5 +1,5 @@
 import Redis from 'ioredis'
-import { Consumer, Kafka, KafkaMessage, logLevel,Partitioners, Producer } from 'kafkajs'
+import { Consumer, Kafka, KafkaMessage, logLevel, Partitioners, Producer } from 'kafkajs'
 import { Pool } from 'pg'
 import { v4 as uuidv4 } from 'uuid'
 
