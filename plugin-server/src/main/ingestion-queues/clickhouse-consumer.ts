@@ -34,7 +34,6 @@ export const startClickHouseConsumer = async ({
     /*
         Consumer to insert events into ClickHouse.
 
-        TODO: handle multiple topics/tables
         TODO: handle batching, assuming performance isn't good enough. The
         ClickHouse client supports inserting via a Stream but I'm not too
         familiar with these in Node. It looks like it should help with some
