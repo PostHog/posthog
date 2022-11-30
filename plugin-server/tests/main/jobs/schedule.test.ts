@@ -1,5 +1,6 @@
 import { Producer } from 'kafkajs'
 
+import { KAFKA_SCHEDULED_TASKS } from '../../../src/config/kafka-topics'
 import { runScheduledTasks } from '../../../src/main/graphile-worker/schedule'
 import { Hub } from '../../../src/types'
 import { KafkaProducerWrapper } from '../../../src/utils/db/kafka-producer-wrapper'
@@ -18,10 +19,6 @@ describe('Graphile Worker schedule', () => {
     })
 
     test('runScheduledTasks()', async () => {
-        const mockPiscina = {
-            run: jest.fn(),
-        }
-
         const mockHubWithPluginSchedule = {
             ...mockHub,
             pluginSchedule: {
@@ -37,22 +34,112 @@ describe('Graphile Worker schedule', () => {
         }
 
         await runScheduledTasks(mockHubWithPluginSchedule, 'iDontExist')
-        expect(mockPiscina.run).not.toHaveBeenCalled()
+        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).not.toHaveBeenCalled()
 
         await runScheduledTasks(mockHubWithPluginSchedule, 'runEveryMinute')
 
-        expect(mockPiscina.run).toHaveBeenNthCalledWith(1, { pluginConfigId: 1, taskType: 'runEveryMinute' })
-        expect(mockPiscina.run).toHaveBeenNthCalledWith(2, { pluginConfigId: 2, taskType: 'runEveryMinute' })
-        expect(mockPiscina.run).toHaveBeenNthCalledWith(3, { pluginConfigId: 3, taskType: 'runEveryMinute' })
+        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(1, {
+            topic: KAFKA_SCHEDULED_TASKS,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        pluginConfigId: 1,
+                        taskType: 'runEveryMinute',
+                    }),
+                },
+            ],
+        })
+        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(2, {
+            topic: KAFKA_SCHEDULED_TASKS,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        pluginConfigId: 2,
+                        taskType: 'runEveryMinute',
+                    }),
+                },
+            ],
+        })
+        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(3, {
+            topic: KAFKA_SCHEDULED_TASKS,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        pluginConfigId: 3,
+                        taskType: 'runEveryMinute',
+                    }),
+                },
+            ],
+        })
 
         await runScheduledTasks(mockHubWithPluginSchedule, 'runEveryHour')
-        expect(mockPiscina.run).toHaveBeenNthCalledWith(4, { pluginConfigId: 4, taskType: 'runEveryHour' })
-        expect(mockPiscina.run).toHaveBeenNthCalledWith(5, { pluginConfigId: 5, taskType: 'runEveryHour' })
-        expect(mockPiscina.run).toHaveBeenNthCalledWith(6, { pluginConfigId: 6, taskType: 'runEveryHour' })
+        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(4, {
+            topic: KAFKA_SCHEDULED_TASKS,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        pluginConfigId: 4,
+                        taskType: 'runEveryHour',
+                    }),
+                },
+            ],
+        })
+        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(5, {
+            topic: KAFKA_SCHEDULED_TASKS,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        pluginConfigId: 5,
+                        taskType: 'runEveryHour',
+                    }),
+                },
+            ],
+        })
+        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(6, {
+            topic: KAFKA_SCHEDULED_TASKS,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        pluginConfigId: 6,
+                        taskType: 'runEveryHour',
+                    }),
+                },
+            ],
+        })
 
         await runScheduledTasks(mockHubWithPluginSchedule, 'runEveryDay')
-        expect(mockPiscina.run).toHaveBeenNthCalledWith(7, { pluginConfigId: 7, taskType: 'runEveryDay' })
-        expect(mockPiscina.run).toHaveBeenNthCalledWith(8, { pluginConfigId: 8, taskType: 'runEveryDay' })
-        expect(mockPiscina.run).toHaveBeenNthCalledWith(9, { pluginConfigId: 9, taskType: 'runEveryDay' })
+        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(7, {
+            topic: KAFKA_SCHEDULED_TASKS,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        pluginConfigId: 7,
+                        taskType: 'runEveryDay',
+                    }),
+                },
+            ],
+        })
+        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(8, {
+            topic: KAFKA_SCHEDULED_TASKS,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        pluginConfigId: 8,
+                        taskType: 'runEveryDay',
+                    }),
+                },
+            ],
+        })
+        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(9, {
+            topic: KAFKA_SCHEDULED_TASKS,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        pluginConfigId: 9,
+                        taskType: 'runEveryDay',
+                    }),
+                },
+            ],
+        })
     })
 })
