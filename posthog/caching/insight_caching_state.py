@@ -1,10 +1,8 @@
-from calendar import timegm
 from datetime import timedelta
 from enum import Enum
 from functools import cached_property
 from typing import Optional, Union
 
-from django.db.models.query import F, Q, QuerySet
 from django.utils.timezone import now
 
 from posthog.caching.utils import active_teams
@@ -62,14 +60,20 @@ def upsert(
     return caching_state
 
 
-def fetch_states_in_need_of_updating(timestamp=None) -> QuerySet[InsightCachingState]:
-    if timestamp is None:
-        timestamp = now()
-
-    unix_timestamp = timegm(now().utctimetuple())
-    return InsightCachingState.objects.filter(
-        Q(last_refresh__isnull=True) | Q(last_refresh__lte=unix_timestamp - F("target_cache_age_seconds"))
-    ).filter(refresh_attempt__lte=MAX_ATTEMPTS)
+def fetch_states_in_need_of_updating():
+    return InsightCachingState.objects.raw(
+        """
+        SELECT *
+        FROM posthog_insightcachingstate
+        WHERE target_cache_age_seconds IS NOT NULL
+          AND refresh_attempt < %(max_attempts)s
+          AND (
+            last_refresh IS NULL OR
+            last_refresh < %(timestamp)s - target_cache_age_seconds * interval '1' second
+          )
+        """,
+        {"max_attempts": MAX_ATTEMPTS, "timestamp": now()},
+    )
 
 
 def calculate_cache_key(team: Team, target: Union[DashboardTile, Insight]) -> Optional[str]:
@@ -95,7 +99,6 @@ def calculate_target_age_insight(team: Team, insight: Insight, lazy_loader: Lazy
         return TargetCacheAge.NO_CACHING
 
     # :TODO: Only cache insights that are shared
-
     if insight.pk not in lazy_loader.recently_viewed_insights:
         return TargetCacheAge.NO_CACHING
 

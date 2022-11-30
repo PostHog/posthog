@@ -6,7 +6,13 @@ import pytest
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.caching.insight_caching_state import LazyLoader, TargetCacheAge, calculate_target_age, upsert
+from posthog.caching.insight_caching_state import (
+    LazyLoader,
+    TargetCacheAge,
+    calculate_target_age,
+    fetch_states_in_need_of_updating,
+    upsert,
+)
 from posthog.models import (
     Dashboard,
     DashboardTile,
@@ -28,13 +34,14 @@ filter_dict = {
 def create_insight(
     team: Team,
     user: User,
-    mock_active_teams: Any,
+    mock_active_teams: Any = None,
     team_should_be_active=True,
     viewed_at_delta: Optional[timedelta] = timedelta(hours=1),  # noqa
     filters=filter_dict,
     deleted=False,
 ) -> Insight:
-    mock_active_teams.return_value = {team.pk} if team_should_be_active else set()
+    if mock_active_teams:
+        mock_active_teams.return_value = {team.pk} if team_should_be_active else set()
 
     insight = Insight.objects.create(team=team, filters=filters, deleted=deleted)
     if viewed_at_delta is not None:
@@ -46,7 +53,7 @@ def create_insight(
 def create_tile(
     team: Team,
     user: User,
-    mock_active_teams: Any,
+    mock_active_teams: Any = None,
     on_home_dashboard=False,
     team_should_be_active=True,
     viewed_at_delta: Optional[timedelta] = None,
@@ -55,7 +62,8 @@ def create_tile(
     dashboard_deleted=False,
     text_tile=False,
 ) -> DashboardTile:
-    mock_active_teams.return_value = {team.pk} if team_should_be_active else set()
+    if mock_active_teams:
+        mock_active_teams.return_value = {team.pk} if team_should_be_active else set()
 
     dashboard = Dashboard.objects.create(
         team=team, last_accessed_at=now() - viewed_at_delta if viewed_at_delta else None, deleted=dashboard_deleted
@@ -75,6 +83,23 @@ def create_tile(
         dashboard=dashboard,
         insight=insight,
         text=text,
+    )
+
+
+def create_insight_caching_state(
+    team: Team,
+    user: User,
+    last_refreshed: Optional[timedelta] = timedelta(days=14),  # noqa
+    target_cache_age: Optional[timedelta] = timedelta(days=1),  # noqa
+    refresh_attempt: int = 0,
+):
+    insight = create_insight(team, user)
+    InsightCachingState.objects.create(
+        team=team,
+        insight=insight,
+        last_refresh=now() - last_refreshed if last_refreshed is not None else None,
+        target_cache_age_seconds=target_cache_age.total_seconds() if target_cache_age is not None else None,
+        refresh_attempt=refresh_attempt,
     )
 
 
@@ -221,6 +246,26 @@ def test_upsert_text_tile_does_not_create_record(mock_active_teams, team: Team, 
 
     assert caching_state is None
     assert InsightCachingState.objects.filter(team=team).count() == 0
+
+
+@pytest.mark.parametrize(
+    "params,expected_matches",
+    [
+        ({}, 1),
+        ({"last_refreshed": None}, 1),
+        ({"target_cache_age": None, "last_refreshed": None}, 0),
+        ({"target_cache_age": timedelta(days=1), "last_refreshed": timedelta(days=2)}, 1),
+        ({"target_cache_age": timedelta(days=1), "last_refreshed": timedelta(hours=23)}, 0),
+        ({"refresh_attempt": 2}, 1),
+        ({"refresh_attempt": 3}, 0),
+    ],
+)
+@pytest.mark.django_db
+def test_fetch_states_in_need_of_updating(team: Team, user: User, params, expected_matches):
+    create_insight_caching_state(team, user, **params)
+
+    results = fetch_states_in_need_of_updating()
+    assert len(results) == expected_matches
 
 
 class TestLazyLoader(BaseTest):
