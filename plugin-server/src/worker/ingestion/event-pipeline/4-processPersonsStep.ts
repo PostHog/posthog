@@ -12,7 +12,7 @@ export async function processPersonsStep(
     personContainer: LazyPersonContainer
 ): Promise<StepResult> {
     const event = normalizeEvent(pluginEvent)
-    const timestamp = parseEventTimestamp(event, runner.hub.statsd)
+    const timestamp = parseEventTimestamp(event)
 
     const newPersonContainer: LazyPersonContainer = await updatePersonState(
         event,
