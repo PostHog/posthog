@@ -34,10 +34,9 @@ class LazyLoader:
 
     @cached_property
     def recently_viewed_insights(self):
-        recently_viewed_insights = (
-            InsightViewed.objects.filter(last_viewed_at__gte=now() - VERY_RECENTLY_VIEWED_THRESHOLD)
-            .distinct("insight_id")
-        )
+        recently_viewed_insights = InsightViewed.objects.filter(
+            last_viewed_at__gte=now() - VERY_RECENTLY_VIEWED_THRESHOLD
+        ).distinct("insight_id")
         return set(recently_viewed_insights.values_list("insight_id", flat=True))
 
 
@@ -116,7 +115,11 @@ def calculate_target_age_dashboard_tile(
 
     # :TODO: If shared, MID_PRIORITY
 
-    since_last_viewed = now() - dashboard_tile.dashboard.last_accessed_at
+    since_last_viewed = (
+        now() - dashboard_tile.dashboard.last_accessed_at
+        if dashboard_tile.dashboard.last_accessed_at
+        else timedelta(days=9999)
+    )
     if since_last_viewed < VERY_RECENTLY_VIEWED_THRESHOLD:
         return TargetCacheAge.HIGH_PRIORITY
 
