@@ -4,11 +4,14 @@ import { CurrentUsage } from './CurrentUsage'
 import { BillingEnrollment } from './BillingEnrollment'
 import './Billing.scss'
 import { billingLogic } from './billingLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { useValues } from 'kea'
-import { BillingV2 } from './v2/Billing'
+import { BillingV2 } from './v2/control/Billing'
+import { BillingV2 as BillingV2Test } from './v2/test/Billing'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 export const scene: SceneExport = {
@@ -18,6 +21,7 @@ export const scene: SceneExport = {
 
 export function Billing(): JSX.Element {
     const { billing, isSmallScreen, billingVersion } = useValues(billingLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!billingVersion) {
         return <SpinnerOverlay />
@@ -27,7 +31,7 @@ export function Billing(): JSX.Element {
         return (
             <div>
                 <PageHeader title="Billing &amp; usage" />
-                <BillingV2 />
+                {featureFlags[FEATURE_FLAGS.BILLING_FEATURES_EXPERIMENT] === 'test' ? <BillingV2Test /> : <BillingV2 />}
             </div>
         )
     }
