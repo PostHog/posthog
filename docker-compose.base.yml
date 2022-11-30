@@ -107,4 +107,5 @@ services:
         <<: *worker
         command: python manage.py run_async_migrations --check
         restart: 'no'
-        scale: 0
+        deploy:
+            replicas: 0
