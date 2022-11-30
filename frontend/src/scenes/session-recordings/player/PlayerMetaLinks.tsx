@@ -5,14 +5,16 @@ import {
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { openPlayerAddToPlaylistDialog } from 'scenes/session-recordings/player/add-to-playlist/PlayerAddToPlaylist'
-import { IconLink, IconSave, IconWithCount } from 'lib/components/icons'
+import { IconLink, IconPlus, IconWithCount } from 'lib/components/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
+import { playerSettingsLogic } from './playerSettingsLogic'
 
-export function PlayerHeader({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
+export function PlayerMetaLinks({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     const { recordingStartTime, sessionPlayerData } = useValues(logic)
     const { setPause } = useActions(logic)
     const playlists = sessionPlayerData.metadata.playlists ?? []
+    const { isFullScreen } = useValues(playerSettingsLogic)
 
     const onShare = (): void => {
         setPause()
@@ -32,18 +34,23 @@ export function PlayerHeader({ sessionRecordingId, playerKey }: SessionRecording
     }
 
     return (
-        <div className="py-2 px-3 flex flex-row justify-end gap-3">
-            <LemonButton icon={<IconLink />} status="primary-alt" onClick={() => onShare()} tooltip="Share recording">
+        <div className="flex flex-row justify-end gap-2">
+            <LemonButton
+                icon={<IconLink />}
+                onClick={onShare}
+                tooltip="Share recording"
+                size={isFullScreen ? 'small' : 'medium'}
+            >
                 Share
             </LemonButton>
             <LemonButton
-                status="primary-alt"
                 onClick={onAddToPlaylist}
                 icon={
                     <IconWithCount count={playlists.length}>
-                        <IconSave />
+                        <IconPlus />
                     </IconWithCount>
                 }
+                size={isFullScreen ? 'small' : 'medium'}
                 tooltip="Save recording to static playlist"
             >
                 Save
