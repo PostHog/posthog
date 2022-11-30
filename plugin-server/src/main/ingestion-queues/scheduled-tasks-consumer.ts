@@ -7,7 +7,10 @@ import { DependencyUnavailableError } from '../../utils/db/error'
 import { status } from '../../utils/status'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 
-const taskTypes = ['runEveryMinute', 'runEveryHour', 'runEveryDay']
+// The valid task types that can be scheduled.
+// TODO: not sure if there is another place that defines these but it would be
+// good to unify.
+const taskTypes = ['runEveryMinute', 'runEveryHour', 'runEveryDay'] as const
 
 export const startScheduledTasksConsumer = async ({
     kafka,
@@ -44,7 +47,7 @@ export const startScheduledTasksConsumer = async ({
             }
 
             let task: {
-                taskType: 'runEveryMinute' | 'runEveryHour' | 'runEveryDay'
+                taskType: typeof taskTypes[number]
                 pluginConfigId: number
             }
 
