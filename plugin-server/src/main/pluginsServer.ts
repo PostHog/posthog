@@ -20,6 +20,7 @@ import { GraphileWorker } from './graphile-worker/graphile-worker'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
+import { startClickHouseConsumer } from './ingestion-queues/clickhouse-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
@@ -87,6 +88,7 @@ export async function startPluginsServer(
     let bufferConsumer: Consumer | undefined
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
+    let clickHouseConsumer: Consumer | undefined
 
     let httpServer: Server | undefined // healthcheck server
     let mmdbServer: net.Server | undefined // geoip server
@@ -122,6 +124,7 @@ export async function startPluginsServer(
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
             schedulerTasksConsumer?.disconnect(),
+            clickHouseConsumer?.disconnect(),
         ])
 
         await new Promise<void>((resolve, reject) =>
@@ -264,6 +267,13 @@ export async function startPluginsServer(
                 piscina: piscina,
                 kafka: hub.kafka,
                 producer: hub.kafkaProducer,
+                statsd: hub.statsd,
+            })
+
+            clickHouseConsumer = await startClickHouseConsumer({
+                kafka: hub.kafka,
+                producer: hub.kafkaProducer.producer,
+                serverConfig: { ...defaultConfig, ...serverConfig },
                 statsd: hub.statsd,
             })
         }

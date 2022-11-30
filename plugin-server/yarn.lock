@@ -1702,6 +1702,13 @@
   resolved "https://registry.yarnpkg.com/@bcoe/v8-coverage/-/v8-coverage-0.2.3.tgz#75a2e8b51cb758a7553d6804a5932d7aace75c39"
   integrity sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw==
 
+"@clickhouse/client@^0.0.10":
+  version "0.0.10"
+  resolved "https://registry.yarnpkg.com/@clickhouse/client/-/client-0.0.10.tgz#aa117950ba04295bdb9eb4450ad2e1fa6dd17220"
+  integrity sha512-7+AfYphA+JyHNtOx1SF1qFTItoxisOuN4Ef2Vs5PSaUJdpbJlGEZ12/LlATGXjPiY4+Iv87U2UUKNG0bW4/mFQ==
+  dependencies:
+    node-abort-controller "^3.0.1"
+
 "@cspotcode/source-map-support@^0.8.0":
   version "0.8.1"
   resolved "https://registry.yarnpkg.com/@cspotcode/source-map-support/-/source-map-support-0.8.1.tgz#00629c35a688e05a88b1cda684fb9d5e73f000a1"
@@ -6991,6 +6998,11 @@ nice-napi@^1.0.2:
   dependencies:
     node-addon-api "^3.0.0"
     node-gyp-build "^4.2.2"
+
+node-abort-controller@^3.0.1:
+  version "3.0.1"
+  resolved "https://registry.yarnpkg.com/node-abort-controller/-/node-abort-controller-3.0.1.tgz#f91fa50b1dee3f909afabb7e261b1e1d6b0cb74e"
+  integrity sha512-/ujIVxthRs+7q6hsdjHMaj8hRG9NuWmwrz+JdRwZ14jdFoKSkm+vDsCbF9PLpnSqjaWQJuTmVtcWHNLr+vrOFw==
 
 node-addon-api@^3.0.0:
   version "3.0.2"
