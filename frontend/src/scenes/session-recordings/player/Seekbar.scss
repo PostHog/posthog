@@ -126,6 +126,7 @@
                 opacity: 0;
                 visibility: hidden;
                 transition: opacity 150ms ease-in-out;
+                max-width: 20rem;
             }
 
             &:hover {

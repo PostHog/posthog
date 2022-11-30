@@ -63,9 +63,11 @@ function PlayerSeekbarTick({ event, sessionRecordingId, playerKey, status, numEv
                     ellipsis={true}
                     value={capitalizeFirstLetter(autoCaptureEventToDescription(event))}
                 />
-                {event.event === '$autocapture' ? <span className="text-muted-alt ml-2">(Autocapture)</span> : null}
+                {event.event === '$autocapture' ? <span className="opacity-75 ml-2">(Autocapture)</span> : null}
                 {event.event === '$pageview' ? (
-                    <span className="ml-2">{event.properties.$pathname || event.properties.$current_url}</span>
+                    <span className="ml-2 opacity-75">
+                        {event.properties.$pathname || event.properties.$current_url}
+                    </span>
                 ) : null}
             </div>
             <div className="PlayerSeekbarTick__line" />
