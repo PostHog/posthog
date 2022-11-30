@@ -1,5 +1,5 @@
 import Redis from 'ioredis'
-import { Consumer, Kafka, KafkaMessage, Partitioners, Producer } from 'kafkajs'
+import { Consumer, Kafka, KafkaMessage, logLevel,Partitioners, Producer } from 'kafkajs'
 import { Pool } from 'pg'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -19,7 +19,7 @@ beforeAll(async () => {
         // so set max connections to 1.
         max: 1,
     })
-    kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS] })
+    kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS], logLevel: logLevel.NOTHING })
     producer = kafka.producer({ createPartitioner: Partitioners.DefaultPartitioner })
     await producer.connect()
     redis = new Redis(defaultConfig.REDIS_URL)

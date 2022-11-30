@@ -14,4 +14,5 @@ module.exports = {
     testEnvironment: 'node',
     testMatch: ['<rootDir>/functional_tests/**/*.test.ts'],
     testTimeout: 60000,
+    maxConcurrency: 10,
 }
