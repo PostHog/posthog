@@ -19,6 +19,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
+import { PlayerMetaLinks } from './PlayerMetaLinks'
 
 export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
     const {
@@ -76,7 +77,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                         />
                     )}
                 </div>
-                <div className="flex-1 overflow-hidden ph-no-capture">
+                <div className="overflow-hidden ph-no-capture">
                     <div className="font-bold">
                         {!sessionPerson || !recordingStartTime ? (
                             <LemonSkeleton className="w-1/3 my-1" />
@@ -136,6 +137,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                         ) : null}
                     </div>
                 </div>
+
                 <LemonButton
                     className={clsx('PlayerMeta__expander', isFullScreen ? 'rotate-90' : '')}
                     status="stealth"
@@ -145,6 +147,10 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                     tooltip={isMetadataExpanded ? 'Hide person properties' : 'Show person properties'}
                     tooltipPlacement={isFullScreen ? 'bottom' : 'left'}
                 />
+
+                <div className="flex-1">
+                    <PlayerMetaLinks sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+                </div>
             </div>
             {sessionPerson && (
                 <CSSTransition
