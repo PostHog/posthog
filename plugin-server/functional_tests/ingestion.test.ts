@@ -278,7 +278,8 @@ test.concurrent(
 )
 
 test.concurrent(`event ingestion: events without a team_id get processed correctly`, async () => {
-    const teamId = await createTeam(postgres, organizationId, '', 'token1')
+    const token = new UUIDT().toString()
+    const teamId = await createTeam(postgres, organizationId, '', token)
     const personIdentifier = 'test@posthog.com'
 
     await capture(
@@ -290,7 +291,7 @@ test.concurrent(`event ingestion: events without a team_id get processed correct
         {
             distinct_id: personIdentifier,
         },
-        'token1'
+        token
     )
 
     const events = await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
