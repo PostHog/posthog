@@ -456,6 +456,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     [shortId]: { error: true, timer: state[shortId]?.timer || null },
                 }),
                 refreshAllDashboardItems: () => ({}),
+                abortQuery: () => ({}),
             },
         ],
         columns: [
@@ -907,7 +908,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 return
             }
 
-            let breakpointTriggered = false
+            let cancelled = false
             actions.setRefreshStatuses(
                 insights.map((item) => item.short_id),
                 true
@@ -980,12 +981,14 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 } catch (e: any) {
                     console.error(e)
                     if (isBreakpoint(e)) {
-                        breakpointTriggered = true
-                    } else {
-                        if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
-                            actions.abortQuery({ queryId })
+                        cancelled = true
+                    } else if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
+                        if (!cancelled) {
+                            // cancel all insight requests for this query in one go
+                            actions.abortQuery({ queryId: dashboardQueryId })
                         }
-
+                        cancelled = true
+                    } else {
                         actions.setRefreshError(insight.short_id)
                     }
                 }
@@ -1021,7 +1024,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
             // run 4 item reloaders in parallel
             function loadNextPromise(): void {
-                if (!breakpointTriggered && fetchItemFunctions.length > 0) {
+                if (!cancelled && fetchItemFunctions.length > 0) {
                     fetchItemFunctions.shift()?.().then(loadNextPromise)
                 }
             }
@@ -1033,6 +1036,11 @@ export const dashboardLogic = kea<dashboardLogicType>({
             eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.lastRefreshed)
         },
         updateAndRefreshDashboard: async (_, breakpoint) => {
+            if (cache.abortController) {
+                cache.abortController.abort()
+            }
+            cache.abortController = null
+
             await breakpoint(200)
             await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                 filters: values.filters,
