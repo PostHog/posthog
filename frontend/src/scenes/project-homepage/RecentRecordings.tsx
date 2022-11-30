@@ -3,10 +3,9 @@ import { useActions, useValues } from 'kea'
 
 import './ProjectHomepage.scss'
 import { CompactList } from 'lib/components/CompactList/CompactList'
-import { LemonButton } from 'lib/components/LemonButton'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { asDisplay } from 'scenes/persons/PersonHeader'
-import { sessionRecordingsListLogic } from 'scenes/session-recordings/sessionRecordingsListLogic'
+import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { urls } from 'scenes/urls'
 import { SessionRecordingType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -15,6 +14,7 @@ import { IconPlayCircle } from 'lib/components/icons'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
 
 interface RecordingRowProps {
     recording: SessionRecordingType
@@ -25,8 +25,16 @@ export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
     const { reportRecordingOpenedFromRecentRecordingList } = useActions(eventUsageLogic)
 
     return (
-        <LemonButton
-            fullWidth
+        <ProjectHomePageCompactListItem
+            title={asDisplay(recording.person)}
+            subtitle={`Recorded ${dayjs(recording.start_time).fromNow()}`}
+            prefix={<ProfilePicture name={asDisplay(recording.person)} />}
+            suffix={
+                <div className="flex items-center justify-end text-default">
+                    <span>{humanFriendlyDuration(recording.recording_duration)}</span>
+                    <IconPlayCircle className="text-2xl ml-2" />
+                </div>
+            }
             onClick={() => {
                 openSessionPlayer({
                     id: recording.id,
@@ -34,19 +42,7 @@ export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
                 })
                 reportRecordingOpenedFromRecentRecordingList()
             }}
-        >
-            <div className="ProjectHomePage__listrow">
-                <ProfilePicture name={asDisplay(recording.person)} />
-
-                <div className="ProjectHomePage__listrow__details">
-                    <div>{asDisplay(recording.person)}</div>
-                    <div>Recorded {dayjs(recording.start_time).fromNow()}</div>
-                </div>
-
-                <span>{humanFriendlyDuration(recording.recording_duration)}</span>
-                <IconPlayCircle className="text-2xl ml-2" />
-            </div>
-        </LemonButton>
+        />
     )
 }
 

@@ -6,7 +6,7 @@
     "main": "dist/index.js",
     "scripts": {
         "test": "jest --runInBand --forceExit tests/",
-        "functional_tests": "jest --runInBand --config ./jest.config.functional.js",
+        "functional_tests": "jest --config ./jest.config.functional.js",
         "start": "yarn start:dist",
         "start:dist": "BASE_DIR=.. node dist/index.js",
         "start:dev": "NODE_ENV=dev BASE_DIR=.. ts-node-dev --debug --exit-child src/index.ts",
@@ -22,9 +22,9 @@
         "prepublishOnly": "yarn build",
         "setup:dev:clickhouse": "cd .. && DEBUG=1 python manage.py migrate_clickhouse",
         "setup:test": "cd .. && TEST=1 python manage.py setup_test_environment",
-        "services:start": "cd .. && docker-compose -f docker-compose.dev.yml up",
-        "services:stop": "cd .. && docker-compose -f docker-compose.dev.yml down",
-        "services:clean": "cd .. && docker-compose -f docker-compose.dev.yml rm -v",
+        "services:start": "cd .. && docker compose -f docker-compose.dev.yml up",
+        "services:stop": "cd .. && docker compose -f docker-compose.dev.yml down",
+        "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",
         "services": "yarn services:stop && yarn services:clean && yarn services:start"
     },
     "bin": {
@@ -70,7 +70,7 @@
         "pino": "^8.6.0",
         "posthog-node": "2.0.2",
         "pretty-bytes": "^5.6.0",
-        "re2": "^1.16.0",
+        "re2": "^1.17.7",
         "safe-stable-stringify": "^2.4.0",
         "snowflake-sdk": "^1.6.10",
         "uuid": "^8.3.2",
@@ -100,6 +100,7 @@
         "@typescript-eslint/eslint-plugin": "^5.33.0",
         "@typescript-eslint/parser": "^5.33.0",
         "babel-eslint": "^10.1.0",
+        "c8": "^7.12.0",
         "deepmerge": "^4.2.2",
         "eslint": "^8.22.0",
         "eslint-config-prettier": "^8.5.0",

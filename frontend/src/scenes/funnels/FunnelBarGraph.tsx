@@ -243,12 +243,8 @@ function AverageTimeInspector({
 
     return (
         <div ref={wrapperRef}>
-            <span
-                ref={infoTextRef}
-                className="text-muted-alt"
-                style={{ paddingRight: 4, display: 'inline-block', visibility: infoTextVisible ? undefined : 'hidden' }}
-            >
-                Average time:
+            <span ref={infoTextRef} className={clsx('inline-block text-muted-alt', !infoTextVisible && 'invisible')}>
+                Average time:{' '}
             </span>
             <ValueInspectorButton
                 innerRef={buttonRef}
@@ -539,10 +535,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                         completed step
                                     </div>
                                 </div>
-                                <div
-                                    className="step-stat"
-                                    style={stepIndex === 0 ? { visibility: 'hidden' } : undefined}
-                                >
+                                <div className={clsx('step-stat', stepIndex === 0 && 'invisible')}>
                                     <div className="center-flex">
                                         <ValueInspectorButton
                                             onClick={() => openPersonsModalForStep({ step, converted: false })}

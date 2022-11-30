@@ -59,7 +59,7 @@ DISABLE_MMDB = get_from_env(
     "DISABLE_MMDB", TEST, type_cast=str_to_bool
 )  # plugin server setting disabling GeoIP feature
 PLUGINS_PREINSTALLED_URLS: List[str] = (
-    os.getenv("PLUGINS_PREINSTALLED_URLS", "https://github.com/PostHog/posthog-plugin-geoip").split(",")
+    os.getenv("PLUGINS_PREINSTALLED_URLS", "https://www.npmjs.com/package/@posthog/geoip-plugin").split(",")
     if not DISABLE_MMDB
     else []
 )
@@ -88,8 +88,8 @@ COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS = get_from_env(
 )
 
 
-# Whether to capture internal metrics
-CAPTURE_INTERNAL_METRICS = get_from_env("CAPTURE_INTERNAL_METRICS", False, type_cast=str_to_bool)
+# Whether to capture time-to-see-data metrics
+CAPTURE_TIME_TO_SEE_DATA = get_from_env("CAPTURE_TIME_TO_SEE_DATA", False, type_cast=str_to_bool)
 
 HOOK_EVENTS: Dict[str, str] = {}
 

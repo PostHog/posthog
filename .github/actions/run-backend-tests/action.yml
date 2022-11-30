@@ -36,8 +36,8 @@ runs:
           shell: bash
           run: |
               export CLICKHOUSE_SERVER_IMAGE=${{ inputs.clickhouse-server-image }}
-              docker-compose -f docker-compose.dev.yml down
-              docker-compose -f docker-compose.dev.yml up -d
+              docker compose -f docker-compose.dev.yml down
+              docker compose -f docker-compose.dev.yml up -d
 
         - name: Add Kafka to /etc/hosts
           shell: bash
@@ -113,7 +113,7 @@ runs:
           if: ${{ inputs.ee == 'true' && inputs.person-on-events == 'true' }}
           shell: bash
           run: |
-              PERSON_ON_EVENTS_ENABLED=true pytest ee \
+              PERSON_ON_EVENTS_ENABLED=true GROUPS_ON_EVENTS_ENABLED=true pytest ee \
                   --splits ${{ inputs.concurrency }} \
                   --group ${{ inputs.group }} \
                   $PYTEST_ARGS
@@ -128,7 +128,7 @@ runs:
           if: ${{ inputs.ee == 'true' && inputs.group == '1' && inputs.person-on-events == 'true' }}
           shell: bash
           run: |
-              PERSON_ON_EVENTS_ENABLED=true pytest posthog -m "ee" --durations=100 --durations-min=1.0 $PYTEST_ARGS
+              PERSON_ON_EVENTS_ENABLED=true GROUPS_ON_EVENTS_ENABLED=true pytest posthog -m "ee" --durations=100 --durations-min=1.0 $PYTEST_ARGS
 
         - uses: codecov/codecov-action@v2
           if: ${{ inputs.cloud == 'false' }}

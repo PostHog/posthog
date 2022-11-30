@@ -47,7 +47,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v3
 
             - uses: dorny/paths-filter@v2
               id: filter
@@ -67,7 +67,7 @@ jobs:
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/workflows/backend-tests-action/action.yml
-                        # We use docker-compose for tests, make sure we rerun on
+                        # We use docker compose for tests, make sure we rerun on
                         # changes to docker-compose.dev.yml e.g. dependency
                         # version changes
                         - docker-compose.dev.yml
@@ -82,21 +82,21 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v3
               with:
                   fetch-depth: 1
 
             - name: Stop/Start stack with Docker Compose
               run: |
-                  docker-compose -f docker-compose.dev.yml down
-                  docker-compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml down
+                  docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@v2
+              uses: actions/setup-python@v4
               with:
                   python-version: 3.8.14
 
-            - uses: syphar/restore-virtualenv@v1.2
+            - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
                   custom_cache_key_element: v1-
@@ -138,19 +138,19 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v3
 
             - name: Stop/Start stack with Docker Compose
               run: |
-                  docker-compose -f docker-compose.dev.yml down
-                  docker-compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml down
+                  docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@v2
+              uses: actions/setup-python@v4
               with:
                   python-version: 3.8.14
 
-            - uses: syphar/restore-virtualenv@v1.2
+            - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
                   custom_cache_key_element: v1-
@@ -251,7 +251,7 @@ jobs:
                       group: 5
 
         steps:
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v3
               with:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -317,7 +317,7 @@ jobs:
                   curl -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }} -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
 
             - name: Checkout master
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
               with:
                   ref: 'master'
                   path: 'master/'
@@ -331,15 +331,15 @@ jobs:
 
             - name: Stop/Start stack with Docker Compose
               run: |
-                  docker-compose -f master/docker-compose.dev.yml down
-                  docker-compose -f master/docker-compose.dev.yml up -d
+                  docker compose -f master/docker-compose.dev.yml down
+                  docker compose -f master/docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@v2
+              uses: actions/setup-python@v4
               with:
                   python-version: 3.8.14
 
-            - uses: syphar/restore-virtualenv@v1.2
+            - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
 
             - uses: syphar/restore-pip-download-cache@v1
@@ -366,7 +366,7 @@ jobs:
                   python master/manage.py migrate
 
             - name: Checkout current branch
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
               with:
                   path: 'current/'
 

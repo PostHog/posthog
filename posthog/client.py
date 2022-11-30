@@ -3,6 +3,7 @@ import json
 import time
 import types
 from dataclasses import dataclass
+from functools import lru_cache
 from time import perf_counter
 from typing import (
     Any,
@@ -21,11 +22,12 @@ from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 from dataclasses_json import dataclass_json
 from django.conf import settings as app_settings
+from statshog.defaults.django import statsd
 
 from posthog import redis
 from posthog.celery import enqueue_clickhouse_execute_with_progress
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.errors import wrap_query_error
-from posthog.internal_metrics import incr, timing
 from posthog.settings import (
     CLICKHOUSE_CA,
     CLICKHOUSE_CONN_POOL_MAX,
@@ -49,13 +51,21 @@ CACHE_TTL = 60  # seconds
 SLOW_QUERY_THRESHOLD_MS = 15000
 QUERY_TIMEOUT_THREAD = get_timer_thread("posthog.client", SLOW_QUERY_THRESHOLD_MS)
 
-_request_information: Optional[Dict] = None
 
+@lru_cache(maxsize=1)
+def default_settings() -> Dict:
+    from posthog.version_requirement import ServiceVersionRequirement
 
-# Optimize_move_to_prewhere setting is set because of this regression test
-# test_ilike_regression_with_current_clickhouse_version
-# https://github.com/PostHog/posthog/blob/master/ee/clickhouse/queries/test/test_trends.py#L1566
-settings_override = {"optimize_move_to_prewhere": 0}
+    # On CH 22.3 we need to disable optimize_move_to_prewhere due to a bug. This is verified fixed on 22.8 (LTS),
+    # so we only disable on versions below that.
+    # This is calculated once per deploy
+    clickhouse_at_least_228, _ = ServiceVersionRequirement(
+        service="clickhouse", supported_version=">=22.8.0"
+    ).is_service_in_accepted_version()
+    if clickhouse_at_least_228:
+        return {}
+    else:
+        return {"optimize_move_to_prewhere": 0}
 
 
 def default_client():
@@ -99,17 +109,6 @@ def make_ch_pool(**overrides) -> ChPool:
 
     return ChPool(**kwargs)
 
-
-ch_client = SyncClient(
-    host=CLICKHOUSE_HOST,
-    database=CLICKHOUSE_DATABASE,
-    secure=CLICKHOUSE_SECURE,
-    user=CLICKHOUSE_USER,
-    password=CLICKHOUSE_PASSWORD,
-    ca_certs=CLICKHOUSE_CA,
-    verify=CLICKHOUSE_VERIFY,
-    settings={"mutations_sync": "1"} if TEST else {},
-)
 
 ch_pool = make_ch_pool()
 
@@ -162,9 +161,9 @@ def sync_execute(
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args)
 
-        timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
+        timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure)
 
-        settings = {**settings_override, **(settings or {})}
+        settings = {**default_settings(), **(settings or {}), "log_comment": json.dumps(tags, separators=(",", ":"))}
 
         try:
             result = client.execute(
@@ -176,16 +175,14 @@ def sync_execute(
             )
         except Exception as err:
             err = wrap_query_error(err)
-            tags["failed"] = True
-            tags["reason"] = type(err).__name__
-            incr("clickhouse_sync_execution_failure", tags=tags)
+            statsd.incr("clickhouse_sync_execution_failure", tags={"failed": True, "reason": type(err).__name__})
 
             raise err
         finally:
             execution_time = perf_counter() - start_time
 
             QUERY_TIMEOUT_THREAD.cancel(timeout_task)
-            timing("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
+            statsd.timing("clickhouse_sync_execution_time", execution_time * 1000.0)
 
             if app_settings.SHELL_PLUS_PRINT_SQL:
                 print("Execution time: %.6fs" % (execution_time,))
@@ -270,7 +267,7 @@ def execute_with_progress(
 
     prepared_sql, prepared_args, tags = _prepare_query(client=ch_client, query=query, args=args)
 
-    timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
+    timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure)
 
     query_status = QueryStatus(team_id, task_id=task_id)
 
@@ -314,7 +311,7 @@ def execute_with_progress(
         err = wrap_query_error(err)
         tags["failed"] = True
         tags["reason"] = type(err).__name__
-        incr("clickhouse_sync_execution_failure", tags=tags)
+        statsd.incr("clickhouse_sync_execution_failure")
         query_status = QueryStatus(
             team_id=team_id,
             num_rows=query_status.num_rows,
@@ -331,10 +328,12 @@ def execute_with_progress(
 
         raise err
     finally:
+        ch_client.disconnect()
+
         execution_time = perf_counter() - start_time
 
         QUERY_TIMEOUT_THREAD.cancel(timeout_task)
-        timing("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
+        statsd.timing("clickhouse_sync_execution_time", execution_time * 1000.0)
 
         if app_settings.SHELL_PLUS_PRINT_SQL:
             print("Execution time: %.6fs" % (execution_time,))
@@ -418,6 +417,16 @@ def substitute_params(query, params):
     containing code is only responsible for it's parameters, and we can
     avoid any potential param collisions.
     """
+    ch_client = SyncClient(
+        host=CLICKHOUSE_HOST,
+        database=CLICKHOUSE_DATABASE,
+        secure=CLICKHOUSE_SECURE,
+        user=CLICKHOUSE_USER,
+        password=CLICKHOUSE_PASSWORD,
+        ca_certs=CLICKHOUSE_CA,
+        verify=CLICKHOUSE_VERIFY,
+        settings={"mutations_sync": "1"} if TEST else {},
+    )
     return cast(SyncClient, ch_client).substitute_params(query, params)
 
 
@@ -506,21 +515,17 @@ def _annotate_tagged_query(query, args):
     Adds in a /* */ so we can look in clickhouses `system.query_log`
     to easily marry up to the generating code.
     """
-    tags = {"kind": (_request_information or {}).get("kind"), "id": (_request_information or {}).get("id")}
-    if isinstance(args, dict) and "team_id" in args:
-        tags["team_id"] = args["team_id"]
+    tags = get_query_tags()
     # Annotate the query with information on the request/task
-    if _request_information is not None:
-        user_id = f" user_id:{_request_information['user_id']}" if _request_information.get("user_id") else ""
-        query = f"/*{user_id} {_request_information['kind']}:{_request_information['id'].replace('/', '_')} */ {query}"
+    if "kind" in tags:
+        user_id = f" user_id:{tags['user_id']}" if "user_id" in tags else ""
+        query = f"/*{user_id} {tags.get('kind')}:{tags.get('id', '').replace('/', '_')} */ {query}"
 
     return query, tags
 
 
-def _notify_of_slow_query_failure(tags: Dict[str, Any]):
-    tags["failed"] = True
-    tags["reason"] = "timeout"
-    incr("clickhouse_sync_execution_failure", tags=tags)
+def _notify_of_slow_query_failure():
+    statsd.incr("clickhouse_sync_execution_failure", tags={"failed": True, "reason": "timeout"})
 
 
 def format_sql(rendered_sql, colorize=True):

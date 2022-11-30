@@ -13,7 +13,7 @@ import {
 } from 'kea'
 import api from 'lib/api'
 import { isDomain, isURL, toParams } from 'lib/utils'
-import { EditorProps, TrendResult } from '~/types'
+import { ToolbarParams, TrendResult } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { dayjs } from 'lib/dayjs'
 import Fuse from 'fuse.js'
@@ -66,7 +66,7 @@ export function appEditorUrl(appUrl?: string, actionId?: number, defaultIntent?:
     // See
     // https://github.com/PostHog/posthog-js/blob/f7119c7542c940354719a9ba8120a08ba25b5ae8/src/extensions/toolbar.ts#L52
     // for where these params are passed.
-    const params: EditorProps = {
+    const params: ToolbarParams = {
         userIntent: defaultIntent ? undefined : actionId ? 'edit-action' : 'add-action',
         // Make sure to pass the app url, otherwise the api_host will be used by
         // the toolbar, which isn't correct when used behind a reverse proxy as

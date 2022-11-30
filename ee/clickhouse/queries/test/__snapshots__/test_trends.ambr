@@ -259,6 +259,13 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -299,14 +306,21 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') as breakdown_value
+                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') as breakdown_value
            FROM events e
+           INNER JOIN
+             (SELECT group_key,
+                     argMax(group_properties, _timestamp) AS group_properties_0
+              FROM groups
+              WHERE team_id = 2
+                AND group_type_index = 0
+              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
            WHERE e.team_id = 2
              AND event = 'sign up'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND e.person_id != toUUIDOrZero('')
-             AND replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') in (['finance', 'technology'])
+             AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance', 'technology'])
              AND e.person_id != toUUIDOrZero('')
            GROUP BY day_start,
                     breakdown_value))
@@ -321,21 +335,30 @@
 # name: TestClickhouseTrends.test_breakdown_by_group_props_person_on_events.2
   '
   
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e.person_id as person_id,
             e.distinct_id as distinct_id,
-            e.team_id as team_id,
-            e."group0_properties" as "group0_properties"
+            e.team_id as team_id
      FROM events e
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
-       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
        AND e.person_id != toUUIDOrZero('') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -553,6 +576,13 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -594,15 +624,22 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') as breakdown_value
+                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') as breakdown_value
            FROM events e
+           INNER JOIN
+             (SELECT group_key,
+                     argMax(group_properties, _timestamp) AS group_properties_0
+              FROM groups
+              WHERE team_id = 2
+                AND group_type_index = 0
+              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND e.person_id != toUUIDOrZero('')
-             AND replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') in (['finance'])
+             AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance'])
              AND e.person_id != toUUIDOrZero('')
            GROUP BY day_start,
                     breakdown_value))
@@ -790,12 +827,18 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
-       AND e.person_id != toUUIDOrZero('')
+       AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -833,14 +876,19 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
            FROM events e
+           INNER JOIN
+             (SELECT group_key,
+                     argMax(group_properties, _timestamp) AS group_properties_0
+              FROM groups
+              WHERE team_id = 2
+                AND group_type_index = 0
+              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
            WHERE e.team_id = 2
              AND event = 'sign up'
-             AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND e.person_id != toUUIDOrZero('')
              AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['uh', 'oh'])
-             AND e.person_id != toUUIDOrZero('')
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -938,16 +986,28 @@
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  e.person_id as person_id,
-                  e."group0_properties" as "group0_properties",
-                  e."group2_properties" as "group2_properties"
+                  e.person_id as person_id
            FROM events e
+           INNER JOIN
+             (SELECT group_key,
+                     argMax(group_properties, _timestamp) AS group_properties_0
+              FROM groups
+              WHERE team_id = 2
+                AND group_type_index = 0
+              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+           INNER JOIN
+             (SELECT group_key,
+                     argMax(group_properties, _timestamp) AS group_properties_2
+              FROM groups
+              WHERE team_id = 2
+                AND group_type_index = 2
+              GROUP BY group_key) groups_2 ON "$group_2" == groups_2.group_key
            WHERE team_id = 2
              AND event = 'sign up'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', ''))
-                  AND has(['six'], replaceRegexpAll(JSONExtractRaw(group2_properties, 'name'), '^"|"$', '')))
+             AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
+                  AND has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', '')))
              AND e.person_id != toUUIDOrZero('') )
         GROUP BY date)
      group by day_start
@@ -957,23 +1017,38 @@
 # name: TestClickhouseTrends.test_filtering_by_multiple_groups_person_on_events.1
   '
   
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e.person_id as person_id,
             e.distinct_id as distinct_id,
-            e.team_id as team_id,
-            e."group0_properties" as "group0_properties",
-            e."group2_properties" as "group2_properties"
+            e.team_id as team_id
      FROM events e
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_2
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 2
+        GROUP BY group_key) groups_2 ON "$group_2" == groups_2.group_key
      WHERE team_id = 2
        AND event = 'sign up'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
-       AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', ''))
-            AND has(['six'], replaceRegexpAll(JSONExtractRaw(group2_properties, 'name'), '^"|"$', '')))
+       AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
+            AND has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', '')))
        AND e.person_id != toUUIDOrZero('') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -1111,14 +1186,20 @@
         FROM
           (SELECT e.timestamp as timestamp,
                   e.person_id as person_id,
-                  e."person_properties" as "person_properties",
-                  e."group0_properties" as "group0_properties"
+                  e."person_properties" as "person_properties"
            FROM events e
+           INNER JOIN
+             (SELECT group_key,
+                     argMax(group_properties, _timestamp) AS group_properties_0
+              FROM groups
+              WHERE team_id = 2
+                AND group_type_index = 0
+              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
            WHERE team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '')))
+             AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                   AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', ''))))
              AND e.person_id != toUUIDOrZero('') )
         GROUP BY date)

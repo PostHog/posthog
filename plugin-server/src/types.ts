@@ -17,11 +17,9 @@ import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
 
-import { GraphileWorker } from './main/graphile-worker/graphile-worker'
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
-import { InternalMetrics } from './utils/internal-metrics'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
@@ -133,7 +131,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean
     STALENESS_RESTART_SECONDS: number
     HEALTHCHECK_MAX_STALE_SECONDS: number
-    CAPTURE_INTERNAL_METRICS: boolean
     PISCINA_USE_ATOMICS: boolean
     PISCINA_ATOMICS_TIMEOUT: number
     SITE_URL: string | null
@@ -160,6 +157,8 @@ export interface PluginsServerConfig extends Record<string, any> {
     HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
     HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: number
     HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: number
+    APP_METRICS_GATHERED_FOR_ALL: boolean
+    MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -176,7 +175,6 @@ export interface Hub extends PluginsServerConfig {
     objectStorage: ObjectStorage
     // metrics
     statsd?: StatsD
-    internalMetrics?: InternalMetrics
     pluginMetricsJob: Job | undefined
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
@@ -199,13 +197,11 @@ export interface Hub extends PluginsServerConfig {
     personManager: PersonManager
     siteUrlManager: SiteUrlManager
     appMetrics: AppMetrics
-    graphileWorker: GraphileWorker
     // diagnostics
     lastActivity: number
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
-    conversionBufferTopicEnabledTeams: Set<number>
 }
 
 export interface PluginServerCapabilities {
@@ -216,19 +212,13 @@ export interface PluginServerCapabilities {
     http?: boolean
 }
 
-export type EnqueuedJob = EnqueuedPluginJob | EnqueuedBufferJob | GraphileWorkerCronScheduleJob
+export type EnqueuedJob = EnqueuedPluginJob | GraphileWorkerCronScheduleJob
 export interface EnqueuedPluginJob {
     type: string
     payload: Record<string, any>
     timestamp: number
     pluginConfigId: number
     pluginConfigTeam: number
-    jobKey?: string
-}
-
-export interface EnqueuedBufferJob {
-    eventPayload: PluginEvent
-    timestamp: number
     jobKey?: string
 }
 
@@ -403,6 +393,7 @@ export interface PluginTask {
 export type WorkerMethods = {
     runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
     runEventPipeline: (event: PluginEvent) => Promise<void>
+    runLightweightCaptureEndpointEventPipeline: (event: PipelineEvent) => Promise<void>
 }
 
 export type VMMethods = {
@@ -524,6 +515,7 @@ interface BaseEvent {
 
 export type ISOTimestamp = Brand<string, 'ISOTimestamp'>
 export type ClickHouseTimestamp = Brand<string, 'ClickHouseTimestamp'>
+export type ClickHouseTimestampSecondPrecision = Brand<string, 'ClickHouseTimestamp'>
 
 /** Raw event row from ClickHouse. */
 export interface RawClickHouseEvent extends BaseEvent {
@@ -687,14 +679,6 @@ export interface PersonDistinctId {
     person_id: number
     distinct_id: string
     version: string | null
-}
-
-/** ClickHouse PersonDistinctId model. (person_distinct_id table) */
-export interface ClickHousePersonDistinctId {
-    team_id: number
-    person_id: string
-    distinct_id: string
-    is_deleted: 0 | 1
 }
 
 /** ClickHouse PersonDistinctId model. (person_distinct_id2 table) */
@@ -949,4 +933,9 @@ export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
     Owner = 15,
+}
+
+export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
+    team_id?: number | null
+    token?: string
 }

@@ -45,4 +45,13 @@ class BaseFilter(BaseParamMixin):
         "Allow making copy of filter whilst preserving the class"
         return type(self)(data={**self._data, **overrides}, **self.kwargs)
 
+    def query_tags(self) -> Dict[str, Any]:
+        ret = {}
+
+        for _, func in inspect.getmembers(self, inspect.ismethod):
+            if hasattr(func, "include_query_tags"):  # provided by @include_query_tags decorator
+                ret.update(func())
+
+        return ret
+
     __repr__ = sane_repr("_data", "kwargs", include_id=False)

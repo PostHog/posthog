@@ -1,27 +1,25 @@
 import Piscina from '@posthog/piscina'
 import { CronItem, TaskList } from 'graphile-worker'
 
-import { EnqueuedBufferJob, EnqueuedPluginJob, Hub } from '../../types'
+import { EnqueuedPluginJob, Hub } from '../../types'
 import { status } from '../../utils/status'
 import { pauseQueueIfWorkerFull } from '../ingestion-queues/queue'
-import { runInstrumentedFunction } from '../utils'
-import { runBufferEventPipeline } from './buffer'
+import { GraphileWorker } from './graphile-worker'
 import { loadPluginSchedule, runScheduledTasks } from './schedule'
 
-export async function startGraphileWorker(hub: Hub, piscina: Piscina): Promise<Error | undefined> {
+export async function startGraphileWorker(hub: Hub, graphileWorker: GraphileWorker, piscina: Piscina) {
     status.info('🔄', 'Starting Graphile Worker...')
+
+    piscina.on('drain', () => {
+        void graphileWorker.resumeConsumer()
+    })
 
     let jobHandlers: TaskList = {}
 
     const crontab: CronItem[] = []
 
-    if (hub.capabilities.ingestion) {
-        jobHandlers = { ...jobHandlers, ...getIngestionJobHandlers(hub, piscina) }
-        status.info('🔄', 'Graphile Worker: set up ingestion job handlers ...')
-    }
-
     if (hub.capabilities.processPluginJobs) {
-        jobHandlers = { ...jobHandlers, ...getPluginJobHandlers(hub, piscina) }
+        jobHandlers = { ...jobHandlers, ...getPluginJobHandlers(hub, graphileWorker, piscina) }
         status.info('🔄', 'Graphile Worker: set up plugin job handlers ...')
     }
 
@@ -60,36 +58,14 @@ export async function startGraphileWorker(hub: Hub, piscina: Piscina): Promise<E
         status.info('🔄', 'Graphile Worker: set up scheduled task handlers...')
     }
 
-    try {
-        await hub.graphileWorker.start(jobHandlers, crontab)
-    } catch (error) {
-        return error
-    }
+    await graphileWorker.start(jobHandlers, crontab)
+    return graphileWorker
 }
 
-export function getIngestionJobHandlers(hub: Hub, piscina: Piscina): TaskList {
-    const ingestionJobHandlers: TaskList = {
-        bufferJob: async (job) => {
-            pauseQueueIfWorkerFull(() => hub.graphileWorker.pause(), hub, piscina)
-            const eventPayload = (job as EnqueuedBufferJob).eventPayload
-            await runInstrumentedFunction({
-                server: hub,
-                event: eventPayload,
-                func: () => runBufferEventPipeline(hub, piscina, eventPayload),
-                statsKey: `kafka_queue.ingest_buffer_event`,
-                timeoutMessage: 'After 30 seconds still running runBufferEventPipeline',
-            })
-            hub.statsd?.increment('events_deleted_from_buffer')
-        },
-    }
-
-    return ingestionJobHandlers
-}
-
-export function getPluginJobHandlers(hub: Hub, piscina: Piscina): TaskList {
+export function getPluginJobHandlers(hub: Hub, graphileWorker: GraphileWorker, piscina: Piscina): TaskList {
     const pluginJobHandlers: TaskList = {
         pluginJob: async (job) => {
-            pauseQueueIfWorkerFull(() => hub.graphileWorker.pause(), hub, piscina)
+            pauseQueueIfWorkerFull(() => graphileWorker.pause(), hub, piscina)
             hub.statsd?.increment('triggered_job', {
                 instanceId: hub.instanceId.toString(),
             })

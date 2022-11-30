@@ -70,8 +70,6 @@ export class GraphileWorker {
         let jobPayload: Record<string, any> = {}
         if ('payload' in job) {
             jobPayload = job.payload
-        } else if ('eventPayload' in job) {
-            jobPayload = job.eventPayload
         }
 
         let enqueueFn = () => this._enqueue(jobName, job)
@@ -155,6 +153,7 @@ export class GraphileWorker {
     async syncState(): Promise<void> {
         // start running the graphile worker
         if (this.started && !this.paused && !this.runner) {
+            status.info('🔄', 'Creating new Graphile worker runner...')
             this.consumerPool = await this.createPool()
             this.runner = await run({
                 // graphile's types refer to a local node_modules version of Pool
@@ -171,15 +170,21 @@ export class GraphileWorker {
                 taskList: this.jobHandlers,
                 parsedCronItems: this.crontab,
             })
+            status.info('✅', 'Graphile worker runner created.')
             return
         }
 
         // stop running the graphile worker
         if (this.runner) {
+            status.info('🔄', 'Stopping Graphile worker runner')
             const oldRunner = this.runner
             this.runner = null
             await oldRunner?.stop()
-            await this.consumerPool?.end()
+            status.info('🔄', 'Stopping Graphile worker database connection')
+            // NOTE: for some reason the call to this.consumerPool?.end() below
+            // seems to hang, so I'm giving it one second to complete.
+            await Promise.race([this.consumerPool?.end(), new Promise((resolve) => setTimeout(resolve, 1000))])
+            status.info('🔴', 'Stopped Graphile worker runner')
         }
     }
 
@@ -229,6 +234,7 @@ export class GraphileWorker {
         status.info('🔄', 'Stopping Graphile worker...')
         this.started = false
         await this.syncState()
+        status.info('🛑', 'Stopped Graphile worker...')
     }
 
     async pause(): Promise<void> {

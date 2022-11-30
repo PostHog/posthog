@@ -2,7 +2,7 @@ import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonDialog, LemonDialogProps } from './LemonDialog'
 import { LemonButton } from '../LemonButton'
 import { Link } from '@posthog/lemon-ui'
-import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 export default {
     title: 'Lemon UI/Lemon Dialog',
@@ -40,6 +40,7 @@ Dialogs are opened imperatively (i.e. calling \`LemonDialog.open()\`) whereas Mo
             `,
             },
         },
+        chromatic: { disableSnapshot: false },
     },
 } as ComponentMeta<typeof LemonDialog>
 

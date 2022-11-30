@@ -23,6 +23,9 @@ export const navigationLogic = kea<navigationLogicType>({
     actions: {
         toggleSideBarBase: true,
         toggleSideBarMobile: true,
+        toggleActivationSideBar: true,
+        showActivationSideBar: true,
+        hideActivationSideBar: true,
         hideSideBarMobile: true,
         openSitePopover: true,
         closeSitePopover: true,
@@ -53,6 +56,13 @@ export const navigationLogic = kea<navigationLogicType>({
             {
                 toggleSideBarMobile: (state) => !state,
                 hideSideBarMobile: () => false,
+            },
+        ],
+        isActivationSideBarShownBase: [
+            false,
+            {
+                showActivationSideBar: () => true,
+                hideActivationSideBar: () => false,
             },
         ],
         isSitePopoverOpen: [
@@ -112,6 +122,12 @@ export const navigationLogic = kea<navigationLogicType>({
             (mobileLayout, isSideBarShownBase, isSideBarShownMobile, bareNav) =>
                 !bareNav && (mobileLayout ? isSideBarShownMobile : isSideBarShownBase),
         ],
+        isActivationSideBarShown: [
+            (s) => [s.mobileLayout, s.isActivationSideBarShownBase, s.isSideBarShownMobile, s.bareNav],
+            (mobileLayout, isActivationSideBarShownBase, isSideBarShownMobile, bareNav) =>
+                !bareNav &&
+                (mobileLayout ? isActivationSideBarShownBase && !isSideBarShownMobile : isActivationSideBarShownBase),
+        ],
         systemStatus: [
             () => [
                 systemStatusLogic.selectors.overview,
@@ -148,7 +164,7 @@ export const navigationLogic = kea<navigationLogicType>({
                 return systemStatusLoading || !asyncMigrations || asyncMigrations.value
             },
         ],
-        updateAvailable: [
+        anyUpdateAvailable: [
             (selectors) => [
                 selectors.latestVersion,
                 selectors.latestVersionLoading,
@@ -156,12 +172,30 @@ export const navigationLogic = kea<navigationLogicType>({
             ],
             (latestVersion, latestVersionLoading, preflight) => {
                 // Always latest version in multitenancy
-                return (
-                    !latestVersionLoading &&
-                    !preflight?.cloud &&
-                    latestVersion &&
-                    latestVersion !== preflight?.posthog_version
-                )
+                if (latestVersionLoading || preflight?.cloud || !latestVersion || !preflight?.posthog_version) {
+                    return false
+                }
+                const [latestMajor, latestMinor, latestPatch] = latestVersion.split('.').map((n) => parseInt(n))
+                const [currentMajor, currentMinor, currentPatch] = preflight.posthog_version
+                    .split('.')
+                    .map((n) => parseInt(n))
+                return latestMajor > currentMajor || latestMinor > currentMinor || latestPatch > currentPatch
+            },
+        ],
+        minorUpdateAvailable: [
+            (selectors) => [
+                selectors.latestVersion,
+                selectors.latestVersionLoading,
+                preflightLogic.selectors.preflight,
+            ],
+            (latestVersion, latestVersionLoading, preflight): boolean => {
+                // Always latest version in multitenancy
+                if (latestVersionLoading || preflight?.cloud || !latestVersion || !preflight?.posthog_version) {
+                    return false
+                }
+                const [latestMajor, latestMinor] = latestVersion.split('.').map((n) => parseInt(n))
+                const [currentMajor, currentMinor] = preflight.posthog_version.split('.').map((n) => parseInt(n))
+                return latestMajor > currentMajor || latestMinor > currentMinor
             },
         ],
         projectNoticeVariantWithClosability: [
@@ -230,9 +264,16 @@ export const navigationLogic = kea<navigationLogicType>({
             },
         ],
     },
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         closeProjectNotice: ({ projectNoticeVariant }) => {
             actions.reportProjectNoticeDismissed(projectNoticeVariant)
+        },
+        toggleActivationSideBar: () => {
+            if (values.isActivationSideBarShown) {
+                actions.hideActivationSideBar()
+            } else {
+                actions.showActivationSideBar()
+            }
         },
     }),
     events: ({ actions }) => ({

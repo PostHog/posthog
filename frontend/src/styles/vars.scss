@@ -61,6 +61,7 @@ $list_style_types: 'none', 'disc', 'decimal';
 // NOTE: Currently this has to be manually synced wit `tailwind.config.j` to allow IDE auto-completion
 $colors: (
     'primary-highlight': #e8edff,
+    'primary-extralight': #d2dbff,
     'primary-light': #345cff,
     'primary': #1d4aff,
     'primary-dark': #1330a6,
@@ -119,9 +120,6 @@ $_lifecycle_dormant: #f86234;
     //TODO: Remove the primary-bg...
     --primary-bg-hover: var(--primary-highlight);
     --primary-bg-active: #{$_primary_bg_active};
-
-    // Special case color for primary buttons with a nested primary button
-    --primary-button-nested-hover: #d2dbff;
 
     --bg-mid: #f2f2f2;
     --bg-depth: #0f0f0f;
@@ -220,6 +218,7 @@ $_lifecycle_dormant: #f86234;
     --z-nps-overlay: 5200;
     --z-bottom-notice: 5100;
     --z-command-palette: 1875;
+    --z-force-modal-above-popups: 1850;
     --z-ant-message: 1070;
     --z-ant-select-dropdown: 1065;
     --z-popup: 1061;
@@ -234,6 +233,7 @@ $_lifecycle_dormant: #f86234;
     --z-notifications-popup: 949; // below the TZ aware popup but over the main-nav
     --z-main-nav: 948;
     --z-lemon-sidebar: 940;
+    --z-lemon-activation-sidebar: 939;
     --z-mobile-nav-overlay: 931;
     --z-top-navigation: 800;
     --z-content-overlay: 488;

@@ -4,6 +4,7 @@ import { LemonCheckbox, LemonCheckboxProps } from './LemonCheckbox'
 export default {
     title: 'Lemon UI/Lemon Checkbox',
     component: LemonCheckbox,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof LemonCheckbox>
 
 const Template: ComponentStory<typeof LemonCheckbox> = (props: LemonCheckboxProps) => {
@@ -43,6 +44,6 @@ NoLabel.args = {}
 
 export const Bordered = Template.bind({})
 Bordered.args = {
-    label: 'Look at my lovely border',
+    label: 'A border makes for good visual separation if there is other content neighboring a checkbox. Probably not used as part of a form.',
     bordered: true,
 }

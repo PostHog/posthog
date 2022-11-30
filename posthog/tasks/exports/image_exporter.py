@@ -17,10 +17,9 @@ from statshog.defaults.django import statsd
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.utils import ChromeType
 
-from posthog.internal_metrics import incr, timing
+from posthog.caching.update_cache import synchronously_update_insight_cache
 from posthog.logging.timing import timed
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
-from posthog.tasks.update_cache import synchronously_update_insight_cache
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
@@ -102,7 +101,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
         save_content(exported_asset, image_data)
 
         os.remove(image_path)
-        timing("exporter_task_success", time.time() - _start)
+        statsd.timing("exporter_task_success", time.time() - _start)
 
     except Exception as err:
         # Ensure we clean up the tmp file in case anything went wrong
@@ -169,5 +168,5 @@ def export_image(exported_asset: ExportedAsset) -> None:
         capture_exception(e)
 
         logger.error("image_exporter.failed", exception=e, exc_info=True)
-        incr("exporter_task_failure", tags={"team_id": team_id})
+        statsd.incr("exporter_task_failure", tags={"team_id": team_id})
         raise e

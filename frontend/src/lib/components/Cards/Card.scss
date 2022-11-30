@@ -1,0 +1,138 @@
+.TextCard,
+.InsightCard {
+    .handle {
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: var(--z-raised);
+        &.horizontal {
+            svg {
+                transform: rotate(90deg) translateX(0.75rem);
+            }
+        }
+        &.vertical {
+            flex-direction: column;
+            svg {
+                transform: translateX(0.5rem);
+            }
+        }
+        &.corner {
+            justify-content: flex-end;
+            svg {
+                transform: translate(0.5rem, 0.5rem);
+            }
+        }
+    }
+}
+
+.CardMeta {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 1rem 1rem;
+    width: 100%;
+    max-height: calc(100% - 2rem);
+    background: #fff;
+    z-index: 101; // Elevate above viz
+    overflow: hidden;
+    border-radius: var(--radius);
+    h5 {
+        color: var(--muted);
+        line-height: 1.5rem;
+        margin-bottom: 0;
+    }
+    h4 {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        height: 1.5em;
+        font-size: 1rem;
+        font-weight: 600;
+        margin-bottom: 0.125rem;
+    }
+}
+
+.CardMeta--expansion-enter-active,
+.CardMeta--expansion-exit-active,
+.CardMeta--expansion-enter,
+.CardMeta--expansion-exit {
+    transition: box-shadow 200ms ease, height 200ms ease;
+}
+.CardMeta--expansion-exit.CardMeta--expansion-exit-active,
+.CardMeta--expansion-exit-done,
+.CardMeta--expansion-enter {
+    box-shadow: none;
+}
+.CardMeta--expansion-enter.CardMeta--expansion-enter-active,
+.CardMeta--expansion-enter-done,
+.CardMeta--expansion-exit {
+    box-shadow: var(--shadow-elevation);
+}
+.CardMeta--expansion-enter-done {
+    overflow: auto;
+}
+
+.CardMeta__primary {
+    display: flex;
+    width: 100%;
+    margin-bottom: 0.5rem;
+}
+
+.CardMeta__ribbon {
+    align-self: stretch;
+    width: 0.375rem;
+    margin: 0 0.75rem 0 -0.25rem;
+    border-radius: var(--radius);
+    background: var(--muted); // Just a fallback value in case there's some unrecognized value
+    &.blue {
+        background: var(--blue);
+    }
+    &.purple {
+        background: var(--purple);
+    }
+    &.green {
+        background: var(--green);
+    }
+    &.black {
+        background: var(--default);
+    }
+}
+
+.CardMeta__main {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    overflow: auto;
+    width: 100%;
+    height: fit-content;
+    min-height: 2rem;
+    > * {
+        max-width: 100%; // Make sure that horizontal overflow is capped, so that ellipsis on insight name works
+    }
+}
+
+.CardMeta__top {
+    align-self: stretch;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    height: 1.5rem;
+
+    .LemonButton {
+        height: 1.75rem;
+    }
+}
+
+.CardMeta__controls {
+    display: flex;
+    align-items: center;
+    button:not(:last-child) {
+        margin-right: 0.5rem;
+    }
+}

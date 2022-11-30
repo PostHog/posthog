@@ -11,6 +11,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { Link } from 'lib/components/Link'
+import { tagsModel } from '~/models/tagsModel'
 
 export type NewActionType = Partial<ActionType> &
     Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
@@ -31,6 +32,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
     path(['scenes', 'actions', 'actionEditLogic']),
     props({} as ActionEditLogicProps),
     key((props) => props.id || 'new'),
+    connect({ actions: [tagsModel, ['loadTags']] }),
     actions({
         setAction: (action: Partial<ActionEditType>, options: SetActionProps = { merge: true }) => ({
             action,
@@ -117,6 +119,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     // reload actions so they are immediately available throughout the app
                     actions.loadEventDefinitions(null)
                     actions.loadActions()
+                    actions.loadTags() // reload tags in case new tags are being saved
                     return action
                 },
             },

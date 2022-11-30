@@ -9,20 +9,15 @@ import { DateTime } from 'luxon'
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 
 import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
-import {
-    KAFKA_GROUPS,
-    KAFKA_PERSON_DISTINCT_ID,
-    KAFKA_PERSON_UNIQUE_ID,
-    KAFKA_PLUGIN_LOG_ENTRIES,
-} from '../../config/kafka-topics'
+import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import {
     Action,
     ActionStep,
     ClickHouseEvent,
     ClickhouseGroup,
     ClickHousePerson,
-    ClickHousePersonDistinctId,
     ClickHousePersonDistinctId2,
+    ClickHouseTimestamp,
     Cohort,
     CohortPeople,
     Database,
@@ -73,6 +68,7 @@ import {
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { PromiseManager } from './../../worker/vm/promise-manager'
+import { DependencyUnavailableError } from './error'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import {
     generateKafkaPersonUpdateMessage,
@@ -127,14 +123,22 @@ export interface CreatePersonalApiKeyPayload {
     created_at: Date
 }
 
-export type GroupType = number
-
-export type GroupId = [GroupType, GroupKey]
+export type GroupId = [GroupTypeIndex, GroupKey]
 
 export interface CachedGroupData {
     properties: Properties
-    created_at: string
+    created_at: ClickHouseTimestamp
 }
+
+const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
+    'connection to server at',
+    'could not translate host',
+    'server conn crashed',
+    'no more connections allowed',
+    'server closed the connection unexpectedly',
+    'getaddrinfo EAI_AGAIN',
+    'Connection terminated unexpectedly',
+]
 
 /** The recommended way of accessing the database. */
 export class DB {
@@ -208,6 +212,14 @@ export class DB {
                 } else {
                     return await this.postgres.query(queryString, values)
                 }
+            } catch (error) {
+                if (
+                    error.message &&
+                    POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((message) => error.message.includes(message))
+                ) {
+                    throw new DependencyUnavailableError(error.message, 'Postgres', error)
+                }
+                throw error
             } finally {
                 clearTimeout(timeout)
             }
@@ -228,6 +240,11 @@ export class DB {
                 return response
             } catch (e) {
                 await client.query('ROLLBACK')
+
+                // if Postgres is down the ROLLBACK above won't work, but the transaction shouldn't be committed either
+                if (e.message && POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((message) => e.message.includes(message))) {
+                    throw new DependencyUnavailableError(e.message, 'Postgres', e)
+                }
                 throw e
             } finally {
                 client.release()
@@ -533,7 +550,7 @@ export class DB {
     REDIS_PERSON_UUID_PREFIX = 'person_uuid'
     REDIS_PERSON_CREATED_AT_PREFIX = 'person_created_at'
     REDIS_PERSON_PROPERTIES_PREFIX = 'person_props'
-    REDIS_GROUP_DATA_PREFIX = 'group_data_cache'
+    REDIS_GROUP_DATA_PREFIX = 'group_data_cache_v2'
 
     private getPersonIdCacheKey(teamId: number, distinctId: string): string {
         return `${this.REDIS_PERSON_ID_PREFIX}:${teamId}:${distinctId}`
@@ -551,7 +568,7 @@ export class DB {
         return `${this.REDIS_PERSON_PROPERTIES_PREFIX}:${teamId}:${personId}`
     }
 
-    private getGroupDataCacheKey(teamId: number, groupTypeIndex: number, groupKey: string): string {
+    public getGroupDataCacheKey(teamId: number, groupTypeIndex: number, groupKey: string): string {
         return `${this.REDIS_GROUP_DATA_PREFIX}:${teamId}:${groupTypeIndex}:${groupKey}`
     }
 
@@ -664,8 +681,12 @@ export class DB {
         await this.redisSet(groupCacheKey, groupData)
     }
 
-    public async getGroupsColumns(teamId: number, groupIds: GroupId[]): Promise<Record<string, any>> {
-        const groupColumns: Record<string, any> = {}
+    public async getGroupsColumns(
+        teamId: number,
+        groupIds: GroupId[]
+    ): Promise<Record<string, string | ClickHouseTimestamp>> {
+        const groupPropertiesColumns: Record<string, string> = {}
+        const groupCreatedAtColumns: Record<string, ClickHouseTimestamp> = {}
 
         for (const [groupTypeIndex, groupKey] of groupIds) {
             const groupCacheKey = this.getGroupDataCacheKey(teamId, groupTypeIndex, groupKey)
@@ -678,11 +699,8 @@ export class DB {
 
                 if (cachedGroupData) {
                     this.statsd?.increment('group_info_cache.hit')
-                    groupColumns[propertiesColumnName] = JSON.stringify(cachedGroupData.properties)
-                    groupColumns[createdAtColumnName] = castTimestampOrNow(
-                        cachedGroupData.created_at,
-                        TimestampFormat.ClickHouse
-                    )
+                    groupPropertiesColumns[propertiesColumnName] = JSON.stringify(cachedGroupData.properties)
+                    groupCreatedAtColumns[createdAtColumnName] = cachedGroupData.created_at
 
                     continue
                 }
@@ -696,11 +714,14 @@ export class DB {
             const storedGroupData = await this.fetchGroup(teamId, groupTypeIndex as GroupTypeIndex, groupKey)
 
             if (storedGroupData) {
-                groupColumns[propertiesColumnName] = JSON.stringify(storedGroupData.group_properties)
+                groupPropertiesColumns[propertiesColumnName] = JSON.stringify(storedGroupData.group_properties)
 
-                const createdAt = castTimestampOrNow(storedGroupData.created_at.toUTC(), TimestampFormat.ClickHouse)
+                const createdAt = castTimestampOrNow(
+                    storedGroupData.created_at.toUTC(),
+                    TimestampFormat.ClickHouse
+                ) as ClickHouseTimestamp
 
-                groupColumns[createdAtColumnName] = createdAt
+                groupCreatedAtColumns[createdAtColumnName] = createdAt
 
                 // We found data in Postgres, so update the cache
                 // We also don't want to throw here, worst case is we'll have to fetch from Postgres again next time
@@ -717,15 +738,18 @@ export class DB {
                 this.statsd?.increment('groups_data_missing_entirely')
                 status.debug('🔍', `Could not find group data for group ${groupCacheKey} in cache or storage`)
 
-                groupColumns[propertiesColumnName] = '{}'
-                groupColumns[createdAtColumnName] = castTimestampOrNow(
+                groupPropertiesColumns[propertiesColumnName] = '{}'
+                groupCreatedAtColumns[createdAtColumnName] = castTimestampOrNow(
                     DateTime.fromJSDate(new Date(0)).toUTC(),
                     TimestampFormat.ClickHouse
-                )
+                ) as ClickHouseTimestamp
             }
         }
 
-        return groupColumns
+        return {
+            ...groupPropertiesColumns,
+            ...groupCreatedAtColumns,
+        }
     }
 
     public async fetchPersons(database?: Database.Postgres): Promise<Person[]>
@@ -976,30 +1000,24 @@ export class DB {
     // PersonDistinctId
 
     public async fetchDistinctIds(person: Person, database?: Database.Postgres): Promise<PersonDistinctId[]>
-    public async fetchDistinctIds(person: Person, database: Database.ClickHouse): Promise<ClickHousePersonDistinctId[]>
+    public async fetchDistinctIds(person: Person, database: Database.ClickHouse): Promise<ClickHousePersonDistinctId2[]>
     public async fetchDistinctIds(
         person: Person,
-        database: Database.ClickHouse,
-        clichouseTable: 'person_distinct_id2'
-    ): Promise<ClickHousePersonDistinctId2[]>
-    public async fetchDistinctIds(
-        person: Person,
-        database: Database = Database.Postgres,
-        clickhouseTable = 'person_distinct_id'
-    ): Promise<PersonDistinctId[] | ClickHousePersonDistinctId[] | ClickHousePersonDistinctId2[]> {
+        database: Database = Database.Postgres
+    ): Promise<PersonDistinctId[] | ClickHousePersonDistinctId2[]> {
         if (database === Database.ClickHouse) {
             return (
                 await this.clickhouseQuery(
                     `
                         SELECT *
-                        FROM ${clickhouseTable}
+                        FROM person_distinct_id2
                         FINAL
                         WHERE person_id='${escapeClickHouseString(person.uuid)}'
                           AND team_id='${person.team_id}'
                           AND is_deleted=0
                         ORDER BY _offset`
                 )
-            ).data as ClickHousePersonDistinctId[]
+            ).data as ClickHousePersonDistinctId2[]
         } else if (database === Database.Postgres) {
             const result = await this.postgresQuery(
                 'SELECT * FROM posthog_persondistinctid WHERE person_id=$1 AND team_id=$2 ORDER BY id',
@@ -1056,21 +1074,6 @@ export class DB {
             },
         ]
 
-        if (await this.fetchWriteToPersonUniqueId()) {
-            messages.push({
-                topic: KAFKA_PERSON_UNIQUE_ID,
-                messages: [
-                    {
-                        value: JSON.stringify({
-                            ...personDistinctIdCreated,
-                            person_id: person.uuid,
-                            is_deleted: 0,
-                        }),
-                    },
-                ],
-            })
-        }
-
         return messages
     }
 
@@ -1126,19 +1129,6 @@ export class DB {
                 ],
             })
 
-            if (await this.fetchWriteToPersonUniqueId()) {
-                kafkaMessages.push({
-                    topic: KAFKA_PERSON_UNIQUE_ID,
-                    messages: [
-                        {
-                            value: JSON.stringify({ ...usefulColumns, person_id: target.uuid, is_deleted: 0 }),
-                        },
-                        {
-                            value: JSON.stringify({ ...usefulColumns, person_id: source.uuid, is_deleted: 1 }),
-                        },
-                    ],
-                })
-            }
             // Update person info cache - we want to await to make sure the Event gets the right properties
             await this.updatePersonIdCache(usefulColumns.team_id, usefulColumns.distinct_id, usefulColumns.person_id)
         }
@@ -1441,7 +1431,7 @@ export class DB {
 
     // Team
 
-    public async fetchTeam(teamId: Team['id']): Promise<Team> {
+    public async fetchTeam(teamId: Team['id']): Promise<Team | null> {
         const selectResult = await this.postgresQuery<Team>(
             `
             SELECT
@@ -1460,42 +1450,30 @@ export class DB {
             [teamId],
             'fetchTeam'
         )
-        return selectResult.rows[0]
+        return selectResult.rows[0] ?? null
     }
 
-    public async fetchAsyncMigrationComplete(migrationName: string): Promise<boolean> {
-        const { rows } = await this.postgresQuery(
+    public async fetchTeamByToken(token: string): Promise<Team | null> {
+        const selectResult = await this.postgresQuery<Team>(
             `
-            SELECT name
-            FROM posthog_asyncmigration
-            WHERE name = $1 AND status = 2
-            `,
-            [migrationName],
-            'fetchAsyncMigrationComplete'
-        )
-        return rows.length > 0
-    }
-
-    public async fetchWriteToPersonUniqueId(): Promise<boolean> {
-        if (this.writeToPersonUniqueId === undefined) {
-            this.writeToPersonUniqueId = !(await this.fetchAsyncMigrationComplete('0003_fill_person_distinct_id2'))
-        }
-        return this.writeToPersonUniqueId as boolean
-    }
-
-    /** Return the ID of the team that is used exclusively internally by the instance for storing metrics data. */
-    public async fetchInternalMetricsTeam(): Promise<Team['id'] | null> {
-        const { rows } = await this.postgresQuery(
-            `
-            SELECT posthog_team.id AS team_id
+            SELECT
+                id,
+                uuid,
+                organization_id,
+                name,
+                anonymize_ips,
+                api_token,
+                slack_incoming_webhook,
+                session_recording_opt_in,
+                ingested_event
             FROM posthog_team
-            INNER JOIN posthog_organization ON posthog_organization.id = posthog_team.organization_id
-            WHERE for_internal_metrics`,
-            undefined,
-            'fetchInternalMetricsTeam'
+            WHERE api_token = $1
+            LIMIT 1
+                `,
+            [token],
+            'fetchTeamByToken'
         )
-
-        return rows[0]?.team_id || null
+        return selectResult.rows[0] ?? null
     }
 
     // Hook (EE)
@@ -1744,7 +1722,7 @@ export class DB {
         if (options?.cache) {
             await this.updateGroupCache(teamId, groupTypeIndex, groupKey, {
                 properties: groupProperties,
-                created_at: castTimestampOrNow(createdAt),
+                created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse),
             })
         }
     }
@@ -1786,7 +1764,7 @@ export class DB {
 
         await this.updateGroupCache(teamId, groupTypeIndex, groupKey, {
             properties: groupProperties,
-            created_at: castTimestampOrNow(createdAt),
+            created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse),
         })
     }
 

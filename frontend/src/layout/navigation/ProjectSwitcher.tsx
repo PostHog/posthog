@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { IconPlus, IconSettings } from 'lib/components/icons'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonSnack } from 'lib/components/LemonSnack/LemonSnack'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -11,8 +12,21 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, TeamBasicType } from '~/types'
 import { navigationLogic } from './navigationLogic'
 
+export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
+    return (
+        <>
+            {team.name}
+            {team.is_demo ? (
+                <LemonSnack title="Demo" className="ml-3 text-xs" color="primary-extralight">
+                    Demo
+                </LemonSnack>
+            ) : null}
+        </>
+    )
+}
+
 export function ProjectSwitcherOverlay(): JSX.Element {
-    const { currentOrganization, isProjectCreationForbidden } = useValues(organizationLogic)
+    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
     const { showCreateProjectModal, hideProjectSwitcher } = useActions(navigationLogic)
@@ -31,12 +45,8 @@ export function ProjectSwitcherOverlay(): JSX.Element {
             <LemonButton
                 icon={<IconPlus />}
                 fullWidth
-                disabled={isProjectCreationForbidden}
-                title={
-                    isProjectCreationForbidden
-                        ? "You aren't allowed to create a project. Your organization access level is probably insufficient."
-                        : undefined
-                }
+                disabled={!!projectCreationForbiddenReason}
+                tooltip={projectCreationForbiddenReason}
                 onClick={() => {
                     hideProjectSwitcher()
                     guardAvailableFeature(
@@ -73,7 +83,7 @@ function CurrentProjectButton(): JSX.Element | null {
             status="stealth"
             fullWidth
         >
-            {currentTeam.name}
+            <ProjectName team={currentTeam} />
         </LemonButtonWithSideAction>
     ) : null
 }
@@ -101,7 +111,7 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
             fullWidth
             disabled={!team.effective_membership_level}
         >
-            {team.name}
+            <ProjectName team={team} />
         </LemonButtonWithSideAction>
     )
 }

@@ -1,4 +1,4 @@
-import { kea, path, actions, connect, reducers, afterMount, selectors } from 'kea'
+import { kea, path, actions, connect, reducers, afterMount, selectors, listeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import type { billingLogicType } from './billingLogicType'
@@ -6,20 +6,19 @@ import { BillingProductV2Type, BillingV2Type, BillingVersion } from '~/types'
 import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urlToAction } from 'kea-router'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { forms } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from '@posthog/lemon-ui'
 import { projectUsage } from './billing-utils'
+import posthog from 'posthog-js'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
+import { pluralize } from 'lib/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
-
-export enum BillingAlertType {
-    SetupBilling = 'setup_billing',
-    UsageNearLimit = 'usage_near_limit',
-    UsageLimitExceeded = 'usage_limit_exceeded',
-    FreeUsageNearLimit = 'free_usage_near_limit',
-}
+export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
 
 export interface BillingAlertConfig {
     status: 'info' | 'warning' | 'error'
@@ -39,6 +38,8 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
         })
     }
 
+    data.free_trial_until = data.free_trial_until ? dayjs(data.free_trial_until) : undefined
+
     return data as BillingV2Type
 }
 
@@ -46,10 +47,12 @@ export const billingLogic = kea<billingLogicType>([
     path(['scenes', 'billing', 'v2', 'billingLogic']),
     actions({
         setShowLicenseDirectInput: (show: boolean) => ({ show }),
+        reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
+        reportBillingV2Shown: true,
     }),
     connect({
-        values: [featureFlagLogic, ['featureFlags']],
-        actions: [eventUsageLogic, ['reportIngestionBillingCancelled']],
+        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
+        actions: [userLogic, ['loadUser']],
     }),
     reducers({
         showLicenseDirectInput: [
@@ -59,7 +62,7 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
     }),
-    loaders(({}) => ({
+    loaders(() => ({
         billing: [
             null as BillingV2Type | null,
             {
@@ -71,6 +74,7 @@ export const billingLogic = kea<billingLogicType>([
 
                 updateBillingLimits: async (limits: { [key: string]: string | null }) => {
                     const response = await api.update('api/billing-v2', { custom_limits_usd: limits })
+
                     lemonToast.success('Billing limits updated')
                     return parseBillingResponse(response)
                 },
@@ -92,13 +96,30 @@ export const billingLogic = kea<billingLogicType>([
             (billing, billingLoading): BillingVersion | undefined =>
                 !billingLoading || billing ? (billing ? 'v2' : 'v1') : undefined,
         ],
-
         billingAlert: [
-            (s) => [s.billing],
-            (billing): BillingAlertConfig | undefined => {
-                if (!billing) {
+            (s) => [s.billing, s.preflight],
+            (billing, preflight): BillingAlertConfig | undefined => {
+                if (!billing || !preflight?.cloud) {
                     return
                 }
+
+                if (billing.free_trial_until && billing.free_trial_until.isAfter(dayjs())) {
+                    const remainingDays = billing.free_trial_until.diff(dayjs(), 'days')
+                    const remainingHours = billing.free_trial_until.diff(dayjs(), 'hours')
+
+                    if (remainingHours > 72) {
+                        return
+                    }
+
+                    return {
+                        status: 'info',
+                        title: `Your free trial will end in ${
+                            remainingHours < 24 ? pluralize(remainingHours, 'hour') : pluralize(remainingDays, 'day')
+                        }.`,
+                        message: `Setup billing now to ensure you don't lose access to premium features.`,
+                    }
+                }
+
                 const productOverLimit = billing.products.find((x) => {
                     return x.percentage_usage > 1
                 })
@@ -126,6 +147,22 @@ export const billingLogic = kea<billingLogicType>([
                 }
             },
         ],
+        isUserLocked: [
+            (s) => [s.billing, s.preflight, s.billingVersion, s.featureFlags],
+            (billing, preflight, billingVersion, featureFlags): boolean => {
+                if (!billing || !preflight?.cloud) {
+                    return false
+                }
+                // lock cloud users out if they are above the usage limit on any product
+                return Boolean(
+                    billingVersion === 'v2' &&
+                        billing.products.find((x) => {
+                            return x.percentage_usage > ALLOCATION_THRESHOLD_BLOCK
+                        }) &&
+                        featureFlags[FEATURE_FLAGS.BILLING_LOCK_EVERYTHING]
+                )
+            },
+        ],
     }),
     forms(({ actions }) => ({
         activateLicense: {
@@ -141,7 +178,7 @@ export const billingLogic = kea<billingLogicType>([
                     })
 
                     // Reset the URL so we don't trigger the license submission again
-                    router.actions.replace('/organization/billing')
+                    router.actions.replace('/organization/billing?success=true')
                     setTimeout(() => {
                         window.location.reload() // Permissions, projects etc will be out of date at this point, so refresh
                     }, 100)
@@ -155,11 +192,38 @@ export const billingLogic = kea<billingLogicType>([
         },
     })),
 
+    listeners(({ actions }) => ({
+        reportBillingV2Shown: () => {
+            posthog.capture('billing v2 shown')
+        },
+        reportBillingAlertShown: ({ alertConfig }) => {
+            posthog.capture('billing alert shown', {
+                ...alertConfig,
+            })
+        },
+        loadBillingSuccess: () => {
+            if (
+                router.values.location.pathname.includes('/organization/billing') &&
+                router.values.searchParams['success']
+            ) {
+                // if the activation is successful, we reload the user to get the updated billing info on the organization
+                actions.loadUser()
+                router.actions.replace('/organization/billing')
+            }
+        },
+    })),
+
     afterMount(({ actions }) => {
         actions.loadBilling()
     }),
 
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
+        '*': () => {
+            if (values.isUserLocked && router.values.location.pathname !== '/organization/billing/locked') {
+                posthog.capture('billing locked screen shown')
+                router.actions.replace(urls.billingLocked())
+            }
+        },
         '/organization/billing': (_params, _search, hash) => {
             if (hash.license) {
                 actions.setShowLicenseDirectInput(true)

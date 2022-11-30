@@ -62,7 +62,7 @@ def get_decide(request: HttpRequest):
 
     response = {
         "config": {"enable_collect_everything": True},
-        "editorParams": {},
+        "toolbarParams": {},
         "isAuthenticated": False,
         "supportedCompression": ["gzip", "gzip-js", "lz64"],
     }

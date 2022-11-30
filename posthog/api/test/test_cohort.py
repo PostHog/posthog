@@ -9,13 +9,14 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.api.test.test_exports import TestExportMixin
 from posthog.models import Person
 from posthog.models.cohort import Cohort
 from posthog.models.team.team import Team
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
 
-class TestCohort(ClickhouseTestMixin, APIBaseTest):
+class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_creating_update_and_calculating(self, patch_calculate_cohort, patch_capture):
@@ -206,10 +207,19 @@ email@example.org,
         self.assertEqual(response["results"][0]["name"], "whatever")
         self.assertEqual(response["results"][0]["created_by"]["id"], self.user.id)
 
-    def test_csv_export(self):
-        Person.objects.create(distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"})
+    def test_csv_export_new(self):
+        # Test 100s of distinct_ids, we only want ~10
+        Person.objects.create(
+            distinct_ids=["person3"] + [f"person_{i}" for i in range(4, 100)],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
+        Person.objects.create(
+            distinct_ids=["person1"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something", "email": "test@test.com"},
+        )
         Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
-        Person.objects.create(distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"})
         cohort = Cohort.objects.create(
             team=self.team,
             groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
@@ -217,8 +227,11 @@ email@example.org,
         )
         cohort.calculate_people_ch(pending_version=0)
 
-        response = self.client.get(f"/api/cohort/{cohort.pk}/persons.csv")
-        self.assertEqual(len(response.content.splitlines()), 3, response.content)
+        lines = self._get_export_output(f"/api/cohort/{cohort.pk}/persons")
+        headers = lines[0].split(",")
+        self.assertEqual(len(lines), 3)
+        self.assertEqual(lines[1].split(",")[headers.index("email")], "test@test.com")
+        self.assertEqual(lines[0].count("distinct_id"), 10)
 
     def test_filter_by_cohort(self):
         _create_person(team=self.team, distinct_ids=[f"fake"], properties={})

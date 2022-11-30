@@ -3,14 +3,16 @@ import { loaders } from 'kea-loaders'
 
 import type { appMetricsSceneLogicType } from './appMetricsSceneLogicType'
 import { urls } from 'scenes/urls'
-import { Breadcrumb, PluginConfigWithPluginInfo, UserBasicType } from '~/types'
+import { AvailableFeature, Breadcrumb, PluginConfigWithPluginInfo, UserBasicType } from '~/types'
 import api from 'lib/api'
-import { teamLogic } from '../teamLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { toParams } from 'lib/utils'
 import { HISTORICAL_EXPORT_JOB_NAME_V2 } from 'scenes/plugins/edit/interface-jobs/PluginJobConfiguration'
 import { interfaceJobsLogic, InterfaceJobsProps } from '../plugins/edit/interface-jobs/interfaceJobsLogic'
 import { dayjs } from 'lib/dayjs'
+import { userLogic } from 'scenes/userLogic'
+import { router } from 'kea-router'
 
 export interface AppMetricsLogicProps {
     /** Used as the logic's key */
@@ -29,7 +31,15 @@ export enum AppMetricsTab {
     ExportEvents = 'exportEvents',
     ScheduledTask = 'scheduledTask',
     HistoricalExports = 'historical_exports',
+    History = 'history',
 }
+
+export type TabWithMetrics =
+    | AppMetricsTab.ProcessEvent
+    | AppMetricsTab.OnEvent
+    | AppMetricsTab.ExportEvents
+    | AppMetricsTab.ScheduledTask
+    | AppMetricsTab.HistoricalExports
 
 export interface HistoricalExportInfo {
     job_id: string
@@ -192,7 +202,15 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             ],
         ],
 
-        defaultTab: [(s) => [s.pluginConfig], () => INITIAL_TABS.filter((tab) => values.showTab(tab))[0]],
+        shouldShowAppMetrics: [
+            () => [userLogic.selectors.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.APP_METRICS),
+        ],
+
+        defaultTab: [
+            (s) => [s.pluginConfig],
+            () => INITIAL_TABS.filter((tab) => values.showTab(tab))[0] ?? AppMetricsTab.History,
+        ],
 
         currentTime: [() => [], () => Date.now()],
 
@@ -221,8 +239,8 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
         ],
 
         showTab: [
-            () => [],
-            () =>
+            (s) => [s.shouldShowAppMetrics],
+            (shouldShowAppMetrics) =>
                 (tab: AppMetricsTab): boolean => {
                     if (
                         values.pluginConfigLoading ||
@@ -233,6 +251,14 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                     }
                     const capabilities = values.pluginConfig.plugin_info.capabilities
                     const isExportEvents = capabilities.methods.includes('exportEvents')
+
+                    if (tab === AppMetricsTab.History) {
+                        return true
+                    }
+
+                    if (!shouldShowAppMetrics) {
+                        return false
+                    }
 
                     if (tab === AppMetricsTab.HistoricalExports) {
                         return isExportEvents
@@ -288,14 +314,13 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
         setActiveTab: ({ tab }) => {
             if (tab === AppMetricsTab.HistoricalExports) {
                 actions.loadHistoricalExports()
-            } else {
+            } else if (tab !== AppMetricsTab.History) {
                 actions.loadMetrics()
             }
         },
         setDateFrom: () => {
             actions.loadMetrics()
         },
-
         openHistoricalExportModal: () => {
             if (values.interfaceJobsProps) {
                 interfaceJobsLogic(values.interfaceJobsProps).actions.setIsJobModalOpen(true)
@@ -319,10 +344,12 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                 }
                 if (url.page === AppMetricsTab.HistoricalExports) {
                     actions.setActiveTab(AppMetricsTab.HistoricalExports)
+                } else if (url.page === AppMetricsTab.History) {
+                    actions.setActiveTab(AppMetricsTab.History)
                 } else {
                     if (params.tab && INITIAL_TABS.includes(params.tab as any) && params.tab !== values.activeTab) {
                         actions.setActiveTab(params.tab as AppMetricsTab)
-                    } else if (values.defaultTab && values.activeTab !== values.defaultTab) {
+                    } else if (!values.pluginConfigLoading && values.activeTab !== values.defaultTab) {
                         actions.setActiveTab(values.defaultTab)
                     }
                     if (params.from && values.selectedDateFrom !== params.from) {
@@ -346,6 +373,9 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
 function getUrl(values: appMetricsSceneLogicType['values'], props: appMetricsSceneLogicType['props']): string {
     if (values.activeTab === AppMetricsTab.HistoricalExports) {
         return urls.appHistoricalExports(props.pluginConfigId)
+    }
+    if (values.activeTab === AppMetricsTab.History) {
+        return urls.appHistory(props.pluginConfigId, router.values.searchParams)
     }
 
     const params: AppMetricsUrlParams = {}

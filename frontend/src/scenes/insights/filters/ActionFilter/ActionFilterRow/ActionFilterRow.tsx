@@ -414,18 +414,29 @@ interface MathSelectorProps {
     style?: React.CSSProperties
 }
 
-function useMathSelectorOptions(
-    index: number,
-    mathAvailability: MathAvailability,
-    onMathSelect: (index: number, value: any) => any
-): LemonSelectOptions<string> {
+function isPropertyValueMath(math: string | undefined): math is PropertyMathType {
+    return !!math && math in PROPERTY_MATH_DEFINITIONS
+}
+
+function isCountPerActorMath(math: string | undefined): math is CountPerActorMathType {
+    return !!math && math in COUNT_PER_ACTOR_MATH_DEFINITIONS
+}
+
+function useMathSelectorOptions({
+    math,
+    index,
+    mathAvailability,
+    onMathSelect,
+}: MathSelectorProps): LemonSelectOptions<string> {
     const { needsUpgradeForGroups, canStartUsingGroups, staticMathDefinitions, staticActorsOnlyMathDefinitions } =
         useValues(mathsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(PropertyMathType.Average)
+    const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(
+        isPropertyValueMath(math) ? math : PropertyMathType.Average
+    )
     const [countPerActorMathTypeShown, setCountPerActorMathTypeShown] = useState<CountPerActorMathType>(
-        CountPerActorMathType.Average
+        isCountPerActorMath(math) ? math : CountPerActorMathType.Average
     )
 
     const options: LemonSelectOption<string>[] = Object.entries(
@@ -458,7 +469,6 @@ function useMathSelectorOptions(
                             }))}
                             onClick={(e) => e.stopPropagation()}
                             size="small"
-                            className="-mr-1"
                             dropdownMatchSelectWidth={false}
                             optionTooltipPlacement="right"
                         />
@@ -487,7 +497,6 @@ function useMathSelectorOptions(
                         }))}
                         onClick={(e) => e.stopPropagation()}
                         size="small"
-                        className="-mr-1"
                         dropdownMatchSelectWidth={false}
                         optionTooltipPlacement="right"
                     />
@@ -508,14 +517,9 @@ function useMathSelectorOptions(
     ]
 }
 
-function MathSelector({
-    math,
-    mathGroupTypeIndex,
-    mathAvailability,
-    index,
-    onMathSelect,
-}: MathSelectorProps): JSX.Element {
-    const options = useMathSelectorOptions(index, mathAvailability, onMathSelect)
+function MathSelector(props: MathSelectorProps): JSX.Element {
+    const options = useMathSelectorOptions(props)
+    const { math, mathGroupTypeIndex, index, onMathSelect } = props
 
     const mathType = apiValueToMathType(math, mathGroupTypeIndex)
 

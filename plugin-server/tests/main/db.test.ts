@@ -1,12 +1,20 @@
 import { DateTime } from 'luxon'
 
-import { Cohort, Hub, Person, PropertyOperator, PropertyUpdateOperation, Team } from '../../src/types'
-import { DB } from '../../src/utils/db/db'
+import {
+    ClickHouseTimestamp,
+    Cohort,
+    Hub,
+    Person,
+    PropertyOperator,
+    PropertyUpdateOperation,
+    Team,
+} from '../../src/types'
+import { DB, GroupId } from '../../src/utils/db/db'
 import { createHub } from '../../src/utils/db/hub'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
-import { getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
+import { createOrganization, createTeam, getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
 import { plugin60 } from './../helpers/plugins'
 
 jest.mock('../../src/utils/status')
@@ -20,6 +28,10 @@ describe('DB', () => {
         ;[hub, closeServer] = await createHub()
         await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
         db = hub.db
+
+        const redis = await hub.redisPool.acquire()
+        await redis.flushdb()
+        await db.redisPool.release(redis)
     })
 
     afterEach(async () => {
@@ -28,6 +40,11 @@ describe('DB', () => {
     })
 
     const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
+    const CLICKHOUSE_TIMESTAMP = '2000-10-14 11:42:06.502' as ClickHouseTimestamp
+
+    function fetchGroupCache(teamId: number, groupTypeIndex: number, groupKey: string) {
+        return db.redisGet(db.getGroupDataCacheKey(teamId, groupTypeIndex, groupKey), null)
+    }
 
     describe('fetchAllActionsGroupedByTeam() and fetchAction()', () => {
         beforeEach(async () => {
@@ -605,121 +622,154 @@ describe('DB', () => {
                 version: 2,
             })
         })
+
+        describe('with caching', () => {
+            it('insertGroup() and updateGroup() update cache', async () => {
+                expect(await fetchGroupCache(2, 0, 'group_key')).toEqual(null)
+
+                await db.insertGroup(
+                    2,
+                    0,
+                    'group_key',
+                    { prop: 'val' },
+                    TIMESTAMP,
+                    { prop: TIMESTAMP.toISO() },
+                    { prop: PropertyUpdateOperation.Set },
+                    1,
+                    undefined,
+                    { cache: true }
+                )
+
+                expect(await fetchGroupCache(2, 0, 'group_key')).toEqual({
+                    created_at: CLICKHOUSE_TIMESTAMP,
+                    properties: { prop: 'val' },
+                })
+
+                await db.updateGroup(
+                    2,
+                    0,
+                    'group_key',
+                    { prop: 'newVal', prop2: 2 },
+                    TIMESTAMP,
+                    { prop: TIMESTAMP.toISO(), prop2: TIMESTAMP.toISO() },
+                    { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
+                    2
+                )
+
+                expect(await fetchGroupCache(2, 0, 'group_key')).toEqual({
+                    created_at: CLICKHOUSE_TIMESTAMP,
+                    properties: { prop: 'newVal', prop2: 2 },
+                })
+            })
+        })
+    })
+
+    describe('updateGroupCache()', () => {
+        it('updates redis', async () => {
+            await db.updateGroupCache(2, 0, 'group_key', {
+                created_at: CLICKHOUSE_TIMESTAMP,
+                properties: { prop: 'val' },
+            })
+
+            expect(await fetchGroupCache(2, 0, 'group_key')).toEqual({
+                created_at: CLICKHOUSE_TIMESTAMP,
+                properties: { prop: 'val' },
+            })
+        })
     })
 
     describe('getGroupsColumns()', () => {
+        beforeEach(() => {
+            jest.spyOn(db, 'fetchGroup')
+            jest.spyOn(db, 'redisGet')
+            db.statsd = { increment: jest.fn(), timing: jest.fn() } as any
+        })
+
         describe('one group', () => {
             it('tries to fetch data from the cache first, avoiding the database', async () => {
-                const fetchGroupSpy = jest.spyOn(db, 'fetchGroup')
-                const redisGetSpy = jest
-                    .spyOn(db, 'redisGet')
-                    .mockImplementationOnce(
-                        jest.fn(() => Promise.resolve({ properties: { foo: 'bar' }, created_at: '2020-01-01' }))
-                    )
-                const res = await db.getGroupsColumns(1, [[0, '0']])
-
-                expect(redisGetSpy).toHaveBeenCalled()
-                expect(fetchGroupSpy).not.toHaveBeenCalled()
-
-                expect(res).toEqual({
-                    group0_properties: JSON.stringify({ foo: 'bar' }),
-                    group0_created_at: '2020-01-01 00:00:00.000',
+                await db.updateGroupCache(2, 0, 'group_key', {
+                    properties: { foo: 'bar' },
+                    created_at: CLICKHOUSE_TIMESTAMP,
                 })
+
+                const result = await db.getGroupsColumns(2, [[0, 'group_key']])
+                expect(result).toEqual({
+                    group0_properties: JSON.stringify({ foo: 'bar' }),
+                    group0_created_at: CLICKHOUSE_TIMESTAMP,
+                })
+
+                expect(db.fetchGroup).not.toHaveBeenCalled()
             })
 
             it('tries to fetch data from Postgres if Redis is down', async () => {
-                const fetchGroupSpy = jest.spyOn(db, 'fetchGroup').mockImplementationOnce(
-                    jest.fn(() =>
-                        Promise.resolve({
-                            group_properties: { foo: 'bar' },
-                            created_at: DateTime.fromISO('2022-01-01T00:00:00.000Z'),
-                        } as any)
-                    )
-                )
-                const redisGetSpy = jest.spyOn(db, 'redisGet').mockImplementationOnce(
-                    jest.fn(() => {
-                        throw new Error()
-                    })
-                )
-
-                const res = await db.getGroupsColumns(1, [[0, '0']])
-
-                expect(redisGetSpy).toHaveBeenCalled()
-                expect(fetchGroupSpy).toHaveBeenCalled()
-                expect(res).toEqual({
-                    group0_properties: JSON.stringify({ foo: 'bar' }),
-                    group0_created_at: '2022-01-01 00:00:00.000',
+                await db.insertGroup(2, 0, 'group_key', { foo: 'bar' }, TIMESTAMP, {}, {}, 0, undefined, {
+                    cache: false,
                 })
+
+                jest.spyOn(db, 'redisGet').mockRejectedValue(new Error())
+
+                const result = await db.getGroupsColumns(2, [[0, 'group_key']])
+
+                expect(result).toEqual({
+                    group0_properties: JSON.stringify({ foo: 'bar' }),
+                    group0_created_at: CLICKHOUSE_TIMESTAMP,
+                })
+                expect(db.fetchGroup).toHaveBeenCalled()
             })
 
             it('tries to fetch data from Postgres if there is no cached data', async () => {
-                const fetchGroupSpy = jest.spyOn(db, 'fetchGroup').mockImplementationOnce(
-                    jest.fn(() =>
-                        Promise.resolve({
-                            group_properties: { foo: 'bar' },
-                            created_at: DateTime.fromISO('2022-01-01T00:00:00.000Z'),
-                        } as any)
-                    )
-                )
-                const redisGetSpy = jest
-                    .spyOn(db, 'redisGet')
-                    .mockImplementationOnce(jest.fn(() => Promise.resolve(null)))
-
-                const res = await db.getGroupsColumns(1, [[0, '0']])
-
-                expect(redisGetSpy).toHaveBeenCalled()
-                expect(fetchGroupSpy).toHaveBeenCalled()
-                expect(res).toEqual({
-                    group0_properties: JSON.stringify({ foo: 'bar' }),
-                    group0_created_at: '2022-01-01 00:00:00.000',
+                await db.insertGroup(2, 0, 'group_key', { foo: 'bar' }, TIMESTAMP, {}, {}, 0, undefined, {
+                    cache: false,
                 })
+
+                const result = await db.getGroupsColumns(2, [[0, 'group_key']])
+
+                expect(result).toEqual({
+                    group0_properties: JSON.stringify({ foo: 'bar' }),
+                    group0_created_at: CLICKHOUSE_TIMESTAMP,
+                })
+                expect(db.fetchGroup).toHaveBeenCalled()
             })
 
             it('triggers a statsd metric if the data doesnt exist in Postgres or Redis', async () => {
-                const fetchGroupSpy = jest
-                    .spyOn(db, 'fetchGroup')
-                    .mockImplementationOnce(jest.fn(() => Promise.resolve(undefined)))
-                const redisGetSpy = jest
-                    .spyOn(db, 'redisGet')
-                    .mockImplementationOnce(jest.fn(() => Promise.resolve(null)))
+                await db.getGroupsColumns(2, [[0, 'unknown_key']])
 
-                db.statsd = {
-                    increment: jest.fn(),
-                } as any
-
-                await db.getGroupsColumns(1, [[0, '0']])
-
-                expect(redisGetSpy).toHaveBeenCalled()
-                expect(fetchGroupSpy).toHaveBeenCalled()
-                expect(db.statsd?.increment).toHaveBeenCalledTimes(2)
                 expect(db.statsd?.increment).toHaveBeenLastCalledWith('groups_data_missing_entirely')
             })
         })
 
         describe('multiple groups', () => {
             it('fetches data from cache for some groups and postgres for others', async () => {
-                const fetchGroupSpy = jest.spyOn(db, 'fetchGroup').mockImplementation(
-                    jest.fn(() =>
-                        Promise.resolve({
-                            group_properties: { cached: false },
-                            created_at: DateTime.fromISO('2022-01-01T00:00:00.000Z'),
-                        } as any)
-                    )
-                )
+                const groupIds: GroupId[] = [
+                    [0, '0'],
+                    [1, '1'],
+                    [2, '2'],
+                    [3, '3'],
+                    [4, '4'],
+                ]
 
-                let call = 0
-                const redisGetSpy = jest.spyOn(db, 'redisGet').mockImplementation(
-                    jest.fn(() => {
-                        // return a cached result on the first and fourth calls and null otherwise
-                        // we should fetch data from postgres for the non-cached results
-                        ++call
-                        if (call === 1 || call === 4) {
-                            return Promise.resolve({ properties: { cached: true }, created_at: '2020-01-01' })
-                        }
-                        return Promise.resolve(null)
+                for (const [groupTypeIndex, groupKey] of [groupIds[0], groupIds[3]]) {
+                    await db.updateGroupCache(2, groupTypeIndex, groupKey, {
+                        properties: { cached: true },
+                        created_at: CLICKHOUSE_TIMESTAMP,
                     })
-                )
-                const res = await db.getGroupsColumns(1, [
+                }
+
+                for (const [groupTypeIndex, groupKey] of groupIds) {
+                    await db.insertGroup(
+                        2,
+                        groupTypeIndex,
+                        groupKey,
+                        { cached: false },
+                        TIMESTAMP,
+                        {},
+                        {},
+                        0,
+                        undefined,
+                        { cache: false }
+                    )
+                }
+                const result = await db.getGroupsColumns(2, [
                     [0, '0'],
                     [1, '1'],
                     [2, '2'],
@@ -727,32 +777,32 @@ describe('DB', () => {
                     [4, '4'],
                 ])
 
-                expect(redisGetSpy).toHaveBeenCalledTimes(5)
-                expect(fetchGroupSpy).toHaveBeenCalledTimes(3)
-
                 // verify that the first and fourth calls have cached=true and all other have cached=false
-                expect(res).toEqual({
-                    group0_created_at: '2020-01-01 00:00:00.000',
+                expect(result).toEqual({
+                    group0_created_at: CLICKHOUSE_TIMESTAMP,
                     group0_properties: JSON.stringify({
                         cached: true,
                     }),
-                    group1_created_at: '2022-01-01 00:00:00.000',
+                    group1_created_at: CLICKHOUSE_TIMESTAMP,
                     group1_properties: JSON.stringify({
                         cached: false,
                     }),
-                    group2_created_at: '2022-01-01 00:00:00.000',
+                    group2_created_at: CLICKHOUSE_TIMESTAMP,
                     group2_properties: JSON.stringify({
                         cached: false,
                     }),
-                    group3_created_at: '2020-01-01 00:00:00.000',
+                    group3_created_at: CLICKHOUSE_TIMESTAMP,
                     group3_properties: JSON.stringify({
                         cached: true,
                     }),
-                    group4_created_at: '2022-01-01 00:00:00.000',
+                    group4_created_at: CLICKHOUSE_TIMESTAMP,
                     group4_properties: JSON.stringify({
                         cached: false,
                     }),
                 })
+
+                expect(db.redisGet).toHaveBeenCalledTimes(5)
+                expect(db.fetchGroup).toHaveBeenCalledTimes(3)
             })
         })
     })
@@ -1133,6 +1183,56 @@ describe('DB', () => {
 
             await hub.db.addPersonToCohort(cohort2.id, person.id, null)
             expect(await hub.db.doesPersonBelongToCohort(cohort2.id, person)).toEqual(true)
+        })
+    })
+
+    describe('fetchTeam()', () => {
+        it('fetches a team by id', async () => {
+            const organizationId = await createOrganization(db.postgres)
+            const teamId = await createTeam(db.postgres, organizationId, 'token1')
+
+            const fetchedTeam = await hub.db.fetchTeam(teamId)
+            expect(fetchedTeam).toEqual({
+                anonymize_ips: false,
+                api_token: 'token1',
+                id: teamId,
+                ingested_event: true,
+                name: 'TEST PROJECT',
+                organization_id: organizationId,
+                session_recording_opt_in: true,
+                slack_incoming_webhook: null,
+                uuid: expect.any(String),
+            })
+        })
+
+        it('returns null if the team does not exist', async () => {
+            const fetchedTeam = await hub.db.fetchTeam(99999)
+            expect(fetchedTeam).toEqual(null)
+        })
+    })
+
+    describe('fetchTeamByToken()', () => {
+        it('fetches a team by token', async () => {
+            const organizationId = await createOrganization(db.postgres)
+            const teamId = await createTeam(db.postgres, organizationId, 'token2')
+
+            const fetchedTeam = await hub.db.fetchTeamByToken('token2')
+            expect(fetchedTeam).toEqual({
+                anonymize_ips: false,
+                api_token: 'token2',
+                id: teamId,
+                ingested_event: true,
+                name: 'TEST PROJECT',
+                organization_id: organizationId,
+                session_recording_opt_in: true,
+                slack_incoming_webhook: null,
+                uuid: expect.any(String),
+            })
+        })
+
+        it('returns null if the team does not exist', async () => {
+            const fetchedTeam = await hub.db.fetchTeamByToken('token2')
+            expect(fetchedTeam).toEqual(null)
         })
     })
 })

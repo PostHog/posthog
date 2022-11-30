@@ -304,7 +304,7 @@ export const webPerformanceLogic = kea<webPerformanceLogicType>({
     },
     loaders: {
         event: {
-            loadEvent: async (id: string | number): Promise<EventType> => {
+            loadEvent: async (id: string): Promise<EventType> => {
                 return api.events.get(id, true)
             },
         },

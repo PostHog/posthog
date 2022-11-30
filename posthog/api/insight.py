@@ -3,13 +3,14 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional, Type
 
 import structlog
-from django.db.models import Count, OuterRef, QuerySet, Subquery
+from django.db.models import Count, OuterRef, Prefetch, QuerySet, Subquery
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -32,6 +33,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
+from posthog.caching.update_cache import synchronously_update_insight_cache
 from posthog.client import sync_execute
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
@@ -45,6 +47,7 @@ from posthog.constants import (
 )
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
+from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -63,9 +66,8 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
-from posthog.settings import SITE_URL
+from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
-from posthog.tasks.update_cache import synchronously_update_insight_cache
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
 logger = structlog.get_logger(__name__)
@@ -214,9 +216,16 @@ class InsightSerializer(InsightBasicSerializer):
 
     @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:
-        dashboard_tile: Optional[DashboardTile] = None
-        if dashboard:
-            dashboard_tile = DashboardTile.objects.filter(insight=insight, dashboard=dashboard).first()
+        dashboard_tile: Optional[DashboardTile] = self.context.get("dashboard_tile", None)
+
+        if dashboard_tile and dashboard_tile.deleted:
+            self.context.update({"dashboard_tile": None})
+            dashboard_tile = None
+
+        if not dashboard_tile and dashboard:
+            dashboard_tile = DashboardTile.dashboard_queryset(
+                DashboardTile.objects.filter(insight=insight, dashboard=dashboard)
+            ).first()
 
         return dashboard_tile
 
@@ -268,40 +277,11 @@ class InsightSerializer(InsightBasicSerializer):
             instance.last_modified_by = self.context["request"].user
 
         if validated_data.get("deleted", False):
-            DashboardTile.objects.filter(insight__id=instance.id).delete()
+            DashboardTile.objects.filter(insight__id=instance.id).update(deleted=True)
         else:
             dashboards = validated_data.pop("dashboards", None)
             if dashboards is not None:
-                old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
-                new_dashboard_ids = [d.id for d in dashboards]
-
-                ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
-                ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
-
-                # does this user have permission on dashboards to add... if they are restricted
-                # it will mean this dashboard becomes restricted because of the patch
-                candidate_dashboards = Dashboard.objects.filter(id__in=ids_to_add).exclude(deleted=True)
-                dashboard: Dashboard
-                for dashboard in candidate_dashboards:
-                    if (
-                        dashboard.get_effective_privilege_level(self.context["request"].user.id)
-                        == Dashboard.PrivilegeLevel.CAN_VIEW
-                    ):
-                        raise PermissionDenied(
-                            f"You don't have permission to add insights to dashboard: {dashboard.id}"
-                        )
-
-                for dashboard in candidate_dashboards:
-                    if dashboard.team != instance.team:
-                        raise serializers.ValidationError("Dashboard not found")
-                    DashboardTile.objects.create(insight=instance, dashboard=dashboard)
-
-                if ids_to_remove:
-                    DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).delete()
-
-                # also update in-model dashboards set so activity log can detect the change
-                # ignoring any deleted dashboards
-                instance.dashboards.set([d for d in dashboards if not d.deleted])
+                self._update_insight_dashboards(dashboards, instance)
 
         updated_insight = super().update(instance, validated_data)
 
@@ -319,6 +299,31 @@ class InsightSerializer(InsightBasicSerializer):
         )
 
         return updated_insight
+
+    def _update_insight_dashboards(self, dashboards: List[Dashboard], instance: Insight) -> None:
+        old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboard_tiles.exclude(deleted=True).all()]
+        new_dashboard_ids = [d.id for d in dashboards if not d.deleted]
+        ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
+        ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
+        # does this user have permission on dashboards to add... if they are restricted
+        # it will mean this dashboard becomes restricted because of the patch
+        candidate_dashboards = Dashboard.objects.filter(id__in=ids_to_add).exclude(deleted=True)
+        dashboard: Dashboard
+        for dashboard in candidate_dashboards:
+            if (
+                dashboard.get_effective_privilege_level(self.context["request"].user.id)
+                == Dashboard.PrivilegeLevel.CAN_VIEW
+            ):
+                raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
+        for dashboard in candidate_dashboards:
+            if dashboard.team != instance.team:
+                raise serializers.ValidationError("Dashboard not found")
+            DashboardTile.objects.create(insight=instance, dashboard=dashboard)
+        if ids_to_remove:
+            DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).update(deleted=True)
+        # also update dashboards set so activity log can detect the change
+        changes_to_apply = [d for d in dashboards if not d.deleted]
+        instance.dashboards.set(changes_to_apply, clear=True)
 
     def get_result(self, insight: Insight):
         if not insight.filters:
@@ -433,8 +438,17 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.prefetch_related(
-            "dashboards", "dashboards__created_by", "dashboards__team", "dashboards__team__organization"
+            Prefetch(
+                "dashboards",
+                queryset=Dashboard.objects.exclude(deleted=True).filter(
+                    id__in=DashboardTile.objects.exclude(deleted=True).values_list("dashboard_id", flat=True)
+                ),
+            ),
+            "dashboards__created_by",
+            "dashboards__team",
+            "dashboards__team__organization",
         )
+
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
@@ -493,23 +507,42 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
                 queryset = queryset.filter(
                     Q(name__icontains=request.GET["search"]) | Q(derived_name__icontains=request.GET["search"])
                 )
+            elif key == "dashboards":
+                dashboards_filter = request.GET["dashboards"]
+                if dashboards_filter:
+                    dashboards_ids = json.loads(dashboards_filter)
+                    for dashboard_id in dashboards_ids:
+                        queryset = queryset.filter(dashboard_tiles__dashboard_id=dashboard_id)
+
         return queryset
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="refresh",
+                type=OpenApiTypes.BOOL,
+                description="""
+To improve UI responsiveness if there is not already a result cached the insight is returned without a result.
+
+This allows the UI to render and then request the result separately.
+
+To ensure the result is calculated and returned include a `refresh=true` query parameter.""",
+            ),
+            OpenApiParameter(
+                name="from_dashboard",
+                type=OpenApiTypes.INT,
+                description="""
+When loading an insight for a dashboard pass a `from_dashboard` query parameter containing the dashboard ID
+
+e.g. `"/api/projects/{team_id}/insights/{insight_id}?from_dashboard={dashboard_id}"`
+
+Insights can be added to more than one dashboard, this allows the insight to be loaded in the correct context.
+
+Using the correct cache and enriching the response with dashboard specific config (e.g. layouts or colors)""",
+            ),
+        ],
+    )
     def retrieve(self, request, *args, **kwargs):
-        """
-        When loading an insight for a dashboard pass a `from_dashboard` query parameter containing the dashboard ID
-
-        e.g. `"/api/projects/{team_id}/insights/{insight_id}?from_dashboard={dashboard_id}"`
-
-        Insights can be added to more than one dashboard, this allows the insight to be loaded in the correct context.
-
-        Using the correct cache and enriching the response with dashboard specific config (e.g. layouts or colors)
-
-        To improve UI responsiveness if there is not already a result cached the insight is returned without a result.
-        This allows the UI to render and then request the result separately.
-
-        To ensure the result is calculated and returned include a `refresh=true` query parameter.
-        """
         instance = self.get_object()
         serializer_context = self.get_serializer_context()
 
@@ -755,9 +788,30 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
         if "client_query_id" not in request.data:
             raise serializers.ValidationError({"client_query_id": "Field is required."})
         sync_execute(
-            f"KILL QUERY ON CLUSTER {CLICKHOUSE_CLUSTER} WHERE query_id LIKE %(client_query_id)s",
+            f"KILL QUERY ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE query_id LIKE %(client_query_id)s",
             {"client_query_id": f"{self.team.pk}_{request.data['client_query_id']}%"},
         )
+        return Response(status=status.HTTP_201_CREATED)
+
+    @action(methods=["POST"], detail=False)
+    def timing(self, request: request.Request, **kwargs):
+        from posthog.kafka_client.client import KafkaProducer
+        from posthog.models.event.util import format_clickhouse_timestamp
+        from posthog.utils import cast_timestamp_or_now
+
+        if CAPTURE_TIME_TO_SEE_DATA:
+            payload = {
+                **request.data,
+                "team_id": self.team_id,
+                "user_id": self.request.user.pk,
+                "timestamp": format_clickhouse_timestamp(cast_timestamp_or_now(None)),
+            }
+            if "min_last_refresh" in payload:
+                payload["min_last_refresh"] = format_clickhouse_timestamp(payload["min_last_refresh"])
+            if "max_last_refresh" in payload:
+                payload["max_last_refresh"] = format_clickhouse_timestamp(payload["max_last_refresh"])
+            KafkaProducer().produce(topic=KAFKA_METRICS_TIME_TO_SEE_DATA, data=payload)
+
         return Response(status=status.HTTP_201_CREATED)
 
 

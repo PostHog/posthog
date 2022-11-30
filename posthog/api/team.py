@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Type, cast
 
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -10,6 +11,8 @@ from rest_framework.decorators import action
 
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
+from posthog.demo.matrix.manager import MatrixManager
+from posthog.demo.products.hedgebox.matrix import HedgeboxMatrix
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Insight, Organization, Team, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -38,8 +41,19 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
         if request.method in CREATE_METHODS and (
             (user.organization is None)
             or (
-                user.organization.teams.exclude(is_demo=True).count() >= 1
+                # if we're not requesting to make a demo project
+                # and if the org already has more than 1 non-demo project (need to be able to make the initial project)
+                # and the org isn't allowed to make multiple projects
+                "is_demo" not in request.data
+                and user.organization.teams.exclude(is_demo=True).count() >= 1
                 and not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
+            )
+            or (
+                # if we ARE requesting to make a demo project
+                # but the org already has a demo project
+                "is_demo" in request.data
+                and request.data["is_demo"]
+                and user.organization.teams.exclude(is_demo=False).count() > 0
             )
         ):
             return False
@@ -87,7 +101,6 @@ class TeamSerializer(serializers.ModelSerializer):
             "uuid",
             "organization",
             "api_token",
-            "is_demo",
             "created_at",
             "updated_at",
             "ingested_event",
@@ -125,10 +138,15 @@ class TeamSerializer(serializers.ModelSerializer):
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
         organization = self.context["view"].organization  # Use the org we used to validate permissions
+        if validated_data.get("is_demo", False):
+            matrix = HedgeboxMatrix(n_clusters=settings.DEMO_MATRIX_N_CLUSTERS)
+            manager = MatrixManager(matrix, use_pre_save=True)
         with transaction.atomic():
             team = Team.objects.create_with_data(**validated_data, organization=organization)
             request.user.current_team = team
             request.user.save()
+            if "manager" in locals():
+                manager.run_on_team(team, request.user)
         return team
 
     def _handle_timezone_update(self, team: Team, new_timezone: str) -> None:
@@ -225,11 +243,20 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     def perform_destroy(self, team: Team):
         team_id = team.pk
         delete_bulky_postgres_data(team_ids=[team_id])
-        AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Team, team_id=team_id, key=str(team_id), created_by=cast(User, self.request.user)
-        )
         with mute_selected_signals():
             super().perform_destroy(team)
+        # Once the project is deleted, queue deletion of associated data
+        AsyncDeletion.objects.bulk_create(
+            [
+                AsyncDeletion(
+                    deletion_type=DeletionType.Team,
+                    team_id=team_id,
+                    key=str(team_id),
+                    created_by=cast(User, self.request.user),
+                )
+            ],
+            ignore_conflicts=True,
+        )
 
     @action(
         methods=["PATCH"],

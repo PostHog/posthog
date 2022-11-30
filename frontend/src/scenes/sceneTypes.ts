@@ -19,6 +19,8 @@ export enum Scene {
     EventPropertyDefinition = 'EventPropertyDefinition',
     IngestionWarnings = 'IngestionWarnings',
     SessionRecordings = 'SessionsRecordings',
+    SessionRecording = 'SessionRecording',
+    SessionRecordingPlaylist = 'SessionRecordingPlaylist',
     Person = 'Person',
     Persons = 'Persons',
     Groups = 'Groups',
@@ -60,6 +62,7 @@ export enum Scene {
     Ingestion = 'IngestionWizard',
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     Unsubscribe = 'Unsubscribe',
+    Query = 'Query',
 }
 
 export type SceneProps = Record<string, any>

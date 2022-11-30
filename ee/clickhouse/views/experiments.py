@@ -57,8 +57,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         variants = value.get("feature_flag_variants", [])
 
-        if len(variants) > 4:
-            raise ValidationError("Feature flag variants must be less than 5")
+        if len(variants) >= 11:
+            raise ValidationError("Feature flag variants must be less than 11")
         elif len(variants) > 0:
             if "control" not in [variant["key"] for variant in variants]:
                 raise ValidationError("Feature flag variants must contain a control variant")
@@ -117,9 +117,16 @@ class ExperimentSerializer(serializers.ModelSerializer):
         has_start_date = validated_data.get("start_date") is not None
         feature_flag = instance.feature_flag
 
-        expected_keys = set(
-            ["name", "description", "start_date", "end_date", "filters", "parameters", "archived", "secondary_metrics"]
-        )
+        expected_keys = {
+            "name",
+            "description",
+            "start_date",
+            "end_date",
+            "filters",
+            "parameters",
+            "archived",
+            "secondary_metrics",
+        }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys
 

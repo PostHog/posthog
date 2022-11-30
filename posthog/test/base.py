@@ -42,6 +42,7 @@ from posthog.models.session_recording_event.sql import (
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
 from posthog.settings import CLICKHOUSE_REPLICATION
+from posthog.settings.utils import get_from_env, str_to_bool
 
 persons_cache_tests: List[Dict[str, Any]] = []
 events_cache_tests: List[Dict[str, Any]] = []
@@ -250,7 +251,12 @@ def cleanup_materialized_columns():
 
 
 def test_with_materialized_columns(
-    event_properties=[], person_properties=[], group_properties=[], verify_no_jsonextract=True
+    event_properties=[],
+    person_properties=[],
+    group_properties=[],
+    verify_no_jsonextract=True,
+    # :TODO: Remove this when groups-on-events is released
+    materialize_only_with_person_on_events=False,
 ):
     """
     Runs the test twice on clickhouse - once verifying it works normally, once with materialized columns.
@@ -262,6 +268,12 @@ def test_with_materialized_columns(
         from ee.clickhouse.materialized_columns.analyze import materialize
     except:
         # EE not available? Just run the main test
+        return lambda fn: fn
+
+    if materialize_only_with_person_on_events and not get_from_env(
+        "PERSON_ON_EVENTS_ENABLED", False, type_cast=str_to_bool
+    ):
+        # Don't run materialized test unless PERSON_ON_EVENTS_ENABLED
         return lambda fn: fn
 
     def decorator(fn):

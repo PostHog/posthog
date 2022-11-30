@@ -14,6 +14,10 @@
     align-items: center;
     justify-content: center;
 
+    &.LemonModal__overlay--force-modal-above-popups {
+        z-index: var(--z-force-modal-above-popups);
+    }
+
     &.ReactModal__Overlay--after-open {
         background-color: rgba(0, 0, 0, 0.2);
         backdrop-filter: blur(var(--modal-backdrop-blur));

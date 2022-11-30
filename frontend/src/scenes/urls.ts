@@ -1,4 +1,4 @@
-import { DashboardType, FilterType, InsightShortId } from '~/types'
+import { AnyPartialFilterType, DashboardType, FilterType, InsightShortId, SessionRecordingsTabs } from '~/types'
 import { combineUrl } from 'kea-router'
 import { ExportOptions } from '~/exporter/types'
 import { AppMetricsUrlParams } from './apps/appMetricsSceneLogic'
@@ -35,7 +35,7 @@ export const urls = {
     eventPropertyDefinition: (id: string | number): string => `/data-management/event-properties/${id}`,
     events: (): string => '/events',
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
-    insightNew: (filters?: Partial<FilterType>, dashboardId?: DashboardType['id'] | null): string =>
+    insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, filters ? { filters } : {}).url,
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
     insightView: (id: InsightShortId): string => `/insights/${id}`,
@@ -46,8 +46,12 @@ export const urls = {
     savedInsights: (): string => '/insights',
     webPerformance: (): string => '/web-performance',
     webPerformanceWaterfall: (id: string): string => `/web-performance/${id}/waterfall`,
-    sessionRecordings: (filters?: Partial<FilterType>): string =>
-        combineUrl('/recordings', filters ? { filters } : {}).url,
+    sessionRecordings: (tab?: SessionRecordingsTabs, filters?: Partial<FilterType>): string =>
+        combineUrl(tab ? `/recordings/${tab}` : '/recordings/recent', filters ? { filters } : {}).url,
+    sessionRecordingPlaylist: (id: string, filters?: Partial<FilterType>): string =>
+        combineUrl(`/recordings/playlists/${id}`, filters ? { filters } : {}).url,
+    sessionRecording: (id: string, filters?: Partial<FilterType>): string =>
+        combineUrl(`/recordings/${id}`, filters ? { filters } : {}).url,
     person: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     persons: (): string => '/persons',
@@ -70,6 +74,8 @@ export const urls = {
     appMetrics: (pluginConfigId: string | number, params: AppMetricsUrlParams = {}): string =>
         combineUrl(`/app/${pluginConfigId}/metrics`, params).url,
     appHistoricalExports: (pluginConfigId: string | number): string => `/app/${pluginConfigId}/historical_exports`,
+    appHistory: (pluginConfigId: string | number, searchParams?: Record<string, any>): string =>
+        combineUrl(`/app/${pluginConfigId}/history`, searchParams).url,
     projectCreateFirst: (): string => '/project/create',
     projectHomepage: (): string => '/home',
     projectSettings: (section?: string): string => `/project/settings${section ? `#${section}` : ''}`,
@@ -115,4 +121,6 @@ export const urls = {
             ...(exportOptions?.legend ? { legend: null } : {}),
             ...(exportOptions?.noHeader ? { noHeader: null } : {}),
         }).url,
+    query: (query?: string | Record<string, any>): string =>
+        combineUrl('/query', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
 }

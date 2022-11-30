@@ -1,6 +1,6 @@
 import { ISOTimestamp, PostIngestionEvent } from '../../../../src/types'
 import { convertToProcessedPluginEvent } from '../../../../src/utils/event'
-import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/6-runAsyncHandlersStep'
+import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/7-runAsyncHandlersStep'
 import { runOnEvent, runOnSnapshot } from '../../../../src/worker/plugins/run'
 
 jest.mock('../../../../src/worker/plugins/run')
@@ -76,16 +76,6 @@ describe('runAsyncHandlersStep()', () => {
         await expect(runAsyncHandlersStep(runner, ingestionEvent, personContainer)).rejects.toThrow(error)
 
         expect(runOnEvent).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(ingestionEvent))
-    })
-
-    it('stops processing if not capabilities.processAsyncHandlers', async () => {
-        runner.hub.capabilities.processAsyncHandlers = false
-
-        const result = await runAsyncHandlersStep(runner, ingestionEvent, personContainer)
-
-        expect(result).toEqual(null)
-        expect(runOnSnapshot).not.toHaveBeenCalled()
-        expect(runOnEvent).not.toHaveBeenCalled()
     })
 
     describe('$snapshot events', () => {

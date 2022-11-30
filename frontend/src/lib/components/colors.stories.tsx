@@ -5,6 +5,7 @@ import { useState } from 'react'
 export default {
     title: 'Lemon UI/Colors',
     parameters: {
+        chromatic: { disableSnapshot: false },
         options: { showPanel: false },
         docs: {
             description: {

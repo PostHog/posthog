@@ -3,13 +3,14 @@ import { useEffect, useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
-import { RecordingEventType, RecordingSegment, SessionRecordingPlayerProps } from '~/types'
+import { RecordingEventType, RecordingSegment } from '~/types'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { eventsListLogic } from 'scenes/session-recordings/player/list/eventsListLogic'
 import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
+import { SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
 
-interface TickProps extends SessionRecordingPlayerProps {
+interface TickProps extends SessionRecordingPlayerLogicProps {
     event: RecordingEventType
     index: number
     status: RowStatus
@@ -57,7 +58,7 @@ function Tick({ event, sessionRecordingId, playerKey, status, numEvents, index }
     )
 }
 
-export function Seekbar({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+export function Seekbar({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
     const { handleDown, setSlider, setThumb } = useActions(seekbarLogic({ sessionRecordingId, playerKey }))

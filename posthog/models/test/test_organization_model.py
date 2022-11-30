@@ -37,7 +37,7 @@ class TestOrganization(BaseTest):
             Plugin.objects.filter(organization=new_org, is_preinstalled=True).get().name, "helloworldplugin"
         )
         self.assertEqual(mock_get.call_count, 2)
-        mock_get.assert_called_with(
+        mock_get.assert_any_call(
             f"https://github.com/PostHog/helloworldplugin/archive/{HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}.zip", headers={}
         )
 
@@ -60,3 +60,18 @@ class TestOrganization(BaseTest):
         with self.is_cloud(False):
             new_org, _, _ = Organization.objects.bootstrap(self.user)
             assert new_org.plugins_access_level == Organization.PluginsAccessLevel.ROOT
+
+    def test_update_available_features_ignored_if_usage_info_exists(self):
+        with self.is_cloud(False):
+            new_org, _, _ = Organization.objects.bootstrap(self.user)
+
+            new_org.available_features = ["test1", "test2"]
+            new_org.update_available_features()
+            assert new_org.available_features == []
+            assert not new_org.has_billing_v2_setup
+
+            new_org.available_features = ["test1", "test2"]
+            new_org.usage = {"events": {"usage": 1000, "limit": None}}
+            new_org.update_available_features()
+            assert new_org.available_features == ["test1", "test2"]
+            assert new_org.has_billing_v2_setup

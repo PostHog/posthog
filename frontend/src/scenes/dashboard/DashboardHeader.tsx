@@ -6,12 +6,11 @@ import { More } from 'lib/components/LemonButton/More'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime, slugify } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { AvailableFeature, DashboardMode, DashboardType, ExporterFormat } from '~/types'
 import { dashboardLogic } from './dashboardLogic'
-import { dashboardsLogic } from './dashboardsLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { userLogic } from 'scenes/userLogic'
 import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
@@ -19,14 +18,19 @@ import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/components/icons'
 import { urls } from 'scenes/urls'
-import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { isLemonSelectSection } from 'lib/components/LemonSelect'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
+import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
+import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
+import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
+import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
+import { tagsModel } from '~/models/tagsModel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function DashboardHeader(): JSX.Element | null {
     const {
@@ -41,17 +45,40 @@ export function DashboardHeader(): JSX.Element | null {
         textTileId,
     } = useValues(dashboardLogic)
     const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
-    const { dashboardTags } = useValues(dashboardsLogic)
-    const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } =
-        useActions(dashboardsModel)
+    const { asDashboardTemplate } = useValues(dashboardLogic)
+    const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
 
     const { hasAvailableFeature } = useValues(userLogic)
 
-    const { push } = useActions(router)
+    const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
+    const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const showTextCards = featureFlags[FEATURE_FLAGS.TEXT_CARDS]
+    const allowSaveAsTemplate = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
 
+    const { tags } = useValues(tagsModel)
+
+    const { push } = useActions(router)
+
+    const exportOptions: ExportButtonItem[] = [
+        {
+            export_format: ExporterFormat.PNG,
+            dashboard: dashboard?.id,
+            export_context: {
+                path: apiUrl(),
+            },
+        },
+    ]
+    if (allowSaveAsTemplate) {
+        exportOptions.push({
+            export_format: ExporterFormat.JSON,
+            export_context: {
+                localData: asDashboardTemplate,
+                filename: `dashboard-${slugify(dashboard?.name || 'nameless dashboard')}.json`,
+                mediaType: ExporterFormat.JSON,
+            },
+        })
+    }
     return dashboard || dashboardLoading ? (
         <>
             {dashboardMode === DashboardMode.Fullscreen && (
@@ -70,7 +97,7 @@ export function DashboardHeader(): JSX.Element | null {
                         closeModal={() => push(urls.dashboard(dashboard.id))}
                         dashboardId={dashboard.id}
                     />
-                    {showTextCards && (
+                    {canEditDashboard && (
                         <TextCardModal
                             isOpen={showTextTileModal}
                             onClose={() => push(urls.dashboard(dashboard.id))}
@@ -78,6 +105,8 @@ export function DashboardHeader(): JSX.Element | null {
                             textTileId={textTileId}
                         />
                     )}
+                    {canEditDashboard && <DeleteDashboardModal />}
+                    {canEditDashboard && <DuplicateDashboardModal />}
                 </>
             )}
 
@@ -203,28 +232,12 @@ export function DashboardHeader(): JSX.Element | null {
                                                     </LemonButton>
                                                 ))}
                                             <SubscribeButton dashboardId={dashboard.id} />
-                                            <ExportButton
-                                                fullWidth
-                                                status="stealth"
-                                                items={[
-                                                    {
-                                                        export_format: ExporterFormat.PNG,
-                                                        dashboard: dashboard?.id,
-                                                        export_context: {
-                                                            path: apiUrl(),
-                                                        },
-                                                    },
-                                                ]}
-                                            />
+                                            <ExportButton fullWidth status="stealth" items={exportOptions} />
                                             <LemonDivider />
                                             <LemonButton
-                                                onClick={() =>
-                                                    duplicateDashboard({
-                                                        id: dashboard.id,
-                                                        name: dashboard.name,
-                                                        show: true,
-                                                    })
-                                                }
+                                                onClick={() => {
+                                                    showDuplicateDashboardModal(dashboard.id, dashboard.name)
+                                                }}
                                                 status="stealth"
                                                 fullWidth
                                             >
@@ -232,9 +245,9 @@ export function DashboardHeader(): JSX.Element | null {
                                             </LemonButton>
                                             {canEditDashboard && (
                                                 <LemonButton
-                                                    onClick={() =>
-                                                        deleteDashboard({ id: dashboard.id, redirect: true })
-                                                    }
+                                                    onClick={() => {
+                                                        showDeleteDashboardModal(dashboard.id)
+                                                    }}
                                                     status="danger"
                                                     fullWidth
                                                 >
@@ -261,53 +274,37 @@ export function DashboardHeader(): JSX.Element | null {
                                     </LemonButton>
                                 </>
                             )}
-                            {dashboard && canEditDashboard ? (
-                                showTextCards && hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) ? (
-                                    <LemonButtonWithSideAction
-                                        to={urls.insightNew(undefined, dashboard.id)}
-                                        type="primary"
-                                        data-attr="dashboard-add-graph-header"
-                                        sideAction={{
-                                            popup: {
-                                                placement: 'bottom-end',
-                                                overlay: (
-                                                    <>
-                                                        {showTextCards &&
-                                                            hasAvailableFeature(
-                                                                AvailableFeature.DASHBOARD_COLLABORATION
-                                                            ) && (
-                                                                <LemonButton
-                                                                    status="stealth"
-                                                                    fullWidth
-                                                                    onClick={() => {
-                                                                        push(
-                                                                            urls.dashboardTextTile(dashboard.id, 'new')
-                                                                        )
-                                                                    }}
-                                                                    data-attr="add-text-tile-to-dashboard"
-                                                                >
-                                                                    Add text card &nbsp;
-                                                                    <LemonTag type="warning">BETA</LemonTag>
-                                                                </LemonButton>
-                                                            )}
-                                                    </>
-                                                ),
-                                            },
-                                            disabled: false,
-                                            'data-attr': 'dashboard-add-dropdown',
-                                        }}
-                                    >
-                                        Add insight
-                                    </LemonButtonWithSideAction>
-                                ) : (
-                                    <LemonButton
-                                        to={urls.insightNew(undefined, dashboard?.id)}
-                                        type="primary"
-                                        data-attr="dashboard-add-graph-header"
-                                    >
-                                        Add insight
-                                    </LemonButton>
-                                )
+                            {dashboard ? (
+                                <LemonButtonWithSideAction
+                                    to={urls.insightNew(undefined, dashboard.id)}
+                                    type="primary"
+                                    data-attr="dashboard-add-graph-header"
+                                    disabled={!canEditDashboard}
+                                    sideAction={{
+                                        popup: {
+                                            placement: 'bottom-end',
+                                            overlay: (
+                                                <>
+                                                    <LemonButton
+                                                        status="stealth"
+                                                        fullWidth
+                                                        onClick={() => {
+                                                            push(urls.dashboardTextTile(dashboard.id, 'new'))
+                                                        }}
+                                                        data-attr="add-text-tile-to-dashboard"
+                                                    >
+                                                        Add text card &nbsp;
+                                                        <LemonTag type="warning">BETA</LemonTag>
+                                                    </LemonButton>
+                                                </>
+                                            ),
+                                        },
+                                        disabled: false,
+                                        'data-attr': 'dashboard-add-dropdown',
+                                    }}
+                                >
+                                    Add insight
+                                </LemonButtonWithSideAction>
                             ) : null}
                         </>
                     )
@@ -336,7 +333,7 @@ export function DashboardHeader(): JSX.Element | null {
                                         tags={dashboard.tags}
                                         onChange={(_, tags) => triggerDashboardUpdate({ tags })}
                                         saving={dashboardLoading}
-                                        tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags?.includes(tag))}
+                                        tagsAvailable={tags.filter((tag) => !dashboard.tags?.includes(tag))}
                                         className="insight-metadata-tags"
                                     />
                                 ) : dashboard.tags.length ? (
