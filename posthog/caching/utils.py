@@ -1,5 +1,5 @@
 import datetime
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Set, Tuple, Union
 
 from dateutil.parser import parser
 
@@ -19,7 +19,7 @@ def ensure_is_date(candidate: Optional[Union[str, datetime.datetime]]) -> Option
     return parser().parse(candidate)
 
 
-def active_teams() -> List[int]:
+def active_teams() -> Set[int]:
     """
     Teams are stored in a sorted set. [{team_id: score}, {team_id: score}].
     Their "score" is the number of seconds since last event.
@@ -47,4 +47,4 @@ def active_teams() -> List[int]:
         redis.expire(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, IN_A_DAY)
         all_teams = teams_by_recency
 
-    return [int(team) for team, _ in all_teams]
+    return set(int(team_id) for team_id, _ in all_teams)
