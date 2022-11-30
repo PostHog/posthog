@@ -82,8 +82,6 @@ export const startClickHouseConsumer = async ({
             if (!message.value) {
                 status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
                     value: message.value,
-                    processEventAt: message.headers?.processEventAt,
-                    eventId: message.headers?.eventId,
                 })
                 await producer.send({ topic: KAFKA_EVENTS_JSON_DLQ, messages: [message] })
                 resolveOffset(message.offset)
@@ -97,7 +95,7 @@ export const startClickHouseConsumer = async ({
 
                 await clickhouse.insert({
                     table: topicToTable[batch.topic as keyof typeof topicToTable],
-                    values: [event],
+                    values: [row],
                     format: 'JSONEachRow',
                 })
             } catch (error) {
