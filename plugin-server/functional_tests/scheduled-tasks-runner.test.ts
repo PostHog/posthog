@@ -55,7 +55,7 @@ test.concurrent(`handles empty messages`, async () => {
     const key = uuidv4()
 
     await producer.send({
-        topic: 'jobs',
+        topic: 'scheduled_tasks',
         messages: [
             {
                 key: key,
@@ -72,7 +72,7 @@ test.concurrent(`handles invalid JSON`, async () => {
     const key = uuidv4()
 
     await producer.send({
-        topic: 'jobs',
+        topic: 'scheduled_tasks',
         messages: [
             {
                 key: key,
@@ -89,7 +89,7 @@ test.concurrent(`handles invalid message schema`, async () => {
     const key = uuidv4()
 
     await producer.send({
-        topic: 'jobs',
+        topic: 'scheduled_tasks',
         messages: [
             {
                 key: key,

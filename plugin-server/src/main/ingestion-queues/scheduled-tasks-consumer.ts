@@ -32,10 +32,10 @@ export const startScheduledTasksConsumer = async ({
         status.debug('🔁', 'Processing batch', { size: batch.messages.length })
         for (const message of batch.messages) {
             if (!message.value) {
+                status.error('⚠️', 'asdf', { topic: 'zxcv' })
                 status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
                     value: message.value,
                 })
-                // TODO: handle resolving offsets asynchronously
                 await producer.send({ topic: KAFKA_SCHEDULED_TASKS_DLQ, messages: [message] })
                 resolveOffset(message.offset)
                 continue
@@ -50,9 +50,8 @@ export const startScheduledTasksConsumer = async ({
                 task = JSON.parse(message.value.toString())
             } catch (error) {
                 status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
-                    error,
+                    error: error.stack ?? error,
                 })
-                // TODO: handle resolving offsets asynchronously
                 await producer.send({ topic: KAFKA_SCHEDULED_TASKS_DLQ, messages: [message] })
                 resolveOffset(message.offset)
                 continue
