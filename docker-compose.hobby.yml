@@ -47,39 +47,28 @@ services:
             file: docker-compose.base.yml
             service: kafka
 
-    worker: &worker
-        image: posthog/posthog:$POSTHOG_APP_TAG
-        command: ./bin/docker-worker-celery --with-scheduler
-        restart: on-failure
+    worker:
+        extends:
+            file: docker-compose.base.yml
+            service: worker
         environment:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
-            DISABLE_SECURE_SSL_REDIRECT: 'true'
-            IS_BEHIND_PROXY: 'true'
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            CLICKHOUSE_HOST: 'clickhouse'
-            CLICKHOUSE_DATABASE: 'posthog'
-            CLICKHOUSE_SECURE: 'false'
-            CLICKHOUSE_VERIFY: 'false'
-            KAFKA_URL: 'kafka://kafka'
-            REDIS_URL: 'redis://redis:6379/'
-            SECRET_KEY: $POSTHOG_SECRET
-            PGHOST: db
-            PGUSER: posthog
-            PGPASSWORD: posthog
-            DEPLOYMENT: hobby
-        depends_on:
-            - db
-            - redis
-            - clickhouse
-            - kafka
-            - object_storage
+            SECRET_KEY: $POSTHOG_SERET
+        image: posthog/posthog:$POSTHOG_APP_TAG
     web:
-        <<: *worker
-        command: /compose/start
-        restart: on-failure
+        extends:
+            file: docker-compose.base.yml
+            service: web
         volumes:
             - ./compose:/compose
+        image: posthog/posthog:$POSTHOG_APP_TAG
+    plugins:
+        extends:
+            file: docker-compose.base.yml
+            service: plugins
+        image: posthog/posthog:$POSTHOG_APP_TAG
+
     caddy:
         image: caddy:2.6.1
         restart: unless-stopped
@@ -90,22 +79,6 @@ services:
             - ./Caddyfile:/etc/caddy/Caddyfile
         depends_on:
             - web
-    plugins:
-        image: posthog/posthog:$POSTHOG_APP_TAG
-        command: ./bin/plugin-server --no-restart-loop
-        restart: on-failure
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            KAFKA_HOSTS: 'kafka:9092'
-            REDIS_URL: 'redis://redis:6379/'
-            CLICKHOUSE_HOST: 'clickhouse'
-        depends_on:
-            - db
-            - redis
-            - clickhouse
-            - kafka
-            - object_storage
-
     object_storage:
         extends:
             file: docker-compose.base.yml
@@ -115,10 +88,9 @@ services:
             - object_storage:/data
 
     asyncmigrationscheck:
-        <<: *worker
-        command: python manage.py run_async_migrations --check
-        restart: 'no'
-        scale: 0
+        extends:
+            file: docker-compose.base.yml
+            service: asyncmigrationscheck
 
 volumes:
     zookeeper-data:
