@@ -161,11 +161,11 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
 
                         return dashboard
-                    } catch (e: any) {
-                        if (e.status === 404) {
+                    } catch (error: any) {
+                        if (error.status === 404) {
                             throw new Error('Dashboard not found')
                         }
-                        throw e
+                        throw error
                     }
                 },
                 updateTileColor: async ({ tileId, color }) => {
