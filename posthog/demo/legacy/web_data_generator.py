@@ -7,11 +7,12 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.demo.data_generator import DataGenerator
 from posthog.models import Action, ActionStep, Dashboard, DashboardTile, Insight, Person, PropertyDefinition
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.utils import UUIDT
 from posthog.utils import get_absolute_path
+
+from .data_generator import DataGenerator
 
 SCREEN_OPTIONS = ("settings", "profile", "movies", "downloads")
 
@@ -164,10 +165,10 @@ class WebDataGenerator(DataGenerator):
 
     @cached_property
     def demo_data(self) -> List[Dict[str, Any]]:
-        with open(get_absolute_path("demo/demo_people.json"), "r") as demo_data_file:
+        with open(get_absolute_path("demo/legacy/demo_people.json"), "r") as demo_data_file:
             return json.load(demo_data_file)
 
     @cached_property
     def demo_recording(self) -> Dict[str, Any]:
-        with open(get_absolute_path("demo/hogflix_session_recording.json"), "r") as demo_session_file:
+        with open(get_absolute_path("demo/legacy/hogflix_session_recording.json"), "r") as demo_session_file:
             return json.load(demo_session_file)
