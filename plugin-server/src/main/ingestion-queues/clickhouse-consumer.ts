@@ -63,37 +63,44 @@ export const startClickHouseConsumer = async ({
     })
 
     const topicToTable = {
-        [KAFKA_EVENTS_JSON]: 'writable_events',
-        [KAFKA_EVENTS_DEAD_LETTER_QUEUE]: 'events_dead_letter_queue',
-        [KAFKA_GROUPS]: 'groups',
-        [KAFKA_PERSON]: 'person',
-        [KAFKA_PERSON_DISTINCT_ID]: 'person_distinct_id2',
-        [KAFKA_PLUGIN_LOG_ENTRIES]: 'plugin_log_entries',
-        [KAFKA_SESSION_RECORDING_EVENTS]: 'writable_session_recording_events',
-        [KAFKA_INGESTION_WARNINGS]: 'sharded_ingestion_warnings',
-        [KAFKA_APP_METRICS]: 'sharded_app_metrics',
+        [KAFKA_EVENTS_JSON]: { tableName: 'writable_events', dlq: KAFKA_EVENTS_DEAD_LETTER_QUEUE },
+        [KAFKA_EVENTS_DEAD_LETTER_QUEUE]: { tableName: 'events_dead_letter_queue', dlq: null },
+        [KAFKA_GROUPS]: { tableName: 'groups' },
+        [KAFKA_PERSON]: { tableName: 'person' },
+        [KAFKA_PERSON_DISTINCT_ID]: { tableName: 'person_distinct_id2' },
+        [KAFKA_PLUGIN_LOG_ENTRIES]: { tableName: 'plugin_log_entries' },
+        [KAFKA_SESSION_RECORDING_EVENTS]: { tableName: 'writable_session_recording_events' },
+        [KAFKA_INGESTION_WARNINGS]: { tableName: 'sharded_ingestion_warnings' },
+        [KAFKA_APP_METRICS]: { tableName: 'sharded_app_metrics' },
     } as const
 
     const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat }) => {
         status.debug('🔁', 'Processing batch', { size: batch.messages.length })
 
         for (const message of batch.messages) {
+            const { tableName, dlq } = topicToTable[batch.topic as keyof typeof topicToTable]
+
             if (!message.value) {
                 status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
                     value: message.value,
                 })
-                await producer.send({ topic: KAFKA_EVENTS_JSON_DLQ, messages: [message] })
+
+                if (dlq || dlq === undefined) {
+                    await producer.send({ topic: dlq ?? `${KAFKA_EVENTS_JSON_DLQ}_dlq`, messages: [message] })
+                }
+
                 resolveOffset(message.offset)
                 continue
             }
 
             try {
-                const row = JSON.parse(message.value.toString())
+                const jsonString = message.value.toString()
+                const row = JSON.parse(jsonString)
 
-                status.debug('⬆️', 'Inserting row', { row })
+                status.debug('⬆️', 'Inserting row', { row: jsonString.slice(0, 100) })
 
                 await clickhouse.insert({
-                    table: topicToTable[batch.topic as keyof typeof topicToTable],
+                    table: tableName,
                     values: [row],
                     format: 'JSONEachRow',
                 })
