@@ -94,7 +94,7 @@ runs:
               GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
           shell: bash
           run: | # async_migrations are covered in ci-async-migrations.yml
-              pytest -m "not ee and not async_migrations" \
+              pytest posthog -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --cov --cov-report=xml:coverage-ee.xml \
                   --durations=100 --durations-min=1.0 --store-durations \
@@ -107,7 +107,7 @@ runs:
               GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
           shell: bash
           run: | # async_migrations are covered in ci-async-migrations.yml
-              pytest -m "ee and not async_migrations" \
+              pytest ee -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --cov --cov-report=xml:coverage-ee.xml \
                   --durations=100 --durations-min=1.0 --store-durations \
