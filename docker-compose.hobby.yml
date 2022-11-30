@@ -63,11 +63,19 @@ services:
         volumes:
             - ./compose:/compose
         image: posthog/posthog:$POSTHOG_APP_TAG
+        environment:
+            SENTRY_DSN: $SENTRY_DSN
+            SITE_URL: https://$DOMAIN
+            SECRET_KEY: $POSTHOG_SERET
     plugins:
         extends:
             file: docker-compose.base.yml
             service: plugins
         image: posthog/posthog:$POSTHOG_APP_TAG
+        environment:
+            SENTRY_DSN: $SENTRY_DSN
+            SITE_URL: https://$DOMAIN
+            SECRET_KEY: $POSTHOG_SERET
 
     caddy:
         image: caddy:2.6.1
@@ -92,6 +100,10 @@ services:
             file: docker-compose.base.yml
             service: asyncmigrationscheck
         image: posthog/posthog:$POSTHOG_APP_TAG
+        environment:
+            SENTRY_DSN: $SENTRY_DSN
+            SITE_URL: https://$DOMAIN
+            SECRET_KEY: $POSTHOG_SERET
 
 volumes:
     zookeeper-data:
