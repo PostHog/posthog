@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { billingLogic } from './billingLogic'
+import { billingLogic } from './billingTestLogic'
 import {
     LemonButton,
     LemonDivider,
@@ -177,7 +177,7 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
                                     center
                                     disableClientSideRouting
                                 >
-                                    Setup payment Test
+                                    Setup payment Test6
                                 </LemonButton>
 
                                 <div className="space-y-2">

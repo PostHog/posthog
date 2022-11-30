@@ -31,7 +31,7 @@ export function Billing(): JSX.Element {
         return (
             <div>
                 <PageHeader title="Billing &amp; usage" />
-                {featureFlags[FEATURE_FLAGS.BILLING_FEATURES_EXPERIMENT] !== 'test' ? <BillingV2Test /> : <BillingV2 />}
+                {featureFlags[FEATURE_FLAGS.BILLING_FEATURES_EXPERIMENT] === 'test' ? <BillingV2Test /> : <BillingV2 />}
             </div>
         )
     }
