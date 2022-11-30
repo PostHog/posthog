@@ -29,7 +29,7 @@ function handleTimestamp(data: PluginEvent, now: DateTime, sentAt: DateTime | nu
                 // otherwise we can't get a diff to add to now
                 return now.plus(timestamp.diff(sentAt))
             } catch (error) {
-                status.error('⚠️', 'Error when handling timestamp:', error)
+                status.error('⚠️', 'Error when handling timestamp:', { error: error.message })
                 Sentry.captureException(error, { extra: { data, now, sentAt } })
             }
         }
