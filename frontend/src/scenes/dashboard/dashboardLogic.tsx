@@ -891,7 +891,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
             actions.resetInterval()
             actions.refreshAllDashboardItems({ action: 'refresh_manual' })
         },
-        refreshAllDashboardItems: async ({ tiles, action, initialLoad, dashboardQueryId }, breakpoint) => {
+        refreshAllDashboardItems: async ({ tiles, action, initialLoad, dashboardQueryId = uuid() }, breakpoint) => {
             if (!props.id) {
                 // what are we loading the insight card on?!
                 return
@@ -924,14 +924,13 @@ export const dashboardLogic = kea<dashboardLogicType>({
             }
 
             const refreshStartTime = performance.now()
-            dashboardQueryId = dashboardQueryId ?? uuid()
+
             let refreshesFinished = 0
             let totalResponseBytes = 0
 
             // array of functions that reload each item
             const fetchItemFunctions = insights.map((insight) => async () => {
-                // :TODO: Support query cancellation and use this queryId in the actual query.
-                const queryId = `${dashboardQueryId}::${uuid()}`
+                const queryId = `dash-${dashboardQueryId}::${uuid()}`
                 const queryStartTime = performance.now()
                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
                     refresh: true,
