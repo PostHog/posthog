@@ -4418,7 +4418,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # the first day of the month, and not the last. If they saw just Jan-2077, the more general case would work.
         self.assertEqual(result[0]["data"], [3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0])
 
-    def test_weekly_active_users_based_on_action_with_zero_person_ids(self):
+    def test_weekly_active_users_daily_based_on_action_with_zero_person_ids(self):
         # only a person-on-event test
         if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             return True
@@ -4444,14 +4444,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         data = {
-            "date_from": "2020-01-09T00:00:00Z",
-            "date_to": "2020-01-16T00:00:00Z",
+            "date_from": "2020-01-08",
+            "date_to": "2020-01-19",
             "actions": [{"id": action.id, "type": "actions", "order": 0, "math": "weekly_active"}],
         }
 
         filter = Filter(data=data)
         result = Trends().run(filter, self.team)
-        self.assertEqual(result[0]["data"], [3.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        # Zero person IDs shouldn't be counted
+        self.assertEqual(result[0]["data"], [1.0, 3.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 1.0, 0.0])
 
     @test_with_materialized_columns(["key"])
     def test_breakdown_weekly_active_users(self):
