@@ -12,8 +12,8 @@ export function parseEventTimestamp(data: PluginEvent, callback?: InvalidTimesta
 
     const parsedTs = handleTimestamp(data, now, sentAt)
     const ts = parsedTs.isValid ? parsedTs : DateTime.utc()
-    if (!parsedTs.isValid && callback) {
-        callback(data['team_id'])
+    if (!parsedTs.isValid) {
+        callback?.(data['team_id'])
     }
     return ts
 }
