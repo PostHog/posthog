@@ -133,15 +133,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
         duplicateTile: (tile: DashboardTile) => ({ tile }),
         loadingDashboardItemsStarted: (action: string, dashboardQueryId: string) => ({ action, dashboardQueryId }),
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
-        abortQuery: (payload: {
-            queryId: string
-            // view: InsightType
-            // scene: Scene | null
-            exception?: Record<string, any>
-        }) => payload,
+        abortQuery: (payload: { queryId: string; exception?: Record<string, any> }) => payload,
     },
 
-    loaders: ({ actions, props, values, cache }) => ({
+    loaders: ({ actions, props, values }) => ({
         // TODO this is a terrible name... it is "dashboard" but there's a "dashboard" reducer ¯\_(ツ)_/¯
         allItems: [
             null as DashboardType | null,
@@ -154,12 +149,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
                     const dashboardQueryId = uuid()
                     actions.loadingDashboardItemsStarted(action, dashboardQueryId)
-
-                    // If insight query is in progress, kill that query
-                    if (cache.abortController) {
-                        cache.abortController.abort()
-                        cache.abortController = null
-                    }
 
                     try {
                         // :TODO: Send dashboardQueryId forward as well if refreshing
