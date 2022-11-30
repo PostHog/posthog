@@ -208,13 +208,12 @@ jobs:
 
             - uses: ./.github/actions/run-backend-tests
               with:
-                  python-version: ${{ matrix.python-version }}
                   segment: ${{ matrix.segment }}
-                  foss: ${{ matrix.foss }}
+                  person-on-events: ${{ matrix.person-on-events }}
+                  python-version: ${{ matrix.python-version }}
                   clickhouse-server-image: ${{ matrix.clickhouse-server-image }}
                   concurrency: ${{ matrix.concurrency }}
                   group: ${{ matrix.group }}
-                  person-on-events: ${{ matrix.person-on-events }}
 
             - uses: EndBug/add-and-commit@v9
               # Skip on forks

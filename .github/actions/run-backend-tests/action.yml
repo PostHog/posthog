@@ -13,9 +13,6 @@ inputs:
     segment:
         required: true
         type: string
-    foss:
-        required: true
-        type: boolean
     concurrency:
         required: true
         type: number
