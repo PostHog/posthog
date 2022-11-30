@@ -10,7 +10,6 @@ import {
     TimestampFormat,
 } from '../../../src/types'
 import { castTimestampOrNow, UUIDT } from '../../../src/utils/utils'
-import { makePiscina } from '../../../src/worker/piscina'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 import { resetKafka } from '../../helpers/kafka'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
@@ -41,7 +40,7 @@ describe('postgres parity', () => {
             }
         `)
         await resetTestDatabaseClickhouse(extraServerConfig)
-        const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
+        const startResponse = await startPluginsServer(extraServerConfig)
         hub = startResponse.hub
         stopServer = startResponse.stop
         teamId++

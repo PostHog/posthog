@@ -5,7 +5,6 @@ import { initApp } from './init'
 import { GraphileWorker } from './main/graphile-worker/graphile-worker'
 import { startPluginsServer } from './main/pluginsServer'
 import { Status } from './utils/status'
-import { makePiscina } from './worker/piscina'
 
 const { version } = require('../package.json')
 const { argv } = process
@@ -62,6 +61,6 @@ switch (alternativeMode) {
     default:
         // void the returned promise
         initApp(defaultConfig)
-        void startPluginsServer(defaultConfig, makePiscina)
+        void startPluginsServer(defaultConfig)
         break
 }

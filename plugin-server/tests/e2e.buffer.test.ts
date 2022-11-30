@@ -5,7 +5,6 @@ import { startPluginsServer } from '../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../src/types'
 import { Hub } from '../src/types'
 import { UUIDT } from '../src/utils/utils'
-import { makePiscina } from '../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
 import { writeToFile } from '../src/worker/vm/extensions/test-utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
@@ -59,7 +58,7 @@ describe('E2E with buffer topic enabled', () => {
         await resetTestDatabase(indexJs)
         await resetTestDatabaseClickhouse(extraServerConfig)
         await resetKafka(extraServerConfig)
-        const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
+        const startResponse = await startPluginsServer(extraServerConfig)
         hub = startResponse.hub
         stopServer = startResponse.stop
         redis = await hub.redisPool.acquire()
@@ -116,7 +115,7 @@ describe('E2E with direct to graphile worker', () => {
         await resetTestDatabase(indexJs)
         await resetTestDatabaseClickhouse(extraServerConfig)
         await resetKafka(extraServerConfig)
-        const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
+        const startResponse = await startPluginsServer(extraServerConfig)
         hub = startResponse.hub
         stopServer = startResponse.stop
         redis = await hub.redisPool.acquire()

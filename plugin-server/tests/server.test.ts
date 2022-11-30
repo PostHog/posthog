@@ -6,7 +6,6 @@ import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
 import { LogLevel, PluginServerCapabilities, PluginsServerConfig } from '../src/types'
 import { killProcess } from '../src/utils/kill'
 import { delay } from '../src/utils/utils'
-import { makePiscina } from '../src/worker/piscina'
 import { resetTestDatabase } from './helpers/sql'
 
 jest.mock('@sentry/node')
@@ -33,7 +32,6 @@ describe('server', () => {
                 LOG_LEVEL: LogLevel.Debug,
                 ...config,
             },
-            makePiscina,
             capabilities
         )
     }

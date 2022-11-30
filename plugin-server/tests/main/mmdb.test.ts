@@ -6,7 +6,6 @@ import { join } from 'path'
 
 import { ServerInstance, startPluginsServer } from '../../src/main/pluginsServer'
 import { fetchIpLocationInternally } from '../../src/worker/mmdb'
-import { makePiscina } from '../../src/worker/piscina'
 import { resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
@@ -42,7 +41,7 @@ describe('mmdb', () => {
     test('no MMDB is used or available if MMDB disabled', async () => {
         await resetTestDatabase()
 
-        serverInstance = await startPluginsServer({ DISABLE_MMDB: true }, makePiscina)
+        serverInstance = await startPluginsServer({ DISABLE_MMDB: true })
 
         expect(serverInstance.hub.DISABLE_MMDB).toBeTruthy()
 
@@ -57,7 +56,7 @@ describe('mmdb', () => {
     test('fresh MMDB is downloaded if not cached and works', async () => {
         await resetTestDatabase()
 
-        serverInstance = await startPluginsServer({ DISABLE_MMDB: false }, makePiscina)
+        serverInstance = await startPluginsServer({ DISABLE_MMDB: false })
 
         expect(serverInstance.hub.DISABLE_MMDB).toBeFalsy()
 
@@ -83,7 +82,7 @@ describe('mmdb', () => {
     test('cached MMDB is used and works', async () => {
         await resetTestDatabaseWithMmdb()
 
-        serverInstance = await startPluginsServer({ DISABLE_MMDB: false }, makePiscina)
+        serverInstance = await startPluginsServer({ DISABLE_MMDB: false })
 
         expect(serverInstance.hub.DISABLE_MMDB).toBeFalsy()
 

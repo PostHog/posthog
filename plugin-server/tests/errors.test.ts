@@ -1,6 +1,5 @@
 import { startPluginsServer } from '../src/main/pluginsServer'
 import { Hub, LogLevel, PluginsServerConfig } from '../src/types'
-import { makePiscina } from '../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
 import { resetKafka } from './helpers/kafka'
@@ -40,7 +39,7 @@ describe('error do not take down ingestion', () => {
             extraServerConfig
         )
         await resetTestDatabaseClickhouse(extraServerConfig)
-        const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
+        const startResponse = await startPluginsServer(extraServerConfig)
         hub = startResponse.hub
         stopServer = startResponse.stop
         posthog = createPosthog(hub, pluginConfig39)

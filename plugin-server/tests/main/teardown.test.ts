@@ -3,7 +3,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { startPluginsServer } from '../../src/main/pluginsServer'
 import { LogLevel } from '../../src/types'
 import { delay } from '../../src/utils/utils'
-import { makePiscina } from '../../src/worker/piscina'
+import { workerTasks } from '../../src/worker/tasks'
 import { pluginConfig39 } from '../helpers/plugins'
 import { getErrorForPluginConfig, resetTestDatabase } from '../helpers/sql'
 
@@ -21,8 +21,8 @@ const defaultEvent = {
 }
 
 describe('teardown', () => {
-    const processEvent = async (piscina: any, event: PluginEvent) => {
-        const result = await piscina.run({ task: 'runEventPipeline', args: { event } })
+    const processEvent = async (event: PluginEvent) => {
+        const result = await workerTasks['runEventPipeline']({ event })
         const resultEvent = result.args[0]
         return resultEvent
     }
@@ -38,18 +38,15 @@ describe('teardown', () => {
                 throw new Error('This Happened In The Teardown Palace')
             }
         `)
-        const { piscina, stop } = await startPluginsServer(
-            {
-                WORKER_CONCURRENCY: 2,
-                LOG_LEVEL: LogLevel.Log,
-            },
-            makePiscina
-        )
+        const { stop } = await startPluginsServer({
+            WORKER_CONCURRENCY: 2,
+            LOG_LEVEL: LogLevel.Log,
+        })
 
         const error1 = await getErrorForPluginConfig(pluginConfig39.id)
         expect(error1).toBe(null)
 
-        await processEvent(piscina, defaultEvent)
+        await processEvent(defaultEvent)
 
         await stop()
 
@@ -69,13 +66,10 @@ describe('teardown', () => {
                 throw new Error('This Happened In The Teardown Palace')
             }
         `)
-        const { stop } = await startPluginsServer(
-            {
-                WORKER_CONCURRENCY: 2,
-                LOG_LEVEL: LogLevel.Log,
-            },
-            makePiscina
-        )
+        const { stop } = await startPluginsServer({
+            WORKER_CONCURRENCY: 2,
+            LOG_LEVEL: LogLevel.Log,
+        })
 
         const error1 = await getErrorForPluginConfig(pluginConfig39.id)
         expect(error1).toBe(null)
@@ -98,13 +92,10 @@ describe('teardown', () => {
                 await meta.storage.set('storage', 'tore down')
             }
         `)
-        const { piscina, stop, hub } = await startPluginsServer(
-            {
-                WORKER_CONCURRENCY: 2,
-                LOG_LEVEL: LogLevel.Log,
-            },
-            makePiscina
-        )
+        const { stop, hub } = await startPluginsServer({
+            WORKER_CONCURRENCY: 2,
+            LOG_LEVEL: LogLevel.Log,
+        })
 
         const error1 = await getErrorForPluginConfig(pluginConfig39.id)
         expect(error1).toBe(null)
@@ -116,14 +107,13 @@ describe('teardown', () => {
             [pluginConfig39.id],
             'testTag'
         )
-        const event1 = await processEvent(piscina, defaultEvent)
+        const event1 = await processEvent(defaultEvent)
         expect(event1.properties.storage).toBe('nope')
 
-        await piscina!.broadcastTask({ task: 'reloadPlugins' })
         await delay(10000)
 
         // const event2 = await piscina!.run({ task: 'runEventPipeline', args: { event: { ...defaultEvent } } })
-        const event2 = await processEvent(piscina, defaultEvent)
+        const event2 = await processEvent(defaultEvent)
         expect(event2.properties.storage).toBe('tore down')
 
         await stop()
