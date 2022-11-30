@@ -3035,14 +3035,12 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e."$group_0" as aggregation_target,
-                              e.person_id as person_id
+                              e."$group_0" as aggregation_target
                        FROM events e
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3128,7 +3126,6 @@
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
-                              e.person_id as person_id,
                               groups_0.group_properties_0 as group_properties_0
                        FROM events e
                        INNER JOIN
@@ -3142,8 +3139,7 @@
                          AND event IN ['paid', 'user signed up']
                          AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3213,7 +3209,6 @@
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
-                              e.person_id as person_id,
                               groups_0.group_properties_0 as group_properties_0
                        FROM events e
                        INNER JOIN
@@ -3227,8 +3222,7 @@
                          AND event IN ['paid', 'user signed up']
                          AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3298,7 +3292,6 @@
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
-                              e.person_id as person_id,
                               groups_0.group_properties_0 as group_properties_0
                        FROM events e
                        INNER JOIN
@@ -3312,8 +3305,7 @@
                          AND event IN ['paid', 'user signed up']
                          AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3383,7 +3375,6 @@
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
-                              e.person_id as person_id,
                               groups_0.group_properties_0 as group_properties_0
                        FROM events e
                        INNER JOIN
@@ -3397,8 +3388,7 @@
                          AND event IN ['paid', 'user signed up']
                          AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3467,14 +3457,12 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e."$group_0" as aggregation_target,
-                              e.person_id as person_id
+                              e."$group_0" as aggregation_target
                        FROM events e
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3560,14 +3548,12 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e."$group_0" as aggregation_target,
-                              e.person_id as person_id
+                              e."$group_0" as aggregation_target
                        FROM events e
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3653,7 +3639,6 @@
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
-                              e.person_id as person_id,
                               groups_0.group_properties_0 as group_properties_0
                        FROM events e
                        INNER JOIN
@@ -3667,8 +3652,7 @@
                          AND event IN ['paid', 'user signed up']
                          AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3738,7 +3722,6 @@
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
-                              e.person_id as person_id,
                               groups_0.group_properties_0 as group_properties_0
                        FROM events e
                        INNER JOIN
@@ -3752,8 +3735,7 @@
                          AND event IN ['paid', 'user signed up']
                          AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3823,7 +3805,6 @@
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
-                              e.person_id as person_id,
                               groups_0.group_properties_0 as group_properties_0
                        FROM events e
                        INNER JOIN
@@ -3837,8 +3818,7 @@
                          AND event IN ['paid', 'user signed up']
                          AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3908,7 +3888,6 @@
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
-                              e.person_id as person_id,
                               groups_0.group_properties_0 as group_properties_0
                        FROM events e
                        INNER JOIN
@@ -3922,8 +3901,7 @@
                          AND event IN ['paid', 'user signed up']
                          AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -3992,14 +3970,12 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e."$group_0" as aggregation_target,
-                              e.person_id as person_id
+                              e."$group_0" as aggregation_target
                        FROM events e
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                         AND e.person_id != toUUIDOrZero('') ) events
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
