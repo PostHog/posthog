@@ -22,11 +22,8 @@ interface TickProps extends SessionRecordingPlayerLogicProps {
 
 function PlayerSeekbarInspector({ minMs, maxMs }: { minMs: number; maxMs: number }): JSX.Element {
     const [percentage, setPercentage] = useState<number>(0)
-
     const ref = useRef<HTMLDivElement>(null)
-
     const fixedUnits = maxMs / 1000 > 3600 ? 3 : 2
-
     const content = colonDelimitedDuration(minMs / 1000 + ((maxMs - minMs) / 1000) * percentage, fixedUnits)
 
     useEffect(() => {
