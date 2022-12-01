@@ -16,7 +16,7 @@ class InsightCachingState(UUIDModel):
             models.UniqueConstraint(
                 fields=["insight"],
                 name=f"unique_insight_for_caching_state_idx",
-                condition=models.Q(("insight__isnull", False)),
+                condition=models.Q(("dashboard_tile__isnull", True)),
             ),
             models.UniqueConstraint(
                 fields=["insight", "dashboard_tile"],
@@ -36,7 +36,7 @@ class InsightCachingState(UUIDModel):
     target_cache_age_seconds: models.IntegerField = models.IntegerField(null=True)
 
     last_refresh: models.DateTimeField = models.DateTimeField(blank=True, null=True)
-    last_refresh_queued_at: models.BooleanField = models.BooleanField(null=True)
+    last_refresh_queued_at: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     refresh_attempt: models.IntegerField = models.IntegerField(null=False, default=0)
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
