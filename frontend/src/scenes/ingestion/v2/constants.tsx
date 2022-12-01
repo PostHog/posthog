@@ -11,7 +11,6 @@ export const WEB = 'web'
 export const MOBILE = 'mobile'
 export const BACKEND = 'backend'
 export const THIRD_PARTY = 'third-party'
-export const BOOKMARKLET = 'just-exploring'
 export const platforms: PlatformType[] = [WEB, MOBILE, BACKEND]
 
 export const NODEJS = 'NODEJS'

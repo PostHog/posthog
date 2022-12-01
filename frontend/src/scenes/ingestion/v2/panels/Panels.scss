@@ -2,26 +2,6 @@
     max-width: 400px;
 }
 
-.bookmarklet-warning {
-    border: 2px dashed var(--border);
-    padding: 8px;
-
-    p {
-        margin-bottom: 0;
-    }
-
-    .warning-icon {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-right: 2px dashed var(--border);
-    }
-}
-
-.bookmarklet-steps {
-    margin-top: 0.5rem;
-}
-
 .panel-footer {
     background-color: white;
     margin-bottom: 1rem;

@@ -19,7 +19,7 @@ export async function processPersonsStep(
         return runner.nextStep('prepareEventStep', event, personContainer)
     }
 
-    const timestamp = parseEventTimestamp(event, runner.hub.statsd)
+    const timestamp = parseEventTimestamp(event)
 
     const newPersonContainer: LazyPersonContainer = await updatePersonState(
         event,
