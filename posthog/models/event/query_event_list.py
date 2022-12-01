@@ -2,11 +2,11 @@ import json
 from datetime import timedelta
 from typing import Dict, List, Optional, Tuple, Union
 
+import posthoganalytics
+import structlog
 from dateutil.parser import isoparse
 from django.utils.timezone import now
 
-import posthoganalytics
-import structlog
 from posthog.api.utils import get_pk_or_uuid
 from posthog.client import query_with_columns
 from posthog.models import Action, Filter, Person, Team
@@ -17,10 +17,9 @@ from posthog.models.event.sql import (
 )
 from posthog.models.live_events.sql import (
     SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
-    SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_SQL
+    SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_SQL,
 )
 from posthog.models.property.util import parse_prop_grouped_clauses
-
 from posthog.settings import CLICKHOUSE_DATABASE
 
 logger = structlog.get_logger(__name__)
@@ -95,22 +94,30 @@ def query_events_list(
         prop_filters += " AND {}".format(action_query)
         prop_filter_params = {**prop_filter_params, **params}
 
-    query_live_events = posthoganalytics.feature_enabled("live-events", "", person_properties={ "team_id": team.pk })
+    query_live_events = posthoganalytics.feature_enabled("live-events", "", person_properties={"team_id": team.pk})
     if prop_filters != "":
-        query = SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_FILTERS_SQL if query_live_events else SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL
+        query = (
+            SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_FILTERS_SQL
+            if query_live_events
+            else SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL
+        )
         return query_with_columns(
             query.format(
-                database=CLICKHOUSE_DATABASE,
-                conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
+                database=CLICKHOUSE_DATABASE, conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
             ),
             {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
         )
     else:
-        query = SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_SQL if query_live_events else SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL
+        query = (
+            SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_SQL
+            if query_live_events
+            else SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL
+        )
         return query_with_columns(
-            query.format(database=CLICKHOUSE_DATABASE,conditions=conditions, limit=limit_sql, order=order),
+            query.format(database=CLICKHOUSE_DATABASE, conditions=conditions, limit=limit_sql, order=order),
             {"team_id": team.pk, "limit": limit, **condition_params},
         )
+
 
 def parse_order_by(order_by_param: Optional[str]) -> List[str]:
     return ["-timestamp"] if not order_by_param else list(json.loads(order_by_param))
