@@ -51,15 +51,13 @@ export function loadPostHogJS(): void {
     }
 
     if ((window as any).SENTRY_DSN) {
+        const sentryIntegration: Integration = new posthog.SentryIntegration(posthog, 'posthog2', 1899813)
         Sentry.init({
             dsn: (window as any).SENTRY_DSN,
             ...(window.location.host.indexOf('app.posthog.com') > -1 && {
-                integrations: [
-                    new BrowserTracing(),
-                    new posthog.SentryIntegration(posthog, 'posthog2', 1899813) as Integration,
-                ],
+                integrations: [new BrowserTracing(), sentryIntegration],
             }),
-            tracesSampleRate: 0.1,
+            tracesSampleRate: 1,
         })
     }
 }

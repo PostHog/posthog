@@ -12,6 +12,7 @@
       <env name="PRINT_SQL" value="1" />
       <env name="PYTHONUNBUFFERED" value="1" />
       <env name="SKIP_SERVICE_VERSION_REQUIREMENTS" value="1" />
+      <env name="SENTRY_DSN" value="https://55136aa6e78a49f5a79785856389f0d1@o1015702.ingest.sentry.io/4503944453947392" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/env/bin/python" />
     <option name="WORKING_DIRECTORY" value="" />
