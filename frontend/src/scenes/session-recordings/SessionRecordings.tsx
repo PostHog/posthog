@@ -85,7 +85,7 @@ export function SessionsRecordings(): JSX.Element {
             {!tab ? (
                 <Spinner />
             ) : tab === SessionRecordingsTabs.Recent ? (
-                <SessionRecordingsPlaylist logicKey="recents" updateSearchParams />
+                <SessionRecordingsPlaylist updateSearchParams />
             ) : (
                 <SavedSessionRecordingPlaylists tab={SessionRecordingsTabs.Playlists} />
             )}

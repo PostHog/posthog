@@ -11,7 +11,14 @@ import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { IconChevronLeft, IconChevronRight, IconFilter, IconUnfoldLess, IconWithCount } from 'lib/components/icons'
+import {
+    IconChevronLeft,
+    IconChevronRight,
+    IconFilter,
+    IconInfo,
+    IconUnfoldLess,
+    IconWithCount,
+} from 'lib/components/icons'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import clsx from 'clsx'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
@@ -30,6 +37,7 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import { More } from 'lib/components/LemonButton/More'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export const scene: SceneExport = {
     component: SessionRecordingsPlaylistScene,
@@ -166,7 +174,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
             />
             {playlist.short_id ? (
                 <SessionRecordingsPlaylist
-                    logicKey={playlist.short_id}
+                    playlistShortId={playlist.short_id}
                     filters={playlist.filters}
                     onFiltersChange={setFilters}
                 />
@@ -176,7 +184,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
 }
 
 export type SessionRecordingsPlaylistProps = {
-    logicKey: string
+    playlistShortId?: string
     personUUID?: string
     filters?: RecordingFilters
     updateSearchParams?: boolean
@@ -184,14 +192,14 @@ export type SessionRecordingsPlaylistProps = {
 }
 
 export function SessionRecordingsPlaylist({
-    logicKey,
+    playlistShortId,
     personUUID,
     filters: defaultFilters,
     updateSearchParams,
     onFiltersChange,
 }: SessionRecordingsPlaylistProps): JSX.Element {
     const logic = sessionRecordingsListLogic({
-        key: logicKey,
+        playlistShortId,
         personUUID,
         filters: defaultFilters,
         updateSearchParams,
@@ -303,7 +311,7 @@ export function SessionRecordingsPlaylist({
                             data-attr="save-recordings-playlist-button"
                             tooltip="Save the current filters as a playlist that you can come back to."
                         >
-                            {logicKey === 'recents' ? 'Save as playlist' : 'Save changes'}
+                            {playlistShortId ? 'Save changes' : 'Save as playlist'}
                         </LemonButton>
                     </>
                 </div>
@@ -349,47 +357,29 @@ export function SessionRecordingsPlaylist({
                         />
                     ) : null}
 
-                    <div className="w-full overflow-hidden border rounded">
-                        <div className="relative flex justify-between items-center bg-mid py-3 px-4 border-b">
-                            <span className="font-bold uppercase text-xs my-1 tracking-wide">
-                                {'Pinned recordings'}
+                    {playlistShortId ? (
+                        <div className="w-full border border-dashed rounded text-muted-alt p-3">
+                            <div className="flex items-center gap-2 mb-2">
+                                <h5 className="mb-0">Pinned Recordings</h5>
+                                <Tooltip
+                                    title={
+                                        <>
+                                            You can pin recordings to a playlist to easily keep track of relevant
+                                            recordings for the task at hand.
+                                            <br />
+                                            Pinned recordings are not deleted.
+                                        </>
+                                    }
+                                >
+                                    <IconInfo />
+                                </Tooltip>
+                            </div>
+                            <span>
+                                Pinned recordings will appear here. You can use this to save particularly interesting
+                                recordings. They will show regardless of any filters set.
                             </span>
-                            {paginationControls}
-
-                            <LemonTableLoader loading={sessionRecordingsResponseLoading} />
                         </div>
-
-                        {!sessionRecordings.length ? (
-                            sessionRecordingsResponseLoading ? (
-                                <>
-                                    {range(PLAYLIST_LIMIT).map((i) => (
-                                        <div key={i} className="p-4 space-y-2 border-b">
-                                            <LemonSkeleton className="w-1/2" />
-                                            <LemonSkeleton className="w-1/3" />
-                                        </div>
-                                    ))}
-                                </>
-                            ) : (
-                                <p className="text-muted-alt m-4">No matching recordings found</p>
-                            )
-                        ) : (
-                            <ul className={clsx(sessionRecordingsResponseLoading ? 'opacity-50' : '')}>
-                                {sessionRecordings.slice(0, 5).map((rec, i) => (
-                                    <Fragment key={rec.id}>
-                                        {i > 0 && <div className="border-t" />}
-                                        <SessionRecordingPlaylistItem
-                                            recording={rec}
-                                            recordingProperties={sessionRecordingIdToProperties[rec.id]}
-                                            recordingPropertiesLoading={sessionRecordingsPropertiesResponseLoading}
-                                            onClick={() => onRecordingClick(rec)}
-                                            onPropertyClick={onPropertyClick}
-                                            isActive={activeSessionRecording?.id === rec.id}
-                                        />
-                                    </Fragment>
-                                ))}
-                            </ul>
-                        )}
-                    </div>
+                    ) : null}
 
                     <div className="w-full overflow-hidden border rounded">
                         <div className="relative flex justify-between items-center bg-mid py-3 px-4 border-b">
