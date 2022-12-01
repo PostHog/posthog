@@ -93,7 +93,7 @@ export function formPipelineEvent(message: KafkaMessage): PipelineEvent {
     // However, we need to keep compatibility with messages already in Kafka during the transition
     // so for now we process both `data` and `properties`
     const { properties, data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
-    const combinedEvent = { properties: JSON.parse(properties), ...JSON.parse(dataStr), ...rawEvent }
+    const combinedEvent = { properties: properties ? JSON.parse(properties) : {}, ...JSON.parse(dataStr), ...rawEvent }
     const event: PipelineEvent = normalizeEvent({
         ...combinedEvent,
         site_url: combinedEvent.site_url || null,
