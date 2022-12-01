@@ -24,8 +24,8 @@ import { convertAmountToUsage, convertUsageToAmount, summarizeUsage } from './bi
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { BillingHero } from './BillingHero'
 import { IconDelete, IconEdit } from 'lib/components/icons'
+import { PlanCards } from './PlanCards'
 
 export type BillingV2Props = {
     redirectPath?: string
@@ -69,7 +69,7 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
     })
 
     return (
-        <div ref={ref}>
+        <div ref={ref} className="mt-8">
             {billing?.free_trial_until ? (
                 <AlertMessage type="success" className="mb-2">
                     You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
@@ -120,7 +120,7 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
                                 </p>
                             </div>
                         ) : (
-                            <BillingHero />
+                            <PlanCards />
                         )}
                     </div>
 
