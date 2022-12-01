@@ -71,24 +71,6 @@ interface InsightCacheReloadProps {
     refreshedInsight: InsightModel
 }
 
-/**
- *
- *
- *
- *    insightLogic new
- *    insightLogic specific
- *    insightLogic controlled
- *
- *    savedInsihts insightModel
- *
- *    dashboardsmOdel dashboardlogic
- *
- *
- * @param cachedInsight
- * @param dashboardId
- * @param refreshedInsight
- */
-
 function updateExistingInsightState({ cachedInsight, dashboardId, refreshedInsight }: InsightCacheReloadProps): void {
     // reload the cached results inside the insight's logic
     // this is what causes the dashboard's tiles displayed data to change
