@@ -134,14 +134,14 @@ export function ResourcePermission({
             },
         },
     ]
-    const tableData = [
+    const tableData: TableRoleType[] = [
         {
             id: '',
             name: 'Organization default',
             feature_flags_access_level: resourceLevel ? resourceLevel.access_level : AccessLevel.WRITE,
             created_by: null,
             created_at: '',
-        },
+        } as TableRoleType,
         ...rolesWithAccess,
         ...roles.map((role) => ({ ...role, feature_flags_access_level: AccessLevel.WRITE, deletable: true })), // associated flag roles with custom write access
     ]

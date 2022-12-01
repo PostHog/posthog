@@ -145,7 +145,9 @@ function OverViewTab(): JSX.Element {
                                         status="stealth"
                                         fullWidth
                                         disabled={!featureFlag.can_edit}
-                                        onClick={() => router.actions.push(urls.featureFlag(featureFlag.id))}
+                                        onClick={() =>
+                                            featureFlag.id && router.actions.push(urls.featureFlag(featureFlag.id))
+                                        }
                                     >
                                         Edit
                                     </LemonButton>
