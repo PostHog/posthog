@@ -21,14 +21,7 @@ export function EventsScene(): JSX.Element {
     const columns =
         !selectedColumns || selectedColumns === 'DEFAULT' || selectedColumns.length === 0
             ? defaultDataTableStringColumns
-            : [
-                  'meta.event',
-                  'person',
-                  ...selectedColumns.map((c) => {
-                      return `event.${c}`
-                  }),
-                  'meta.timestamp',
-              ]
+            : ['event', 'person', ...selectedColumns.map((c) => `properties.${c}`), 'timestamp']
 
     const query: DataTableNode = {
         kind: NodeKind.DataTableNode,

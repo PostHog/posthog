@@ -1,21 +1,18 @@
 import { PropertyFilterType } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
-export function renderTitle(type: PropertyFilterType, key: string): JSX.Element | string {
-    if (type === PropertyFilterType.Meta) {
-        if (key === 'timestamp') {
-            return 'Time'
-        }
-        return key
-    } else if (type === PropertyFilterType.Event || type === PropertyFilterType.Element) {
-        return <PropertyKeyInfo value={key} type={type} disableIcon />
-    } else if (type === PropertyFilterType.Person) {
-        if (key === '') {
-            return 'Person'
-        } else {
-            return <PropertyKeyInfo value={key} type="event" disableIcon />
-        }
+export function renderTitle(key: string): JSX.Element | string {
+    if (key === 'timestamp') {
+        return 'Time'
+    } else if (key === 'event') {
+        return 'Event'
+    } else if (key === 'person') {
+        return 'Person'
+    } else if (key.startsWith('properties.')) {
+        return <PropertyKeyInfo value={key.substring(11)} type={PropertyFilterType.Event} disableIcon />
+    } else if (key.startsWith('person.properties.')) {
+        return <PropertyKeyInfo value={key.substring(18)} type={PropertyFilterType.Event} disableIcon />
     } else {
-        return String(type)
+        return String(key)
     }
 }

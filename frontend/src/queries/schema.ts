@@ -6,7 +6,6 @@ import {
     BreakdownType,
     PropertyGroupFilter,
     EventType,
-    PropertyFilterType,
     IntervalType,
     BaseMathType,
     PropertyMathType,
@@ -87,7 +86,7 @@ export interface DataTableNode extends Node {
     /** Source of the events */
     source: EventsNode
     /** Columns shown in the table  */
-    columns?: DataTableColumn[] | DataTableStringColumn[]
+    columns?: DataTableStringColumn[]
     /** Include an event filter above the table (default: true) */
     showEventFilter?: boolean
     /** Include a property filter above the table (default: true) */
@@ -100,11 +99,6 @@ export interface DataTableNode extends Node {
     showReload?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
-}
-
-export interface DataTableColumn {
-    type: PropertyFilterType
-    key: string
 }
 
 // Base class should not be used directly
@@ -128,10 +122,7 @@ export interface TrendsQuery extends InsightsQueryBase {
     breakdown?: BreakdownFilter
 }
 
-// TODO: not supported by "ts-json-schema-generator" nor "typescript-json-schema" :(
-// export type PropertyColumnString = `${PropertyFilterType}.${string}`
-export type PropertyColumnString = string
-export type DataTableStringColumn = PropertyColumnString | 'person'
+export type DataTableStringColumn = string
 
 // Legacy queries
 

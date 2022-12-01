@@ -5,7 +5,7 @@ import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
 import api from 'lib/api'
 import { DataTableNode } from '~/queries/schema'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/DataTable'
+import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/DataTable'
 
 function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void {
     const exportContext = {
@@ -17,14 +17,7 @@ function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void
         max_limit: 3500,
     }
     if (onlySelectedColumns) {
-        const queryColumns = query.columns || defaultDataTableColumns
-        exportContext['columns'] = queryColumns.map((column) => {
-            if (typeof column === 'string') {
-                return column
-            } else {
-                return `${column.type}.${column.key}`
-            }
-        })
+        exportContext['columns'] = query.columns ?? defaultDataTableStringColumns
     }
     triggerExport({
         export_format: ExporterFormat.CSV,

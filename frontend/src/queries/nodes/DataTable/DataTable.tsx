@@ -1,9 +1,9 @@
-import { DataTableColumn, DataTableNode, DataTableStringColumn, EventsNode } from '~/queries/schema'
+import { DataTableNode, DataTableStringColumn, EventsNode } from '~/queries/schema'
 import { useState } from 'react'
 import { useValues, BindLogic } from 'kea'
 import { dataNodeLogic } from '~/queries/nodes/dataNodeLogic'
 import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
-import { EventType, PropertyFilterType } from '~/types'
+import { EventType } from '~/types'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { EventDetails } from 'scenes/events'
@@ -21,18 +21,17 @@ interface DataTableProps {
 }
 
 export const defaultDataTableStringColumns: DataTableStringColumn[] = [
-    'meta.event',
+    'event',
     'person',
-    'event.$current_url',
-    'person.email',
-    'meta.timestamp',
+    'properties.$current_url',
+    'person.properties.email',
+    'timestamp',
 ]
-export const defaultDataTableColumns: DataTableColumn[] = normalizeDataTableColumns(defaultDataTableStringColumns)
 
 let uniqueNode = 0
 
 export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
-    const columns = query.columns ? normalizeDataTableColumns(query.columns) : defaultDataTableColumns
+    const columns = query.columns ?? defaultDataTableStringColumns
     const showPropertyFilter = query.showPropertyFilter ?? true
     const showEventFilter = query.showEventFilter ?? true
     const showActions = query.showActions ?? true
@@ -49,11 +48,11 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     const dataSource = (response as null | EventsNode['response'])?.results ?? []
 
     const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = [
-        ...columns.map(({ type, key }) => ({
-            dataIndex: `${type}.${key}` as any,
-            title: renderTitle(type, key),
+        ...columns.map((key) => ({
+            dataIndex: key as any,
+            title: renderTitle(key),
             render: function RenderDataTableColumn(_: any, record: EventType) {
-                return renderColumn(type, key, record)
+                return renderColumn(key, record)
             },
         })),
         ...(showActions
@@ -105,17 +104,4 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
             {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && <LoadNext />}
         </BindLogic>
     )
-}
-
-function normalizeDataTableColumns(input: (DataTableStringColumn | DataTableColumn)[]): DataTableColumn[] {
-    return input.map((column) => {
-        if (typeof column === 'string') {
-            const [first, ...rest] = column.split('.')
-            return {
-                type: first as PropertyFilterType,
-                key: rest.join('.'),
-            }
-        }
-        return column
-    })
 }
