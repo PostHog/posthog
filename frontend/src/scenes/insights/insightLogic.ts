@@ -749,7 +749,10 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
     }),
-    listeners(({ actions, selectors, values }) => ({
+    listeners(({ actions, selectors, values, cache }) => ({
+        [insightsModel.actionTypes.abortRunningQueries]: () => {
+            cache.abortController?.abort()
+        },
         setFiltersMerge: ({ filters }) => {
             actions.setFilters({ ...values.filters, ...filters })
         },

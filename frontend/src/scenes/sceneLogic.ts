@@ -15,6 +15,7 @@ import { organizationLogic } from './organizationLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { UPGRADE_LINK } from 'lib/constants'
 import { appContextLogic } from './appContextLogic'
+import { insightsModel } from '~/models/insightsModel'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
@@ -288,9 +289,20 @@ export const sceneLogic = kea<sceneLogicType>({
         },
         loadScene: async ({ scene, params, method }, breakpoint) => {
             const clickedLink = method === 'PUSH'
+
             if (values.scene === scene) {
                 actions.setScene(scene, params, clickedLink)
                 return
+            } else {
+                const scenesThatMightAbortClickHouseQueries = [Scene.Insight, Scene.Dashboard]
+                if (
+                    values.scene &&
+                    scenesThatMightAbortClickHouseQueries.includes(values.scene) &&
+                    !scenesThatMightAbortClickHouseQueries.includes(scene)
+                ) {
+                    // we're navigating away from a scene that might be running long ClickHouse queries
+                    insightsModel.actions.abortRunningQueries()
+                }
             }
 
             if (!props.scenes?.[scene]) {

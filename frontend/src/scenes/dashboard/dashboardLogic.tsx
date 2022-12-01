@@ -830,6 +830,9 @@ export const dashboardLogic = kea<dashboardLogicType>({
         },
     }),
     listeners: ({ actions, values, cache, props, sharedListeners }) => ({
+        [insightsModel.actionTypes.abortRunningQueries]: () => {
+            cache.abortController?.abort()
+        },
         setRefreshError: sharedListeners.reportRefreshTiming,
         setRefreshStatuses: sharedListeners.reportRefreshTiming,
         setRefreshStatus: sharedListeners.reportRefreshTiming,
