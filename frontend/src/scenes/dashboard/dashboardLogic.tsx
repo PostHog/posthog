@@ -70,16 +70,35 @@ interface InsightCacheReloadProps {
     dashboardId: number
     refreshedInsight: InsightModel
 }
-function reloadCachedInsight({ cachedInsight, dashboardId, refreshedInsight }: InsightCacheReloadProps): void {
+
+/**
+ *
+ *
+ *
+ *    insightLogic new
+ *    insightLogic specific
+ *    insightLogic controlled
+ *
+ *    savedInsihts insightModel
+ *
+ *    dashboardsmOdel dashboardlogic
+ *
+ *
+ * @param cachedInsight
+ * @param dashboardId
+ * @param refreshedInsight
+ */
+
+function updateExistingInsightState({ cachedInsight, dashboardId, refreshedInsight }: InsightCacheReloadProps): void {
     // reload the cached results inside the insight's logic
     // this is what causes the dashboard's tiles displayed data to change
     if (refreshedInsight.filters.insight) {
-        const itemResultLogic = insightLogic?.findMounted({
+        const itemResultLogic = insightLogic.findMounted({
             dashboardItemId: refreshedInsight.short_id,
             dashboardId: dashboardId,
             cachedInsight: cachedInsight,
         })
-        itemResultLogic?.actions.setInsight({ ...refreshedInsight }, { fromPersistentApi: true })
+        itemResultLogic?.actions.setInsight(refreshedInsight, { fromPersistentApi: true })
     }
 }
 
@@ -948,7 +967,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     const refreshedInsightResponse: Response = await api.getResponse(apiUrl)
                     const refreshedInsight: InsightModel = await getJSONOrThrow(refreshedInsightResponse)
                     breakpoint()
-                    reloadCachedInsight({ cachedInsight: insight, dashboardId, refreshedInsight })
+                    updateExistingInsightState({ cachedInsight: insight, dashboardId, refreshedInsight })
                     dashboardsModel.actions.updateDashboardInsight(
                         refreshedInsight,
                         [],
@@ -1096,13 +1115,16 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     allLoaded = false
                 }
 
-                tilesWithResults
-                    .map((t) => t.insight)
-                    .filter((i): i is InsightModel => !!i)
-                    .forEach((i) => {
-                        reloadCachedInsight({ cachedInsight: i, dashboardId: dashboard.id, refreshedInsight: i })
-                        dashboardsModel.actions.updateDashboardInsight(i)
-                    })
+                for (const tile of tilesWithResults) {
+                    if (tile.insight) {
+                        updateExistingInsightState({
+                            cachedInsight: tile.insight,
+                            dashboardId: dashboard.id,
+                            refreshedInsight: tile.insight,
+                        })
+                        dashboardsModel.actions.updateDashboardInsight(tile.insight)
+                    }
+                }
             }
 
             const payload: TimeToSeeDataPayload = {
