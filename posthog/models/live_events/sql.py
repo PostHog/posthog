@@ -81,41 +81,63 @@ WHERE event != '$snapshot'
 
 
 SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_FILTERS_SQL = """
-SELECT
-	uuid,
-	event,
-	team_id,
-	distinct_id,
-	argMax(properties, created_at) as properties,
-	argMax(elements_chain, created_at) as elements_chain,
-	argMax(timestamp, created_at) as ts,
-	argMax(_table, created_at) as source_table
-FROM
-	merge('{database}', '^(events|live_events)$')
-WHERE
-    team_id = %(team_id)s
-    {conditions}
-    {filters}
-GROUP BY uuid, event, team_id, distinct_id
-ORDER BY ts {order} {limit}
+SELECT 
+    uuid,
+    event,
+    properties,
+    ts as timestamp,
+    team_id,
+    distinct_id,
+    elements_chain,
+    source_table
+FROM (
+    SELECT
+        uuid,
+        event,
+        team_id,
+        distinct_id,
+        argMax(properties, created_at) as properties,
+        argMax(elements_chain, created_at) as elements_chain,
+        argMax(timestamp, created_at) as ts,
+        argMax(_table, created_at) as source_table
+    FROM
+        merge('{database}', '^(events|live_events)$')
+    WHERE
+        team_id = %(team_id)s
+        {conditions}
+        {filters}
+    GROUP BY uuid, event, team_id, distinct_id
+    ORDER BY ts {order} {limit}
+)
 """
 
 
 SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_SQL = """
-SELECT
-	uuid,
-	event,
-	team_id,
-	distinct_id,
-	argMax(properties, created_at) as properties,
-	argMax(elements_chain, created_at) as elements_chain,
-	argMax(timestamp, created_at) as ts,
-	argMax(_table, created_at) as source_table
-FROM
-	merge('{database}', '^(events|live_events)$')
-WHERE
-    team_id = %(team_id)s
-    {conditions}
-GROUP BY uuid, event, team_id, distinct_id
-ORDER BY ts {order} {limit}
+SELECT 
+    uuid,
+    event,
+    properties,
+    ts as timestamp,
+    team_id,
+    distinct_id,
+    elements_chain,
+    source_table
+FROM (
+    SELECT
+        uuid,
+        event,
+        team_id,
+        distinct_id,
+        argMax(properties, created_at) as properties,
+        argMax(elements_chain, created_at) as elements_chain,
+        argMax(timestamp, created_at) as ts,
+        argMax(_table, created_at) as source_table
+    FROM
+        merge('{database}', '^(events|live_events)$')
+    WHERE
+        team_id = %(team_id)s
+        {conditions}
+    GROUP BY uuid, event, team_id, distinct_id
+    ORDER BY ts {order} {limit}
+)
 """

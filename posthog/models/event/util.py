@@ -295,11 +295,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return event["event"]
 
     def get_timestamp(self, event):
-        timestamp_field = "timestamp"
-        if "ts" in event:
-            timestamp_field = "ts"
-    
-        dt = event[timestamp_field].replace(tzinfo=timezone.utc)
+        dt = event["timestamp"].replace(tzinfo=timezone.utc)
         return dt.astimezone().isoformat()
     
     def get_source_table(self, event):

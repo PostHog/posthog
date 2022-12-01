@@ -133,7 +133,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
 
             next_url: Optional[str] = None
             if not is_csv_request and len(query_result) > limit:
-                next_url = self._build_next_url(request, query_result[limit - 1]["ts"])
+                next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"])
 
             return response.Response({"next": next_url, "results": result})
         except Exception as ex:

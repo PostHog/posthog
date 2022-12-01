@@ -5,13 +5,14 @@ from typing import Dict, List, Optional, Tuple, Union
 from dateutil.parser import isoparse
 from django.utils.timezone import now
 
+import posthoganalytics
 import structlog
 from posthog.api.utils import get_pk_or_uuid
 from posthog.client import query_with_columns
 from posthog.models import Action, Filter, Person, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.event.sql import (
-    # SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
+    SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
 )
 from posthog.models.live_events.sql import (
@@ -94,17 +95,20 @@ def query_events_list(
         prop_filters += " AND {}".format(action_query)
         prop_filter_params = {**prop_filter_params, **params}
 
+    query_live_events = posthoganalytics.feature_enabled("live-events", "", person_properties={ "team_id": team.pk })
     if prop_filters != "":
+        query = SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_FILTERS_SQL if query_live_events else SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL
         return query_with_columns(
-            SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
+            query.format(
                 database=CLICKHOUSE_DATABASE,
                 conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
             ),
             {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
         )
     else:
+        query = SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_SQL if query_live_events else SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL
         return query_with_columns(
-            SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_SQL.format(database=CLICKHOUSE_DATABASE,conditions=conditions, limit=limit_sql, order=order),
+            query.format(database=CLICKHOUSE_DATABASE,conditions=conditions, limit=limit_sql, order=order),
             {"team_id": team.pk, "limit": limit, **condition_params},
         )
 
