@@ -112,7 +112,6 @@
     .PlayerSeekbar__slider:hover,
     &--scrubbing {
         .PlayerSeekBarInspector {
-            pointer-events: all;
             opacity: 1;
         }
     }
