@@ -241,7 +241,6 @@ describe('sessionRecordingsListLogic', () => {
             beforeEach(() => {
                 logic = sessionRecordingsListLogic({
                     key: 'static-tests',
-                    isStatic: true,
                     staticRecordings: [{ id: '1' }, { id: '2' }],
                 })
                 logic.mount()

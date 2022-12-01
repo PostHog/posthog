@@ -975,6 +975,28 @@ const api = {
         ): Promise<SessionRecordingPlaylistType> {
             return await new ApiRequest().recordingPlaylist(playlistId).update({ data: playlist })
         },
+
+        async addRecordingToPlaylist(
+            playlistId: SessionRecordingPlaylistType['short_id'],
+            session_recording_id: SessionRecordingType['id']
+        ): Promise<SessionRecordingPlaylistType> {
+            return await new ApiRequest()
+                .recordingPlaylist(playlistId)
+                .withAction('recordings')
+                .withAction(session_recording_id)
+                .create()
+        },
+
+        async removeRecordingFromPlaylist(
+            playlistId: SessionRecordingPlaylistType['short_id'],
+            session_recording_id: SessionRecordingType['id']
+        ): Promise<SessionRecordingPlaylistType> {
+            return await new ApiRequest()
+                .recordingPlaylist(playlistId)
+                .withAction('recordings')
+                .withAction(session_recording_id)
+                .delete()
+        },
     },
 
     subscriptions: {

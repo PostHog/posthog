@@ -1,11 +1,8 @@
-import { kea, props, path, key, actions, reducers, selectors, afterMount, listeners, connect } from 'kea'
+import { kea, props, path, key, actions, reducers, selectors, listeners, connect } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
-import {
-    createPlaylist,
-    PlaylistTypeWithIds,
-} from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
+import { delay, toParams } from 'lib/utils'
+import { createPlaylist } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
@@ -24,22 +21,44 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
     })),
     actions(() => ({
         setSearchQuery: (query: string) => ({ query }),
-        addToPlaylist: (playlist: PlaylistTypeWithIds) => ({ playlist }),
-        removeFromPlaylist: (playlist: PlaylistTypeWithIds) => ({ playlist }),
         loadPlaylists: true,
+        loadPlaylistsForRecording: true,
+        addToPlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
+        removeFromPlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
         setNewFormShowing: (show: boolean) => ({ show }),
         setShowPlaylistPopup: (show: boolean) => ({ show }),
     })),
-    loaders(({ values }) => ({
+    loaders(({ values, props }) => ({
         playlists: {
             __default: [] as SessionRecordingPlaylistType[],
             loadPlaylists: async (_, breakpoint) => {
                 await breakpoint(300)
+                const response = await api.recordings.listPlaylists(toParams({ search: values.searchQuery }))
+                breakpoint()
+                return response.results
+            },
+        },
+        currentPlaylists: {
+            __default: [] as SessionRecordingPlaylistType[],
+            loadPlaylistsForRecording: async (_, breakpoint) => {
+                await breakpoint(300)
                 const response = await api.recordings.listPlaylists(
-                    toParams({ static: true, search: values.searchQuery })
+                    toParams({ session_recording_id: props.sessionRecordingId })
                 )
                 breakpoint()
                 return response.results
+            },
+
+            addToPlaylist: async ({ playlist }) => {
+                await delay(1000)
+                await api.recordings.addRecordingToPlaylist(playlist.short_id, props.sessionRecordingId)
+                return [playlist, ...values.currentPlaylists]
+            },
+
+            removeFromPlaylist: async ({ playlist }) => {
+                await delay(1000)
+                await api.recordings.removeRecordingFromPlaylist(playlist.short_id, props.sessionRecordingId)
+                return values.currentPlaylists.filter((x) => x.short_id !== playlist.short_id)
             },
         },
     })),
@@ -57,6 +76,13 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
                 setShowPlaylistPopup: (_, { show }) => show,
             },
         ],
+        modifiyingPlaylist: [
+            null as SessionRecordingPlaylistType | null,
+            {
+                addToPlaylist: (_, { playlist }) => playlist,
+                removeFromPlaylist: (_, { playlist }) => playlist,
+            },
+        ],
     })),
     forms(({ actions }) => ({
         newPlaylist: {
@@ -68,7 +94,6 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
                 await breakpoint(100)
                 const newPlaylist = await createPlaylist({
                     name,
-                    is_static: true,
                 })
                 breakpoint()
 
@@ -98,61 +123,33 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
         setShowPlaylistPopup: ({ show }) => {
             if (show) {
                 actions.loadPlaylists()
+                actions.loadPlaylistsForRecording()
                 actions.setPause()
             }
         },
-
-        // addToPlaylist: async ({ playlist, recording }) => {
-        //     const newRecordingResponse = await api.recordings.updateRecording(
-        //         recording.id,
-        //         {
-        //             playlists: [...(recording.playlists || []).filter((id) => id !== playlist.id), playlist.id],
-        //         },
-        //         toParams({
-        //             recording_start_time: recording.start_time,
-        //         })
-        //     )
-        //     return newRecordingResponse.result.session_recording
-        // },
-        // addRecordingToPlaylistSuccess: ({ _recordingModel, payload }) => {
-        //     if (_recordingModel.playlists) {
-        //         actions.setRecordingMeta({
-        //             metadata: {
-        //                 ...values.sessionPlayerMetaData.metadata,
-        //                 playlists: [..._recordingModel.playlists],
-        //             },
-        //         })
-        //         // Update playlist if playlist detail page is mounted
-        //         payload?.playlist?.short_id &&
-        //             sessionRecordingsPlaylistLogic
-        //                 .findMounted({ shortId: payload.playlist.short_id })
-        //                 ?.actions?.getPlaylist()
-        //     }
-        // },
-        // removeFromPlaylist: async ({ playlist }) => {
-        //     actions.removeRecordingFromPlaylist(
-        //         {
-        //             id: props.sessionRecordingId,
-        //             playlists: values.recordingPlaylists,
-        //         },
-        //         playlist
-        //     )
-        // },
-        // removeRecordingFromPlaylistSuccess: ({ _recordingModel, payload }) => {
-        //     if (_recordingModel.playlists) {
-        //         actions.setRecordingMeta({
-        //             metadata: {
-        //                 ...values.sessionPlayerMetaData.metadata,
-        //                 playlists: [..._recordingModel.playlists],
-        //             },
-        //         })
-        //         // Update playlist if playlist detail page is mounted
-        //         payload?.playlist?.short_id &&
-        //             sessionRecordingsPlaylistLogic
-        //                 .findMounted({ shortId: payload.playlist.short_id })
-        //                 ?.actions?.getPlaylist()
-        //     }
-        // },
     })),
-    selectors(() => ({})),
+    selectors(() => ({
+        allPlaylists: [
+            (s) => [s.playlists, s.currentPlaylists],
+            (playlists, currentPlaylists) => {
+                const results: {
+                    selected: boolean
+                    playlist: SessionRecordingPlaylistType
+                }[] = [
+                    ...currentPlaylists.map((x) => ({
+                        selected: true,
+                        playlist: x,
+                    })),
+                    ...playlists
+                        .filter((x) => !currentPlaylists.find((y) => x.short_id === y.short_id))
+                        .map((x) => ({
+                            selected: false,
+                            playlist: x,
+                        })),
+                ]
+
+                return results
+            },
+        ],
+    })),
 ])

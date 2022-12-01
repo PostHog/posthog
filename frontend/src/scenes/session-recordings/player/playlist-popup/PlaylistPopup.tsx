@@ -6,7 +6,9 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { Popup } from 'lib/components/Popup/Popup'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 import { Field } from 'lib/forms/Field'
+import { urls } from 'scenes/urls'
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { playlistPopupLogic } from './playlistPopupLogic'
@@ -14,8 +16,17 @@ import { playlistPopupLogic } from './playlistPopupLogic'
 export function PlaylistPopup(props: SessionRecordingPlayerLogicProps): JSX.Element {
     const { isFullScreen } = useValues(playerSettingsLogic)
     const logic = playlistPopupLogic(props)
-    const { playlists, playlistsLoading, searchQuery, newFormShowing, showPlaylistPopup } = useValues(logic)
-    const { setSearchQuery, setNewFormShowing, setShowPlaylistPopup } = useActions(logic)
+    const {
+        playlistsLoading,
+        searchQuery,
+        newFormShowing,
+        showPlaylistPopup,
+        allPlaylists,
+        currentPlaylistsLoading,
+        modifiyingPlaylist,
+    } = useValues(logic)
+    const { setSearchQuery, setNewFormShowing, setShowPlaylistPopup, addToPlaylist, removeFromPlaylist } =
+        useActions(logic)
 
     return (
         <Popup
@@ -72,18 +83,38 @@ export function PlaylistPopup(props: SessionRecordingPlayerLogicProps): JSX.Elem
 
                     <LemonDivider />
 
-                    {playlists.length ? (
+                    {allPlaylists.length ? (
                         <>
-                            {playlists?.map((x) => (
-                                <div key={x.short_id} className="flex items-center gap-1">
-                                    <LemonButton icon={<LemonCheckbox />}>Other playlist</LemonButton>
+                            {allPlaylists?.map(({ selected, playlist }) => (
+                                <div key={playlist.short_id} className="flex items-center gap-1">
+                                    <LemonButton
+                                        className="flex-1"
+                                        icon={
+                                            currentPlaylistsLoading &&
+                                            modifiyingPlaylist?.short_id === playlist.short_id ? (
+                                                <Spinner className="text-sm" />
+                                            ) : (
+                                                <LemonCheckbox className="pointer-events-none" checked={selected} />
+                                            )
+                                        }
+                                        disabled={currentPlaylistsLoading}
+                                        onClick={() =>
+                                            !selected ? addToPlaylist(playlist) : removeFromPlaylist(playlist)
+                                        }
+                                    >
+                                        {playlist.name || playlist.derived_name}
+                                    </LemonButton>
 
-                                    <LemonButton icon={<IconOpenInNew />} />
+                                    <LemonButton
+                                        icon={<IconOpenInNew />}
+                                        to={urls.sessionRecordingPlaylist(playlist.short_id)}
+                                        targetBlank
+                                    />
                                 </div>
                             ))}
                         </>
                     ) : playlistsLoading ? (
-                        <LemonSkeleton className="my-2" />
+                        <LemonSkeleton className="my-2" repeat={3} />
                     ) : (
                         <div className="p-2 text-center text-muted">No playlists found</div>
                     )}

@@ -1,13 +1,7 @@
 import { Fragment, useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { range } from '~/lib/utils'
-import {
-    RecordingDurationFilter,
-    RecordingFilters,
-    SessionRecordingPlaylistType,
-    SessionRecordingsTabs,
-    SessionRecordingType,
-} from '~/types'
+import { RecordingDurationFilter, RecordingFilters, SessionRecordingsTabs, SessionRecordingType } from '~/types'
 import {
     defaultPageviewPropertyEntityFilter,
     PLAYLIST_LIMIT,
@@ -138,19 +132,15 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                             }
                         />
 
-                        {!playlist.is_static && (
-                            <>
-                                <LemonDivider vertical />
-                                <LemonButton
-                                    type="primary"
-                                    disabled={!hasChanges}
-                                    loading={hasChanges && playlistLoading}
-                                    onClick={saveChanges}
-                                >
-                                    Save changes
-                                </LemonButton>
-                            </>
-                        )}
+                        <LemonDivider vertical />
+                        <LemonButton
+                            type="primary"
+                            disabled={!hasChanges}
+                            loading={hasChanges && playlistLoading}
+                            onClick={saveChanges}
+                        >
+                            Save changes
+                        </LemonButton>
                     </div>
                 }
                 caption={
@@ -179,8 +169,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     logicKey={playlist.short_id}
                     filters={playlist.filters}
                     onFiltersChange={setFilters}
-                    isStatic={!!playlist.is_static}
-                    staticRecordings={playlist.playlist_items}
                 />
             ) : null}
         </div>
@@ -193,8 +181,6 @@ export type SessionRecordingsPlaylistProps = {
     filters?: RecordingFilters
     updateSearchParams?: boolean
     onFiltersChange?: (filters: RecordingFilters) => void
-    isStatic?: boolean
-    staticRecordings?: SessionRecordingPlaylistType['playlist_items']
 }
 
 export function SessionRecordingsPlaylist({
@@ -203,16 +189,12 @@ export function SessionRecordingsPlaylist({
     filters: defaultFilters,
     updateSearchParams,
     onFiltersChange,
-    isStatic = false,
-    staticRecordings = [],
 }: SessionRecordingsPlaylistProps): JSX.Element {
     const logic = sessionRecordingsListLogic({
         key: logicKey,
         personUUID,
         filters: defaultFilters,
         updateSearchParams,
-        isStatic,
-        staticRecordings,
     })
     const {
         sessionRecordings,
@@ -288,45 +270,42 @@ export function SessionRecordingsPlaylist({
         <>
             <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
                 <div className="flex items-center gap-4">
-                    {!isStatic && (
-                        <>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={
-                                    <IconWithCount count={totalFiltersCount}>
-                                        <IconFilter />
-                                    </IconWithCount>
-                                }
-                                onClick={() => {
-                                    setShowFilters(!showFilters)
-                                    if (personUUID) {
-                                        const entityFilterButtons =
-                                            document.querySelectorAll('.entity-filter-row button')
-                                        if (entityFilterButtons.length > 0) {
-                                            ;(entityFilterButtons[0] as HTMLElement).click()
-                                        }
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={
+                                <IconWithCount count={totalFiltersCount}>
+                                    <IconFilter />
+                                </IconWithCount>
+                            }
+                            onClick={() => {
+                                setShowFilters(!showFilters)
+                                if (personUUID) {
+                                    const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
+                                    if (entityFilterButtons.length > 0) {
+                                        ;(entityFilterButtons[0] as HTMLElement).click()
                                     }
-                                }}
-                            >
-                                {showFilters ? 'Hide filters' : 'Filters'}
-                            </LemonButton>
+                                }
+                            }}
+                        >
+                            {showFilters ? 'Hide filters' : 'Filters'}
+                        </LemonButton>
 
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                disabled={!totalFiltersCount}
-                                onClick={() => {
-                                    // saveNewPlaylist()
-                                }}
-                                // loading={newPlaylistLoading}
-                                data-attr="save-recordings-playlist-button"
-                                tooltip="Save the current filters as a playlist that you can come back to."
-                            >
-                                {logicKey === 'recents' ? 'Save as playlist' : 'Save changes'}
-                            </LemonButton>
-                        </>
-                    )}
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            disabled={!totalFiltersCount}
+                            onClick={() => {
+                                // saveNewPlaylist()
+                            }}
+                            // loading={newPlaylistLoading}
+                            data-attr="save-recordings-playlist-button"
+                            tooltip="Save the current filters as a playlist that you can come back to."
+                        >
+                            {logicKey === 'recents' ? 'Save as playlist' : 'Save changes'}
+                        </LemonButton>
+                    </>
                 </div>
 
                 <div className="flex items-center gap-4">

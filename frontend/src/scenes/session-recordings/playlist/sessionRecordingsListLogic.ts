@@ -7,7 +7,6 @@ import {
     PropertyOperator,
     RecordingFilters,
     SessionRecordingId,
-    SessionRecordingPlaylistType,
     SessionRecordingPropertiesType,
     SessionRecordingsResponse,
     SessionRecordingType,
@@ -102,7 +101,6 @@ export interface SessionRecordingListLogicProps {
     filters?: RecordingFilters
     updateSearchParams?: boolean
     isStatic?: boolean
-    staticRecordings?: SessionRecordingPlaylistType['playlist_items']
 }
 
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([

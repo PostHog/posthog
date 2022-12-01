@@ -1,11 +1,11 @@
 import { PageHeader } from 'lib/components/PageHeader'
 import { teamLogic } from 'scenes/teamLogic'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { AlertMessage } from 'lib/components/AlertMessage'
-import { LemonButton, LemonButtonWithSideAction } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { Tabs } from 'antd'
 import { SessionRecordingsTabs } from '~/types'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
@@ -15,7 +15,6 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { IconSettings } from 'lib/components/icons'
 import { router } from 'kea-router'
 import { openSessionRecordingSettingsDialog } from './settings/SessionRecordingSettings'
-import { openPlayerNewPlaylistDialog } from 'scenes/session-recordings/player/new-playlist/PlayerNewPlaylist'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -42,12 +41,12 @@ export function SessionsRecordings(): JSX.Element {
                             <Tooltip placement="topRight" title={'Create a new playlist'}>
                                 <LemonButton
                                     type="primary"
-                                    onClick={() => {
-                                        openPlayerNewPlaylistDialog({
-                                            sessionRecordingId: 'global',
-                                            playerKey: 'recents',
-                                        })
-                                    }}
+                                    // onClick={() => {
+                                    //     openPlayerNewPlaylistDialog({
+                                    //         sessionRecordingId: 'global',
+                                    //         playerKey: 'recents',
+                                    //     })
+                                    // }}
                                     loading={newPlaylistLoading}
                                     data-attr="save-recordings-playlist-button"
                                 >

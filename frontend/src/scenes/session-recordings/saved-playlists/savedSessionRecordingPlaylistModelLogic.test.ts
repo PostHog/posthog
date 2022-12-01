@@ -96,8 +96,6 @@ describe('playerAddToPlaylistLogic', () => {
                     id: 3,
                     short_id: 'abc',
                     name: 'blank',
-                    playlist_items: [],
-                    is_static: true,
                 })
             })
                 .toDispatchActions(['addRecordingToPlaylist', 'addRecordingToPlaylistSuccess'])
@@ -115,8 +113,6 @@ describe('playerAddToPlaylistLogic', () => {
                     id: 1,
                     short_id: 'abc',
                     name: 'blank',
-                    playlist_items: [],
-                    is_static: true,
                 })
             })
                 .toDispatchActions(['removeRecordingFromPlaylist', 'removeRecordingFromPlaylistSuccess'])
