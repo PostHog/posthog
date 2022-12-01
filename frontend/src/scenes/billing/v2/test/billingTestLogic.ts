@@ -15,7 +15,7 @@ import { userLogic } from 'scenes/userLogic'
 import { pluralize } from 'lib/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
-import type { billingTestLogicType } from './billingTestLogicType'
+import { billingTestLogicType } from './billingTestLogicType'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
