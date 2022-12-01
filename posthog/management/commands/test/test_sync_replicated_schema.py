@@ -25,7 +25,11 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
 
         self.assertEqual(len(host_tables), 1)
         self.assertGreater(len(create_table_queries), 0)
-        self.assertEqual(len(out_of_sync_hosts), 0)
+        # :KLUDGE: Test setup does not create all kafka/mv tables
+        self.assertEqual(len(out_of_sync_hosts), 1)
+
+        out_of_sync_tables = next(iter(out_of_sync_hosts.values()))
+        self.assertTrue(all("kafka" in table or "_mv" in table for table in out_of_sync_tables))
 
     def test_analyze_empty_cluster(self):
         self.recreate_database(create_tables=False)
