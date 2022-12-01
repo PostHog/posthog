@@ -10,6 +10,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     DashboardTile,
     DashboardType,
+    FilterType,
     InsightColor,
     InsightModel,
     InsightShortId,
@@ -62,9 +63,14 @@ const tileFromInsight = (insight: InsightModel, id: number = tileId++): Dashboar
     refreshing: false,
 })
 
-const dashboardResult = (dashboardId: number, tiles: DashboardTile[]): DashboardType => {
+const dashboardResult = (
+    dashboardId: number,
+    tiles: DashboardTile[],
+    filters: Partial<Pick<FilterType, 'date_from' | 'date_to' | 'properties'>> = {}
+): DashboardType => {
     return {
         ...dashboardJson,
+        filters: { ...dashboardJson.filters, ...filters },
         id: dashboardId,
         tiles,
     }
@@ -158,6 +164,9 @@ describe('dashboardLogic', () => {
             10: {
                 ...dashboardResult(10, [tileFromInsight(insights['800'])]),
             },
+            11: {
+                ...dashboardResult(11, [], { date_from: '-24h' }),
+            },
         }
         useMocks({
             get: {
@@ -167,6 +176,7 @@ describe('dashboardLogic', () => {
                 '/api/projects/:team/dashboards/8/': { ...dashboards['8'] },
                 '/api/projects/:team/dashboards/9/': { ...dashboards['9'] },
                 '/api/projects/:team/dashboards/10/': { ...dashboards['10'] },
+                '/api/projects/:team/dashboards/11/': { ...dashboards['11'] },
                 '/api/projects/:team/dashboards/': {
                     count: 6,
                     next: null,
@@ -263,6 +273,17 @@ describe('dashboardLogic', () => {
         initKeaTests()
         dashboardsModel.mount()
         insightsModel.mount()
+    })
+
+    describe('when the dashboard has filters', () => {
+        it('sets the filters reducer on load', async () => {
+            logic = dashboardLogic({ id: 11 })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({ filters: { date_from: '-24h', date_to: null } })
+        })
     })
 
     describe('moving between dashboards', () => {
