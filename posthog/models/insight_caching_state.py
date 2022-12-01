@@ -45,24 +45,24 @@ class InsightCachingState(UUIDModel):
 
 @mutable_receiver(post_save, sender=SharingConfiguration)
 def sync_sharing_configuration(sender, instance: SharingConfiguration, **kwargs):
-    from posthog.celery import update_cache_item_task
+    from posthog.celery import sync_insight_caching_state
 
     if instance.insight_id is not None:
-        update_cache_item_task.s(instance.team_id, insight_id=instance.insight_id)
-    elif instance.dashboard_id is not None:
+        sync_insight_caching_state.delay(instance.team_id, insight_id=instance.insight_id)
+    elif instance.dashboard is not None:
         for tile in instance.dashboard.tiles.all():
-            update_cache_item_task.s(instance.team_id, dashboard_tile_id=tile.pk)
+            sync_insight_caching_state.delay(instance.team_id, dashboard_tile_id=tile.pk)
 
 
 @mutable_receiver(post_save, sender=Insight)
 def sync_insight(sender, instance: Insight, **kwargs):
-    from posthog.celery import update_cache_item_task
+    from posthog.celery import sync_insight_caching_state
 
-    update_cache_item_task.s(instance.team_id, insight_id=instance.pk)
+    sync_insight_caching_state.delay(instance.team_id, insight_id=instance.pk)
 
 
 @mutable_receiver(post_save, sender=DashboardTile)
 def sync_dashboard_tile(sender, instance: DashboardTile, **kwargs):
-    from posthog.celery import update_cache_item_task
+    from posthog.celery import sync_insight_caching_state
 
-    update_cache_item_task.s(instance.dashboard.team_id, dashboard_tile_id=instance.pk)
+    sync_insight_caching_state.delay(instance.dashboard.team_id, dashboard_tile_id=instance.pk)
