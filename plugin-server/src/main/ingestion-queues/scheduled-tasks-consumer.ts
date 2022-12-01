@@ -37,7 +37,6 @@ export const startScheduledTasksConsumer = async ({
         status.debug('🔁', 'Processing batch', { size: batch.messages.length })
         for (const message of batch.messages) {
             if (!message.value) {
-                status.error('⚠️', 'asdf', { topic: 'zxcv' })
                 status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
                     value: message.value,
                 })
