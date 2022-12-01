@@ -268,7 +268,7 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
         if order:
             queryset = queryset.order_by(order)
         else:
-            queryset = queryset.order_by("last_modified_at")
+            queryset = queryset.order_by("-last_modified_at")
 
         return queryset
 

@@ -63,7 +63,7 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
         },
     })),
     reducers(() => ({
-        searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
+        searchQuery: ['', { setSearchQuery: (_, { query }) => query, submitNewPlaylistSuccess: () => '' }],
         newFormShowing: [
             false,
             {
@@ -81,6 +81,7 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
             {
                 addToPlaylist: (_, { playlist }) => playlist,
                 removeFromPlaylist: (_, { playlist }) => playlist,
+                setShowPlaylistPopup: () => null,
             },
         ],
     })),

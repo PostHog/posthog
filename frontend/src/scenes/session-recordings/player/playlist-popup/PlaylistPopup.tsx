@@ -55,12 +55,7 @@ export function PlaylistPopup(props: SessionRecordingPlayerLogicProps): JSX.Elem
                                     >
                                         Cancel
                                     </LemonButton>
-                                    <LemonButton
-                                        type="primary"
-                                        htmlType="submit"
-                                        icon={<IconPlus />}
-                                        onClick={() => setNewFormShowing(true)}
-                                    >
+                                    <LemonButton type="primary" htmlType="submit" icon={<IconPlus />}>
                                         Create and add to list
                                     </LemonButton>
                                 </div>
