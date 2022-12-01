@@ -92,7 +92,6 @@ export function PlaylistPopup(props: SessionRecordingPlayerLogicProps): JSX.Elem
                                                 <LemonCheckbox className="pointer-events-none" checked={selected} />
                                             )
                                         }
-                                        disabled={currentPlaylistsLoading}
                                         onClick={() =>
                                             !selected ? addToPlaylist(playlist) : removeFromPlaylist(playlist)
                                         }
