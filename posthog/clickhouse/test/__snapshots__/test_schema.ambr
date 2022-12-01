@@ -35,7 +35,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_app_metrics]
   '
   
-  CREATE TABLE kafka_app_metrics ON CLUSTER posthog
+  CREATE TABLE kafka_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -143,6 +143,24 @@
   
   '
 ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_live_events]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_live_events ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      _timestamp Nullable(DateTime)
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'events_plugin_ingestion_test', 'group1', 'JSONEachRow')
+  
+  '
+---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person]
   '
   
@@ -230,7 +248,7 @@
 # name: test_create_table_query[app_metrics]
   '
   
-  CREATE TABLE app_metrics ON CLUSTER posthog
+  CREATE TABLE app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -503,7 +521,7 @@
 # name: test_create_table_query[kafka_app_metrics]
   '
   
-  CREATE TABLE kafka_app_metrics ON CLUSTER posthog
+  CREATE TABLE kafka_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -611,6 +629,24 @@
   
   '
 ---
+# name: test_create_table_query[kafka_live_events]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_live_events ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      _timestamp Nullable(DateTime)
+  ) ENGINE = Kafka('kafka:9092', 'events_plugin_ingestion_test', 'group1', 'JSONEachRow')
+  
+  '
+---
 # name: test_create_table_query[kafka_person]
   '
   
@@ -692,6 +728,44 @@
       
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_table_query[live_events]
+  '
+  
+  CREATE TABLE IF NOT EXISTS live_events ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      _timestamp Nullable(DateTime)
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_live_events', rand())
+  
+  '
+---
+# name: test_create_table_query[live_events_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW live_events_mv ON CLUSTER 'posthog'
+  TO posthog_test.live_events
+  AS SELECT
+      uuid,
+      event,
+      properties,
+      toDateTime64(now(), 6, 'UTC') as timestamp,
+      team_id,
+      distinct_id,
+      '' as elements_chain,
+      toDateTime64(0, 6, 'UTC') as created_at,
+      _timestamp
+  FROM posthog_test.kafka_live_events
+  WHERE event != '$snapshot'
   
   '
 ---
@@ -890,9 +964,7 @@
       window_id VARCHAR,
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
-      
-      , has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot'
-  
+      , has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot', events_summary Array(String) COMMENT 'column_materializer::events_summary', click_count Int8 COMMENT 'column_materializer::click_count', keypress_count Int8 COMMENT 'column_materializer::keypress_count', timestamps_summary Array(DateTime64(6, 'UTC')) COMMENT 'column_materializer::timestamps_summary', first_event_timestamp Nullable(DateTime64(6, 'UTC')) COMMENT 'column_materializer::first_event_timestamp', last_event_timestamp Nullable(DateTime64(6, 'UTC')) COMMENT 'column_materializer::last_event_timestamp', urls Array(String) COMMENT 'column_materializer::urls'
       
   , _timestamp DateTime
   , _offset UInt64
@@ -924,7 +996,7 @@
 # name: test_create_table_query[sharded_app_metrics]
   '
   
-  CREATE TABLE sharded_app_metrics ON CLUSTER posthog
+  CREATE TABLE sharded_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -1017,6 +1089,27 @@
   
   '
 ---
+# name: test_create_table_query[sharded_live_events]
+  '
+  
+  CREATE TABLE IF NOT EXISTS sharded_live_events ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      _timestamp Nullable(DateTime)
+  ) ENGINE = MergeTree()
+  PARTITION BY toStartOfTenMinutes(timestamp)
+  ORDER BY (team_id, timestamp, event, cityHash64(distinct_id), cityHash64(uuid))
+  TTL toDateTime(timestamp) + INTERVAL 1 DAY
+  
+  '
+---
 # name: test_create_table_query[sharded_session_recording_events]
   '
   
@@ -1030,9 +1123,7 @@
       window_id VARCHAR,
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
-      
-      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'
-  
+      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary)), last_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary)), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
       
   , _timestamp DateTime
   , _offset UInt64
@@ -1281,7 +1372,7 @@
 # name: test_create_table_query_replicated_and_storage[sharded_app_metrics]
   '
   
-  CREATE TABLE sharded_app_metrics ON CLUSTER posthog
+  CREATE TABLE sharded_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -1374,6 +1465,27 @@
   
   '
 ---
+# name: test_create_table_query_replicated_and_storage[sharded_live_events]
+  '
+  
+  CREATE TABLE IF NOT EXISTS sharded_live_events ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      _timestamp Nullable(DateTime)
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_live_events', '{replica}')
+  PARTITION BY toStartOfTenMinutes(timestamp)
+  ORDER BY (team_id, timestamp, event, cityHash64(distinct_id), cityHash64(uuid))
+  TTL toDateTime(timestamp) + INTERVAL 1 DAY
+  
+  '
+---
 # name: test_create_table_query_replicated_and_storage[sharded_session_recording_events]
   '
   
@@ -1387,9 +1499,7 @@
       window_id VARCHAR,
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
-      
-      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'
-  
+      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary)), last_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary)), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
       
   , _timestamp DateTime
   , _offset UInt64
