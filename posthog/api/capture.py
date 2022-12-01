@@ -274,6 +274,7 @@ def get_event(request):
 
     for event, event_uuid, distinct_id in processed_events:
         if send_events_to_dead_letter_queue:
+            event_name = event["event"]
             kafka_event = parse_kafka_event_data(
                 distinct_id=distinct_id,
                 ip=None,
@@ -288,7 +289,7 @@ def get_event(request):
 
             log_event_to_dead_letter_queue(
                 data,
-                event["event"],
+                event_name,
                 kafka_event,
                 f"Unable to fetch team from Postgres. Error: {db_error}",
                 "django_server_capture_endpoint",
