@@ -20,6 +20,7 @@ import { teamLogic } from '../teamLogic'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { urls } from 'scenes/urls'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export type PluginForm = FormInstance
 
@@ -449,6 +450,12 @@ export const pluginsLogic = kea<pluginsLogicType>([
         installedPlugins: [
             (s) => [s.plugins, s.pluginConfigs, s.updateStatus],
             (plugins, pluginConfigs, updateStatus): PluginTypeWithConfig[] => {
+                const { currentTeam } = teamLogic.values
+                if (!currentTeam) {
+                    lemonToast.error("Can't list installed plugins with no user or team!")
+                    return []
+                }
+
                 const pluginValues = Object.values(plugins)
                 return pluginValues
                     .map((plugin, index) => {
@@ -460,10 +467,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
                                     config[key] = def
                                 }
                             )
-                            const { currentTeam } = teamLogic.values
-                            if (!currentTeam) {
-                                throw new Error("Can't list installed plugins with no user or team!")
-                            }
                             pluginConfig = {
                                 id: undefined,
                                 team_id: currentTeam.id,
