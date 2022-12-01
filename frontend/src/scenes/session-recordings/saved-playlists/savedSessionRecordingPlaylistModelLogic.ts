@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { openBillingPopupModal } from 'scenes/billing/v2/BillingPopup'
 import { PLAYLIST_LIMIT_REACHED_MESSAGE } from 'scenes/session-recordings/sessionRecordingsLogic'
 
-async function createPlaylist(
+export async function createPlaylist(
     playlist: Partial<SessionRecordingPlaylistType>,
     redirect = false
 ): Promise<SessionRecordingPlaylistType | null> {
