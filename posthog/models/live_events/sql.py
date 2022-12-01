@@ -67,7 +67,6 @@ AS SELECT
     uuid,
     event,
     properties,
-    -- KLUDGE: we don't have the real timestamp yet
     toDateTime64(now(), 6, 'UTC') as timestamp,
     team_id,
     distinct_id,
