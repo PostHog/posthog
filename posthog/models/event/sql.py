@@ -242,32 +242,6 @@ VALUES
 """
 )
 
-GET_EVENTS_SQL = """
-SELECT
-    uuid,
-    event,
-    properties,
-    timestamp,
-    team_id,
-    distinct_id,
-    elements_chain,
-    created_at
-FROM events
-"""
-
-GET_EVENTS_BY_TEAM_SQL = """
-SELECT
-    uuid,
-    event,
-    properties,
-    timestamp,
-    team_id,
-    distinct_id,
-    elements_chain,
-    created_at
-FROM events WHERE team_id = %(team_id)s
-"""
-
 SELECT_PROP_VALUES_SQL = """
 SELECT
     DISTINCT {property_field}

@@ -7,12 +7,12 @@ from dateutil.parser import isoparse
 from django.utils import timezone
 from rest_framework import serializers
 
-from posthog.client import query_with_columns, sync_execute
+from posthog.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models import Group
 from posthog.models.element.element import Element, chain_to_elements, elements_to_string
-from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
+from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, INSERT_EVENT_SQL
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.settings import TEST
@@ -238,12 +238,6 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
 
         params = {**params, **{"{}_{}".format(key, index): value for key, value in event.items()}}
     sync_execute(BULK_INSERT_EVENT_SQL() + ", ".join(inserts), params, flush=False)
-
-
-def get_events_by_team(team_id: Union[str, int]):
-
-    events = query_with_columns(GET_EVENTS_BY_TEAM_SQL, {"team_id": str(team_id)})
-    return ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
 
 
 class ElementSerializer(serializers.ModelSerializer):

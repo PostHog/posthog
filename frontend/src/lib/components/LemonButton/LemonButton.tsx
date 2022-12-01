@@ -138,7 +138,7 @@ export const LemonButton = React.forwardRef(LemonButtonInternal)
 
 export type SideAction = Pick<
     LemonButtonProps,
-    'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr' | 'aria-label'
+    'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr' | 'aria-label' | 'status'
 > & {
     popup?: LemonButtonPopup
 }

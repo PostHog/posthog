@@ -14,8 +14,11 @@ import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { pluralize } from 'lib/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
+export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
 
 export interface BillingAlertConfig {
     status: 'info' | 'warning' | 'error'
@@ -93,7 +96,6 @@ export const billingLogic = kea<billingLogicType>([
             (billing, billingLoading): BillingVersion | undefined =>
                 !billingLoading || billing ? (billing ? 'v2' : 'v1') : undefined,
         ],
-
         billingAlert: [
             (s) => [s.billing, s.preflight],
             (billing, preflight): BillingAlertConfig | undefined => {
@@ -143,6 +145,22 @@ export const billingLogic = kea<billingLogicType>([
                         ).toPrecision(2)}% of your ${productApproachingLimit.type.toLowerCase()} allocation.`,
                     }
                 }
+            },
+        ],
+        isUserLocked: [
+            (s) => [s.billing, s.preflight, s.billingVersion, s.featureFlags],
+            (billing, preflight, billingVersion, featureFlags): boolean => {
+                if (!billing || !preflight?.cloud) {
+                    return false
+                }
+                // lock cloud users out if they are above the usage limit on any product
+                return Boolean(
+                    billingVersion === 'v2' &&
+                        billing.products.find((x) => {
+                            return x.percentage_usage > ALLOCATION_THRESHOLD_BLOCK
+                        }) &&
+                        featureFlags[FEATURE_FLAGS.BILLING_LOCK_EVERYTHING]
+                )
             },
         ],
     }),
@@ -199,12 +217,19 @@ export const billingLogic = kea<billingLogicType>([
         actions.loadBilling()
     }),
 
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
+        // IMPORTANT: This needs to be above the "*" so it takes precedence
         '/organization/billing': (_params, _search, hash) => {
             if (hash.license) {
                 actions.setShowLicenseDirectInput(true)
                 actions.setActivateLicenseValues({ license: hash.license })
                 actions.submitActivateLicense()
+            }
+        },
+        '*': () => {
+            if (values.isUserLocked && router.values.location.pathname !== '/organization/billing/locked') {
+                posthog.capture('billing locked screen shown')
+                router.actions.replace(urls.billingLocked())
             }
         },
     })),

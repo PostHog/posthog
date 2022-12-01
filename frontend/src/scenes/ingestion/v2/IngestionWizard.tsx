@@ -4,11 +4,11 @@ import './IngestionWizard.scss'
 import { VerificationPanel } from 'scenes/ingestion/v2/panels/VerificationPanel'
 import { InstructionsPanel } from 'scenes/ingestion/v2/panels/InstructionsPanel'
 import { useValues, useActions } from 'kea'
-import { ingestionLogicV2, INGESTION_VIEWS } from 'scenes/ingestion/v2/ingestionLogic'
+import { ingestionLogicV2, INGESTION_VIEWS } from 'scenes/ingestion/v2/ingestionLogicV2'
 import { FrameworkPanel } from 'scenes/ingestion/v2/panels/FrameworkPanel'
 import { PlatformPanel } from 'scenes/ingestion/v2/panels/PlatformPanel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { BookmarkletPanel } from './panels/BookmarkletPanel'
+import { GeneratingDemoDataPanel } from './panels/GeneratingDemoDataPanel'
 import { ThirdPartyPanel } from './panels/ThirdPartyPanel'
 import { BillingPanel } from './panels/BillingPanel'
 import { Sidebar } from './Sidebar'
@@ -21,6 +21,7 @@ import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { PanelHeader } from './panels/PanelComponents'
 import { InviteTeamPanel } from './panels/InviteTeamPanel'
 import { TeamInvitedPanel } from './panels/TeamInvitedPanel'
+import { NoDemoIngestionPanel } from './panels/NoDemoIngestionPanel'
 
 export function IngestionWizardV2(): JSX.Element {
     const { currentView, platform } = useValues(ingestionLogicV2)
@@ -41,8 +42,9 @@ export function IngestionWizardV2(): JSX.Element {
             {currentView === INGESTION_VIEWS.CHOOSE_FRAMEWORK && <FrameworkPanel />}
             {currentView === INGESTION_VIEWS.WEB_INSTRUCTIONS && <InstructionsPanel />}
             {currentView === INGESTION_VIEWS.VERIFICATION && <VerificationPanel />}
-            {currentView === INGESTION_VIEWS.BOOKMARKLET && <BookmarkletPanel />}
+            {currentView === INGESTION_VIEWS.GENERATING_DEMO_DATA && <GeneratingDemoDataPanel />}
             {currentView === INGESTION_VIEWS.CHOOSE_THIRD_PARTY && <ThirdPartyPanel />}
+            {currentView === INGESTION_VIEWS.NO_DEMO_INGESTION && <NoDemoIngestionPanel />}
         </IngestionContainer>
     )
 }
@@ -50,8 +52,7 @@ export function IngestionWizardV2(): JSX.Element {
 function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
-    const { isSmallScreen, hasInvitedMembers } = useValues(ingestionLogicV2)
-    const { next } = useActions(ingestionLogicV2)
+    const { isSmallScreen } = useValues(ingestionLogicV2)
 
     return (
         <div className="flex h-full flex-col">
@@ -62,15 +63,7 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
                     <SitePopover />
                 </div>
             </div>
-            <InviteModal
-                isOpen={isInviteModalShown}
-                onClose={() => {
-                    hideInviteModal()
-                    if (hasInvitedMembers) {
-                        next({ isTechnicalUser: false })
-                    }
-                }}
-            />
+            <InviteModal isOpen={isInviteModalShown} onClose={hideInviteModal} />
             <div className="flex h-full">
                 {!isSmallScreen && <Sidebar />}
                 {/* <div className="IngestionContainer" */}

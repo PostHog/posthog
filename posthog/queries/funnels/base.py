@@ -250,8 +250,6 @@ class ClickhouseFunnelBase(ABC):
             self.params,
             query_type=self.QUERY_TYPE,
             filter=self._filter,
-            client_query_id=self._filter.client_query_id,
-            client_query_team_id=self._team.pk,
         )
 
     def _get_timestamp_outer_select(self) -> str:

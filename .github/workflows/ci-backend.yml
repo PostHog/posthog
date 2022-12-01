@@ -67,7 +67,7 @@ jobs:
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/workflows/backend-tests-action/action.yml
-                        # We use docker-compose for tests, make sure we rerun on
+                        # We use docker compose for tests, make sure we rerun on
                         # changes to docker-compose.dev.yml e.g. dependency
                         # version changes
                         - docker-compose.dev.yml
@@ -88,8 +88,8 @@ jobs:
 
             - name: Stop/Start stack with Docker Compose
               run: |
-                  docker-compose -f docker-compose.dev.yml down
-                  docker-compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml down
+                  docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
               uses: actions/setup-python@v4
@@ -142,8 +142,8 @@ jobs:
 
             - name: Stop/Start stack with Docker Compose
               run: |
-                  docker-compose -f docker-compose.dev.yml down
-                  docker-compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml down
+                  docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
               uses: actions/setup-python@v4
@@ -331,8 +331,8 @@ jobs:
 
             - name: Stop/Start stack with Docker Compose
               run: |
-                  docker-compose -f master/docker-compose.dev.yml down
-                  docker-compose -f master/docker-compose.dev.yml up -d
+                  docker compose -f master/docker-compose.dev.yml down
+                  docker compose -f master/docker-compose.dev.yml up -d
 
             - name: Set up Python
               uses: actions/setup-python@v4

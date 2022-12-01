@@ -1,16 +1,15 @@
 import { useActions } from 'kea'
-import { ingestionLogicV2 } from 'scenes/ingestion/v2/ingestionLogic'
+import { ingestionLogicV2 } from 'scenes/ingestion/v2/ingestionLogicV2'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { IconChevronRight } from 'lib/components/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { BOOKMARKLET } from '../constants'
+import { DemoProjectButton } from './PanelComponents'
 
 export function TeamInvitedPanel(): JSX.Element {
-    const { completeOnboarding, next } = useActions(ingestionLogicV2)
-    const { reportIngestionContinueWithoutVerifying, reportIngestionTryWithBookmarkletClicked } =
-        useActions(eventUsageLogic)
+    const { completeOnboarding } = useActions(ingestionLogicV2)
+    const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
 
     return (
         <div>
@@ -20,24 +19,10 @@ export function TeamInvitedPanel(): JSX.Element {
             </p>
             <LemonDivider thick dashed className="my-6" />
             <div className="flex flex-col mb-6">
-                <LemonButton
-                    onClick={() => {
-                        reportIngestionTryWithBookmarkletClicked()
-                        next({ isTechnicalUser: false, platform: BOOKMARKLET })
-                    }}
-                    fullWidth
-                    size="large"
-                    className="mb-4"
-                    type="primary"
-                    sideIcon={<IconChevronRight />}
-                >
-                    <div className="mt-4 mb-0">
-                        <p className="mb-2">Quickly try PostHog with our Bookmarklet.</p>
-                        <p className="font-normal text-xs">
-                            Create a few events and experience all PostHog has to offer without any of the setup.
-                        </p>
-                    </div>
-                </LemonButton>
+                <DemoProjectButton
+                    text="Quickly try PostHog with some demo data."
+                    subtext="Explore insights, create dashboards, try out cohorts, and more."
+                />
                 <LemonButton
                     onClick={() => {
                         completeOnboarding()
