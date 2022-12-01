@@ -14,7 +14,6 @@ from posthog.models.team import Team
 
 VERY_RECENTLY_VIEWED_THRESHOLD = timedelta(hours=48)
 GENERALLY_VIEWED_THRESHOLD = timedelta(weeks=2)
-MAX_ATTEMPTS = 3
 
 logger = structlog.get_logger(__name__)
 
@@ -72,22 +71,6 @@ def sync_insight_caching_state(team_id: int, insight_id: Optional[int] = None, d
     except Exception as err:
         # This is a best-effort kind synchronization, safe to ignore errors
         logger.warn("Failed to sync InsightCachingState, ignoring", exception=err)
-
-
-def fetch_states_in_need_of_updating():
-    return InsightCachingState.objects.raw(
-        """
-        SELECT *
-        FROM posthog_insightcachingstate
-        WHERE target_cache_age_seconds IS NOT NULL
-          AND refresh_attempt < %(max_attempts)s
-          AND (
-            last_refresh IS NULL OR
-            last_refresh < %(timestamp)s - target_cache_age_seconds * interval '1' second
-          )
-        """,
-        {"max_attempts": MAX_ATTEMPTS, "timestamp": now()},
-    )
 
 
 def calculate_cache_key(team: Team, target: Union[DashboardTile, Insight]) -> Optional[str]:
