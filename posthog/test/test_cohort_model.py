@@ -19,7 +19,7 @@ class TestCohort(BaseTest):
         Person.objects.create(team=team2, distinct_ids=["123"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
-        cohort.insert_users_by_list(["a header or something", "123", "000", "email@example.org"])
+        cohort.batch_insert_users_by_list(["a header or something", "123", "000", "email@example.org"])
         cohort = Cohort.objects.get()
         self.assertEqual(cohort.people.count(), 2)
         self.assertEqual(cohort.is_calculating, False)
@@ -29,7 +29,7 @@ class TestCohort(BaseTest):
         self.assertEqual(cohort.people.count(), 2)
 
         # if we add people again, don't increase the number of people in cohort
-        cohort.insert_users_by_list(["123"])
+        cohort.batch_insert_users_by_list(["123"])
         cohort = Cohort.objects.get()
         self.assertEqual(cohort.people.count(), 2)
         self.assertEqual(cohort.is_calculating, False)

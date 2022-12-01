@@ -291,7 +291,7 @@ email@example.org,
         Person.objects.create(team=team2, distinct_ids=["1"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now())
-        cohort.insert_users_by_list(["1", "123"])
+        cohort.batch_insert_users_by_list(["1", "123"])
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 2, response)

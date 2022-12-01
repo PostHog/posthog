@@ -12,7 +12,7 @@ from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
-from posthog.models.cohort.cohort import Cohort
+from posthog.models.cohort.cohort import Cohort, is_static_migrated
 from posthog.models.cohort.sql import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
@@ -21,6 +21,7 @@ from posthog.models.cohort.sql import (
     GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
+    INSERT_COHORTPEOPLE_SQL,
     RECALCULATE_COHORT_BY_ID,
 )
 from posthog.models.person.sql import (
@@ -58,10 +59,23 @@ def format_person_query(cohort: Cohort, index: int) -> Tuple[str, Dict[str, Any]
 
 
 def format_static_cohort_query(cohort_id: int, index: int, prepend: str) -> Tuple[str, Dict[str, Any]]:
-    return (
-        f"SELECT person_id as id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %({prepend}_cohort_id_{index})s AND team_id = %(team_id)s",
-        {f"{prepend}_cohort_id_{index}": cohort_id},
-    )
+    if is_static_migrated():
+        filter_query = (
+            f"""SELECT person_id as id FROM cohortpeople WHERE cohort_id = %({prepend}_cohort_id_{index})s AND team_id = %(team_id)s
+                GROUP BY person_id,
+                cohort_id,
+                team_id
+                HAVING sum(sign) > 0
+                """,
+            {f"{prepend}_cohort_id_{index}": cohort_id},
+        )
+    else:
+        filter_query = (
+            f"SELECT person_id as id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %({prepend}_cohort_id_{index})s AND team_id = %(team_id)s",
+            {f"{prepend}_cohort_id_{index}": cohort_id},
+        )
+
+    return filter_query
 
 
 def format_precalculated_cohort_query(cohort_id: int, index: int, prepend: str = "") -> Tuple[str, Dict[str, Any]]:
@@ -243,6 +257,20 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
         for person_uuid in person_uuids
     )
     sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
+
+
+def insert_static_cohortpeople(person_uuids: List[Optional[uuid.UUID]], cohort: Cohort, team: Team):
+    persons_cohortpeople = (
+        {
+            "person_id": str(person_uuid),
+            "cohort_id": cohort.pk,
+            "team_id": team.pk,
+            "sign": 1,
+            "version": cohort.version or 0,  # static cohorts don't need to be versioned
+        }
+        for person_uuid in person_uuids
+    )
+    sync_execute(INSERT_COHORTPEOPLE_SQL, persons_cohortpeople)
 
 
 def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:

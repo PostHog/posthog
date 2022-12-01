@@ -50,7 +50,7 @@ def calculate_cohort_from_list(cohort_id: int, items: List[str]) -> None:
     start_time = time.time()
     cohort = Cohort.objects.get(pk=cohort_id)
 
-    cohort.insert_users_by_list(items)
+    cohort.batch_insert_users_by_list(items)
     logger.info("Calculating cohort {} from CSV took {:.2f} seconds".format(cohort.pk, (time.time() - start_time)))
 
 

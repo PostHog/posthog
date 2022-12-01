@@ -456,7 +456,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         cohort4 = Cohort.objects.create(
             team=self.team, groups=[], is_static=True, last_calculation=timezone.now(), name="cohort4"
         )
-        cohort4.insert_users_by_list(["2"])
+        cohort4.batch_insert_users_by_list(["2"])
 
         response = self.client.get(f"/api/person/cohorts/?person_id={person2.uuid}").json()
         response["results"].sort(key=lambda cohort: cohort["name"])

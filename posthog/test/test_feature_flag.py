@@ -1266,7 +1266,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["3"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now())
-        cohort.insert_users_by_list(["example_id_1", "example_id_2"])
+        cohort.batch_insert_users_by_list(["example_id_1", "example_id_2"])
 
         feature_flag: FeatureFlag = self.create_feature_flag(
             filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]}

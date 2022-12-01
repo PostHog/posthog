@@ -90,9 +90,20 @@ HAVING sum(sign) > 0
 ORDER BY person_id
 """
 
-GET_STATIC_COHORTPEOPLE_BY_COHORT_ID = f"""
+GET_PERSON_STATIC_COHORT_BY_COHORT_ID = f"""
 SELECT person_id
 FROM {PERSON_STATIC_COHORT_TABLE}
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 GROUP BY person_id, cohort_id, team_id
 """
+
+GET_STATIC_COHORTPEOPLE_BY_COHORT_ID = f"""
+SELECT person_id
+FROM cohortpeople
+WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
+GROUP BY person_id, cohort_id, team_id
+HAVING sum(sign) > 0
+"""
+
+
+INSERT_COHORTPEOPLE_SQL = f"INSERT INTO cohortpeople (person_id, cohort_id, team_id, sign, version) VALUES"

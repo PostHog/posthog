@@ -1704,7 +1704,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"})
         cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True)
         flush_persons_and_events()
-        cohort.insert_users_by_list(["p1"])
+        cohort.batch_insert_users_by_list(["p1"])
 
         filter = Filter(
             data={"properties": {"type": "OR", "values": [{"key": "id", "value": cohort.pk, "type": "static-cohort"}]}}
@@ -1731,7 +1731,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             timestamp=datetime.now() - timedelta(days=2),
         )
         flush_persons_and_events()
-        cohort.insert_users_by_list(["p1", "p2"])
+        cohort.batch_insert_users_by_list(["p1", "p2"])
 
         filter = Filter(
             data={
@@ -2255,7 +2255,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         _create_person(team_id=self.team.pk, distinct_ids=["p5"], properties={"name": "test"})
         flush_persons_and_events()
-        cohort_static.insert_users_by_list(["p4", "p5"])
+        cohort_static.batch_insert_users_by_list(["p4", "p5"])
 
         other_cohort = Cohort.objects.create(
             team=self.team,

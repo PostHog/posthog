@@ -296,7 +296,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         Person.objects.create(team=team2, distinct_ids=["1"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
-        cohort.insert_users_by_list(["1", "123"])
+        cohort.batch_insert_users_by_list(["1", "123"])
         cohort = Cohort.objects.get()
         results = get_person_ids_by_cohort_id(self.team, cohort.id)
         self.assertEqual(len(results), 2)
@@ -304,7 +304,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         # test SQLi
         Person.objects.create(team_id=self.team.pk, distinct_ids=["'); truncate person_static_cohort; --"])
-        cohort.insert_users_by_list(["'); truncate person_static_cohort; --", "123"])
+        cohort.batch_insert_users_by_list(["'); truncate person_static_cohort; --", "123"])
         results = sync_execute(
             "select count(1) from person_static_cohort where team_id = %(team_id)s", {"team_id": self.team.pk}
         )[0][0]
@@ -316,7 +316,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(results), 3)
 
         # if we add people again, don't increase the number of people in cohort
-        cohort.insert_users_by_list(["123"])
+        cohort.batch_insert_users_by_list(["123"])
         results = get_person_ids_by_cohort_id(self.team, cohort.id)
         self.assertEqual(len(results), 3)
 
@@ -651,7 +651,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         Person.objects.create(team=team2, distinct_ids=["1"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now())
-        cohort.insert_users_by_list(["1", "123"])
+        cohort.batch_insert_users_by_list(["1", "123"])
 
         cohort.calculate_people_ch(pending_version=0)
 

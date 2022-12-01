@@ -2081,7 +2081,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             _create_event(team=self.team, event="paid", distinct_id="user_2", timestamp="2020-01-10T14:00:00Z")
 
             cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
-            cohort.insert_users_by_list(["user_2", "rando"])
+            cohort.batch_insert_users_by_list(["user_2", "rando"])
 
             filters = {
                 "events": [

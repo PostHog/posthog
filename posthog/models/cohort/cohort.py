@@ -1,16 +1,18 @@
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Literal, Optional, cast
 
 import structlog
 from django.conf import settings
 from django.db import connection, models
-from django.db.models import Case, Q, When
+from django.db.models import Case, Q, QuerySet, When
 from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
+from posthog.cache_utils import cache_for
 from posthog.constants import PropertyOperatorType
+from posthog.models.async_migration import is_async_migration_complete
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
 from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup
@@ -28,6 +30,11 @@ INSERT INTO "posthog_cohortpeople" ("person_id", "cohort_id", "version")
 {values_query}
 ON CONFLICT DO NOTHING
 """
+
+
+@cache_for(timedelta(minutes=1))
+def is_static_migrated():
+    return is_async_migration_complete("0008_static_cohort_to_cohortpeople")
 
 
 class Group:
@@ -272,13 +279,11 @@ class Cohort(models.Model):
             duration=(time.monotonic() - start_time),
         )
 
-    def insert_users_by_list(self, items: List[str]) -> None:
+    def batch_insert_users_by_list(self, items: List[str]) -> None:
         """
         Items can be distinct_id or email
-        Important! Does not insert into clickhouse
         """
         batchsize = 1000
-        from posthog.models.cohort.util import insert_static_cohort
 
         if TEST:
             from posthog.test.base import flush_persons_and_events
@@ -295,7 +300,8 @@ class Cohort(models.Model):
                     .filter(Q(persondistinctid__team_id=self.team_id, persondistinctid__distinct_id__in=batch))
                     .exclude(cohort__id=self.id)
                 )
-                insert_static_cohort([p for p in persons_query.values_list("uuid", flat=True)], self.pk, self.team)
+
+                self._insert_static_users(persons_query)
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
@@ -315,6 +321,14 @@ class Cohort(models.Model):
             self.errors_calculating = F("errors_calculating") + 1
             self.save()
             capture_exception(err)
+
+    def _insert_static_users(self, person_query_set: QuerySet):
+        from posthog.models.cohort.util import insert_static_cohort, insert_static_cohortpeople
+
+        if is_static_migrated():
+            insert_static_cohortpeople([p for p in person_query_set.values_list("uuid", flat=True)], self, self.team)
+        else:
+            insert_static_cohort([p for p in person_query_set.values_list("uuid", flat=True)], self.pk, self.team)
 
     def insert_users_list_by_uuid(self, items: List[str]) -> None:
         batchsize = 1000

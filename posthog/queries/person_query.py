@@ -3,8 +3,12 @@ from typing import Dict, List, Optional, Set, Tuple, Union
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID, GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
+from posthog.models.cohort import Cohort, is_static_migrated
+from posthog.models.cohort.sql import (
+    GET_COHORTPEOPLE_BY_COHORT_ID,
+    GET_PERSON_STATIC_COHORT_BY_COHORT_ID,
+    GET_STATIC_COHORTPEOPLE_BY_COHORT_ID,
+)
 from posthog.models.entity import Entity
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -187,9 +191,14 @@ class PersonQuery:
     def _get_cohort_query(self) -> Tuple[str, Dict]:
 
         if self._cohort:
-            cohort_table = (
-                GET_STATIC_COHORTPEOPLE_BY_COHORT_ID if self._cohort.is_static else GET_COHORTPEOPLE_BY_COHORT_ID
-            )
+            if self._cohort.is_static:
+                if is_static_migrated():
+                    cohort_table = GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
+                else:
+                    cohort_table = GET_PERSON_STATIC_COHORT_BY_COHORT_ID
+            else:
+                cohort_table = GET_COHORTPEOPLE_BY_COHORT_ID
+
             return (
                 f"""
             INNER JOIN (
