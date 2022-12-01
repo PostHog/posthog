@@ -688,6 +688,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([r["event"] for r in response["results"]], ["should_be_included"])
 
 
+# Copy paste of TestEvents testing everything with the live-events flag enabled
+# Eventually we'll remove the above class and only use this one once the flag is
+# gone and we enable the feature for everyone
 class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "event"
 
