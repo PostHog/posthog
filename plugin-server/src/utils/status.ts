@@ -49,7 +49,7 @@ export class Status implements StatusBlueprint {
                     level: 'debug',
                 },
             })
-            this.logger = pino({ level: 'debug' }, this.transport)
+            this.logger = pino({ level: process.env.NODE_ENV === 'test' ? 'silent' : 'debug' }, this.transport)
         }
 
         this.prompt = 'MAIN'
