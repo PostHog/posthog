@@ -24,14 +24,20 @@ let dlq: KafkaMessage[]
 let dlqConsumer: Consumer
 
 const topics = [
+    // NOTE: for introducing the ClickHouse inserter consumer, we are initially
+    // only enabling for App Metrics and Ingestion Warnings. We will enable for
+    // the rest assuming performance is good enough.
     'clickhouse_app_metrics',
-    'clickhouse_events_json',
-    'clickhouse_groups',
     'clickhouse_ingestion_warnings',
-    'clickhouse_person',
-    'clickhouse_person_distinct_id',
-    'plugin_log_entries',
-    'clickhouse_session_recording_events',
+
+    // TODO: enable these other topics assuming the above topics work well.
+    // 'clickhouse_events_json',
+    // 'clickhouse_groups',
+    // 'clickhouse_person',
+    // 'clickhouse_person_distinct_id',
+    // 'plugin_log_entries',
+    // 'clickhouse_session_recording_events',
+
     // NOTE: we do not check events_dead_letter_queue here, as this doesn't push
     // into a dead letter itself
     // 'events_dead_letter_queue',
