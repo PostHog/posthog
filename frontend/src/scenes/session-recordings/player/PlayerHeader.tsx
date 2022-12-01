@@ -3,13 +3,17 @@ import {
     SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton, LemonButtonWithPopup, LemonButtonWithSideAction } from 'lib/components/LemonButton'
 import { openPlayerAddToPlaylistDialog } from 'scenes/session-recordings/player/add-to-playlist/PlayerAddToPlaylist'
-import { IconLink, IconSave, IconWithCount } from 'lib/components/icons'
+import { IconLink, IconOpenInNew, IconPlus, IconSave, IconWithCount } from 'lib/components/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
+import { LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { Popup } from 'lib/components/Popup/Popup'
+import { useState } from 'react'
 
 export function PlayerHeader({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
+    const [showPlaylistPopup, setShowPlaylistPopup] = useState(false)
     const { recordingStartTime, sessionPlayerData } = useValues(logic)
     const { setPause } = useActions(logic)
     const playlists = sessionPlayerData.metadata.playlists ?? []
@@ -36,18 +40,41 @@ export function PlayerHeader({ sessionRecordingId, playerKey }: SessionRecording
             <LemonButton icon={<IconLink />} status="primary-alt" onClick={() => onShare()} tooltip="Share recording">
                 Share
             </LemonButton>
-            <LemonButton
-                status="primary-alt"
-                onClick={onAddToPlaylist}
-                icon={
-                    <IconWithCount count={playlists.length}>
-                        <IconSave />
-                    </IconWithCount>
+
+            <Popup
+                visible={showPlaylistPopup}
+                onClickOutside={() => setShowPlaylistPopup(false)}
+                overlay={
+                    <div className="space-y-1">
+                        <LemonInput type="search" placeholder="Search playlists..." />
+                        <LemonButton fullWidth icon={<IconPlus />}>
+                            New list
+                        </LemonButton>
+
+                        <div className="flex items-center gap-1">
+                            <LemonButton icon={<LemonCheckbox checked />}>My great playlist</LemonButton>
+
+                            <LemonButton icon={<IconOpenInNew />} />
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                            <LemonButton icon={<LemonCheckbox />}>Other playlist</LemonButton>
+
+                            <LemonButton icon={<IconOpenInNew />} />
+                        </div>
+                    </div>
                 }
-                tooltip="Save recording to static playlist"
             >
-                Save
-            </LemonButton>
+                <LemonButton
+                    status="primary-alt"
+                    data-attr="export-button"
+                    sideIcon={<IconPlus />}
+                    active={showPlaylistPopup}
+                    onClick={() => setShowPlaylistPopup(!showPlaylistPopup)}
+                >
+                    Add to list
+                </LemonButton>
+            </Popup>
         </div>
     )
 }
