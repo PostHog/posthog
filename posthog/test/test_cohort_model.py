@@ -10,6 +10,8 @@ from posthog.test.base import BaseTest
 
 
 class TestCohort(BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False  # So that each test gets a different team_id, ensuring separation of CH data
+
     def test_insert_by_distinct_id_or_email(self):
         Person.objects.create(team=self.team, distinct_ids=["000"])
         Person.objects.create(team=self.team, distinct_ids=["123"])
@@ -36,6 +38,11 @@ class TestCohort(BaseTest):
 
     @pytest.mark.ee
     def test_calculating_cohort_clickhouse(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="cohort1",
+        )
         person1 = Person.objects.create(
             distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"}
         )
@@ -43,12 +50,6 @@ class TestCohort(BaseTest):
         person3 = Person.objects.create(
             distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"}
         )
-        cohort = Cohort.objects.create(
-            team=self.team,
-            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
-            name="cohort1",
-        )
-
         cohort.calculate_people_ch(pending_version=0)
 
         uuids = [
