@@ -511,7 +511,11 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
         },
         inviteTeamMembersSuccess: () => {
             if (router.values.location.pathname.includes('/ingestion')) {
-                actions.setState({ ...values.currentState, hasInvitedMembers: true } as IngestionState)
+                actions.setState({
+                    ...values.currentState,
+                    isTechnicalUser: false,
+                    hasInvitedMembers: true,
+                } as IngestionState)
             }
         },
     })),

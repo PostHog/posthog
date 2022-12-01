@@ -110,6 +110,11 @@ def team(base_test_mixin_fixture):
     return base_test_mixin_fixture.team
 
 
+@pytest.fixture
+def user(base_test_mixin_fixture):
+    return base_test_mixin_fixture.user
+
+
 # :TRICKY: Integrate syrupy with unittest test cases
 @pytest.fixture
 def unittest_snapshot(request, snapshot):

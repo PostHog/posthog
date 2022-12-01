@@ -4,7 +4,6 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.demo.data_generator import DataGenerator
 from posthog.models import (
     Action,
     ActionStep,
@@ -15,6 +14,8 @@ from posthog.models import (
     Person,
     PropertyDefinition,
 )
+
+from .data_generator import DataGenerator
 
 SCREEN_OPTIONS = ("settings", "profile", "movies", "downloads")
 

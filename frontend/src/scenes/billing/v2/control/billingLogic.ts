@@ -218,17 +218,18 @@ export const billingLogic = kea<billingLogicType>([
     }),
 
     urlToAction(({ actions, values }) => ({
-        '*': () => {
-            if (values.isUserLocked && router.values.location.pathname !== '/organization/billing/locked') {
-                posthog.capture('billing locked screen shown')
-                router.actions.replace(urls.billingLocked())
-            }
-        },
+        // IMPORTANT: This needs to be above the "*" so it takes precedence
         '/organization/billing': (_params, _search, hash) => {
             if (hash.license) {
                 actions.setShowLicenseDirectInput(true)
                 actions.setActivateLicenseValues({ license: hash.license })
                 actions.submitActivateLicense()
+            }
+        },
+        '*': () => {
+            if (values.isUserLocked && router.values.location.pathname !== '/organization/billing/locked') {
+                posthog.capture('billing locked screen shown')
+                router.actions.replace(urls.billingLocked())
             }
         },
     })),

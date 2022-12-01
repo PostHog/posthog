@@ -29,7 +29,7 @@ from posthog.api import (
 )
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.cloud_utils import is_cloud
-from posthog.demo import demo_route
+from posthog.demo.legacy import demo_route
 from posthog.models import User
 
 from .utils import render_template
