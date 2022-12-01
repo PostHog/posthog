@@ -22,6 +22,15 @@ Default.args = {
     onClose: null as any,
 }
 
+export const Colors = (): JSX.Element => {
+    return (
+        <div className="flex flex-row space-x-2">
+            <LemonSnack>Default, primary-highlight</LemonSnack>
+            <LemonSnack color="primary-extralight">primary-extralight</LemonSnack>
+        </div>
+    )
+}
+
 export const ComplexContent = BasicTemplate.bind({})
 ComplexContent.args = {
     children: (

@@ -38,8 +38,6 @@ class Retention:
             settings={"timeout_before_checking_execution_speed": 60},
             filter=filter,
             query_type="retention_by_breakdown_values",
-            client_query_id=filter.client_query_id,
-            client_query_team_id=team.pk,
         )
 
         result_dict = {

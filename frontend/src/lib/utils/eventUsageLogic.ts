@@ -464,6 +464,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionSelectFrameworkType: (framework: Framework) => ({ framework }),
         reportIngestionHelpClicked: (type: string) => ({ type }),
         reportIngestionTryWithBookmarkletClicked: true,
+        reportIngestionTryWithDemoDataClicked: true,
         reportIngestionContinueWithoutVerifying: true,
         reportIngestionContinueWithoutBilling: true,
         reportIngestionBillingCancelled: true,
@@ -1114,6 +1115,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportIngestionTryWithBookmarkletClicked: () => {
             posthog.capture('ingestion try posthog with bookmarklet clicked')
+        },
+        reportIngestionTryWithDemoDataClicked: () => {
+            posthog.capture('ingestion try posthog with demo data clicked')
         },
         reportIngestionContinueWithoutVerifying: () => {
             posthog.capture('ingestion continue without verifying')

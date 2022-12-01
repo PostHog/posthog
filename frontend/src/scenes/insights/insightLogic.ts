@@ -443,7 +443,6 @@ export const insightLogic = kea<insightLogicType>([
             }),
             setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
             [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
-                // TODO when is this called without changes originating in this logic
                 const targetDashboards = (item?.dashboards || []).concat(extraDashboardIds || [])
                 const updateIsForThisDashboard =
                     item?.short_id === state.short_id &&
@@ -1080,7 +1079,6 @@ export const insightLogic = kea<insightLogicType>([
             if (values.timeout) {
                 clearTimeout(values.timeout)
             }
-            lemonToast.dismiss()
         },
     })),
 ])

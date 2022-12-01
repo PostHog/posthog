@@ -1,5 +1,5 @@
 import './Seekbar.scss'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
@@ -9,6 +9,9 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { eventsListLogic } from 'scenes/session-recordings/player/list/eventsListLogic'
 import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
 import { SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
+import { Timestamp } from './PlayerControllerTime'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { autoCaptureEventToDescription, capitalizeFirstLetter } from 'lib/utils'
 
 interface TickProps extends SessionRecordingPlayerLogicProps {
     event: RecordingEventType
@@ -17,43 +20,57 @@ interface TickProps extends SessionRecordingPlayerLogicProps {
     numEvents: number
 }
 
-function Tick({ event, sessionRecordingId, playerKey, status, numEvents, index }: TickProps): JSX.Element {
-    const [hovering, setHovering] = useState(false)
+function PlayerSeekbarTick({ event, sessionRecordingId, playerKey, status, numEvents, index }: TickProps): JSX.Element {
     const { handleTickClick } = useActions(seekbarLogic({ sessionRecordingId, playerKey }))
     const { reportRecordingPlayerSeekbarEventHovered } = useActions(eventUsageLogic)
     const zIndexOffset = !!status ? numEvents : 0 // Bump up the important events
+
+    const hoverTimeoutRef = useRef<any>(null)
+
+    useEffect(() => {
+        return () => {
+            clearTimeout(hoverTimeoutRef.current)
+        }
+    }, [])
+
     return (
         <div
-            className="tick-hover-box"
+            className={clsx('PlayerSeekbarTick', status === RowStatus.Match && 'PlayerSeekbarTick--match')}
+            title={event.event}
             style={{
-                left: `calc(${event.percentageOfRecordingDuration}% - 2px)`,
+                left: `${event.percentageOfRecordingDuration}%`,
                 zIndex: zIndexOffset + index,
             }}
             onClick={(e) => {
                 e.stopPropagation()
                 event.playerPosition && handleTickClick(event.playerPosition)
             }}
-            onMouseEnter={(e) => {
-                e.stopPropagation()
-                setHovering(true)
-                reportRecordingPlayerSeekbarEventHovered()
+            onMouseEnter={() => {
+                // We only want to report the event hover if the user is hovering over the tick for more than 1 second
+                hoverTimeoutRef.current = setTimeout(() => {
+                    reportRecordingPlayerSeekbarEventHovered()
+                }, 500)
             }}
-            onMouseLeave={(e) => {
-                e.stopPropagation()
-                setHovering(false)
+            onMouseLeave={() => {
+                clearTimeout(hoverTimeoutRef.current)
             }}
         >
-            <div className={clsx('tick-info', { flex: hovering })}>{event.event}</div>
-            <div className={clsx('tick-marker', status === RowStatus.Match ? 'bg-purple-dark' : 'bg-muted-alt')} />
-            <div
-                className={clsx(
-                    'tick-thumb',
-                    {
-                        'tick-thumb__big': hovering,
-                    },
-                    status === RowStatus.Match ? 'border-light bg-purple-dark' : 'border-muted-alt bg-white'
-                )}
-            />
+            <div className="PlayerSeekbarTick__info">
+                <PropertyKeyInfo
+                    className="font-medium"
+                    disableIcon
+                    disablePopover
+                    ellipsis={true}
+                    value={capitalizeFirstLetter(autoCaptureEventToDescription(event))}
+                />
+                {event.event === '$autocapture' ? <span className="opacity-75 ml-2">(Autocapture)</span> : null}
+                {event.event === '$pageview' ? (
+                    <span className="ml-2 opacity-75">
+                        {event.properties.$pathname || event.properties.$current_url}
+                    </span>
+                ) : null}
+            </div>
+            <div className="PlayerSeekbarTick__line" />
         </div>
     )
 }
@@ -76,38 +93,54 @@ export function Seekbar({ sessionRecordingId, playerKey }: SessionRecordingPlaye
     }, [sliderRef.current, thumbRef.current, sessionRecordingId])
 
     return (
-        <div className="rrweb-controller-slider">
-            <div className="slider" ref={sliderRef} onMouseDown={handleDown} onTouchStart={handleDown}>
-                <div className="inactivity-bar">
-                    {sessionPlayerData?.metadata?.segments?.map((segment: RecordingSegment) => (
-                        <div
-                            key={`${segment.windowId}-${segment.startTimeEpochMs}`}
-                            className={clsx('activity-section', !segment.isActive && 'inactive-section')}
-                            style={{
-                                width: `${
-                                    (100 * segment.durationMs) / sessionPlayerData.metadata.recordingDurationMs
-                                }%`,
-                            }}
+        <div className="flex items-center h-8" data-attr="rrweb-controller">
+            <Timestamp sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+            <div className="PlayerSeekbar">
+                <div
+                    className="PlayerSeekbar__slider"
+                    ref={sliderRef}
+                    onMouseDown={handleDown}
+                    onTouchStart={handleDown}
+                >
+                    <div className="PlayerSeekbar__segments">
+                        {sessionPlayerData?.metadata?.segments?.map((segment: RecordingSegment) => (
+                            <div
+                                key={`${segment.windowId}-${segment.startTimeEpochMs}`}
+                                className={clsx(
+                                    'PlayerSeekbar__segments__item',
+                                    segment.isActive && 'PlayerSeekbar__segments__item--active'
+                                )}
+                                title={!segment.isActive ? 'Inactive period' : 'Active period'}
+                                style={{
+                                    width: `${
+                                        (100 * segment.durationMs) / sessionPlayerData.metadata.recordingDurationMs
+                                    }%`,
+                                }}
+                            />
+                        ))}
+                    </div>
+
+                    <div className="PlayerSeekbar__currentbar" style={{ width: `${Math.max(thumbLeftPos, 0)}px` }} />
+                    <div className="PlayerSeekbar__bufferbar" style={{ width: `${bufferPercent}%` }} />
+                    <div
+                        className="PlayerSeekbar__thumb"
+                        ref={thumbRef}
+                        style={{ transform: `translateX(${thumbLeftPos}px)` }}
+                    />
+                </div>
+                <div className="PlayerSeekbar__ticks">
+                    {eventListData.map((event: RecordingEventType, i) => (
+                        <PlayerSeekbarTick
+                            key={event.id}
+                            index={i}
+                            event={event}
+                            sessionRecordingId={sessionRecordingId}
+                            playerKey={playerKey}
+                            status={event.level as RowStatus}
+                            numEvents={eventListData.length}
                         />
                     ))}
                 </div>
-                <div className="slider-bar" />
-                <div className="thumb" ref={thumbRef} style={{ transform: `translateX(${thumbLeftPos}px)` }} />
-                <div className="current-bar" style={{ width: `${Math.max(thumbLeftPos, 0)}px` }} />
-                <div className="buffer-bar" style={{ width: `calc(${bufferPercent}% - 2px)` }} />
-            </div>
-            <div className="ticks">
-                {eventListData.map((event: RecordingEventType, i) => (
-                    <Tick
-                        key={event.id}
-                        index={i}
-                        event={event}
-                        sessionRecordingId={sessionRecordingId}
-                        playerKey={playerKey}
-                        status={event.level as RowStatus}
-                        numEvents={eventListData.length}
-                    />
-                ))}
             </div>
         </div>
     )

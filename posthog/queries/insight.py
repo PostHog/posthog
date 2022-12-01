@@ -13,8 +13,6 @@ def insight_sync_execute(
     query_type: str,
     filter: Optional["FilterType"] = None,
     settings=None,
-    client_query_id: Optional[str] = None,
-    client_query_team_id: Optional[int] = None,
 ):
     tag_queries(
         query_type=query_type,
@@ -25,6 +23,4 @@ def insight_sync_execute(
     if filter is not None:
         tag_queries(filter=filter.to_dict(), **filter.query_tags())
 
-    return sync_execute(
-        query, args=args, settings=settings, client_query_id=client_query_id, client_query_team_id=client_query_team_id
-    )
+    return sync_execute(query, args=args, settings=settings)

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useInterval } from 'lib/hooks/useInterval'
 import { CardContainer } from '../CardContainer'
-import { ingestionLogicV2 } from '../ingestionLogic'
+import { ingestionLogicV2 } from '../ingestionLogicV2'
 import { teamLogic } from 'scenes/teamLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { LemonButton } from 'lib/components/LemonButton'
