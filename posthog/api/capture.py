@@ -50,6 +50,10 @@ def parse_kafka_event_data(
     token: str,
 ) -> Dict:
     logger.debug("parse_kafka_event_data", token=token, team_id=team_id)
+    properties = json.dumps(data["properties"])
+    event = data["event"]
+    del data["event"]
+    del data["properties"]
     return {
         "uuid": str(event_uuid),
         "distinct_id": safe_clickhouse_string(distinct_id),
@@ -60,8 +64,8 @@ def parse_kafka_event_data(
         "now": now.isoformat(),
         "sent_at": sent_at.isoformat() if sent_at else "",
         "token": token,
-        "event": data["event"],
-        "properties": json.dumps(data["properties"])
+        "event": event,
+        "properties": properties,
     }
 
 

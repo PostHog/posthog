@@ -89,9 +89,11 @@ export function normalizeEvent(event: PluginEvent): PluginEvent {
 }
 
 export function formPipelineEvent(message: KafkaMessage): PipelineEvent {
-    // TODO: inefficient to do this twice?
-    const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
-    const combinedEvent = { ...JSON.parse(dataStr), ...rawEvent }
+    // We used to pull properties from within the `data` field, but now pass it at the top level
+    // However, we need to keep compatibility with messages already in Kafka during the transition
+    // so for now we process both `data` and `properties`
+    const { properties, data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
+    const combinedEvent = { properties: JSON.parse(properties), ...JSON.parse(dataStr), ...rawEvent }
     const event: PipelineEvent = normalizeEvent({
         ...combinedEvent,
         site_url: combinedEvent.site_url || null,
