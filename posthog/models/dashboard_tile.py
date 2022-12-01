@@ -4,11 +4,11 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q, QuerySet, UniqueConstraint
 from django.db.models.signals import post_save
-from django.dispatch import receiver
 from django.utils import timezone
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.insight import Insight, generate_insight_cache_key
+from posthog.models.signals import mutable_receiver
 from posthog.models.tagged_item import build_check
 
 
@@ -100,7 +100,7 @@ class DashboardTile(models.Model):
         )
 
 
-@receiver(post_save, sender=Insight)
+@mutable_receiver(post_save, sender=Insight)
 def on_insight_saved(sender, instance: Insight, **kwargs):
     update_fields = kwargs.get("update_fields")
     if update_fields in [frozenset({"filters_hash"}), frozenset({"last_refresh"})]:
@@ -111,7 +111,7 @@ def on_insight_saved(sender, instance: Insight, **kwargs):
     update_filters_hashes(tile_update_candidates)
 
 
-@receiver(post_save, sender=Dashboard)
+@mutable_receiver(post_save, sender=Dashboard)
 def on_dashboard_saved(sender, instance: Dashboard, **kwargs):
     tile_update_candidates = DashboardTile.objects.select_related("insight", "dashboard").filter(dashboard=instance)
     update_filters_hashes(tile_update_candidates)

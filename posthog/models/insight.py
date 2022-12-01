@@ -4,7 +4,6 @@ import structlog
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models.signals import pre_save
-from django.dispatch import receiver
 from django.utils import timezone
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
@@ -12,6 +11,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
+from posthog.models.signals import mutable_receiver
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 
 logger = structlog.get_logger(__name__)
@@ -160,7 +160,7 @@ class InsightViewed(models.Model):
     last_viewed_at: models.DateTimeField = models.DateTimeField()
 
 
-@receiver(pre_save, sender=Insight)
+@mutable_receiver(pre_save, sender=Insight)
 def insight_saving(sender, instance: Insight, **kwargs):
     update_fields = kwargs.get("update_fields")
     if update_fields in [frozenset({"filters_hash"}), frozenset({"last_refresh"}), frozenset({"filters"})]:
