@@ -48,14 +48,14 @@ class TestCaptureAPI(APIBaseTest):
         self.assertEqual(kafka_produce_call2["topic"], KAFKA_EVENTS_PLUGIN_INGESTION)
 
         # Make sure we're producing the right data
-        event1_data = json.loads(kafka_produce_call1["data"]["data"])
-        event2_data = json.loads(kafka_produce_call2["data"]["data"])
+        properties1 = json.loads(kafka_produce_call1["data"]["properties"])
+        properties2 = json.loads(kafka_produce_call2["data"]["properties"])
 
-        self.assertEqual(event1_data["event"], "event1")
-        self.assertEqual(event2_data["event"], "event2")
+        self.assertEqual(kafka_produce_call1["event"], "event1")
+        self.assertEqual(kafka_produce_call2["event"], "event2")
 
-        self.assertEqual(event1_data["properties"]["distinct_id"], "id1")
-        self.assertEqual(event2_data["properties"]["distinct_id"], "id2")
+        self.assertEqual(properties1["distinct_id"], "id1")
+        self.assertEqual(properties2["distinct_id"], "id2")
 
         # Make sure we're producing data correctly in the way the plugin server expects
         self.assertEquals(type(kafka_produce_call1["data"]["distinct_id"]), str)
@@ -73,8 +73,8 @@ class TestCaptureAPI(APIBaseTest):
         self.assertEquals(type(kafka_produce_call1["data"]["sent_at"]), str)
         self.assertEquals(type(kafka_produce_call2["data"]["sent_at"]), str)
 
-        self.assertEquals(type(event1_data["properties"]), dict)
-        self.assertEquals(type(event2_data["properties"]), dict)
+        self.assertEquals(type(properties1), dict)
+        self.assertEquals(type(properties2), dict)
 
         self.assertEquals(type(kafka_produce_call1["data"]["uuid"]), str)
         self.assertEquals(type(kafka_produce_call2["data"]["uuid"]), str)
@@ -153,9 +153,8 @@ class TestCaptureAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         kafka_produce_call = kafka_produce.call_args_list[0].kwargs
-        event_data = json.loads(kafka_produce_call["data"]["data"])
 
-        self.assertEqual(event_data["event"], "event1")
+        self.assertEqual(kafka_produce_call["data"]["event"], "event1")
         self.assertEqual(kafka_produce_call["data"]["uuid"], "017d37c1-f285-0000-0e8b-e02d131925dc")
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
