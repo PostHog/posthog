@@ -21,7 +21,7 @@ jobs:
               uses: actions/checkout@v3
 
             - name: Update git sha
-              run: echo "GIT_SHA = '${GITHUB_SHA}'" > posthog/gitsha.py
+              run: echo "GIT_SHA = '${GITHUB_SHA}'" >posthog/gitsha.py
 
             - name: Set up Depot CLI
               uses: depot/setup-action@v1
@@ -38,7 +38,6 @@ jobs:
               with:
                   context: .
                   push: true
-                  platforms: linux/amd64,linux/arm64
                   tags: posthog/posthog:latest
                   buildx-fallback: true # if Depot builder is unavailable, fall back to local buildx
 
