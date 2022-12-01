@@ -36,6 +36,12 @@
                 height: 0px;
             }
         }
+
+        .LemonModal & {
+            .PlayerMeta__top {
+                padding-right: 3.5rem;
+            }
+        }
     }
 
     &--fullscreen {
@@ -71,12 +77,6 @@
             &--exit-active {
                 transform: translateX(-100%);
             }
-        }
-    }
-
-    .LemonModal & {
-        .PlayerMeta__expander {
-            margin-right: 3rem;
         }
     }
 
