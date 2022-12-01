@@ -49,7 +49,7 @@ def sync_sharing_configuration(sender, instance: SharingConfiguration, **kwargs)
 
     if instance.insight_id is not None:
         update_cache_item_task.s(instance.team_id, insight_id=instance.insight_id)
-    elif instance.dashboaard_id is not None:
+    elif instance.dashboard_id is not None:
         for tile in instance.dashboard.tiles.all():
             update_cache_item_task.s(instance.team_id, dashboard_tile_id=tile.pk)
 
