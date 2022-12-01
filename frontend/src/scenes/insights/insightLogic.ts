@@ -346,6 +346,7 @@ export const insightLogic = kea<insightLogicType>([
                         }
                         response = await getJSONOrThrow(fetchResponse)
                     } catch (e: any) {
+                        let cancelled = false
                         if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
                             actions.abortQuery({
                                 queryId,
@@ -353,6 +354,7 @@ export const insightLogic = kea<insightLogicType>([
                                 scene: scene,
                                 exception: e,
                             })
+                            cancelled = true
                         }
                         breakpoint()
                         cache.abortController = null
@@ -376,7 +378,10 @@ export const insightLogic = kea<insightLogicType>([
                                 e.message
                             )
                         }
-                        throw e
+
+                        if (!cancelled) {
+                            throw e
+                        }
                     }
 
                     breakpoint()

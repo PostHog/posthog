@@ -295,6 +295,7 @@ export const sceneLogic = kea<sceneLogicType>({
                 return
             } else {
                 const scenesThatMightAbortClickHouseQueries = [Scene.Insight, Scene.Dashboard]
+                console.log('Loading scene', values.scene, scene, params)
                 if (
                     values.scene &&
                     scenesThatMightAbortClickHouseQueries.includes(values.scene) &&
