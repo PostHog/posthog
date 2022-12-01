@@ -1,8 +1,9 @@
-name: Async Migrations CI
+name: Async migrations CI
 
 on:
     pull_request:
         paths:
+            - .github/workflows/ci-async-migrations.yml
             - 'posthog/async_migrations/**'
             - 'ee/clickhouse/sql/**'
             - 'ee/clickhouse/migrations/**'
@@ -20,7 +21,7 @@ env:
 
 jobs:
     async-migrations:
-        name: Async Migrations tests
+        name: Async migrations tests
         runs-on: ubuntu-latest
         steps:
             - name: 'Checkout repo'
@@ -80,4 +81,4 @@ jobs:
             - name: Run async migrations tests
               shell: bash
               run: |
-                  pytest -m "async_migrations" posthog/ --cov  --cov-report=xml:coverage-postgres.xml
+                  pytest -m "async_migrations"
