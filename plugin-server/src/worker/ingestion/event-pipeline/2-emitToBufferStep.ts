@@ -114,7 +114,7 @@ export function shouldSendEventToBuffer(
             isMergingAliasEvent,
             personExists: !!person,
         })
-        const reason = conversionBufferDisabled ? 'disabled' : person ? 'person' : 'identify-event'
+        const reason = conversionBufferDisabled ? 'disabled' : person ? 'personExists' : 'isidentify'
         hub.statsd?.increment('conversion_events_no_buffer', { teamId: event.team_id.toString(), reason: reason })
         return false
     }
@@ -124,7 +124,7 @@ export function shouldSendEventToBuffer(
     if (shouldBufferAnonymousEvents) {
         hub.statsd?.increment('conversion_events_buffer_size', {
             teamId: event.team_id.toString(),
-            reason: 'anon-to-buffer',
+            reason: 'shouldBufferAnonymous',
         })
         return true
     }
@@ -132,7 +132,10 @@ export function shouldSendEventToBuffer(
     // KLUDGE: This definition is not currently not encompassing all anonymous events
     const isAnonymousEvent = event.distinct_id === eventProperties['$device_id']
     if (isAnonymousEvent) {
-        hub.statsd?.increment('conversion_events_no_buffer', { teamId: event.team_id.toString(), reason: 'anon-event' })
+        hub.statsd?.increment('conversion_events_no_buffer', {
+            teamId: event.team_id.toString(),
+            reason: 'isAnonymous',
+        })
         return false
     }
 
@@ -146,7 +149,7 @@ export function shouldSendEventToBuffer(
     if (isMobileLibrary) {
         hub.statsd?.increment('conversion_events_no_buffer', {
             teamId: event.team_id.toString(),
-            reason: 'mobile-library',
+            reason: 'isMobile',
         })
         return false
     }
