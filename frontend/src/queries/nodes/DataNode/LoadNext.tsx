@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { dataNodeLogic } from '~/queries/nodes/dataNodeLogic'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 
 export function LoadNext(): JSX.Element {

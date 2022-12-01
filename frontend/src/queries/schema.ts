@@ -97,6 +97,8 @@ export interface DataTableNode extends Node {
     showExport?: boolean
     /** Show a reload button */
     showReload?: boolean
+    /** Show a button to configure the table's columns */
+    showColumnConfigurator?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
 }

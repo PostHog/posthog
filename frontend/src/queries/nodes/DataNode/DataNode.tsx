@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { DataNode as DataNodeType } from '~/queries/schema'
 import { useValues } from 'kea'
-import { dataNodeLogic } from '~/queries/nodes/dataNodeLogic'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 
 interface DataNodeProps {

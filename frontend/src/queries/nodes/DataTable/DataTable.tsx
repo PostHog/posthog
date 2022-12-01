@@ -1,7 +1,7 @@
 import { DataTableNode, DataTableStringColumn, EventsNode } from '~/queries/schema'
 import { useState } from 'react'
 import { useValues, BindLogic } from 'kea'
-import { dataNodeLogic } from '~/queries/nodes/dataNodeLogic'
+import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import { EventType } from '~/types'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
@@ -9,11 +9,13 @@ import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFi
 import { EventDetails } from 'scenes/events'
 import { EventActions } from '~/queries/nodes/DataTable/EventActions'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
-import { Reload } from '~/queries/nodes/DataTable/Reload'
-import { LoadNext } from '~/queries/nodes/DataTable/LoadNext'
+import { Reload } from '~/queries/nodes/DataNode/Reload'
+import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
 import { renderTitle } from '~/queries/nodes/DataTable/renderTitle'
 import { renderColumn } from '~/queries/nodes/DataTable/renderColumn'
-import { AutoLoad } from '~/queries/nodes/DataTable/AutoLoad'
+import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
+import { dataTableLogic, DataTableLogicProps } from '~/queries/nodes/DataTable/dataTableLogic'
+import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator'
 
 interface DataTableProps {
     query: DataTableNode
@@ -31,21 +33,23 @@ export const defaultDataTableStringColumns: DataTableStringColumn[] = [
 let uniqueNode = 0
 
 export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
-    const columns = query.columns ?? defaultDataTableStringColumns
     const showPropertyFilter = query.showPropertyFilter ?? true
     const showEventFilter = query.showEventFilter ?? true
     const showActions = query.showActions ?? true
     const showExport = query.showExport ?? true
     const showReload = query.showReload ?? true
+    const showColumnConfigurator = query.showColumnConfigurator ?? true
     const expandable = query.expandable ?? true
 
     const [id] = useState(() => uniqueNode++)
-    const dataNodeLogicProps = { query: query.source, key: `DataTable.${id}` }
-    const logic = dataNodeLogic(dataNodeLogicProps)
-    const { response, responseLoading, canLoadNextData, canLoadNewData, nextDataLoading, newDataLoading } =
-        useValues(logic)
 
-    const dataSource = (response as null | EventsNode['response'])?.results ?? []
+    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key: `DataTable.${id}` }
+    const { response, responseLoading, canLoadNextData, canLoadNewData, nextDataLoading, newDataLoading } = useValues(
+        dataNodeLogic(dataNodeLogicProps)
+    )
+
+    const dataTableLogicProps: DataTableLogicProps = { query: query, key: `DataTable.${id}` }
+    const { columns } = useValues(dataTableLogic(dataTableLogicProps))
 
     const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = [
         ...columns.map((key) => ({
@@ -67,41 +71,45 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
               ]
             : []),
     ]
+    const dataSource = (response as null | EventsNode['response'])?.results ?? []
 
     return (
-        <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-            {(showPropertyFilter || showEventFilter || showExport) && (
-                <div className="flex space-x-4 mb-4">
-                    {showReload && (canLoadNewData ? <AutoLoad /> : <Reload />)}
-                    {showEventFilter && (
-                        <EventName query={query.source} setQuery={(source) => setQuery?.({ ...query, source })} />
-                    )}
-                    {showPropertyFilter && (
-                        <EventPropertyFilters
-                            query={query.source}
-                            setQuery={(source) => setQuery?.({ ...query, source })}
-                        />
-                    )}
-                    {showExport && <DataTableExport query={query} setQuery={setQuery} />}
-                </div>
-            )}
-            <LemonTable
-                loading={responseLoading && !nextDataLoading && !newDataLoading}
-                columns={lemonColumns}
-                dataSource={dataSource}
-                expandable={
-                    expandable
-                        ? {
-                              expandedRowRender: function renderExpand(event) {
-                                  return event && <EventDetails event={event} />
-                              },
-                              rowExpandable: () => true,
-                              noIndent: true,
-                          }
-                        : undefined
-                }
-            />
-            {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && <LoadNext />}
+        <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
+            <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+                {(showPropertyFilter || showEventFilter || showExport) && (
+                    <div className="flex space-x-4 mb-4">
+                        {showReload && (canLoadNewData ? <AutoLoad /> : <Reload />)}
+                        {showEventFilter && (
+                            <EventName query={query.source} setQuery={(source) => setQuery?.({ ...query, source })} />
+                        )}
+                        {showPropertyFilter && (
+                            <EventPropertyFilters
+                                query={query.source}
+                                setQuery={(source) => setQuery?.({ ...query, source })}
+                            />
+                        )}
+                        {showExport && <DataTableExport query={query} setQuery={setQuery} />}
+                        {showColumnConfigurator && <ColumnConfigurator />}
+                    </div>
+                )}
+                <LemonTable
+                    loading={responseLoading && !nextDataLoading && !newDataLoading}
+                    columns={lemonColumns}
+                    dataSource={dataSource}
+                    expandable={
+                        expandable
+                            ? {
+                                  expandedRowRender: function renderExpand(event) {
+                                      return event && <EventDetails event={event} />
+                                  },
+                                  rowExpandable: () => true,
+                                  noIndent: true,
+                              }
+                            : undefined
+                    }
+                />
+                {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && <LoadNext />}
+            </BindLogic>
         </BindLogic>
     )
 }

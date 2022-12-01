@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { dataNodeLogic } from '~/queries/nodes/dataNodeLogic'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { useEffect } from 'react'
 
