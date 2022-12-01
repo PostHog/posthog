@@ -232,6 +232,24 @@ class Cohort(models.Model):
 
             raise err
 
+    def update_static_count(self):
+        if not self.is_static:
+            return
+        from posthog.models.cohort.util import get_cohort_size
+
+        try:
+            count = get_cohort_size(self.pk, self.team.pk)
+            self.count = count
+            self.last_calculation = timezone.now()
+            self.errors_calculating = 0
+            self.save()
+        except Exception:
+            self.errors_calculating = F("errors_calculating") + 1
+            raise
+        finally:
+            self.is_calculating = False
+            self.save()
+
     def calculate_people_ch(self, pending_version):
         from posthog.models.cohort.util import recalculate_cohortpeople
         from posthog.tasks.cohorts_in_feature_flag import get_cohort_ids_in_feature_flags

@@ -9,7 +9,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from posthog.models import Cohort
-from posthog.models.cohort import get_and_update_pending_version
+from posthog.models.cohort import get_and_update_pending_version, is_static_migrated
 
 logger = structlog.get_logger(__name__)
 
@@ -32,6 +32,28 @@ def calculate_cohorts() -> None:
 
         cohort = Cohort.objects.filter(pk=cohort.pk).get()
         update_cohort(cohort)
+
+    # update static cohort counts. Do this periodically to keep counts aligned with actual number of rows in table
+    if is_static_migrated():
+        for cohort in (
+            Cohort.objects.filter(
+                deleted=False,
+                is_calculating=False,
+                last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES),
+                errors_calculating__lte=20,
+            )
+            .exclude(is_static=False)
+            .order_by(F("last_calculation").asc(nulls_first=True))[
+                0 : settings.CALCULATE_X_COHORTS_PARALLEL * 2
+            ]  # handle more static updates at once
+        ):
+            update_cohort_count.delay(cohort.pk)
+
+
+@shared_task(ignore_result=True, max_retries=2)
+def update_cohort_count(cohort_id: int) -> None:
+    cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+    cohort.update_static_count()
 
 
 def update_cohort(cohort: Cohort) -> None:
