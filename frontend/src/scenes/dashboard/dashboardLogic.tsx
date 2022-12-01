@@ -72,10 +72,10 @@ interface InsightCacheReloadProps {
 }
 
 /**
-  * :TRICKY: Changes in dashboards don't automatically propagate to already mounted insights!
-  * This function updates insightLogics individually.
-  *
-  * Call this whenever updating already rendered tiles within dashboardLogic
+ * :TRICKY: Changes in dashboards don't automatically propagate to already mounted insights!
+ * This function updates insightLogics individually.
+ *
+ * Call this whenever updating already rendered tiles within dashboardLogic
  */
 function updateExistingInsightState({ cachedInsight, dashboardId, refreshedInsight }: InsightCacheReloadProps): void {
     if (refreshedInsight.filters.insight) {
