@@ -97,7 +97,7 @@ export function PlaylistPopup(props: SessionRecordingPlayerLogicProps): JSX.Elem
                 onClick={() => setShowPlaylistPopup(!showPlaylistPopup)}
                 size={isFullScreen ? 'small' : 'medium'}
             >
-                Add to list
+                Pin to list
             </LemonButton>
         </Popup>
     )

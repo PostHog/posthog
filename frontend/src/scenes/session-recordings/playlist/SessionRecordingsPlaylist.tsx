@@ -17,7 +17,7 @@ import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { IconChevronLeft, IconChevronRight, IconFilter, IconWithCount } from 'lib/components/icons'
+import { IconChevronLeft, IconChevronRight, IconFilter, IconUnfoldLess, IconWithCount } from 'lib/components/icons'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import clsx from 'clsx'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
@@ -323,7 +323,7 @@ export function SessionRecordingsPlaylist({
                                 data-attr="save-recordings-playlist-button"
                                 tooltip="Save the current filters as a playlist that you can come back to."
                             >
-                                Save as playlist
+                                {logicKey === 'recents' ? 'Save as playlist' : 'Save changes'}
                             </LemonButton>
                         </>
                     )}
@@ -369,10 +369,56 @@ export function SessionRecordingsPlaylist({
                             showPropertyFilters={!personUUID}
                         />
                     ) : null}
+
                     <div className="w-full overflow-hidden border rounded">
                         <div className="relative flex justify-between items-center bg-mid py-3 px-4 border-b">
                             <span className="font-bold uppercase text-xs my-1 tracking-wide">
-                                {logicKey === 'recents' ? 'Recent recordings' : 'Recordings'}
+                                {'Pinned recordings'}
+                            </span>
+                            {paginationControls}
+
+                            <LemonTableLoader loading={sessionRecordingsResponseLoading} />
+                        </div>
+
+                        {!sessionRecordings.length ? (
+                            sessionRecordingsResponseLoading ? (
+                                <>
+                                    {range(PLAYLIST_LIMIT).map((i) => (
+                                        <div key={i} className="p-4 space-y-2 border-b">
+                                            <LemonSkeleton className="w-1/2" />
+                                            <LemonSkeleton className="w-1/3" />
+                                        </div>
+                                    ))}
+                                </>
+                            ) : (
+                                <p className="text-muted-alt m-4">No matching recordings found</p>
+                            )
+                        ) : (
+                            <ul className={clsx(sessionRecordingsResponseLoading ? 'opacity-50' : '')}>
+                                {sessionRecordings.slice(0, 5).map((rec, i) => (
+                                    <Fragment key={rec.id}>
+                                        {i > 0 && <div className="border-t" />}
+                                        <SessionRecordingPlaylistItem
+                                            recording={rec}
+                                            recordingProperties={sessionRecordingIdToProperties[rec.id]}
+                                            recordingPropertiesLoading={sessionRecordingsPropertiesResponseLoading}
+                                            onClick={() => onRecordingClick(rec)}
+                                            onPropertyClick={onPropertyClick}
+                                            isActive={activeSessionRecording?.id === rec.id}
+                                        />
+                                    </Fragment>
+                                ))}
+                            </ul>
+                        )}
+                    </div>
+
+                    <div className="w-full overflow-hidden border rounded">
+                        <div className="relative flex justify-between items-center bg-mid py-3 px-4 border-b">
+                            <span className="flex items-center gap-2">
+                                <LemonButton status="stealth" icon={<IconUnfoldLess />} size="small" />
+                                <span className="font-bold uppercase text-xs my-1 tracking-wide">
+                                    {'Other recordings'}
+                                </span>
                             </span>
                             {paginationControls}
 

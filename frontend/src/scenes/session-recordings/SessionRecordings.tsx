@@ -20,7 +20,6 @@ import { openPlayerNewPlaylistDialog } from 'scenes/session-recordings/player/ne
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { tab, newPlaylistLoading } = useValues(sessionRecordingsLogic)
-    const { saveNewPlaylist } = useActions(sessionRecordingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
 
     return (
@@ -29,7 +28,7 @@ export function SessionsRecordings(): JSX.Element {
                 title={<div>Session Recordings</div>}
                 buttons={
                     <>
-                        {!recordingsDisabled && (
+                        {tab === SessionRecordingsTabs.Recent && !recordingsDisabled && (
                             <LemonButton
                                 type="secondary"
                                 icon={<IconSettings />}
@@ -39,50 +38,8 @@ export function SessionsRecordings(): JSX.Element {
                             </LemonButton>
                         )}
 
-                        <Tooltip
-                            placement="topRight"
-                            title={
-                                tab === SessionRecordingsTabs.Recent
-                                    ? 'Save the currently filters as a dynamic playlist'
-                                    : 'Create a new playlist'
-                            }
-                        >
-                            {tab === SessionRecordingsTabs.Recent ? (
-                                <LemonButtonWithSideAction
-                                    type="primary"
-                                    onClick={() => {
-                                        saveNewPlaylist()
-                                    }}
-                                    loading={newPlaylistLoading}
-                                    data-attr="save-recordings-playlist-button"
-                                    sideAction={{
-                                        popup: {
-                                            placement: 'bottom-end',
-                                            className: 'save-recordings-playlist-overlay',
-                                            actionable: true,
-                                            overlay: (
-                                                <LemonButton
-                                                    status="stealth"
-                                                    onClick={() => {
-                                                        openPlayerNewPlaylistDialog({
-                                                            sessionRecordingId: 'global',
-                                                            playerKey: 'recents',
-                                                            defaultStatic: true,
-                                                        })
-                                                    }}
-                                                    data-attr="create-new-playlist-button"
-                                                    fullWidth
-                                                >
-                                                    Create new static playlist
-                                                </LemonButton>
-                                            ),
-                                        },
-                                        'data-attr': 'saved-recordings-playlists-new-playlist-dropdown',
-                                    }}
-                                >
-                                    Save as dynamic playlist
-                                </LemonButtonWithSideAction>
-                            ) : (
+                        {tab === SessionRecordingsTabs.Playlists && (
+                            <Tooltip placement="topRight" title={'Create a new playlist'}>
                                 <LemonButton
                                     type="primary"
                                     onClick={() => {
@@ -96,8 +53,8 @@ export function SessionsRecordings(): JSX.Element {
                                 >
                                     New playlist
                                 </LemonButton>
-                            )}
-                        </Tooltip>
+                            </Tooltip>
+                        )}
                     </>
                 }
             />
