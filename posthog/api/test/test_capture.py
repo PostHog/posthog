@@ -82,6 +82,8 @@ class TestCapture(BaseTest):
             "team_id": args["team_id"],
             "now": args["now"],
             "sent_at": args["sent_at"],
+            "properties": json.loads(args["properties"]),
+            "event": args["event"],
         }
 
     def _send_session_recording_event(
@@ -135,8 +137,10 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": data,
+                "data": {},
                 "team_id": self.team.pk,
+                "event": "$autocapture",
+                "properties": data["properties"],
             },
             self._to_arguments(kafka_produce),
         )
@@ -182,8 +186,10 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "1.2.3.4",
                 "site_url": "http://testserver",
-                "data": data,
+                "data": {},
                 "team_id": self.team.pk,
+                "event": "some_event",
+                "properties": {"distinct_id": 2, "token": self.team.api_token},
             },
             self._to_arguments(kafka_produce),
         )
@@ -202,8 +208,10 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "2345:0425:2CA1:0000:0000:0567:5673:23b5",
                 "site_url": "http://testserver",
-                "data": data,
+                "data": {},
                 "team_id": self.team.pk,
+                "event": "some_event",
+                "properties": {"distinct_id": 2, "token": self.team.api_token},
             },
             self._to_arguments(kafka_produce),
         )
@@ -223,8 +231,10 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "1.2.3.4",
                 "site_url": "http://testserver",
-                "data": data,
+                "data": {},
                 "team_id": self.team.pk,
+                "event": "some_event",
+                "properties": {"distinct_id": 2, "token": self.team.api_token},
             },
             self._to_arguments(kafka_produce),
         )
@@ -240,7 +250,15 @@ class TestCapture(BaseTest):
             "/e/?data=%s" % quote(self._to_json(data)), HTTP_X_FORWARDED_FOR="1.2.3.4", HTTP_ORIGIN="https://localhost"
         )
         self.assertDictContainsSubset(
-            {"distinct_id": "2", "ip": None, "site_url": "http://testserver", "data": data, "team_id": self.team.pk},
+            {
+                "distinct_id": "2",
+                "ip": None,
+                "site_url": "http://testserver",
+                "data": {},
+                "team_id": self.team.pk,
+                "event": "some_event",
+                "properties": {"distinct_id": 2, "token": self.team.api_token},
+            },
             self._to_arguments(kafka_produce),
         )
 
@@ -319,8 +337,13 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": data,
+                "data": {
+                    "api_key": key_value,
+                    "project_id": self.team.id,
+                },
                 "team_id": self.team.pk,
+                "event": "$autocapture",
+                "properties": data["properties"],
             },
         )
 
@@ -358,19 +381,19 @@ class TestCapture(BaseTest):
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
                 "data": {
-                    "event": "$pageleave",
                     "api_key": key_value,
                     "project_id": self.team.id,
-                    "properties": {
-                        "$os": "Linux",
-                        "$browser": "Chrome",
-                        "$device_type": "Desktop",
-                        "distinct_id": "94b03e599131fd5026b",
-                        "token": "fake token",
-                    },
                     "timestamp": "2021-04-20T19:11:33.841Z",
                 },
                 "team_id": self.team.id,
+                "event": "$pageleave",
+                "properties": {
+                    "$os": "Linux",
+                    "$browser": "Chrome",
+                    "$device_type": "Desktop",
+                    "distinct_id": "94b03e599131fd5026b",
+                    "token": "fake token",
+                },
             },
         )
 
@@ -402,7 +425,7 @@ class TestCapture(BaseTest):
                 "data": "eyJldmVudCI6ICIkd2ViX2V2ZW50IiwicHJvcGVydGllcyI6IHsiJG9zIjogIk1hYyBPUyBYIiwiJGJyb3dzZXIiOiAiQ2hyb21lIiwiJHJlZmVycmVyIjogImh0dHBzOi8vYXBwLmhpYmVybHkuY29tL2xvZ2luP25leHQ9LyIsIiRyZWZlcnJpbmdfZG9tYWluIjogImFwcC5oaWJlcmx5LmNvbSIsIiRjdXJyZW50X3VybCI6ICJodHRwczovL2FwcC5oaWJlcmx5LmNvbS8iLCIkYnJvd3Nlcl92ZXJzaW9uIjogNzksIiRzY3JlZW5faGVpZ2h0IjogMjE2MCwiJHNjcmVlbl93aWR0aCI6IDM4NDAsInBoX2xpYiI6ICJ3ZWIiLCIkbGliX3ZlcnNpb24iOiAiMi4zMy4xIiwiJGluc2VydF9pZCI6ICJnNGFoZXFtejVrY3AwZ2QyIiwidGltZSI6IDE1ODA0MTAzNjguMjY1LCJkaXN0aW5jdF9pZCI6IDYzLCIkZGV2aWNlX2lkIjogIjE2ZmQ1MmRkMDQ1NTMyLTA1YmNhOTRkOWI3OWFiLTM5NjM3YzBlLTFhZWFhMC0xNmZkNTJkZDA0NjQxZCIsIiRpbml0aWFsX3JlZmVycmVyIjogIiRkaXJlY3QiLCIkaW5pdGlhbF9yZWZlcnJpbmdfZG9tYWluIjogIiRkaXJlY3QiLCIkdXNlcl9pZCI6IDYzLCIkZXZlbnRfdHlwZSI6ICJjbGljayIsIiRjZV92ZXJzaW9uIjogMSwiJGhvc3QiOiAiYXBwLmhpYmVybHkuY29tIiwiJHBhdGhuYW1lIjogIi8iLCIkZWxlbWVudHMiOiBbCiAgICB7InRhZ19uYW1lIjogImJ1dHRvbiIsIiRlbF90ZXh0IjogIu2gve2yuyBXcml0aW5nIGNvZGUiLCJjbGFzc2VzIjogWwogICAgImJ0biIsCiAgICAiYnRuLXNlY29uZGFyeSIKXSwiYXR0cl9fY2xhc3MiOiAiYnRuIGJ0bi1zZWNvbmRhcnkiLCJhdHRyX19zdHlsZSI6ICJjdXJzb3I6IHBvaW50ZXI7IG1hcmdpbi1yaWdodDogOHB4OyBtYXJnaW4tYm90dG9tOiAxcmVtOyIsIm50aF9jaGlsZCI6IDIsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImRpdiIsIm50aF9jaGlsZCI6IDEsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImRpdiIsImNsYXNzZXMiOiBbCiAgICAiZmVlZGJhY2stc3RlcCIsCiAgICAiZmVlZGJhY2stc3RlcC1zZWxlY3RlZCIKXSwiYXR0cl9fY2xhc3MiOiAiZmVlZGJhY2stc3RlcCBmZWVkYmFjay1zdGVwLXNlbGVjdGVkIiwibnRoX2NoaWxkIjogMiwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJnaXZlLWZlZWRiYWNrIgpdLCJhdHRyX19jbGFzcyI6ICJnaXZlLWZlZWRiYWNrIiwiYXR0cl9fc3R5bGUiOiAid2lkdGg6IDkwJTsgbWFyZ2luOiAwcHggYXV0bzsgZm9udC1zaXplOiAxNXB4OyBwb3NpdGlvbjogcmVsYXRpdmU7IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiYXR0cl9fc3R5bGUiOiAib3ZlcmZsb3c6IGhpZGRlbjsiLCJudGhfY2hpbGQiOiAxLCJudGhfb2ZfdHlwZSI6IDF9LAogICAgeyJ0YWdfbmFtZSI6ICJkaXYiLCJjbGFzc2VzIjogWwogICAgIm1vZGFsLWJvZHkiCl0sImF0dHJfX2NsYXNzIjogIm1vZGFsLWJvZHkiLCJhdHRyX19zdHlsZSI6ICJmb250LXNpemU6IDE1cHg7IiwibnRoX2NoaWxkIjogMiwibnRoX29mX3R5cGUiOiAyfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJtb2RhbC1jb250ZW50IgpdLCJhdHRyX19jbGFzcyI6ICJtb2RhbC1jb250ZW50IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJtb2RhbC1kaWFsb2ciLAogICAgIm1vZGFsLWxnIgpdLCJhdHRyX19jbGFzcyI6ICJtb2RhbC1kaWFsb2cgbW9kYWwtbGciLCJhdHRyX19yb2xlIjogImRvY3VtZW50IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJtb2RhbCIsCiAgICAiZmFkZSIsCiAgICAic2hvdyIKXSwiYXR0cl9fY2xhc3MiOiAibW9kYWwgZmFkZSBzaG93IiwiYXR0cl9fc3R5bGUiOiAiZGlzcGxheTogYmxvY2s7IiwibnRoX2NoaWxkIjogMiwibnRoX29mX3R5cGUiOiAyfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJrLXBvcnRsZXRfX2JvZHkiLAogICAgIiIKXSwiYXR0cl9fY2xhc3MiOiAiay1wb3J0bGV0X19ib2R5ICIsImF0dHJfX3N0eWxlIjogInBhZGRpbmc6IDBweDsiLCJudGhfY2hpbGQiOiAyLCJudGhfb2ZfdHlwZSI6IDJ9LAogICAgeyJ0YWdfbmFtZSI6ICJkaXYiLCJjbGFzc2VzIjogWwogICAgImstcG9ydGxldCIsCiAgICAiay1wb3J0bGV0LS1oZWlnaHQtZmx1aWQiCl0sImF0dHJfX2NsYXNzIjogImstcG9ydGxldCBrLXBvcnRsZXQtLWhlaWdodC1mbHVpZCIsIm50aF9jaGlsZCI6IDEsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImRpdiIsImNsYXNzZXMiOiBbCiAgICAiY29sLWxnLTYiCl0sImF0dHJfX2NsYXNzIjogImNvbC1sZy02IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJyb3ciCl0sImF0dHJfX2NsYXNzIjogInJvdyIsIm50aF9jaGlsZCI6IDEsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImRpdiIsImF0dHJfX3N0eWxlIjogInBhZGRpbmc6IDQwcHggMzBweCAwcHg7IGJhY2tncm91bmQtY29sb3I6IHJnYigyMzksIDIzOSwgMjQ1KTsgbWFyZ2luLXRvcDogLTQwcHg7IG1pbi1oZWlnaHQ6IGNhbGMoMTAwdmggLSA0MHB4KTsiLCJudGhfY2hpbGQiOiAyLCJudGhfb2ZfdHlwZSI6IDJ9LAogICAgeyJ0YWdfbmFtZSI6ICJkaXYiLCJhdHRyX19zdHlsZSI6ICJtYXJnaW4tdG9wOiAwcHg7IiwibnRoX2NoaWxkIjogMiwibnRoX29mX3R5cGUiOiAyfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJBcHAiCl0sImF0dHJfX2NsYXNzIjogIkFwcCIsImF0dHJfX3N0eWxlIjogImNvbG9yOiByZ2IoNTIsIDYxLCA2Mik7IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiYXR0cl9faWQiOiAicm9vdCIsIm50aF9jaGlsZCI6IDEsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImJvZHkiLCJudGhfY2hpbGQiOiAyLCJudGhfb2ZfdHlwZSI6IDF9Cl0sInRva2VuIjogInhwOXFUMlZMWTc2SkpnIn19"
             },
         )
-        properties = json.loads(kafka_produce.call_args[1]["data"]["data"])["properties"]
+        properties = json.loads(kafka_produce.call_args[1]["data"]["properties"])
         self.assertEqual(properties["$elements"][0]["$el_text"], "💻 Writing code")
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -418,9 +441,10 @@ class TestCapture(BaseTest):
 
         self.assertEqual(kafka_produce.call_count, 1)
 
-        data = json.loads(kafka_produce.call_args[1]["data"]["data"])
-        self.assertEqual(data["event"], "my-event")
-        self.assertEqual(data["properties"]["prop"], "💻 Writing code")
+        self.assertEqual(kafka_produce.call_args[1]["data"]["event"], "my-event")
+
+        properties = json.loads(kafka_produce.call_args[1]["data"]["properties"])
+        self.assertEqual(properties["prop"], "💻 Writing code")
 
     @patch("gzip.decompress")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -470,9 +494,10 @@ class TestCapture(BaseTest):
 
         self.assertEqual(kafka_produce.call_count, 1)
 
-        data = json.loads(kafka_produce.call_args[1]["data"]["data"])
-        self.assertEqual(data["event"], "my-event")
-        self.assertEqual(data["properties"]["prop"], "💻 Writing code")
+        self.assertEqual(kafka_produce.call_args[1]["data"]["event"], "my-event")
+
+        properties = json.loads(kafka_produce.call_args[1]["data"]["properties"])
+        self.assertEqual(properties["prop"], "💻 Writing code")
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_invalid_gzip(self, kafka_produce):
@@ -517,8 +542,7 @@ class TestCapture(BaseTest):
             HTTP_REFERER="https://localhost",
         )
         self.assertEqual(response.json()["status"], 1)
-        data = json.loads(kafka_produce.call_args[1]["data"]["data"])
-        self.assertEqual(data["event"], "whatevefr")
+        self.assertEqual(kafka_produce.call_args[1]["data"]["event"], "whatevefr")
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_empty_request_returns_an_error(self, kafka_produce):
@@ -552,8 +576,10 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data, "properties": {}},  # type: ignore
+                "data": {"type": "capture", "distinct_id": "2"},  # type: ignore
                 "team_id": self.team.pk,
+                "properties": {},
+                "event": "user signed up",
             },
         )
 
@@ -604,8 +630,10 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data["batch"][0], "properties": {}},
+                "data": {"type": "capture", "distinct_id": "2"},
                 "team_id": self.team.pk,
+                "properties": {},
+                "event": "user signed up",
             },
         )
 
@@ -633,8 +661,10 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data["batch"][0], "properties": {}},
+                "data": {"type": "capture", "distinct_id": "2"},
                 "team_id": self.team.pk,
+                "properties": {},
+                "event": "user signed up",
             },
         )
 
@@ -663,8 +693,13 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data["batch"][0], "properties": {}},
+                "data": {
+                    "type": "capture",
+                    "distinct_id": "2",
+                },
                 "team_id": self.team.pk,
+                "properties": {},
+                "event": "user signed up",
             },
         )
 
@@ -680,7 +715,7 @@ class TestCapture(BaseTest):
         )
         self.assertEqual(response.status_code, 200)
         arguments = self._to_arguments(kafka_produce)
-        self.assertEqual(arguments["data"]["event"], "🤓")
+        self.assertEqual(arguments["event"], "🤓")
 
     def test_batch_incorrect_token(self):
         response = self.client.post(
@@ -759,10 +794,13 @@ class TestCapture(BaseTest):
             HTTP_ORIGIN="https://localhost",
         )
         arguments = self._to_arguments(kafka_produce)
-        self.assertEqual(arguments["data"]["event"], "$identify")
+        self.assertEqual(arguments["event"], "$identify")
         arguments.pop("now")  # can't compare fakedate
         arguments.pop("sent_at")  # can't compare fakedate
         arguments.pop("data")  # can't compare fakedate
+        arguments.pop("properties")
+        arguments.pop("event")
+
         self.assertDictEqual(
             arguments,
             {
@@ -1010,7 +1048,7 @@ class TestCapture(BaseTest):
             },
         )
         arguments = self._to_arguments(kafka_produce)
-        self.assertEqual(arguments["data"]["properties"]["$active_feature_flags"], ["test-ff"])
+        self.assertEqual(arguments["properties"]["$active_feature_flags"], ["test-ff"])
 
     def test_handle_lacking_event_name_field(self):
         response = self.client.post(
@@ -1120,54 +1158,52 @@ class TestCapture(BaseTest):
         )
         self.assertEqual(kafka_produce.call_count, 1)
         self.assertEqual(kafka_produce.call_args_list[0][1]["topic"], KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC)
-        data_sent_to_kafka = json.loads(kafka_produce.call_args_list[0][1]["data"]["data"])
+        data_sent_to_kafka = kafka_produce.call_args_list[0][1]["data"]
 
+        properties = json.loads(data_sent_to_kafka["properties"])
         # Decompress the data sent to kafka to compare it to the original data
-        decompressed_data = gzip.decompress(
-            base64.b64decode(data_sent_to_kafka["properties"]["$snapshot_data"]["data"])
-        ).decode("utf-16", "surrogatepass")
-        data_sent_to_kafka["properties"]["$snapshot_data"]["data"] = decompressed_data
+        decompressed_data = gzip.decompress(base64.b64decode(properties["$snapshot_data"]["data"])).decode(
+            "utf-16", "surrogatepass"
+        )
+        properties["$snapshot_data"]["data"] = decompressed_data
 
+        self.assertEqual(data_sent_to_kafka["event"], "$snapshot")
         self.assertEqual(
-            data_sent_to_kafka,
+            properties,
             {
-                "event": "$snapshot",
-                "properties": {
-                    "$snapshot_data": {
-                        "chunk_id": "fake-uuid",
-                        "chunk_index": 0,
-                        "chunk_count": 1,
-                        "data": json.dumps(
-                            [
-                                {
-                                    "type": snapshot_type,
-                                    "data": {"source": snapshot_source, "data": event_data},
-                                    "timestamp": timestamp,
-                                }
-                            ]
-                        ),
-                        "events_summary": [
+                "$snapshot_data": {
+                    "chunk_id": "fake-uuid",
+                    "chunk_index": 0,
+                    "chunk_count": 1,
+                    "data": json.dumps(
+                        [
                             {
                                 "type": snapshot_type,
-                                "data": {"source": snapshot_source},
+                                "data": {"source": snapshot_source, "data": event_data},
                                 "timestamp": timestamp,
                             }
-                        ],
-                        "compression": "gzip-base64",
-                        "has_full_snapshot": False,
-                        "events_summary": [
-                            {
-                                "type": snapshot_type,
-                                "data": {"source": snapshot_source},
-                                "timestamp": timestamp,
-                            }
-                        ],
-                    },
-                    "$session_id": session_id,
-                    "$window_id": window_id,
-                    "distinct_id": distinct_id,
+                        ]
+                    ),
+                    "events_summary": [
+                        {
+                            "type": snapshot_type,
+                            "data": {"source": snapshot_source},
+                            "timestamp": timestamp,
+                        }
+                    ],
+                    "compression": "gzip-base64",
+                    "has_full_snapshot": False,
+                    "events_summary": [
+                        {
+                            "type": snapshot_type,
+                            "data": {"source": snapshot_source},
+                            "timestamp": timestamp,
+                        }
+                    ],
                 },
-                "offset": 1993,
+                "$session_id": session_id,
+                "$window_id": window_id,
+                "distinct_id": distinct_id,
             },
         )
 
@@ -1218,8 +1254,10 @@ class TestCapture(BaseTest):
                         "distinct_id": "2",
                         "ip": "127.0.0.1",
                         "site_url": "http://testserver",
-                        "data": {**data, "properties": {}},  # type: ignore
+                        "data": {"type": "capture", "distinct_id": "2"},  # type: ignore
                         "team_id": None,  # this will be set by the plugin server later
+                        "properties": {},
+                        "event": "user signed up",
                     },
                 )
 

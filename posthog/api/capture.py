@@ -385,6 +385,7 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
     if event_uuid is None:
         event_uuid = UUIDT()
 
+    event_name = event["event"]
     parsed_event = parse_kafka_event_data(
         distinct_id=distinct_id,
         ip=ip,
@@ -406,4 +407,4 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
     if candidate_partition_key not in settings.EVENT_PARTITION_KEYS_TO_OVERRIDE:
         kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
 
-    return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
+    return log_event(parsed_event, event_name, partition_key=kafka_partition_key)
