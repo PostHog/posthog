@@ -112,11 +112,13 @@ def calculate_target_age_insight(team: Team, insight: Insight, lazy_loader: Lazy
     if insight.deleted or len(insight.filters) == 0:
         return TargetCacheAge.NO_CACHING
 
-    # :TODO: Only cache insights that are shared
     if insight.pk not in lazy_loader.recently_viewed_insights:
         return TargetCacheAge.NO_CACHING
 
-    return TargetCacheAge.MID_PRIORITY
+    if insight.is_sharing_enabled:
+        return TargetCacheAge.MID_PRIORITY
+
+    return TargetCacheAge.NO_CACHING
 
 
 def calculate_target_age_dashboard_tile(
@@ -134,8 +136,6 @@ def calculate_target_age_dashboard_tile(
     if dashboard_tile.dashboard_id == team.primary_dashboard_id:
         return TargetCacheAge.HIGH_PRIORITY
 
-    # :TODO: If shared, MID_PRIORITY
-
     since_last_viewed = (
         now() - dashboard_tile.dashboard.last_accessed_at
         if dashboard_tile.dashboard.last_accessed_at
@@ -147,4 +147,7 @@ def calculate_target_age_dashboard_tile(
     if since_last_viewed < GENERALLY_VIEWED_THRESHOLD:
         return TargetCacheAge.MID_PRIORITY
 
-    return TargetCacheAge.LOW_PRIORITY
+    if dashboard_tile.dashboard.is_sharing_enabled:
+        return TargetCacheAge.LOW_PRIORITY
+
+    return TargetCacheAge.NO_CACHING

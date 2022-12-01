@@ -19,6 +19,7 @@ from posthog.models import (
     Insight,
     InsightCachingState,
     InsightViewed,
+    SharingConfiguration,
     Team,
     Text,
     User,
@@ -37,6 +38,7 @@ def create_insight(
     mock_active_teams: Any = None,
     team_should_be_active=True,
     viewed_at_delta: Optional[timedelta] = timedelta(hours=1),  # noqa
+    is_shared=True,
     filters=filter_dict,
     deleted=False,
 ) -> Insight:
@@ -46,6 +48,8 @@ def create_insight(
     insight = Insight.objects.create(team=team, filters=filters, deleted=deleted)
     if viewed_at_delta is not None:
         InsightViewed.objects.create(insight=insight, last_viewed_at=now() - viewed_at_delta, user=user, team=team)
+    if is_shared:
+        SharingConfiguration.objects.create(team=team, insight=insight, enabled=True)
 
     return insight
 
@@ -61,6 +65,7 @@ def create_tile(
     insight_deleted=False,
     dashboard_deleted=False,
     dashboard_tile_deleted=False,
+    is_dashboard_shared=True,
     text_tile=False,
 ) -> DashboardTile:
     if mock_active_teams:
@@ -73,6 +78,9 @@ def create_tile(
     if on_home_dashboard:
         team.primary_dashboard_id = dashboard.pk
         team.save()
+
+    if is_dashboard_shared:
+        SharingConfiguration.objects.create(team=team, dashboard=dashboard, enabled=True)
 
     insight = text = None
     if text_tile:
@@ -109,7 +117,8 @@ def create_insight_caching_state(
     "create_item,create_item_kw,expected_target_age",
     [
         # Insight test cases
-        pytest.param(create_insight, {}, TargetCacheAge.MID_PRIORITY, id="insight base"),
+        pytest.param(create_insight, {}, TargetCacheAge.MID_PRIORITY, id="shared insight (base)"),
+        pytest.param(create_insight, {"is_shared": False}, TargetCacheAge.NO_CACHING, id="not shared insight"),
         pytest.param(
             create_insight, {"team_should_be_active": False}, TargetCacheAge.NO_CACHING, id="insight with inactive team"
         ),
@@ -123,7 +132,8 @@ def create_insight_caching_state(
         pytest.param(create_insight, {"filters": {}}, TargetCacheAge.NO_CACHING, id="insight with no filters"),
         pytest.param(create_insight, {"deleted": True}, TargetCacheAge.NO_CACHING, id="deleted insight"),
         # Dashboard tile test cases
-        pytest.param(create_tile, {}, TargetCacheAge.LOW_PRIORITY, id="tile base"),
+        pytest.param(create_tile, {}, TargetCacheAge.LOW_PRIORITY, id="shared tile (base)"),
+        pytest.param(create_tile, {"is_dashboard_shared": False}, TargetCacheAge.NO_CACHING, id="not shared tile"),
         pytest.param(
             create_tile, {"team_should_be_active": False}, TargetCacheAge.NO_CACHING, id="tile with inactive team"
         ),

@@ -73,6 +73,12 @@ class Insight(models.Model):
     # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
     MATERIAL_INSIGHT_FIELDS = {"name", "description", "filters"}
 
+    @property
+    def is_sharing_enabled(self):
+        # uses .all and not .first so that prefetching can be used
+        sharing_configurations = self.sharingconfiguration_set.all()
+        return sharing_configurations[0].enabled if sharing_configurations and sharing_configurations[0] else False
+
     class Meta:
         db_table = "posthog_dashboarditem"
         unique_together = ("team", "short_id")
