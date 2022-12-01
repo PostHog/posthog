@@ -1,14 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { billingTestLogic } from './billingTestLogic'
-import {
-    LemonButton,
-    LemonDivider,
-    LemonInput,
-    LemonSelect,
-    LemonSelectOptions,
-    LemonSwitch,
-    Link,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { Form } from 'kea-forms'
@@ -26,6 +18,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconDelete, IconEdit } from 'lib/components/icons'
 import { PlanCards } from './PlanCards'
+import { BillingHero } from './BillingHero'
 
 export type BillingV2Props = {
     redirectPath?: string
@@ -38,7 +31,6 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
     const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingTestLogic)
     const { setShowLicenseDirectInput, reportBillingV2Shown } = useActions(billingTestLogic)
     const { preflight } = useValues(preflightLogic)
-    const [enterprisePackage, setEnterprisePackage] = useState(false)
 
     useEffect(() => {
         if (billing) {
@@ -60,8 +52,7 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
         </Link>
     )
 
-    const products =
-        enterprisePackage && billing?.products_enterprise ? billing?.products_enterprise : billing?.products
+    const products = billing?.products_enterprise ? billing?.products_enterprise : billing?.products
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -69,7 +60,7 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
     })
 
     return (
-        <div ref={ref} className="mt-8">
+        <div ref={ref}>
             {billing?.free_trial_until ? (
                 <AlertMessage type="success" className="mb-2">
                     You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
@@ -91,6 +82,13 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
                         </AlertMessage>
                     ) : null}
                 </div>
+            ) : !billing?.billing_period && preflight?.cloud ? (
+                <>
+                    <p className="mb-8"> You're on the PostHog Free plan. Upgrade to get access to more features.</p>
+                    <div className="mb-12 flex justify-center">
+                        <PlanCards redirectPath={redirectPath} />
+                    </div>
+                </>
             ) : (
                 <div
                     className={clsx('flex flex-wrap gap-4', {
@@ -120,7 +118,7 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
                                 </p>
                             </div>
                         ) : (
-                            <PlanCards />
+                            <BillingHero />
                         )}
                     </div>
 
@@ -165,37 +163,7 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
                                     </LemonButton>
                                 </Form>
                             </>
-                        ) : (
-                            <div className="space-y-4">
-                                <LemonButton
-                                    to={`/api/billing-v2/activation?plan=${
-                                        enterprisePackage ? 'enterprise' : 'standard'
-                                    }&redirect_path=${redirectPath}`}
-                                    type="primary"
-                                    size="large"
-                                    fullWidth
-                                    center
-                                    disableClientSideRouting
-                                >
-                                    Setup payment Test
-                                </LemonButton>
-
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <LemonLabel>Enterprise package</LemonLabel>
-                                        <LemonSwitch
-                                            className="flex items-center justify-between"
-                                            checked={enterprisePackage}
-                                            onChange={setEnterprisePackage}
-                                        />
-                                    </div>
-                                    <p>
-                                        Starts at <b>$450/mo</b> and comes with SSO, advanced permissions, and a
-                                        dedicated Slack channel for support
-                                    </p>
-                                </div>
-                            </div>
-                        )}
+                        ) : null}
 
                         {!preflight?.cloud && billing?.license?.plan ? (
                             <div className="bg-primary-alt-highlight text-primary-alt rounded p-2 px-4">
