@@ -77,7 +77,7 @@ describe.each(topics.map((topic) => [{ topic }]))('clickhouse-inserter', ({ topi
             })
 
             const messages = await delayUntilEventIngested(() =>
-                dlq.filter((message) => message.key!.toString() === key)
+                dlq.filter((message) => message.key?.toString() === key)
             )
             expect(messages.length).toBe(1)
         })
@@ -96,7 +96,7 @@ describe.each(topics.map((topic) => [{ topic }]))('clickhouse-inserter', ({ topi
             })
 
             const messages = await delayUntilEventIngested(() =>
-                dlq.filter((message) => message.key!.toString() === key)
+                dlq.filter((message) => message.key?.toString() === key)
             )
             expect(messages.length).toBe(1)
         })
@@ -115,7 +115,7 @@ describe.each(topics.map((topic) => [{ topic }]))('clickhouse-inserter', ({ topi
             })
 
             const messages = await delayUntilEventIngested(() =>
-                dlq.filter((message) => message.key!.toString() === key)
+                dlq.filter((message) => message.key?.toString() === key)
             )
             expect(messages.length).toBe(1)
         })

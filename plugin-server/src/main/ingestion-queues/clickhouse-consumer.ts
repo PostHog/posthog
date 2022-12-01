@@ -1,7 +1,15 @@
 import { createClient } from '@clickhouse/client'
 import * as fs from 'fs'
 import { StatsD } from 'hot-shots'
-import { EachBatchHandler, Kafka, KafkaMessage, Producer } from 'kafkajs'
+import {
+    AssignerProtocol,
+    EachBatchHandler,
+    Kafka,
+    KafkaMessage,
+    PartitionAssigner,
+    PartitionAssigners,
+    Producer,
+} from 'kafkajs'
 import * as path from 'path'
 import { PluginsServerConfig } from 'types'
 
@@ -34,6 +42,7 @@ export const startClickHouseConsumer = async ({
 
     const consumer = kafka.consumer({
         groupId: 'group1', // NOTE: we align the group ID with the legacy KafkaTable group ID to avoid duplicate processing
+        partitionAssigners: [PartitionAssigners.roundRobin, RangeAssigner(kafka)],
     })
     setupEventHandlers(consumer)
 
@@ -240,3 +249,90 @@ const retriableErrorCodes = {
     KEEPER_EXCEPTION: '999',
     POCO_EXCEPTION: '1000',
 } as const
+
+// Assigner as per
+// https://kafka.apache.org/24/javadoc/org/apache/kafka/clients/consumer/RangeAssignor.html
+// IMPORTANT: to be able to switch over from KafkaTable, we need to use the same
+// consumer group. As we are switching over just a handful of topics to start
+// with, we need to make sure we use the same partition assignment strategy,
+// otherwise we end up with a Kafka protocol conflict.
+const RangeAssigner =
+    (kafka: Kafka): PartitionAssigner =>
+    ({}) => ({
+        version: 1,
+        name: 'range',
+        async assign({ members }) {
+            // perform assignment
+            const topics = Array.from(
+                new Set(
+                    members.flatMap(
+                        ({ memberMetadata }) => AssignerProtocol.MemberMetadata.decode(memberMetadata)?.topics ?? []
+                    )
+                )
+            )
+
+            const partitionsByTopic = Object.fromEntries(
+                (await kafka.admin().fetchTopicMetadata({ topics })).topics.map(({ name, partitions }) => [
+                    name,
+                    partitions.map(({ partitionId }) => partitionId).sort(),
+                ])
+            )
+
+            const membersByTopic = members
+                .flatMap(({ memberId, memberMetadata }) =>
+                    (AssignerProtocol.MemberMetadata.decode(memberMetadata)?.topics ?? []).map(
+                        (topic) => [topic, memberId] as const
+                    )
+                )
+                .sort()
+                .reduce(
+                    (previousValue, [topic, memberId]) => ({
+                        ...previousValue,
+                        [topic]: (previousValue[topic] ?? []).concat([memberId]),
+                    }),
+                    {} as Record<string, string[]>
+                )
+
+            const partitionsByMembersByTopic = Object.fromEntries(
+                Object.entries(membersByTopic).map(([topic, members]) => {
+                    const partitions = partitionsByTopic[topic]
+                    const memberCount = members.length
+
+                    return [
+                        topic,
+                        Object.fromEntries(
+                            members.map((member, index) => [
+                                member,
+                                partitions.filter((partition) => partition % memberCount === index),
+                            ])
+                        ),
+                    ]
+                })
+            )
+
+            return members
+                .map(({ memberId }) => memberId)
+                .map((memberId) => ({
+                    memberId,
+                    memberAssignment: AssignerProtocol.MemberAssignment.encode({
+                        version: this.version,
+                        assignment: Object.fromEntries(
+                            topics
+                                .map((topic) => [topic, partitionsByMembersByTopic[topic][memberId]])
+                                .filter(([_, partitions]) => partitions)
+                        ),
+                        userData: Buffer.from([]),
+                    }),
+                }))
+        },
+        protocol({ topics }) {
+            return {
+                name: this.name,
+                metadata: AssignerProtocol.MemberMetadata.encode({
+                    version: this.version,
+                    topics,
+                    userData: Buffer.from([]),
+                }),
+            }
+        },
+    })
