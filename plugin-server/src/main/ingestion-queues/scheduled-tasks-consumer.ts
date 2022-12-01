@@ -69,6 +69,18 @@ export const startScheduledTasksConsumer = async ({
                 continue
             }
 
+            // If the messages is older than the interval, we ignore it. The
+            // Kafka timestamp should be epoch milliseconds.
+            if (Number.parseInt(message.timestamp) < Date.now() - gracePeriodSecondsByTaskType[task.taskType]) {
+                status.warn('🔁', 'Skip stale task', {
+                    taskType: task.taskType,
+                    pluginConfigId: task.pluginConfigId,
+                    timestamp: message.timestamp,
+                })
+                resolveOffset(message.offset)
+                continue
+            }
+
             status.debug('⬆️', 'Running scheduled task', task)
 
             try {
@@ -112,3 +124,9 @@ export const startScheduledTasksConsumer = async ({
 
     return consumer
 }
+
+const gracePeriodSecondsByTaskType = {
+    runEveryMinute: 60 * 1000,
+    runEveryHour: 60 * 60 * 1000,
+    runEveryDay: 24 * 60 * 60 * 1000,
+} as const
