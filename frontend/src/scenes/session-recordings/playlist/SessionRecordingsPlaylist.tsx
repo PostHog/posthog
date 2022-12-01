@@ -289,26 +289,43 @@ export function SessionRecordingsPlaylist({
             <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
                 <div className="flex items-center gap-4">
                     {!isStatic && (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={
-                                <IconWithCount count={totalFiltersCount}>
-                                    <IconFilter />
-                                </IconWithCount>
-                            }
-                            onClick={() => {
-                                setShowFilters(!showFilters)
-                                if (personUUID) {
-                                    const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
-                                    if (entityFilterButtons.length > 0) {
-                                        ;(entityFilterButtons[0] as HTMLElement).click()
-                                    }
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={
+                                    <IconWithCount count={totalFiltersCount}>
+                                        <IconFilter />
+                                    </IconWithCount>
                                 }
-                            }}
-                        >
-                            {showFilters ? 'Hide filters' : 'Filters'}
-                        </LemonButton>
+                                onClick={() => {
+                                    setShowFilters(!showFilters)
+                                    if (personUUID) {
+                                        const entityFilterButtons =
+                                            document.querySelectorAll('.entity-filter-row button')
+                                        if (entityFilterButtons.length > 0) {
+                                            ;(entityFilterButtons[0] as HTMLElement).click()
+                                        }
+                                    }
+                                }}
+                            >
+                                {showFilters ? 'Hide filters' : 'Filters'}
+                            </LemonButton>
+
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                disabled={!totalFiltersCount}
+                                onClick={() => {
+                                    // saveNewPlaylist()
+                                }}
+                                // loading={newPlaylistLoading}
+                                data-attr="save-recordings-playlist-button"
+                                tooltip="Save the current filters as a playlist that you can come back to."
+                            >
+                                Save as playlist
+                            </LemonButton>
+                        </>
                     )}
                 </div>
 

@@ -72,6 +72,10 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
             (s) => [s.tab],
             (tab): Breadcrumb[] => [
                 {
+                    name: 'Recordings',
+                    path: urls.sessionRecordings(),
+                },
+                {
                     name: humanFriendlyTabName(tab),
                 },
             ],
