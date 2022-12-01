@@ -61,7 +61,8 @@ export function Roles({ isRestricted }: RestrictedComponentProps): JSX.Element {
                         Roles
                     </h2>
                     <p className="text-muted-alt">
-                        Create roles to provide fine-grained permissions to users across posthog resources
+                        Create roles to provide fine-grained permissions to users across posthog resources. Admins+ will
+                        always have full edit access regardless of default or role.
                     </p>
                 </div>
 
