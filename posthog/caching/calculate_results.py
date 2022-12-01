@@ -53,15 +53,15 @@ def get_cache_type(filter: FilterType) -> CacheType:
         return CacheType.TRENDS
 
 
-def calculate_result_by_cache_type(cache_type: CacheType, filter: Filter, key: str, team: Team) -> List[Dict[str, Any]]:
+def calculate_result_by_cache_type(cache_type: CacheType, filter: Filter, team: Team) -> List[Dict[str, Any]]:
     if cache_type == CacheType.FUNNEL:
-        return _calculate_funnel(filter, key, team)
+        return _calculate_funnel(filter, team)
     else:
-        return _calculate_by_filter(filter, key, team, cache_type)
+        return _calculate_by_filter(filter, team, cache_type)
 
 
 @timed("update_cache_item_timer.calculate_by_filter")
-def _calculate_by_filter(filter: FilterType, key: str, team: Team, cache_type: CacheType) -> List[Dict[str, Any]]:
+def _calculate_by_filter(filter: FilterType, team: Team, cache_type: CacheType) -> List[Dict[str, Any]]:
     insight_class = CACHE_TYPE_TO_INSIGHT_CLASS[cache_type]
 
     if cache_type == CacheType.PATHS:
@@ -72,7 +72,7 @@ def _calculate_by_filter(filter: FilterType, key: str, team: Team, cache_type: C
 
 
 @timed("update_cache_item_timer.calculate_funnel")
-def _calculate_funnel(filter: Filter, key: str, team: Team) -> List[Dict[str, Any]]:
+def _calculate_funnel(filter: Filter, team: Team) -> List[Dict[str, Any]]:
     if filter.funnel_viz_type == FunnelVizType.TRENDS:
         result = ClickhouseFunnelTrends(team=team, filter=filter).run()
     elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
