@@ -32,8 +32,8 @@ runs:
           shell: bash
           run: |
               export CLICKHOUSE_SERVER_IMAGE=${{ inputs.clickhouse-server-image }}
-              docker-compose -f docker-compose.dev.yml down
-              docker-compose -f docker-compose.dev.yml up -d
+              docker compose -f docker-compose.dev.yml down
+              docker compose -f docker-compose.dev.yml up -d
 
         - name: Add Kafka to /etc/hosts
           shell: bash
@@ -96,7 +96,6 @@ runs:
           run: | # async_migrations are covered in ci-async-migrations.yml
               pytest posthog -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
-                  --cov --cov-report=xml:coverage-ee.xml \
                   --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
 
@@ -109,18 +108,10 @@ runs:
           run: | # async_migrations are covered in ci-async-migrations.yml
               pytest ee -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
-                  --cov --cov-report=xml:coverage-ee.xml \
                   --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
 
         # Post-tests
-
-        - uses: codecov/codecov-action@v2
-          if: ${{ inputs.cloud == 'false' }}
-          with:
-              files: ./coverage-foss.xml,./coverage-ee.xml
-              fail_ci_if_error: false
-              verbose: true
 
         - name: Upload updated timing data as artifacts
           uses: actions/upload-artifact@v2
