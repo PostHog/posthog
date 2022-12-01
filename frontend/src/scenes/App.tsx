@@ -19,6 +19,7 @@ import { ToastCloseButton } from 'lib/components/lemonToast'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import * as Sentry from '@sentry/react'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -62,7 +63,7 @@ export const appLogic = kea<appLogicType>({
     }),
 })
 
-export function App(): JSX.Element | null {
+function _App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
@@ -80,6 +81,8 @@ export function App(): JSX.Element | null {
 
     return showingDelayedSpinner ? <SpinnerOverlay /> : null
 }
+
+export const App = Sentry.withProfiler(_App)
 
 function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
     if (!scene.logic) {

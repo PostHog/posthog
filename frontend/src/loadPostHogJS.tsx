@@ -1,5 +1,6 @@
 import posthog, { PostHogConfig } from 'posthog-js'
 import * as Sentry from '@sentry/react'
+import { BrowserTracing } from '@sentry/tracing'
 import { Integration } from '@sentry/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -53,7 +54,10 @@ export function loadPostHogJS(): void {
         Sentry.init({
             dsn: (window as any).SENTRY_DSN,
             ...(window.location.host.indexOf('app.posthog.com') > -1 && {
-                integrations: [new posthog.SentryIntegration(posthog, 'posthog2', 1899813) as Integration],
+                integrations: [
+                    new BrowserTracing(),
+                    new posthog.SentryIntegration(posthog, 'posthog2', 1899813) as Integration,
+                ],
             }),
             tracesSampleRate: 0.1,
         })
