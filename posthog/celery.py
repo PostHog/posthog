@@ -1,7 +1,7 @@
 import os
 import time
 from random import randrange
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from celery import Celery
 from celery.schedules import crontab
@@ -485,6 +485,13 @@ def update_cache_item_task(key: str, cache_type, payload: dict) -> List[Dict[str
     from posthog.caching.update_cache import update_cache_item
 
     return update_cache_item(key, cache_type, payload)
+
+
+@app.task(ignore_result=True)
+def sync_insight_caching_state(team_id: int, insight_id: Optional[int] = None, dashboard_tile_id: Optional[int] = None):
+    from posthog.caching.insight_caching_state import sync_insight_caching_state
+
+    sync_insight_caching_state(team_id, insight_id, dashboard_tile_id)
 
 
 @app.task(ignore_result=True)

@@ -3,6 +3,7 @@ from enum import Enum
 from functools import cached_property
 from typing import Optional, Union
 
+import structlog
 from django.utils.timezone import now
 
 from posthog.caching.utils import active_teams
@@ -15,6 +16,7 @@ VERY_RECENTLY_VIEWED_THRESHOLD = timedelta(hours=48)
 GENERALLY_VIEWED_THRESHOLD = timedelta(weeks=2)
 MAX_ATTEMPTS = 3
 
+logger = structlog.get_logger(__name__)
 
 # :TODO: Make these configurable
 class TargetCacheAge(Enum):
@@ -58,6 +60,18 @@ def upsert(
         },
     )
     return caching_state
+
+
+def sync_insight_caching_state(team_id: int, insight_id: Optional[int] = None, dashboard_tile_id: Optional[int] = None):
+    try:
+        team = Team.objects.get(pk=team_id)
+        if dashboard_tile_id is not None:
+            upsert(team, DashboardTile.objects.get(pk=dashboard_tile_id))
+        elif insight_id is not None:
+            upsert(team, Insight.objects.get(pk=insight_id))
+    except Exception as err:
+        # This is a best-effort kind synchronization, safe to ignore errors
+        logger.warn("Failed to sync InsightCachingState, ignoring", exception=err)
 
 
 def fetch_states_in_need_of_updating():
