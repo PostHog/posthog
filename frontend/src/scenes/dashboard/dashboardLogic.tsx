@@ -85,7 +85,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
     actions: {
         loadExportedDashboard: (dashboard: DashboardType | null) => ({ dashboard }),
-        loadDashboardItems: (payload: { refresh?: boolean; action: string }) => payload,
+        loadDashboardItems: (payload: LoadDashboardItemsProps) => payload,
         triggerDashboardUpdate: (payload) => ({ payload }),
         /** The current state in which the dashboard is being viewed, see DashboardMode. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
