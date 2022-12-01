@@ -5,17 +5,7 @@ import { EachBatchHandler, Kafka, KafkaMessage, Producer } from 'kafkajs'
 import * as path from 'path'
 import { PluginsServerConfig } from 'types'
 
-import {
-    KAFKA_APP_METRICS,
-    KAFKA_EVENTS_DEAD_LETTER_QUEUE,
-    KAFKA_EVENTS_JSON,
-    KAFKA_GROUPS,
-    KAFKA_INGESTION_WARNINGS,
-    KAFKA_PERSON,
-    KAFKA_PERSON_DISTINCT_ID,
-    KAFKA_PLUGIN_LOG_ENTRIES,
-    KAFKA_SESSION_RECORDING_EVENTS,
-} from '../../config/kafka-topics'
+import { KAFKA_APP_METRICS, KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
 import { status } from '../../utils/status'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 
@@ -215,25 +205,31 @@ export const startClickHouseConsumer = async ({
     return consumer
 }
 
-const topicToTable = {
-    [KAFKA_EVENTS_JSON]: { tableName: 'writable_events' },
-    [KAFKA_EVENTS_DEAD_LETTER_QUEUE]: {
-        tableName: 'events_dead_letter_queue',
-        // For the DLQ, don't try to insert into another dlq. We use `null`
-        // to signify this.
-        dlq: false,
-    },
-    [KAFKA_GROUPS]: { tableName: 'groups' },
-    [KAFKA_PERSON]: { tableName: 'person' },
-    [KAFKA_PERSON_DISTINCT_ID]: { tableName: 'person_distinct_id2' },
-    [KAFKA_PLUGIN_LOG_ENTRIES]: {
-        tableName: 'plugin_log_entries',
-        // NOTE: plugin_log_entries is PARTITIONED BY plugin_id, and as such we end
-        // up hitting the max number of partitions involved in an insert, a
-        // ClickHouse setting.
-        maxChunkSize: 100,
-    },
-    [KAFKA_SESSION_RECORDING_EVENTS]: { tableName: 'writable_session_recording_events' },
+const topicToTable: { [key: string]: { tableName: string; dlq?: boolean; maxChunkSize?: number } } = {
+    /*
+     * NOTE: we only enable for ingestion warnings and app metrics initially, to
+     * see how it works out in production. These should be reasonable low risk
+     * topics.
+     */
+
+    // [KAFKA_EVENTS_JSON]: { tableName: 'writable_events' },
+    // [KAFKA_EVENTS_DEAD_LETTER_QUEUE]: {
+    //     tableName: 'events_dead_letter_queue',
+    //     // For the DLQ, don't try to insert into another dlq. We use `null`
+    //     // to signify this.
+    //     dlq: false,
+    // },
+    // [KAFKA_GROUPS]: { tableName: 'groups' },
+    // [KAFKA_PERSON]: { tableName: 'person' },
+    // [KAFKA_PERSON_DISTINCT_ID]: { tableName: 'person_distinct_id2' },
+    // [KAFKA_PLUGIN_LOG_ENTRIES]: {
+    //     tableName: 'plugin_log_entries',
+    //     // NOTE: plugin_log_entries is PARTITIONED BY plugin_id, and as such we end
+    //     // up hitting the max number of partitions involved in an insert, a
+    //     // ClickHouse setting.
+    //     maxChunkSize: 100,
+    // },
+    // [KAFKA_SESSION_RECORDING_EVENTS]: { tableName: 'writable_session_recording_events' },
     [KAFKA_INGESTION_WARNINGS]: { tableName: 'sharded_ingestion_warnings' },
     [KAFKA_APP_METRICS]: { tableName: 'sharded_app_metrics' },
 } as const
