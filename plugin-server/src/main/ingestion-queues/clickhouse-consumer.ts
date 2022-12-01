@@ -132,7 +132,9 @@ export const startClickHouseConsumer = async ({
                 ? messageJsonPairs.splice(0, maxChunkSize)
                 : messageJsonPairs.splice(0, messageJsonPairs.length)
 
-            if (chunk.length === 0) {break}
+            if (chunk.length === 0) {
+                break
+            }
 
             try {
                 await clickhouse.insert({
