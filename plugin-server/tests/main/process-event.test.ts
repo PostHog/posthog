@@ -1029,29 +1029,6 @@ test('snapshot event stored as session_recording_event', async () => {
     expect(event.snapshot_data).toEqual({ timestamp: 123 })
 })
 
-test('$snapshot event creates new person if needed', async () => {
-    const pluginEvent: PluginEvent = {
-        distinct_id: 'some_new_id',
-        site_url: '',
-        team_id: team.id,
-        timestamp: now.toUTC().toISO(),
-        now: now.toUTC().toISO(),
-        ip: '',
-        uuid: new UUIDT().toString(),
-        event: '$snapshot',
-        properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
-    } as any as PluginEvent
-
-    const runner = new EventPipelineRunner(hub, pluginEvent)
-    await runner.runEventPipeline(pluginEvent)
-
-    await delayUntilEventIngested(() => hub.db.fetchPersons())
-
-    const persons = await hub.db.fetchPersons()
-
-    expect(persons.length).toEqual(1)
-})
-
 test('identify set', async () => {
     await createPerson(hub, team, ['distinct_id1'])
     const ts_before = now
