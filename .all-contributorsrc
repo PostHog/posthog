@@ -2322,6 +2322,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "johanholmerin",
+      "name": "Johan Holmerin",
+      "avatar_url": "https://avatars.githubusercontent.com/u/7433263?v=4",
+      "profile": "https://github.com/johanholmerin",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
