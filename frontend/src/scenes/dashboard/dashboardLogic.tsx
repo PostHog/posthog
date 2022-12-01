@@ -65,12 +65,12 @@ export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
 export type LoadDashboardItemsProps = { refresh?: boolean; action: string }
 
-interface InsightCachereloadProps {
+interface InsightCacheReloadProps {
     cachedInsight: InsightModel
     dashboardId: number
     refreshedInsight: InsightModel
 }
-function reloadCachedInsight({ cachedInsight, dashboardId, refreshedInsight }: InsightCachereloadProps): void {
+function reloadCachedInsight({ cachedInsight, dashboardId, refreshedInsight }: InsightCacheReloadProps): void {
     // reload the cached results inside the insight's logic
     // this is what causes the dashboard's tiles displayed data to change
     if (refreshedInsight.filters.insight) {
@@ -1086,7 +1086,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 const tilesWithNoResults = values.tiles?.filter((t) => !!t.insight && !t.insight.result) || []
                 const tilesWithResults = values.tiles?.filter((t) => !!t.insight && t.insight.result) || []
 
-                if (tilesWithNoResults && tilesWithNoResults?.length > 0) {
+                if (tilesWithNoResults.length) {
                     actions.refreshAllDashboardItems({
                         tiles: tilesWithNoResults,
                         action: 'load_missing',
@@ -1097,7 +1097,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 }
 
                 tilesWithResults
-                    ?.map((t) => t.insight)
+                    .map((t) => t.insight)
                     .filter((i): i is InsightModel => !!i)
                     .forEach((i) => {
                         reloadCachedInsight({ cachedInsight: i, dashboardId: dashboard.id, refreshedInsight: i })
