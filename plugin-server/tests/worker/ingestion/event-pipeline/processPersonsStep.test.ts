@@ -42,7 +42,7 @@ describe('processPersonsStep()', () => {
         const response = await processPersonsStep(runner, pluginEvent, personContainer)
 
         expect(response).toEqual(['prepareEventStep', pluginEvent, personContainer])
-        expect(jest.mocked(updatePersonState)).to.toHaveBeenCalled()
+        expect(jest.mocked(updatePersonState)).toHaveBeenCalled()
     })
 
     it('forwards $snapshot events to `prepareEventStep` without creating / updating the person', async () => {
