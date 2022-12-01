@@ -29,7 +29,7 @@ class Migration(AsyncMigrationDefinition):
             """
             SELECT 1
             FROM person_static_cohort
-            WHERE LIMIT 1
+            LIMIT 1
             """
         )
 
