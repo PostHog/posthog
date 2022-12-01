@@ -43,6 +43,9 @@ export function generateEventDeadLetterQueueMessage(
         error_location: safeClickhouseString(errorLocation),
         error: safeClickhouseString(errorMessage),
         tags: ['plugin_server', 'ingest_event'],
+        // NOTE: uuid is not a column in the dead letter queue table, so we need
+        // to remove it.
+        uuid: undefined,
     }
 
     const message = {
