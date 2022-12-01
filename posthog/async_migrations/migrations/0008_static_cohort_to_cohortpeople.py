@@ -19,7 +19,6 @@ class Migration(AsyncMigrationDefinition):
 
     depends_on = "0007_persons_and_groups_on_events_backfill"
 
-    posthog_min_version = ""
     # After releasing this version we can remove code related to `person_static_cohort` table
     posthog_max_version = "1.42.99"
 
