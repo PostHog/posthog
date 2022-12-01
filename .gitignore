@@ -45,3 +45,4 @@ share/GeoLite2-City.mmdb
 a11y/
 # pyenv local config
 .python-version
+/playwright-report/
