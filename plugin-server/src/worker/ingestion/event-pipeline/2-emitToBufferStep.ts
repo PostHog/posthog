@@ -114,32 +114,43 @@ export function shouldSendEventToBuffer(
             isMergingAliasEvent,
             personExists: !!person,
         })
+        const reason = conversionBufferDisabled ? 'disabled' : person ? 'person' : 'identify-event'
+        hub.statsd?.increment('conversion_events_no_buffer', { teamId: event.team_id.toString(), reason: reason })
         return false
     }
 
     const shouldBufferAnonymousEvents = teamId <= hub.MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR
 
-    let sendToBuffer = false
     if (shouldBufferAnonymousEvents) {
-        sendToBuffer = true
-    } else {
-        // KLUDGE: This definition is not currently not encompassing all anonymous events
-        const isAnonymousEvent = event.distinct_id === eventProperties['$device_id']
-
-        // We do not send events from mobile libraries to the buffer because:
-        // a) that wouldn't help with the backend problem outlined above
-        // b) because of issues with $device_id in the mobile libraries, we often mislabel events
-        //  as being from an identified user when in fact they are not, leading to unnecessary buffering
-        const isMobileLibrary = ['posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'].includes(
-            eventProperties['$lib']
-        )
-
-        sendToBuffer = !(isAnonymousEvent || isMobileLibrary)
+        hub.statsd?.increment('conversion_events_buffer_size', {
+            teamId: event.team_id.toString(),
+            reason: 'anon-to-buffer',
+        })
+        return true
     }
 
-    if (sendToBuffer) {
-        hub.statsd?.increment('conversion_events_buffer_size', { teamId: event.team_id.toString() })
+    // KLUDGE: This definition is not currently not encompassing all anonymous events
+    const isAnonymousEvent = event.distinct_id === eventProperties['$device_id']
+    if (isAnonymousEvent) {
+        hub.statsd?.increment('conversion_events_no_buffer', { teamId: event.team_id.toString(), reason: 'anon-event' })
+        return false
     }
 
-    return sendToBuffer
+    // We do not send events from mobile libraries to the buffer because:
+    // a) that wouldn't help with the backend problem outlined above
+    // b) because of issues with $device_id in the mobile libraries, we often mislabel events
+    //  as being from an identified user when in fact they are not, leading to unnecessary buffering
+    const isMobileLibrary = ['posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'].includes(
+        eventProperties['$lib']
+    )
+    if (isMobileLibrary) {
+        hub.statsd?.increment('conversion_events_no_buffer', {
+            teamId: event.team_id.toString(),
+            reason: 'mobile-library',
+        })
+        return false
+    }
+
+    hub.statsd?.increment('conversion_events_buffer_size', { teamId: event.team_id.toString(), reason: 'default' })
+    return true
 }
