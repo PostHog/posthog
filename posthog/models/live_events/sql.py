@@ -86,11 +86,11 @@ SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_FILTERS_SQL = """
 SELECT
     uuid,
     event,
-    properties,
-    ts as timestamp,
     team_id,
     distinct_id,
-    elements_chain,
+    properties_aggregated as properties,
+    timestamp_aggregated as timestamp,
+    elements_chain_aggregated as elements_chain,
     source_table
 FROM (
     SELECT
@@ -98,9 +98,9 @@ FROM (
         event,
         team_id,
         distinct_id,
-        argMax(properties, created_at) as properties,
-        argMax(elements_chain, created_at) as elements_chain,
-        argMax(timestamp, created_at) as ts,
+        argMax(properties, created_at) as properties_aggregated,
+        argMax(elements_chain, created_at) as elements_chain_aggregated,
+        argMax(timestamp, created_at) as timestamp_aggregated,
         argMax(_table, created_at) as source_table
     FROM
         merge('{database}', '^(events|live_events)$')
@@ -109,7 +109,7 @@ FROM (
         {conditions}
         {filters}
     GROUP BY uuid, event, team_id, distinct_id
-    ORDER BY ts {order} {limit}
+    ORDER BY timestamp_aggregated {order} {limit}
 )
 """
 
@@ -118,11 +118,11 @@ SELECT_LIVE_EVENTS_BY_TEAM_AND_CONDITIONS_SQL = """
 SELECT
     uuid,
     event,
-    properties,
-    ts as timestamp,
     team_id,
     distinct_id,
-    elements_chain,
+    properties_aggregated as properties,
+    timestamp_aggregated as timestamp,
+    elements_chain_aggregated as elements_chain,
     source_table
 FROM (
     SELECT
@@ -130,9 +130,9 @@ FROM (
         event,
         team_id,
         distinct_id,
-        argMax(properties, created_at) as properties,
-        argMax(elements_chain, created_at) as elements_chain,
-        argMax(timestamp, created_at) as ts,
+        argMax(properties, created_at) as properties_aggregated,
+        argMax(elements_chain, created_at) as elements_chain_aggregated,
+        argMax(timestamp, created_at) as timestamp_aggregated,
         argMax(_table, created_at) as source_table
     FROM
         merge('{database}', '^(events|live_events)$')
@@ -140,6 +140,6 @@ FROM (
         team_id = %(team_id)s
         {conditions}
     GROUP BY uuid, event, team_id, distinct_id
-    ORDER BY ts {order} {limit}
+    ORDER BY timestamp_aggregated {order} {limit}
 )
 """
