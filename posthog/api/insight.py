@@ -9,7 +9,8 @@ from django.http import HttpResponse
 from django.utils.text import slugify
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -32,6 +33,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
+from posthog.caching.update_cache import synchronously_update_insight_cache
 from posthog.client import sync_execute
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
@@ -45,6 +47,7 @@ from posthog.constants import (
 )
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
+from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -63,9 +66,8 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
-from posthog.settings import SITE_URL
+from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
-from posthog.tasks.update_cache import synchronously_update_insight_cache
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
 logger = structlog.get_logger(__name__)
@@ -514,21 +516,33 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
 
         return queryset
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="refresh",
+                type=OpenApiTypes.BOOL,
+                description="""
+To improve UI responsiveness if there is not already a result cached the insight is returned without a result.
+
+This allows the UI to render and then request the result separately.
+
+To ensure the result is calculated and returned include a `refresh=true` query parameter.""",
+            ),
+            OpenApiParameter(
+                name="from_dashboard",
+                type=OpenApiTypes.INT,
+                description="""
+When loading an insight for a dashboard pass a `from_dashboard` query parameter containing the dashboard ID
+
+e.g. `"/api/projects/{team_id}/insights/{insight_id}?from_dashboard={dashboard_id}"`
+
+Insights can be added to more than one dashboard, this allows the insight to be loaded in the correct context.
+
+Using the correct cache and enriching the response with dashboard specific config (e.g. layouts or colors)""",
+            ),
+        ],
+    )
     def retrieve(self, request, *args, **kwargs):
-        """
-        When loading an insight for a dashboard pass a `from_dashboard` query parameter containing the dashboard ID
-
-        e.g. `"/api/projects/{team_id}/insights/{insight_id}?from_dashboard={dashboard_id}"`
-
-        Insights can be added to more than one dashboard, this allows the insight to be loaded in the correct context.
-
-        Using the correct cache and enriching the response with dashboard specific config (e.g. layouts or colors)
-
-        To improve UI responsiveness if there is not already a result cached the insight is returned without a result.
-        This allows the UI to render and then request the result separately.
-
-        To ensure the result is calculated and returned include a `refresh=true` query parameter.
-        """
         instance = self.get_object()
         serializer_context = self.get_serializer_context()
 
@@ -774,9 +788,30 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
         if "client_query_id" not in request.data:
             raise serializers.ValidationError({"client_query_id": "Field is required."})
         sync_execute(
-            f"KILL QUERY ON CLUSTER {CLICKHOUSE_CLUSTER} WHERE query_id LIKE %(client_query_id)s",
+            f"KILL QUERY ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE query_id LIKE %(client_query_id)s",
             {"client_query_id": f"{self.team.pk}_{request.data['client_query_id']}%"},
         )
+        return Response(status=status.HTTP_201_CREATED)
+
+    @action(methods=["POST"], detail=False)
+    def timing(self, request: request.Request, **kwargs):
+        from posthog.kafka_client.client import KafkaProducer
+        from posthog.models.event.util import format_clickhouse_timestamp
+        from posthog.utils import cast_timestamp_or_now
+
+        if CAPTURE_TIME_TO_SEE_DATA:
+            payload = {
+                **request.data,
+                "team_id": self.team_id,
+                "user_id": self.request.user.pk,
+                "timestamp": format_clickhouse_timestamp(cast_timestamp_or_now(None)),
+            }
+            if "min_last_refresh" in payload:
+                payload["min_last_refresh"] = format_clickhouse_timestamp(payload["min_last_refresh"])
+            if "max_last_refresh" in payload:
+                payload["max_last_refresh"] = format_clickhouse_timestamp(payload["max_last_refresh"])
+            KafkaProducer().produce(topic=KAFKA_METRICS_TIME_TO_SEE_DATA, data=payload)
+
         return Response(status=status.HTTP_201_CREATED)
 
 

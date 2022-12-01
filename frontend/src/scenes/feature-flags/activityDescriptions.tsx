@@ -188,6 +188,7 @@ const featureFlagActionsMapping: Record<
     // TODO: handle activity
     rollback_conditions: () => null,
     performed_rollback: () => null,
+    can_edit: () => null,
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {

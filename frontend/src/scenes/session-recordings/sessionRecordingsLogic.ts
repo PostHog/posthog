@@ -1,34 +1,43 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { Breadcrumb, SessionRecordingPlaylistType, SessionRecordingsTabs } from '~/types'
+import { Breadcrumb, SessionRecordingsTabs } from '~/types'
 import { urls } from 'scenes/urls'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-
 import type { sessionRecordingsLogicType } from './sessionRecordingsLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { loaders } from 'kea-loaders'
-import api from 'lib/api'
+import { SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { savedSessionRecordingPlaylistModelLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
 
 export const humanFriendlyTabName = (tab: SessionRecordingsTabs): string => {
     switch (tab) {
         case SessionRecordingsTabs.Recent:
             return 'Recent Recordings'
         case SessionRecordingsTabs.Playlists:
-            return 'Saved Playlists'
+            return 'Playlists'
         default:
             return capitalizeFirstLetter(tab)
     }
 }
 
+export const PLAYLIST_LIMIT_REACHED_MESSAGE = `You have reached the free limit of ${SESSION_RECORDINGS_PLAYLIST_FREE_COUNT} saved playlists`
+
 export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
     path(() => ['scenes', 'session-recordings', 'root']),
-    connect({
-        values: [featureFlagLogic, ['featureFlags']],
-    }),
+    connect(() => ({
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            savedSessionRecordingPlaylistModelLogic,
+            ['_playlistModelLoading'],
+        ],
+        actions: [
+            savedSessionRecordingPlaylistModelLogic,
+            ['createSavedPlaylist', 'duplicateSavedPlaylist', 'updateSavedPlaylist'],
+        ],
+    })),
     actions({
         setTab: (tab: SessionRecordingsTabs = SessionRecordingsTabs.Recent) => ({ tab }),
-        saveNewPlaylist: (playlist: Partial<SessionRecordingPlaylistType>) => ({ playlist }),
+        saveNewPlaylist: true,
     }),
     reducers(({}) => ({
         tab: [
@@ -38,23 +47,19 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
             },
         ],
     })),
-    loaders(({}) => ({
-        newPlaylist: [
-            null as SessionRecordingPlaylistType | null,
-            {
-                saveNewPlaylist: async ({ playlist }) => {
-                    const response = await api.recordings.createPlaylist(playlist)
 
-                    return response
+    listeners(({ actions, values }) => ({
+        saveNewPlaylist: async () => {
+            const filters = router.values.searchParams?.filters
+            await actions.createSavedPlaylist(
+                {
+                    filters: values.tab === SessionRecordingsTabs.Recent ? filters : undefined,
                 },
-            },
-        ],
-    })),
-    listeners(({}) => ({
-        saveNewPlaylistSuccess: async ({ newPlaylist }) => {
-            router.actions.push(urls.sessionRecordingPlaylist(newPlaylist.short_id))
+                true
+            )
         },
     })),
+
     actionToUrl(({ values }) => {
         return {
             setTab: () => [urls.sessionRecordings(values.tab), router.values.searchParams],
@@ -62,6 +67,7 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
     }),
 
     selectors(({}) => ({
+        newPlaylistLoading: [(s) => [s._playlistModelLoading], (_playlistModelLoading) => !!_playlistModelLoading],
         breadcrumbs: [
             (s) => [s.tab],
             (tab): Breadcrumb[] => [
@@ -74,17 +80,7 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
 
     urlToAction(({ actions, values }) => {
         return {
-            [urls.sessionRecordings()]: () => {
-                if (!values.featureFlags[FEATURE_FLAGS.RECORDING_PLAYLISTS]) {
-                    return
-                }
-                router.actions.replace(urls.sessionRecordings(SessionRecordingsTabs.Recent))
-            },
             '/recordings/:tab': ({ tab }) => {
-                if (!values.featureFlags[FEATURE_FLAGS.RECORDING_PLAYLISTS]) {
-                    return
-                }
-
                 if (tab !== values.tab) {
                     actions.setTab(tab as SessionRecordingsTabs)
                 }

@@ -19,7 +19,34 @@ Let's get you developing the plugin server in no time:
 
 1. Start the plugin server in autoreload mode with `yarn start:dev`, or in compiled mode with `yarn build && yarn start:dist`, and develop away!
 
-1. Prepare for running tests with `yarn setup:test`, which will run the necessary migrations. Run the tests themselves with `yarn test:{1,2}`.
+1. Prepare for running tests with `yarn setup:test`, which will run the
+   necessary migrations. Run the tests themselves with `yarn test:{1,2}`.
+
+1. Prepare for running functional tests. See notes below.
+
+## Functional tests
+
+Functional tests are provided located in `functional_tests`. They provide tests
+for high level functionality of the plugin-server, i.e. functionality that any
+client of the plugin-server should be able to use. It attempts to assume nothing
+of the implementation details of the plugin-server.
+
+At the time of writing it assumes:
+
+1. that events are pushed into Kafka topics.
+1. that side-effects of the plugin-server are updates to ClickHouse table data.
+1. that the plugin-server reads certain data from Postgres tables e.g.
+   `posthog_team`, `posthog_pluginsource` etc. These would ideally be wrapped in
+   some implementation detail agnostic API.
+
+It specifically doesn't assume details of the running plugin-server process e.g.
+runtime stack.
+
+See `bin/ci_functional_tests.sh` for how these tests are run in CI. For local
+testing:
+
+1. start the plugin-server with `yarn start:dev`
+1. run the tests with `yarn functional_tests --watch`
 
 ## CLI flags
 
@@ -89,7 +116,6 @@ There's a multitude of settings you can use to control the plugin server. Use th
 | DISABLE_MMDB                           | whether to disable MMDB IP location capabilities                                                                                                                                                               | `false`                               |
 | INTERNAL_MMDB_SERVER_PORT              | port of the internal server used for IP location (0 means random)                                                                                                                                              | `0`                                   |
 | DISTINCT_ID_LRU_SIZE                   | size of persons distinct ID LRU cache                                                                                                                                                                          | `10000`                               |
-| CAPTURE_INTERNAL_METRICS               | whether to capture internal metrics for posthog in posthog                                                                                                                                                     | `false`                               |
 | PISCINA_USE_ATOMICS                    | corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)                                                                                      | `true`                                |
 | PISCINA_ATOMICS_TIMEOUT                | (advanced) corresponds to the length of time (in ms) a piscina worker should block for when looking for tasks - instances with high volumes (100+ events/sec) might benefit from setting this to a lower value | `5000`                                |
 | HEALTHCHECK_MAX_STALE_SECONDS          | 'maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails'                                                                                                     | `7200`                                |

@@ -44,6 +44,7 @@
         justify-content: center;
         .LemonButton__content {
             flex: initial;
+            text-align: center;
         }
     }
 
@@ -144,7 +145,7 @@
         }
     }
 
-    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted') {
+    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted', 'muted-alt') {
         &.LemonButton--status-#{$status} {
             color: var(--#{$status}, var(--primary));
 
@@ -154,7 +155,7 @@
             }
             &:not(:disabled):active {
                 color: var(--#{$status}-dark, var(--primary-dark));
-                .LemonIcon {
+                .LemonButton__icon {
                     color: var(--#{$status}-dark, var(--primary-dark));
                 }
             }
@@ -233,7 +234,7 @@
         &.LemonButton--status-primary {
             &:hover {
                 // NOTE: this is a rare case where we specify a unique hover style. Only primary status is supported
-                background: var(--primary-button-nested-hover);
+                background: var(--primary-extralight);
             }
         }
     }

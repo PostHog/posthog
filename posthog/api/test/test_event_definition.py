@@ -37,7 +37,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         cls.user = create_user("user", "pass", cls.organization)
 
         for event_definition in cls.EXPECTED_EVENT_DEFINITIONS:
-            create_event_definitions(event_definition["name"], team_id=cls.demo_team.pk)
+            create_event_definitions(event_definition, team_id=cls.demo_team.pk)
             for _ in range(event_definition["volume_30_day"]):
                 capture_event(
                     event=EventData(
@@ -204,8 +204,10 @@ def capture_event(event: EventData):
     )
 
 
-def create_event_definitions(name: str, team_id: int) -> EventDefinition:
+def create_event_definitions(event_definition: Dict, team_id: int) -> EventDefinition:
     """
     Create event definition for a team.
     """
-    return EventDefinition.objects.create(name=name, team_id=team_id)
+    created_definition = EventDefinition.objects.create(name=event_definition["name"], team_id=team_id)
+
+    return created_definition

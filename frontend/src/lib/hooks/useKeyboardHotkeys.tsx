@@ -3,11 +3,13 @@ import { DependencyList } from 'react'
 import { HotKeys } from '~/types'
 
 export interface HotkeyInterface {
-    action: () => void
+    action: (e: KeyboardEvent) => void
     disabled?: boolean
+    // Indicates the "action" will handle the event and preventDefault should not be called
+    willHandleEvent?: boolean
 }
 
-type HotkeysInterface = Partial<Record<HotKeys, HotkeyInterface>>
+export type HotkeysInterface = Partial<Record<HotKeys, HotkeyInterface>>
 /**
  * input boxes in the hovering toolbar do not have event target of input.
  * they are detected as for e.g.div#__POSTHOG_TOOLBAR__.ph-no-capture
@@ -41,11 +43,6 @@ export function useKeyboardHotkeys(hotkeys: HotkeysInterface, deps?: DependencyL
         (event) => {
             const key = event.key
 
-            // Ignore if the key is pressed with a meta or control key (these are general browser commands; e.g. Cmd + R)
-            if (event.metaKey || event.ctrlKey || event.altKey) {
-                return
-            }
-
             // Ignore explicit hotkey exceptions
             if (exceptions.some((exception) => (event.target as Element).matches(exception))) {
                 return
@@ -64,9 +61,16 @@ export function useKeyboardHotkeys(hotkeys: HotkeysInterface, deps?: DependencyL
                     continue
                 }
 
+                // Ignore if the key is pressed with a meta or control key (these are general browser commands; e.g. Cmd + R) if the action doesn't support it
+                if (!hotkey.willHandleEvent && (event.metaKey || event.ctrlKey || event.altKey)) {
+                    continue
+                }
+
                 if (key.toLowerCase() === relevantKey) {
-                    event.preventDefault()
-                    hotkey.action()
+                    if (!hotkey.willHandleEvent) {
+                        event.preventDefault()
+                    }
+                    hotkey.action(event)
                     break
                 }
             }

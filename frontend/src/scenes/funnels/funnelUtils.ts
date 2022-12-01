@@ -1,6 +1,5 @@
 import { clamp } from 'lib/utils'
 import {
-    FilterType,
     FunnelStepRangeEntityFilter,
     FunnelRequestParams,
     FunnelStep,
@@ -9,6 +8,7 @@ import {
     FunnelAPIResponse,
     FunnelStepReference,
     FunnelConversionWindow,
+    FunnelsFilterType,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { combineUrl } from 'kea-router'
@@ -198,13 +198,15 @@ export const getBreakdownStepValues = (
     return EMPTY_BREAKDOWN_VALUES
 }
 
-export const isStepsEmpty = (filters: FilterType): boolean =>
+export const isStepsEmpty = (filters: FunnelsFilterType): boolean =>
     [...(filters.actions || []), ...(filters.events || [])].length === 0
 
-export const isStepsUndefined = (filters: FilterType): boolean =>
+export const isStepsUndefined = (filters: FunnelsFilterType): boolean =>
     typeof filters.events === 'undefined' && (typeof filters.actions === 'undefined' || filters.actions.length === 0)
 
-export const deepCleanFunnelExclusionEvents = (filters: FilterType): FunnelStepRangeEntityFilter[] | undefined => {
+export const deepCleanFunnelExclusionEvents = (
+    filters: FunnelsFilterType
+): FunnelStepRangeEntityFilter[] | undefined => {
     if (!filters.exclusions) {
         return undefined
     }
@@ -233,7 +235,7 @@ export const getClampedStepRangeFilter = ({
     filters,
 }: {
     stepRange?: FunnelStepRangeEntityFilter
-    filters: FilterType
+    filters: FunnelsFilterType
 }): FunnelStepRangeEntityFilter => {
     const maxStepIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
 

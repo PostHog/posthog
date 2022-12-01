@@ -1,11 +1,5 @@
 import { actions, connect, kea, key, listeners, path, reducers, selectors, props } from 'kea'
-import {
-    PlayerPosition,
-    RecordingEventsFilters,
-    RecordingEventType,
-    RecordingWindowFilter,
-    SessionRecordingPlayerProps,
-} from '~/types'
+import { PlayerPosition, RecordingEventsFilters, RecordingEventType, RecordingWindowFilter } from '~/types'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import type { eventsListLogicType } from './eventsListLogicType'
 import {
@@ -16,7 +10,10 @@ import {
     ceilMsToClosestSecond,
     eventToDescription,
 } from 'lib/utils'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import List, { RenderedRows } from 'react-virtualized/dist/es/List'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
@@ -38,9 +35,9 @@ const makeEventsQueryable = (events: RecordingEventType[]): RecordingEventType[]
 
 export const eventsListLogic = kea<eventsListLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'eventsListLogic', key]),
-    props({} as SessionRecordingPlayerProps),
-    key((props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`),
-    connect(({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({
+    props({} as SessionRecordingPlayerLogicProps),
+    key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect(({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps) => ({
         logic: [eventUsageLogic],
         actions: [
             sessionRecordingDataLogic({ sessionRecordingId }),

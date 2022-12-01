@@ -1,5 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+import tk from 'timekeeper'
 
 import { parseDate, parseEventTimestamp } from '../../../src/worker/ingestion/timestamps'
 
@@ -30,6 +31,13 @@ describe('parseDate()', () => {
 })
 
 describe('parseEventTimestamp()', () => {
+    beforeEach(() => {
+        tk.freeze(1330688329321) // Back to 2012-03-02
+    })
+    afterEach(() => {
+        tk.reset()
+    })
+
     it('captures sent_at', () => {
         const rightNow = DateTime.utc()
         const tomorrow = rightNow.plus({ days: 1, hours: 2 })
@@ -46,6 +54,20 @@ describe('parseEventTimestamp()', () => {
 
         expect(eventSecondsBeforeNow).toBeGreaterThan(590)
         expect(eventSecondsBeforeNow).toBeLessThan(610)
+    })
+
+    it('ignores invalid sent_at', () => {
+        const rightNow = DateTime.utc()
+        const tomorrow = rightNow.plus({ days: 1, hours: 2 })
+
+        const event = {
+            timestamp: tomorrow.toISO(),
+            now: rightNow,
+            sent_at: 'invalid',
+        } as any as PluginEvent
+
+        const timestamp = parseEventTimestamp(event)
+        expect(timestamp).toEqual(tomorrow)
     })
 
     it('captures sent_at with no timezones', () => {
@@ -107,5 +129,18 @@ describe('parseEventTimestamp()', () => {
 
         const timestamp = parseEventTimestamp(event)
         expect(timestamp.toUTC().toISO()).toEqual('2020-01-01T12:00:05.050Z')
+    })
+
+    it('reports timestamp parsing error and fallbacks to DateTime.utc', () => {
+        const event = {
+            team_id: 123,
+            timestamp: 'invalid',
+            now: DateTime.fromISO('2020-01-01T12:00:05.200Z'),
+        } as any as PluginEvent
+
+        const callbackMock = jest.fn()
+        const timestamp = parseEventTimestamp(event, callbackMock)
+        expect(callbackMock.mock.calls).toEqual([[]])
+        expect(timestamp.toUTC().toISO()).toEqual('2012-03-02T11:38:49.321Z')
     })
 })

@@ -1,7 +1,7 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import type { teamLogicType } from './teamLogicType'
-import { TeamType } from '~/types'
+import { CorrelationConfigType, TeamType } from '~/types'
 import { userLogic } from './userLogic'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { organizationLogic } from './organizationLogic'
@@ -94,7 +94,8 @@ export const teamLogic = kea<teamLogicType>([
 
                     return patchedTeam
                 },
-                createTeam: async (name: string): Promise<TeamType> => await api.create('api/projects/', { name }),
+                createTeam: async ({ name, is_demo }: { name: string; is_demo: boolean }): Promise<TeamType> =>
+                    await api.create('api/projects/', { name, is_demo }),
                 resetToken: async () => await api.update(`api/projects/${values.currentTeamId}/reset_token`, {}),
             },
         ],
@@ -128,7 +129,7 @@ export const teamLogic = kea<teamLogicType>([
         ],
         funnelCorrelationConfig: [
             (selectors) => [selectors.currentTeam],
-            (currentTeam): Partial<TeamType['correlation_config']> => {
+            (currentTeam): CorrelationConfigType => {
                 return currentTeam?.correlation_config || {}
             },
         ],
@@ -153,8 +154,12 @@ export const teamLogic = kea<teamLogicType>([
         deleteTeamSuccess: () => {
             lemonToast.success('Project has been deleted')
         },
-        createTeamSuccess: () => {
-            window.location.href = '/ingestion'
+        createTeamSuccess: ({ currentTeam }) => {
+            if (window.location.href.includes('/ingestion') && currentTeam.is_demo) {
+                window.location.href = '/'
+            } else {
+                window.location.href = '/ingestion'
+            }
         },
     })),
     events(({ actions }) => ({

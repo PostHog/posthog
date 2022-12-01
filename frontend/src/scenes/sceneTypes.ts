@@ -62,6 +62,7 @@ export enum Scene {
     Ingestion = 'IngestionWizard',
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     Unsubscribe = 'Unsubscribe',
+    Query = 'Query',
 }
 
 export type SceneProps = Record<string, any>

@@ -31,7 +31,7 @@ const DragHandle = sortableHandle(() => (
 
 interface TableConfigProps {
     immutableColumns?: string[] //the titles of the columns that are always displayed
-    defaultColumns: string[] // the titles of the set of columns to show when there is no user choice
+    defaultColumns: string[] // the keys of the set of columns to show when there is no user choice
 }
 
 export function LemonTableConfig(props: TableConfigProps): JSX.Element {

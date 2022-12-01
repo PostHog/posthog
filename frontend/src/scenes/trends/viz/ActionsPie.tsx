@@ -12,6 +12,7 @@ import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import clsx from 'clsx'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
@@ -49,7 +50,7 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
     return data ? (
         data[0] && data[0].labels ? (
             <div className={clsx('w-full', inCardView && 'flex flex-row pr-4 h-full items-center')}>
-                <div className="actions-pie-component">
+                <div className={clsx('actions-pie-component', inCardView && 'grow')}>
                     <div className="pie-chart">
                         <PieChart
                             data-attr="trend-pie-graph"
@@ -62,7 +63,7 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
                             showPersonsModal={showPersonsModal}
                             filters={insight.filters}
                             onClick={
-                                !showPersonsModal || insight.filters?.formula
+                                !showPersonsModal || (isTrendsFilter(insight.filters) && insight.filters?.formula)
                                     ? undefined
                                     : (payload) => {
                                           const { points, index, crossDataset } = payload
@@ -85,7 +86,7 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
                     </div>
                     <h1 className="text-7xl text-center mb-0">{formatAggregationAxisValue(insight.filters, total)}</h1>
                 </div>
-                {inCardView && filters.show_legend && <InsightLegend inCardView />}
+                {inCardView && isTrendsFilter(filters) && filters.show_legend && <InsightLegend inCardView />}
             </div>
         ) : (
             <p className="text-center mt-16">We couldn't find any matching actions.</p>

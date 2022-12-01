@@ -1,7 +1,7 @@
 import { useValues, useActions } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { CardContainer } from '../CardContainer'
-import { ingestionLogic } from '../ingestionLogic'
+import { ingestionLogicV2 } from '../ingestionLogicV2'
 import './Panels.scss'
 import { LemonModal } from 'lib/components/LemonModal'
 import { thirdPartySources, ThirdPartySourceType } from '../constants'
@@ -16,7 +16,7 @@ import { Link } from 'lib/components/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export function ThirdPartyPanel(): JSX.Element {
-    const { setInstructionsModal, setThirdPartySource, openThirdPartyPluginModal } = useActions(ingestionLogic)
+    const { setInstructionsModal, setThirdPartySource, openThirdPartyPluginModal } = useActions(ingestionLogicV2)
     const { filteredUninstalledPlugins, installedPlugins } = useValues(pluginsLogic)
     const { installPlugin } = useActions(pluginsLogic)
     const {
@@ -28,7 +28,7 @@ export function ThirdPartyPanel(): JSX.Element {
     return (
         <CardContainer showFooter>
             <div className="px-6">
-                <h1 className="ingestion-title">Set up apps</h1>
+                <h1 className="ingestion-title pb-4">Set up apps</h1>
                 {thirdPartySources.map((source, idx) => {
                     const installedThirdPartyPlugin = installedPlugins?.find((plugin: PluginTypeWithConfig) =>
                         plugin.name.includes(source.name)
@@ -44,7 +44,7 @@ export function ThirdPartyPanel(): JSX.Element {
                         >
                             <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center">
-                                    {source.icon}
+                                    <div className="w-8 h-8">{source.icon}</div>
                                     <div className="ml-2">
                                         <h3 className="mb-0 flex align-center font-semibold text-base">
                                             {source.name} Import
@@ -65,14 +65,13 @@ export function ThirdPartyPanel(): JSX.Element {
                                     <LemonButton
                                         className="mr-2"
                                         type="secondary"
+                                        to={`https://posthog.com${
+                                            source.type === ThirdPartySourceType.Integration
+                                                ? `/docs/integrate/third-party/${source.name.toLowerCase()}`
+                                                : `/integrations/${source.pluginName?.toLowerCase()}`
+                                        }`}
+                                        targetBlank={true}
                                         onClick={() => {
-                                            window.open(
-                                                `https://posthog.com${
-                                                    source.type === ThirdPartySourceType.Integration
-                                                        ? `/docs/integrate/third-party/${source.name}`
-                                                        : `/integrations/${source.pluginName}`
-                                                }`
-                                            )
                                             reportIngestionThirdPartyAboutClicked(source.name)
                                         }}
                                     >
@@ -134,8 +133,8 @@ export function ThirdPartyPanel(): JSX.Element {
 }
 
 export function IntegrationInstructionsModal(): JSX.Element {
-    const { instructionsModalOpen, thirdPartyIntegrationSource, thirdPartyPluginSource } = useValues(ingestionLogic)
-    const { setInstructionsModal } = useActions(ingestionLogic)
+    const { instructionsModalOpen, thirdPartyIntegrationSource, thirdPartyPluginSource } = useValues(ingestionLogicV2)
+    const { setInstructionsModal } = useActions(ingestionLogicV2)
     const { currentTeam } = useValues(teamLogic)
 
     return (
@@ -212,7 +211,12 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                         <p className="text-muted">
                                             <b>
                                                 In order to access the session recordings feature, you'll also have to{' '}
-                                                <Link to="/ingestion/web">integrate posthog js</Link>.
+                                                <Link
+                                                    to="https://posthog.com/docs/integrate/third-party/segment#full-segment-setup-all-features-supported"
+                                                    target="blank"
+                                                >
+                                                    integrate posthog js
+                                                </Link>
                                             </b>
                                         </p>
                                     </div>

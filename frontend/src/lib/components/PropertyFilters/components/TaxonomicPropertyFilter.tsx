@@ -12,11 +12,15 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
-import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
+import {
+    isGroupPropertyFilter,
+    isPropertyFilterWithOperator,
+    propertyFilterTypeToTaxonomicFilterType,
+} from 'lib/components/PropertyFilters/utils'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import clsx from 'clsx'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { FilterLogicalOperator } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonButtonWithPopup } from '@posthog/lemon-ui'
 
@@ -76,7 +80,10 @@ export function TaxonomicPropertyFilter({
 
     const taxonomicFilter = (
         <TaxonomicFilter
-            groupType={propertyFilterTypeToTaxonomicFilterType(filter?.type, filter?.group_type_index)}
+            groupType={propertyFilterTypeToTaxonomicFilterType(
+                filter?.type,
+                isGroupPropertyFilter(filter) ? filter.group_type_index : undefined
+            )}
             value={cohortOrOtherValue}
             onChange={taxonomicOnChange}
             taxonomicGroupTypes={groupTypes}
@@ -166,20 +173,21 @@ export function TaxonomicPropertyFilter({
                                 propertyDefinitions={propertyDefinitions}
                                 type={filter?.type}
                                 propkey={filter?.key}
-                                operator={filter?.operator}
+                                operator={isPropertyFilterWithOperator(filter) ? filter.operator : null}
                                 value={filter?.value}
                                 placeholder="Enter value..."
                                 endpoint={filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)}
                                 onChange={(newOperator, newValue) => {
                                     if (filter?.key && filter?.type) {
-                                        setFilter(
-                                            index,
-                                            filter?.key,
-                                            newValue || null,
-                                            newOperator,
-                                            filter?.type,
-                                            filter?.group_type_index
-                                        )
+                                        setFilter(index, {
+                                            key: filter?.key,
+                                            value: newValue || null,
+                                            operator: newOperator,
+                                            type: filter?.type,
+                                            ...(isGroupPropertyFilter(filter)
+                                                ? { group_type_index: filter.group_type_index }
+                                                : {}),
+                                        } as AnyPropertyFilter)
                                     }
                                     if (
                                         newOperator &&

@@ -117,10 +117,16 @@ export const loginLogic = kea<loginLogicType>([
         },
     }),
     urlToAction(({ actions }) => ({
-        '/login': ({}, { error_code, error_detail }) => {
+        '/login': ({}, { error_code, error_detail, email }) => {
             if (error_code) {
                 actions.setGeneralError(error_code, error_detail)
                 router.actions.replace('/login', {})
+            }
+
+            // This allows us to give a quick login link in the `generate_demo_data` command
+            if (email) {
+                actions.setLoginValue('email', email)
+                actions.precheck({ email })
             }
         },
     })),

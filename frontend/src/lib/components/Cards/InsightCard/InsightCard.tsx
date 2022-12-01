@@ -51,13 +51,20 @@ import { UserActivityIndicator } from '../../UserActivityIndicator/UserActivityI
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { SpinnerOverlay } from '../../Spinner/Spinner'
+import {
+    isFilterWithDisplay,
+    isFunnelsFilter,
+    isPathsFilter,
+    isRetentionFilter,
+    isTrendsFilter,
+} from 'scenes/insights/sharedUtils'
 import { CardMeta, Resizeable } from 'lib/components/Cards/Card'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 
 // TODO: Add support for Retention to InsightDetails
 export const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
 
-type DisplayedType = ChartDisplayType | 'RetentionContainer'
+type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
 const displayMap: Record<
     DisplayedType,
@@ -71,6 +78,10 @@ const displayMap: Record<
         element: ActionsLineGraph,
     },
     ActionsLineGraphCumulative: {
+        className: 'graph',
+        element: ActionsLineGraph,
+    },
+    ActionsAreaGraph: {
         className: 'graph',
         element: ActionsLineGraph,
     },
@@ -90,7 +101,7 @@ const displayMap: Record<
         className: 'pie',
         element: ActionsPie,
     },
-    FunnelViz: {
+    FunnelContainer: {
         className: 'funnel',
         element: Funnel,
     },
@@ -98,7 +109,7 @@ const displayMap: Record<
         className: 'retention',
         element: RetentionContainer,
     },
-    PathsViz: {
+    PathsContainer: {
         className: 'paths-viz',
         element: Paths,
     },
@@ -113,15 +124,16 @@ const displayMap: Record<
 }
 
 function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
-    return (
-        filters.insight === InsightType.RETENTION
-            ? 'RetentionContainer'
-            : filters.insight === InsightType.PATHS
-            ? 'PathsViz'
-            : filters.insight === InsightType.FUNNELS
-            ? 'FunnelViz'
-            : filters.display || 'ActionsLineGraph'
-    ) as DisplayedType
+    const displayedType: DisplayedType = isRetentionFilter(filters)
+        ? 'RetentionContainer'
+        : isPathsFilter(filters)
+        ? 'PathsContainer'
+        : isFunnelsFilter(filters)
+        ? 'FunnelContainer'
+        : isFilterWithDisplay(filters)
+        ? filters.display || ChartDisplayType.ActionsLineGraph
+        : ChartDisplayType.ActionsLineGraph
+    return displayedType
 }
 
 export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLDivElement> {
@@ -240,7 +252,7 @@ function InsightMeta({
                         </h4>
                     </Link>
 
-                    <div className="CardMeta__description">{insight.description || <i>No description</i>}</div>
+                    {!!insight.description && <div className="CardMeta__description">{insight.description}</div>}
                     {insight.tags && insight.tags.length > 0 && <ObjectTags tags={insight.tags} staticOnly />}
                     <UserActivityIndicator at={insight.last_modified_at} by={insight.last_modified_by} />
                 </>
@@ -417,7 +429,7 @@ export function InsightViz({
         // With this, autosizing runs again after `metaPrimaryHeight` is ready
         if (
             // `display` should be ignored in non-Trends insight
-            (!!insight.filters.insight || insight.filters.insight === InsightType.TRENDS) &&
+            isTrendsFilter(insight.filters) &&
             insight.filters.display === ChartDisplayType.BoldNumber
         ) {
             window.dispatchEvent(new Event('resize'))

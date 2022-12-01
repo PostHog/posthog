@@ -41,6 +41,7 @@ class TeamManager(models.Manager):
                 "key": "$host",
                 "operator": "is_not",
                 "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000", "localhost:3000"],
+                "type": "event",
             }
         ]
         if organization:
@@ -250,3 +251,13 @@ def groups_on_events_querying_enabled():
     Remove all usages of this when the feature is released to everyone.
     """
     return person_on_events_ready() and get_instance_setting("GROUPS_ON_EVENTS_ENABLED")
+
+
+def get_available_features_for_team(team_id: int):
+    available_features: Optional[List[str]] = (
+        Team.objects.select_related("organization")
+        .values_list("organization__available_features", flat=True)
+        .get(id=team_id)
+    )
+
+    return available_features

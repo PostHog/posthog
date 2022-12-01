@@ -25,6 +25,7 @@ import {
     InsightShortId,
     YesOrNoResponse,
     SessionPlayerData,
+    AnyPartialFilterType,
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -34,6 +35,15 @@ import { convertPropertyGroupToProperties } from 'lib/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PlatformType, Framework } from 'scenes/ingestion/v1/types'
 import { now } from 'lib/dayjs'
+import {
+    isFilterWithDisplay,
+    isFunnelsFilter,
+    isPathsFilter,
+    isRetentionFilter,
+    isStickinessFilter,
+    isTrendsFilter,
+} from 'scenes/insights/sharedUtils'
+import { isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
 export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
@@ -106,7 +116,12 @@ function flattenProperties(properties: AnyPropertyFilter[]): string[] {
 
 function hasGroupProperties(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): boolean {
     const flattenedProperties = convertPropertyGroupToProperties(properties)
-    return !!flattenedProperties && flattenedProperties.some((property) => property.group_type_index != undefined)
+    return (
+        !!flattenedProperties &&
+        flattenedProperties.some(
+            (property) => isGroupPropertyFilter(property) && property.group_type_index !== undefined
+        )
+    )
 }
 
 function usedCohortFilterIds(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): PropertyFilterValue[] {
@@ -119,19 +134,8 @@ function usedCohortFilterIds(properties: AnyPropertyFilter[] | PropertyGroupFilt
 /*
     Takes a full list of filters for an insight and sanitizes any potentially sensitive info to report usage
 */
-function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any> {
-    const {
-        display,
-        interval,
-        date_from,
-        date_to,
-        filter_test_accounts,
-        formula,
-        funnel_viz_type,
-        funnel_from_step,
-        funnel_to_step,
-        insight,
-    } = filters
+function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any> {
+    const { interval, date_from, date_to, filter_test_accounts, insight } = filters
 
     let properties_local: string[] = []
 
@@ -177,18 +181,18 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
     const properties_global = flattenProperties(properties)
 
     return {
-        display,
+        display: isFilterWithDisplay(filters) ? filters.display : undefined,
         interval,
         date_from,
         date_to,
         filter_test_accounts,
-        formula,
+        formula: isTrendsFilter(filters) ? filters.formula : undefined,
         filters_count: properties?.length || 0,
         events_count: events?.length || 0,
         actions_count: actions?.length || 0,
-        funnel_viz_type,
-        funnel_from_step,
-        funnel_to_step,
+        funnel_viz_type: isFunnelsFilter(filters) ? filters.funnel_viz_type : undefined,
+        funnel_from_step: isFunnelsFilter(filters) ? filters.funnel_from_step : undefined,
+        funnel_to_step: isFunnelsFilter(filters) ? filters.funnel_to_step : undefined,
         properties_global,
         properties_global_custom_count: properties_global.filter((item) => item === 'custom').length,
         properties_local,
@@ -382,6 +386,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingViewedSummary: (recordingViewedSummary: RecordingViewedSummaryAnalytics) => ({
             recordingViewedSummary,
         }),
+        reportNextRecordingTriggered: (automatic: boolean) => ({
+            automatic,
+        }),
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
@@ -457,6 +464,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionSelectFrameworkType: (framework: Framework) => ({ framework }),
         reportIngestionHelpClicked: (type: string) => ({ type }),
         reportIngestionTryWithBookmarkletClicked: true,
+        reportIngestionTryWithDemoDataClicked: true,
         reportIngestionContinueWithoutVerifying: true,
         reportIngestionContinueWithoutBilling: true,
         reportIngestionBillingCancelled: true,
@@ -473,6 +481,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportInstanceSettingChange: (name: string, value: string | boolean | number) => ({ name, value }),
         reportAxisUnitsChanged: (properties: Record<string, any>) => ({ ...properties }),
         reportTeamSettingChange: (name: string, value: any) => ({ name, value }),
+        reportActivationSideBarShown: (
+            activeTasksCount: number,
+            completedTasksCount: number,
+            completionPercent: number
+        ) => ({ activeTasksCount, completedTasksCount, completionPercent }),
+        reportActivationSideBarTaskClicked: (key: string) => ({ key }),
     },
     listeners: ({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
@@ -561,8 +575,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             changedFilters,
             isUsingSessionAnalysis,
         }) => {
-            const { insight } = filters
-
             const properties: Record<string, any> = {
                 ...sanitizeFilterParams(filters),
                 report_delay: delay,
@@ -584,11 +596,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             properties.total_event_action_filters_count = totalEventActionFilters
 
             // Custom properties for each insight
-            if (insight === 'TRENDS') {
+            if (isTrendsFilter(filters)) {
                 properties.breakdown_type = filters.breakdown_type
                 properties.breakdown = filters.breakdown
                 properties.using_session_analysis = isUsingSessionAnalysis
-            } else if (insight === 'RETENTION') {
+                properties.compare = filters.compare // "Compare previous" option
+                properties.show_legend = filters.show_legend
+            } else if (isRetentionFilter(filters)) {
                 properties.period = filters.period
                 properties.date_to = filters.date_to
                 properties.retention_type = filters.retention_type
@@ -596,7 +610,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 const retainingEvent = filters.returning_entity
                 properties.same_retention_and_cohortizing_event =
                     cohortizingEvent?.id == retainingEvent?.id && cohortizingEvent?.type == retainingEvent?.type
-            } else if (insight === 'PATHS') {
+            } else if (isPathsFilter(filters)) {
                 properties.path_type = filters.path_type
                 properties.has_start_point = !!filters.start_point
                 properties.has_end_point = !!filters.end_point
@@ -619,12 +633,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                     properties.has_end_point ||
                     properties.has_funnel_filter ||
                     properties.has_wildcards
-            } else if (insight === 'STICKINESS') {
+            } else if (isStickinessFilter(filters)) {
                 properties.stickiness_days = filters.stickiness_days
             }
-            properties.compare = filters.compare // "Compare previous" option
             properties.mode = insightMode // View or edit
-            properties.show_legend = filters.show_legend
             properties.viewer_is_creator = insightModel.created_by?.uuid === values.user?.uuid ?? null // `null` means we couldn't determine this
             properties.is_saved = insightModel.saved
             properties.description_length = insightModel.description?.length ?? 0
@@ -963,6 +975,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingViewedSummary: ({ recordingViewedSummary }) => {
             posthog.capture('recording viewed summary', { ...recordingViewedSummary })
         },
+        reportNextRecordingTriggered: ({ automatic }) => {
+            posthog.capture('recording next recording triggered', { automatic })
+        },
         reportExperimentArchived: ({ experiment }) => {
             posthog.capture('experiment archived', {
                 name: experiment.name,
@@ -1101,6 +1116,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionTryWithBookmarkletClicked: () => {
             posthog.capture('ingestion try posthog with bookmarklet clicked')
         },
+        reportIngestionTryWithDemoDataClicked: () => {
+            posthog.capture('ingestion try posthog with demo data clicked')
+        },
         reportIngestionContinueWithoutVerifying: () => {
             posthog.capture('ingestion continue without verifying')
         },
@@ -1140,6 +1158,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             posthog.capture(`${name} team setting updated`, {
                 setting: name,
                 value,
+            })
+        },
+        reportActivationSideBarShown: ({ activeTasksCount, completedTasksCount, completionPercent }) => {
+            posthog.capture('activation sidebar shown', {
+                active_tasks_count: activeTasksCount,
+                completed_tasks_count: completedTasksCount,
+                completion_percent_count: completionPercent,
+            })
+        },
+        reportActivationSideBarTaskClicked: ({ key }) => {
+            posthog.capture('activation sidebar task clicked', {
+                key,
             })
         },
     }),

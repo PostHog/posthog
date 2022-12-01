@@ -1,0 +1,13 @@
+# name: TestSessionRecordingProperties.test_properties_list
+  '
+  
+  SELECT $session_id as session_id,
+         any(properties) as properties
+  FROM events PREWHERE team_id = 2
+  AND event IN ['$pageview']
+  AND session_id IN ['1']
+  AND timestamp >= '2021-01-13 12:00:00'
+  AND timestamp <= '2021-01-22 08:00:00'
+  GROUP BY session_id
+  '
+---

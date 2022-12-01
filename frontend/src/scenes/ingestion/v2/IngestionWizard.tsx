@@ -3,13 +3,12 @@ import './IngestionWizard.scss'
 
 import { VerificationPanel } from 'scenes/ingestion/v2/panels/VerificationPanel'
 import { InstructionsPanel } from 'scenes/ingestion/v2/panels/InstructionsPanel'
-import { MOBILE, BACKEND, WEB, BOOKMARKLET, THIRD_PARTY } from 'scenes/ingestion/v2/constants'
 import { useValues, useActions } from 'kea'
-import { ingestionLogic } from 'scenes/ingestion/v2/ingestionLogic'
+import { ingestionLogicV2, INGESTION_VIEWS } from 'scenes/ingestion/v2/ingestionLogicV2'
 import { FrameworkPanel } from 'scenes/ingestion/v2/panels/FrameworkPanel'
 import { PlatformPanel } from 'scenes/ingestion/v2/panels/PlatformPanel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { BookmarkletPanel } from './panels/BookmarkletPanel'
+import { GeneratingDemoDataPanel } from './panels/GeneratingDemoDataPanel'
 import { ThirdPartyPanel } from './panels/ThirdPartyPanel'
 import { BillingPanel } from './panels/BillingPanel'
 import { Sidebar } from './Sidebar'
@@ -21,9 +20,11 @@ import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { PanelHeader } from './panels/PanelComponents'
 import { InviteTeamPanel } from './panels/InviteTeamPanel'
+import { TeamInvitedPanel } from './panels/TeamInvitedPanel'
+import { NoDemoIngestionPanel } from './panels/NoDemoIngestionPanel'
 
 export function IngestionWizardV2(): JSX.Element {
-    const { platform, framework, verify, addBilling, technical } = useValues(ingestionLogic)
+    const { currentView, platform } = useValues(ingestionLogicV2)
     const { reportIngestionLandingSeen } = useActions(eventUsageLogic)
 
     useEffect(() => {
@@ -32,77 +33,26 @@ export function IngestionWizardV2(): JSX.Element {
         }
     }, [platform])
 
-    if (addBilling) {
-        return (
-            <IngestionContainer>
-                <BillingPanel />
-            </IngestionContainer>
-        )
-    }
-
-    if (!platform && !verify && !technical) {
-        return (
-            <IngestionContainer>
-                <InviteTeamPanel />
-            </IngestionContainer>
-        )
-    }
-
-    if (!platform && !verify && technical) {
-        return (
-            <IngestionContainer>
-                <PlatformPanel />
-            </IngestionContainer>
-        )
-    }
-
-    if (verify) {
-        return (
-            <IngestionContainer>
-                <VerificationPanel />
-            </IngestionContainer>
-        )
-    }
-
-    if (framework || platform === WEB) {
-        return (
-            <IngestionContainer>
-                <InstructionsPanel />
-            </IngestionContainer>
-        )
-    }
-
-    if (platform === MOBILE || platform === BACKEND) {
-        return (
-            <IngestionContainer>
-                <FrameworkPanel />
-            </IngestionContainer>
-        )
-    }
-
-    if (platform === BOOKMARKLET) {
-        return (
-            <IngestionContainer>
-                <BookmarkletPanel />
-            </IngestionContainer>
-        )
-    }
-
-    if (platform === THIRD_PARTY) {
-        return (
-            <IngestionContainer>
-                <ThirdPartyPanel />
-            </IngestionContainer>
-        )
-    }
-
-    return <></>
+    return (
+        <IngestionContainer>
+            {currentView === INGESTION_VIEWS.BILLING && <BillingPanel />}
+            {currentView === INGESTION_VIEWS.INVITE_TEAM && <InviteTeamPanel />}
+            {currentView === INGESTION_VIEWS.TEAM_INVITED && <TeamInvitedPanel />}
+            {currentView === INGESTION_VIEWS.CHOOSE_PLATFORM && <PlatformPanel />}
+            {currentView === INGESTION_VIEWS.CHOOSE_FRAMEWORK && <FrameworkPanel />}
+            {currentView === INGESTION_VIEWS.WEB_INSTRUCTIONS && <InstructionsPanel />}
+            {currentView === INGESTION_VIEWS.VERIFICATION && <VerificationPanel />}
+            {currentView === INGESTION_VIEWS.GENERATING_DEMO_DATA && <GeneratingDemoDataPanel />}
+            {currentView === INGESTION_VIEWS.CHOOSE_THIRD_PARTY && <ThirdPartyPanel />}
+            {currentView === INGESTION_VIEWS.NO_DEMO_INGESTION && <NoDemoIngestionPanel />}
+        </IngestionContainer>
+    )
 }
 
 function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
-    const { isSmallScreen } = useValues(ingestionLogic)
+    const { isSmallScreen } = useValues(ingestionLogicV2)
 
     return (
         <div className="flex h-full flex-col">

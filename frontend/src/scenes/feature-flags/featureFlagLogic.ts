@@ -2,7 +2,9 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import type { featureFlagLogicType } from './featureFlagLogicType'
 import {
     AnyPropertyFilter,
+    AvailableFeature,
     Breadcrumb,
+    FeatureFlagRollbackConditions,
     FeatureFlagType,
     FilterType,
     InsightModel,
@@ -10,12 +12,12 @@ import {
     MultivariateFlagOptions,
     MultivariateFlagVariant,
     PropertyFilter,
+    PropertyFilterType,
     PropertyOperator,
     RolloutConditionType,
-    FeatureFlagRollbackConditions,
 } from '~/types'
 import api from 'lib/api'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { convertPropertyGroupToProperties, deleteWithUndo, sum, toParams } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { teamLogic } from '../teamLogic'
@@ -24,12 +26,13 @@ import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/components/lemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { urlToAction } from 'kea-router'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dayjs } from 'lib/dayjs'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
+import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
+import { userLogic } from 'scenes/userLogic'
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -59,6 +62,7 @@ const NEW_FLAG: FeatureFlagType = {
     experiment_set: null,
     rollback_conditions: [],
     performed_rollback: false,
+    can_edit: true,
 }
 const NEW_VARIANT = {
     key: '',
@@ -89,19 +93,19 @@ export const defaultEntityFilterOnFlag = (flagKey: string): Partial<FilterType> 
 export const defaultPropertyOnFlag = (flagKey: string): AnyPropertyFilter[] => [
     {
         key: '$feature/' + flagKey,
-        type: 'event',
+        type: PropertyFilterType.Event,
         value: ['false'],
         operator: PropertyOperator.IsNot,
     },
     {
         key: '$feature/' + flagKey,
-        type: 'event',
+        type: PropertyFilterType.Event,
         value: 'is_set',
         operator: PropertyOperator.IsSet,
     },
     {
         key: '$feature_flag',
-        type: 'event',
+        type: PropertyFilterType.Event,
         value: flagKey,
         operator: PropertyOperator.Exact,
     },
@@ -121,6 +125,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['currentTeamId', 'sentryIntegrationEnabled'],
             groupsModel,
             ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel'],
+            userLogic,
+            ['hasAvailableFeature'],
         ],
     }),
     actions({
@@ -383,10 +389,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
                 const { created_at, id, ...flag } = updatedFlag
-
                 try {
                     if (!updatedFlag.id) {
-                        return await api.create(`api/projects/${values.currentTeamId}/feature_flags`, flag)
+                        const newFlag = await api.create(`api/projects/${values.currentTeamId}/feature_flags`, flag)
+                        if (values.roleBasedAccessEnabled) {
+                            featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(newFlag.id)
+                        }
+                        return newFlag
                     } else {
                         return await api.update(
                             `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,
@@ -485,6 +494,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     selectors({
         props: [() => [(_, props) => props], (props) => props],
         multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
+        roleBasedAccessEnabled: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS),
+        ],
         variants: [(s) => [s.featureFlag], (featureFlag) => featureFlag?.filters.multivariate?.variants || []],
         nonEmptyVariants: [(s) => [s.variants], (variants) => variants.filter(({ key }) => !!key)],
         variantRolloutSum: [
