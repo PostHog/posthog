@@ -384,9 +384,11 @@ export function SessionRecordingsPlaylist({
                     <div className="w-full overflow-hidden border rounded">
                         <div className="relative flex justify-between items-center bg-mid py-3 px-4 border-b">
                             <span className="flex items-center gap-2">
-                                <LemonButton status="stealth" icon={<IconUnfoldLess />} size="small" />
+                                {playlistShortId ? (
+                                    <LemonButton status="stealth" icon={<IconUnfoldLess />} size="small" />
+                                ) : null}
                                 <span className="font-bold uppercase text-xs my-1 tracking-wide">
-                                    {'Other recordings'}
+                                    {!playlistShortId ? 'Recent recordings' : 'Other recordings'}
                                 </span>
                             </span>
                             {paginationControls}
