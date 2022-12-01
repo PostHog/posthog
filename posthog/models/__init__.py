@@ -22,6 +22,7 @@ from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_type_mapping import GroupTypeMapping
 from .insight import Insight, InsightViewed
+from .insight_caching_state import InsightCachingState
 from .instance_setting import InstanceSetting
 from .integration import Integration
 from .messaging import MessagingRecord
@@ -70,6 +71,7 @@ __all__ = [
     "Group",
     "GroupTypeMapping",
     "Insight",
+    "InsightCachingState",
     "InsightViewed",
     "InstanceSetting",
     "Integration",
