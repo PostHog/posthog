@@ -60,6 +60,7 @@ def create_tile(
     insight_filters=filter_dict,
     insight_deleted=False,
     dashboard_deleted=False,
+    dashboard_tile_deleted=False,
     text_tile=False,
 ) -> DashboardTile:
     if mock_active_teams:
@@ -83,6 +84,7 @@ def create_tile(
         dashboard=dashboard,
         insight=insight,
         text=text,
+        deleted=dashboard_tile_deleted,
     )
 
 
@@ -125,6 +127,7 @@ def create_insight_caching_state(
         pytest.param(
             create_tile, {"team_should_be_active": False}, TargetCacheAge.NO_CACHING, id="tile with inactive team"
         ),
+        pytest.param(create_tile, {"dashboard_tile_deleted": True}, TargetCacheAge.NO_CACHING, id="deleted tile"),
         pytest.param(
             create_tile, {"dashboard_deleted": True}, TargetCacheAge.NO_CACHING, id="tile with deleted dashboard"
         ),

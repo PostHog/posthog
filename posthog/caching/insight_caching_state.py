@@ -111,7 +111,7 @@ def calculate_target_age_dashboard_tile(
     if team.pk not in lazy_loader.active_teams:
         return TargetCacheAge.NO_CACHING
 
-    if dashboard_tile.dashboard.deleted:
+    if dashboard_tile.deleted or dashboard_tile.dashboard.deleted:
         return TargetCacheAge.NO_CACHING
 
     if not dashboard_tile.insight or dashboard_tile.insight.deleted or len(dashboard_tile.insight.filters) == 0:
