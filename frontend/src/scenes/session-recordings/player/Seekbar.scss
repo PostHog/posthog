@@ -8,7 +8,8 @@
     position: relative;
     display: flex;
 
-    &:hover {
+    &:hover,
+    &--scrubbing {
         --bar-height: 8px;
     }
 
@@ -78,6 +79,41 @@
             border: 2px solid var(--bg-light);
             background-color: var(--recording-seekbar-red);
             transition: top 150ms ease-in-out;
+        }
+    }
+
+    .PlayerSeekBarInspector {
+        position: absolute;
+        z-index: 6;
+        bottom: 100%;
+        width: 100%;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 150ms ease-in-out;
+
+        .PlayerSeekBarInspector__tooltip {
+            width: 100%;
+
+            .PlayerSeekBarInspector__tooltip__content {
+                display: inline-block;
+                border-radius: var(--radius);
+                padding: 0.25rem 0.4rem;
+                font-size: 0.8rem;
+                font-weight: 600;
+                color: var(--white);
+                background-color: var(--muted-dark);
+
+                transform: translateX(-50%);
+                margin-bottom: 0.25rem;
+            }
+        }
+    }
+
+    .PlayerSeekbar__slider:hover,
+    &--scrubbing {
+        .PlayerSeekBarInspector {
+            pointer-events: all;
+            opacity: 1;
         }
     }
 

@@ -1,5 +1,5 @@
 import './Seekbar.scss'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
@@ -11,13 +11,56 @@ import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
 import { SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
 import { Timestamp } from './PlayerControllerTime'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { autoCaptureEventToDescription, capitalizeFirstLetter } from 'lib/utils'
+import { autoCaptureEventToDescription, capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
 
 interface TickProps extends SessionRecordingPlayerLogicProps {
     event: RecordingEventType
     index: number
     status: RowStatus
     numEvents: number
+}
+
+function PlayerSeekbarInspector({ minMs, maxMs }: { minMs: number; maxMs: number }): JSX.Element {
+    const [percentage, setPercentage] = useState<number>(0)
+
+    const ref = useRef<HTMLDivElement>(null)
+
+    const fixedUnits = maxMs / 1000 > 3600 ? 3 : 2
+
+    const content = colonDelimitedDuration(minMs / 1000 + ((maxMs - minMs) / 1000) * percentage, fixedUnits)
+
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent): void => {
+            const rect = ref.current?.getBoundingClientRect()
+
+            if (!rect) {
+                return
+            }
+            const relativeX = e.clientX - rect.x
+            const newPercentage = Math.max(Math.min(relativeX / rect.width, 1), 0)
+
+            if (newPercentage !== percentage) {
+                setPercentage(newPercentage)
+            }
+        }
+
+        window.addEventListener('mousemove', handleMouseMove)
+        return () => window.removeEventListener('mousemove', handleMouseMove)
+    }, [])
+
+    return (
+        <div className="PlayerSeekBarInspector" ref={ref}>
+            <div
+                className="PlayerSeekBarInspector__tooltip"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    transform: `translateX(${percentage * 100}%)`,
+                }}
+            >
+                <div className="PlayerSeekBarInspector__tooltip__content">{content}</div>
+            </div>
+        </div>
+    )
 }
 
 function PlayerSeekbarTick({ event, sessionRecordingId, playerKey, status, numEvents, index }: TickProps): JSX.Element {
@@ -81,7 +124,7 @@ export function Seekbar({ sessionRecordingId, playerKey }: SessionRecordingPlaye
     const { handleDown, setSlider, setThumb } = useActions(seekbarLogic({ sessionRecordingId, playerKey }))
     const { sessionPlayerData } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
     const { eventListData } = useValues(eventsListLogic({ sessionRecordingId, playerKey }))
-    const { thumbLeftPos, bufferPercent } = useValues(seekbarLogic({ sessionRecordingId, playerKey }))
+    const { thumbLeftPos, bufferPercent, isScrubbing } = useValues(seekbarLogic({ sessionRecordingId, playerKey }))
 
     // Workaround: Something with component and logic mount timing that causes slider and thumb
     // reducers to be undefined.
@@ -95,7 +138,7 @@ export function Seekbar({ sessionRecordingId, playerKey }: SessionRecordingPlaye
     return (
         <div className="flex items-center h-8" data-attr="rrweb-controller">
             <Timestamp sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-            <div className="PlayerSeekbar">
+            <div className={clsx('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })}>
                 <div
                     className="PlayerSeekbar__slider"
                     ref={sliderRef}
@@ -127,6 +170,8 @@ export function Seekbar({ sessionRecordingId, playerKey }: SessionRecordingPlaye
                         ref={thumbRef}
                         style={{ transform: `translateX(${thumbLeftPos}px)` }}
                     />
+
+                    <PlayerSeekbarInspector minMs={0} maxMs={sessionPlayerData.metadata.recordingDurationMs} />
                 </div>
                 <div className="PlayerSeekbar__ticks">
                     {eventListData.map((event: RecordingEventType, i) => (
