@@ -27,8 +27,15 @@ export async function upsertGroup(
     properties: Properties,
     timestamp: DateTime
 ): Promise<void> {
+    // TODO: use the PostgreSQL `version` column of the `posthog_group` table to
+    // handle `ReplacingMergeTree` functionality of the ClickHouse `groups`
+    // table. We were previously sending `version` as a value, but this is
+    // in fact not part of the `groups` table schema, and was likely silently
+    // ignored by the `KafkaTable` engine that was previously used to ingest
+    // into ClickHouse. When moving to using the clickhouse-ingester, it became
+    // apparent that this was not working as expected.
     try {
-        const [propertiesUpdate, createdAt, version] = await db.postgresTransaction('upsertGroup', async (client) => {
+        const [propertiesUpdate, createdAt] = await db.postgresTransaction('upsertGroup', async (client) => {
             const group: Group | undefined = await db.fetchGroup(teamId, groupTypeIndex, groupKey, client, {
                 forUpdate: true,
             })
@@ -81,14 +88,7 @@ export async function upsertGroup(
         })
 
         if (propertiesUpdate.updated) {
-            await db.upsertGroupClickhouse(
-                teamId,
-                groupTypeIndex,
-                groupKey,
-                propertiesUpdate.properties,
-                createdAt,
-                version
-            )
+            await db.upsertGroupClickhouse(teamId, groupTypeIndex, groupKey, propertiesUpdate.properties, createdAt)
         }
     } catch (error) {
         if (error instanceof RaceConditionError) {
