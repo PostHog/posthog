@@ -1,5 +1,5 @@
 <p align="center">
-  <img width="300" alt="posthoglogo" src="https://user-images.githubusercontent.com/85295485/144591858-cb39e04a-7bf4-4a4d-a1fd-5d05a3ff693f.png">
+  <img alt="posthoglogo" src="https://user-images.githubusercontent.com/65415371/205059737-c8a4f836-4889-4654-902e-f302b187b6a0.png">
 </p>
 <p align="center">
   <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
@@ -90,10 +90,10 @@ Learn more about getting the most out of PostHog's features in [our product manu
 
 ## Contributing
 
-We <3 contributions big and small. The best ways to do this are:
+We <3 contributions big and small. In priority order (although everything is appreciated) with the most helpful first:
 
 - Give us feedback in our [Slack community](https://posthog.com/slack)
-- Vote on features in our [roadmap](https://posthog.com/roadmap)
+- Vote on features or get early access to beta functionality in our [roadmap](https://posthog.com/roadmap)
 - Open a PR (see our instructions on [developing PostHog locally](https://posthog.com/handbook/engineering/developing-locally))
 - Submit a [feature request](https://github.com/PostHog/posthog/issues/new?assignees=&labels=enhancement%2C+feature&template=feature_request.md) or [bug report](https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&template=bug_report.md)
 
