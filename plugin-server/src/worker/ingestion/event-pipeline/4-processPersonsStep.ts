@@ -12,6 +12,13 @@ export async function processPersonsStep(
     personContainer: LazyPersonContainer
 ): Promise<StepResult> {
     const event = normalizeEvent(pluginEvent)
+
+    // TODO: Have the snapshot events pipeline be completely separate
+    // from all other events
+    if (event.event === '$snapshot') {
+        return runner.nextStep('prepareEventStep', event, personContainer)
+    }
+
     const timestamp = parseEventTimestamp(event)
 
     const newPersonContainer: LazyPersonContainer = await updatePersonState(
