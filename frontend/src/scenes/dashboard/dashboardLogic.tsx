@@ -71,9 +71,11 @@ interface InsightCacheReloadProps {
     refreshedInsight: InsightModel
 }
 
+/**
+ * Update any existing mounted insightLogic
+ * This is what causes the dashboard's tiles displayed data to change
+ */
 function updateExistingInsightState({ cachedInsight, dashboardId, refreshedInsight }: InsightCacheReloadProps): void {
-    // reload the cached results inside the insight's logic
-    // this is what causes the dashboard's tiles displayed data to change
     if (refreshedInsight.filters.insight) {
         const itemResultLogic = insightLogic.findMounted({
             dashboardItemId: refreshedInsight.short_id,
