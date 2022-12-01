@@ -26,6 +26,8 @@ if branch_regex.match(branch):
 hostname = f"{name}.posthog.cc"
 user_data = (
     f"#!/bin/bash \n"
+    "mkdir hobby \n"
+    "cd hobby \n"
     "sed -i \"s/#\\$nrconf{restart} = 'i';/\\$nrconf{restart} = 'a';/g\" /etc/needrestart/needrestart.conf \n"
     f"wget https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/deploy-hobby \n"
     f"chmod +x deploy-hobby \n"

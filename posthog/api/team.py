@@ -1,13 +1,13 @@
 from typing import Any, Dict, List, Optional, Type, cast
 
 from dateutil.relativedelta import relativedelta
-from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
+from sentry_sdk import capture_exception
 
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
@@ -138,15 +138,16 @@ class TeamSerializer(serializers.ModelSerializer):
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
         organization = self.context["view"].organization  # Use the org we used to validate permissions
-        if validated_data.get("is_demo", False):
-            matrix = HedgeboxMatrix(n_clusters=settings.DEMO_MATRIX_N_CLUSTERS)
-            manager = MatrixManager(matrix, use_pre_save=True)
         with transaction.atomic():
             team = Team.objects.create_with_data(**validated_data, organization=organization)
             request.user.current_team = team
             request.user.save()
-            if "manager" in locals():
-                manager.run_on_team(team, request.user)
+            if validated_data.get("is_demo", False):
+                try:
+                    MatrixManager(HedgeboxMatrix(), use_pre_save=True).run_on_team(team, request.user)
+                except Exception as e:  # TODO: Remove this after 2022-12-02, the except is just temporary for debugging
+                    capture_exception()
+                    raise e
         return team
 
     def _handle_timezone_update(self, team: Team, new_timezone: str) -> None:

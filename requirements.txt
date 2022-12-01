@@ -51,10 +51,10 @@ certifi==2019.11.28
     #   urllib3
 cffi==1.14.5
     # via cryptography
-chardet==3.0.4
-    # via requests
 charset-normalizer==2.1.0
-    # via aiohttp
+    # via
+    #   aiohttp
+    #   requests
 clickhouse-driver==0.2.1
     # via
     #   -r requirements.in
@@ -290,7 +290,7 @@ redis==4.3.4
     #   -r requirements.in
     #   celery-redbeat
     #   django-redis
-requests==2.25.1
+requests==2.28.1
     # via
     #   -r requirements.in
     #   django-rest-hooks
