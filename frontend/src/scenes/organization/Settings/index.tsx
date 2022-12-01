@@ -3,7 +3,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { Invites } from './Invites'
 import { Members } from './Members'
 import { organizationLogic } from '../../organizationLogic'
-import { useActions, useValues } from 'kea'
+import { kea, useActions, useValues } from 'kea'
 import { DangerZone } from './DangerZone'
 import { RestrictedArea, RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from '../../../lib/constants'
@@ -18,6 +18,8 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { AvailableFeature } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Tabs } from 'antd'
+import { urls } from 'scenes/urls'
+import type { organizationSettingsTabsLogicType } from './indexType'
 
 export const scene: SceneExport = {
     component: OrganizationSettings,
@@ -81,11 +83,37 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
     )
 }
 
+const organizationSettingsTabsLogic = kea<organizationSettingsTabsLogicType>({
+    path: ['scenes', 'organization', 'Settings', 'index'],
+    actions: {
+        setTab: (tab: OrganizationSettingsTabs) => ({ tab }),
+    },
+    reducers: {
+        tab: [
+            OrganizationSettingsTabs.GENERAL as OrganizationSettingsTabs,
+            {
+                setTab: (_, { tab }) => tab,
+            },
+        ],
+    },
+    actionToUrl: () => ({
+        setTab: ({ tab }) => `${urls.organizationSettings()}?tab=${tab}`,
+    }),
+    urlToAction: ({ values, actions }) => ({
+        [urls.organizationSettings()]: (_, searchParams) => {
+            if (searchParams['tab'] && values.tab !== searchParams['tab']) {
+                actions.setTab(searchParams['tab'])
+            }
+        },
+    }),
+})
+
 export function OrganizationSettings(): JSX.Element {
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     useAnchor(location.hash)
-    const [activeTab, setActiveTab] = useState(OrganizationSettingsTabs.GENERAL)
+    const { tab } = useValues(organizationSettingsTabsLogic)
+    const { setTab } = useActions(organizationSettingsTabsLogic)
 
     return (
         <>
@@ -93,11 +121,7 @@ export function OrganizationSettings(): JSX.Element {
                 title="Organization Settings"
                 caption="View and manage your organization here. Build an even better product together."
             />
-            <Tabs
-                activeKey={activeTab}
-                destroyInactiveTabPane
-                onChange={(t) => setActiveTab(t as OrganizationSettingsTabs)}
-            >
+            <Tabs activeKey={tab} destroyInactiveTabPane onChange={(t) => setTab(t as OrganizationSettingsTabs)}>
                 <Tabs.TabPane tab="General" key="general">
                     <div className="border rounded p-6">
                         <RestrictedArea

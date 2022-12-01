@@ -1,4 +1,4 @@
-import { LemonButton, LemonModal, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 import { Row } from 'antd'
 import { useValues } from 'kea'
 import { IconDelete } from 'lib/components/icons'
@@ -15,6 +15,7 @@ import {
 } from './organization/Settings/Permissions/permissionsLogic'
 import { rolesLogic } from './organization/Settings/Roles/rolesLogic'
 import { organizationLogic } from './organizationLogic'
+import { urls } from './urls'
 
 interface ResourcePermissionProps {
     addableRoles: RoleType[]
@@ -108,7 +109,15 @@ export function ResourcePermission({
             dataIndex: 'name',
             key: 'name',
             render: function RenderRoleName(_, role) {
-                return <>{role.name}</>
+                return (
+                    <>
+                        {role.name === 'Organization default' ? (
+                            <Link to={`${urls.organizationSettings()}?tab=role_access`}>{role.name}</Link>
+                        ) : (
+                            role.name
+                        )}
+                    </>
+                )
             },
         },
         {
@@ -221,7 +230,9 @@ function OrganizationResourcePermissionLabel({
     return (
         <>
             <h5>Organization Default</h5>
-            <b>{ResourcePermissionMapping[resourceLevel.access_level]}</b>
+            <Link to={`${urls.organizationSettings()}?tab=role_access`}>
+                <b>{ResourcePermissionMapping[resourceLevel.access_level]}</b>
+            </Link>
         </>
     )
 }

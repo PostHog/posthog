@@ -241,19 +241,23 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </Field>
                             </Col>
                             <Col span={12}>
-                                <Card title="Permissions" className="mb-4">
-                                    <ResourcePermission
-                                        resourceType={Resource.FEATURE_FLAGS}
-                                        isNewResource={id === 'new'}
-                                        onChange={(roleIds) => setRolesToAdd(roleIds)}
-                                        rolesToAdd={rolesToAdd}
-                                        addableRoles={addableRoles}
-                                        addableRolesLoading={unfilteredAddableRolesLoading}
-                                        onAdd={() => addAssociatedRoles()}
-                                        roles={derivedRoles}
-                                        deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
-                                    />
-                                </Card>
+                                {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
+                                    <Card title="Permissions" className="mb-4">
+                                        <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                                            <ResourcePermission
+                                                resourceType={Resource.FEATURE_FLAGS}
+                                                isNewResource={id === 'new'}
+                                                onChange={(roleIds) => setRolesToAdd(roleIds)}
+                                                rolesToAdd={rolesToAdd}
+                                                addableRoles={addableRoles}
+                                                addableRolesLoading={unfilteredAddableRolesLoading}
+                                                onAdd={() => addAssociatedRoles()}
+                                                roles={derivedRoles}
+                                                deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+                                            />
+                                        </PayGateMini>
+                                    </Card>
+                                )}
                                 <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
                             </Col>
                         </Row>
