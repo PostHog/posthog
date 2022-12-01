@@ -204,8 +204,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     {!cohort.is_calculating &&
                                         `(${cohort.count} matching ${pluralize(
                                             cohort.count ?? 0,
-                                            'user',
-                                            'users',
+                                            'person',
+                                            'persons',
                                             false
                                         )})`}
                                 </span>
