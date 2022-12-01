@@ -77,6 +77,7 @@ export const startScheduledTasksConsumer = async ({
                     timestamp: message.timestamp,
                 })
                 resolveOffset(message.offset)
+                statsd?.increment('scheduled_tasks.skip_stale', { taskType: task.taskType })
                 continue
             }
 
