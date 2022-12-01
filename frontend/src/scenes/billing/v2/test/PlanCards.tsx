@@ -1,8 +1,9 @@
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import { Card } from 'antd'
+import { useValues } from 'kea'
 import { IconArrowRight, IconBarChart, IconCheckmark, IconRecording } from 'lib/components/icons'
 import { LemonSnack } from 'lib/components/LemonSnack/LemonSnack'
-import { p } from 'msw/lib/glossary-dc3fd077'
+import { billingTestLogic } from './billingTestLogic'
 import './PlanCards.scss'
 
 export type BillingPlan = {
@@ -11,6 +12,7 @@ export type BillingPlan = {
     pricingDescription: string
     features: string[]
     cta: string
+    signupLink: string
     products: Product[]
 }
 
@@ -25,11 +27,12 @@ export type Product = {
 
 export const billingPlans: BillingPlan[] = [
     {
-        name: 'Basic',
+        name: 'Free',
         description: 'Free forever.',
         pricingDescription: '',
         features: ['Community support'],
         cta: 'Downgrade',
+        signupLink: '/api/billing-v2/activation?plan=free',
         products: [
             {
                 name: 'Product analytics + data stack',
@@ -45,7 +48,7 @@ export const billingPlans: BillingPlan[] = [
                 unit: 'recording',
                 // note: 'Up to 15,000 per month',
                 icon: <IconRecording />,
-                features: ['Up to 15,000 events per month'],
+                features: ['Up to 15,000 recordings per month'],
             },
         ],
     },
@@ -53,8 +56,9 @@ export const billingPlans: BillingPlan[] = [
         name: 'Scale',
         description: 'For businesses who want to leverage their data.',
         pricingDescription: '',
-        features: ['Priority support', 'Unlimited projects', 'Unlimited experiments', 'Unlimited Feature flags'],
+        features: ['Unlimited projects', 'Unlimited experiments', 'Unlimited Feature flags', 'Community support'],
         cta: 'Upgrade',
+        signupLink: '/api/billing-v2/activation?plan=standard',
         products: [
             {
                 name: 'Product analytics + data stack',
@@ -76,7 +80,7 @@ export const billingPlans: BillingPlan[] = [
                 unit: 'recording',
                 note: 'First 15,000 recordings/mo free',
                 icon: <IconRecording />,
-                features: ['Some session recording feature', 'Another feature'],
+                features: ['Saved playlists', 'Console logs'],
             },
         ],
     },
@@ -92,6 +96,7 @@ export const billingPlans: BillingPlan[] = [
             '$450/mo minimum',
         ],
         cta: 'Upgrade',
+        signupLink: '/api/billing-v2/activation?plan=enterprise',
         products: [
             {
                 name: 'Product analytics + data stack',
@@ -113,7 +118,8 @@ export const billingPlans: BillingPlan[] = [
     },
 ]
 
-export function PlanCards(): JSX.Element {
+export function PlanCards({ redirectPath }: { redirectPath: string }): JSX.Element {
+    const { billing } = useValues(billingTestLogic)
     return (
         <div className="PlanCards space-x-4">
             {billingPlans.map((plan) => (
@@ -128,13 +134,14 @@ export function PlanCards(): JSX.Element {
                             </div>
                             <p className="mx-0">{plan.description}</p>
                             <LemonButton
-                                to={''}
-                                type={plan.name === 'Basic' || plan.name === 'Enterprise' ? 'secondary' : 'primary'}
+                                to={`${plan.signupLink}&redirect_path=${redirectPath}`}
+                                type={plan.name === 'Free' || plan.name === 'Enterprise' ? 'secondary' : 'primary'}
                                 fullWidth
                                 center
                                 disableClientSideRouting
+                                disabled={plan.name === 'Free' && !billing?.billing_period}
                             >
-                                {plan.cta}
+                                {!billing?.billing_period && plan.name === 'Free' ? 'Current plan' : plan.cta}
                             </LemonButton>
                         </div>
                         <LemonDivider className="my-6" />
