@@ -3,20 +3,21 @@ import {
     SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
-import { LemonButton, LemonButtonWithPopup, LemonButtonWithSideAction } from 'lib/components/LemonButton'
-import { openPlayerAddToPlaylistDialog } from 'scenes/session-recordings/player/add-to-playlist/PlayerAddToPlaylist'
-import { IconLink, IconOpenInNew, IconPlus, IconSave, IconWithCount } from 'lib/components/icons'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconLink, IconOpenInNew, IconPlus } from 'lib/components/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
-import { LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 import { Popup } from 'lib/components/Popup/Popup'
 import { useState } from 'react'
+import { playerSettingsLogic } from './playerSettingsLogic'
 
-export function PlayerHeader({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
+export function PlayerMetaLinks({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     const [showPlaylistPopup, setShowPlaylistPopup] = useState(false)
-    const { recordingStartTime, sessionPlayerData } = useValues(logic)
+    const { sessionPlayerData } = useValues(logic)
     const { setPause } = useActions(logic)
     const playlists = sessionPlayerData.metadata.playlists ?? []
+    const { isFullScreen } = useValues(playerSettingsLogic)
 
     const onShare = (): void => {
         setPause()
@@ -26,18 +27,14 @@ export function PlayerHeader({ sessionRecordingId, playerKey }: SessionRecording
         })
     }
 
-    const onAddToPlaylist = (): void => {
-        setPause()
-        openPlayerAddToPlaylistDialog({
-            sessionRecordingId,
-            playerKey,
-            recordingStartTime,
-        })
-    }
-
     return (
-        <div className="py-2 px-3 flex flex-row justify-end gap-3">
-            <LemonButton icon={<IconLink />} status="primary-alt" onClick={() => onShare()} tooltip="Share recording">
+        <div className="flex flex-row justify-end gap-2">
+            <LemonButton
+                icon={<IconLink />}
+                onClick={onShare}
+                tooltip="Share recording"
+                size={isFullScreen ? 'small' : 'medium'}
+            >
                 Share
             </LemonButton>
 
@@ -66,11 +63,11 @@ export function PlayerHeader({ sessionRecordingId, playerKey }: SessionRecording
                 }
             >
                 <LemonButton
-                    status="primary-alt"
                     data-attr="export-button"
                     sideIcon={<IconPlus />}
                     active={showPlaylistPopup}
                     onClick={() => setShowPlaylistPopup(!showPlaylistPopup)}
+                    size={isFullScreen ? 'small' : 'medium'}
                 >
                     Add to list
                 </LemonButton>
