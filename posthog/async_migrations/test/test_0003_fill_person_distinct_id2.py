@@ -7,10 +7,11 @@ from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 
+pytestmark = pytest.mark.async_migrations
+
 MIGRATION_NAME = "0003_fill_person_distinct_id2"
 
 
-@pytest.mark.ee
 class Test0003FillPersonDistinctId2(AsyncMigrationBaseTest):
     def setUp(self):
         from posthog.client import sync_execute
@@ -21,7 +22,6 @@ class Test0003FillPersonDistinctId2(AsyncMigrationBaseTest):
         sync_execute("TRUNCATE TABLE person_distinct_id2")
         sync_execute("ALTER TABLE person_distinct_id COMMENT COLUMN distinct_id 'dont_skip_0003'")
 
-    @pytest.mark.async_migrations
     def test_is_required(self):
         from posthog.client import sync_execute
 
@@ -30,7 +30,6 @@ class Test0003FillPersonDistinctId2(AsyncMigrationBaseTest):
         sync_execute("ALTER TABLE person_distinct_id COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'")
         self.assertFalse(self.migration.is_required())
 
-    @pytest.mark.async_migrations
     def test_migration(self):
         from posthog.client import sync_execute
 

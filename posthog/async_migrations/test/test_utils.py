@@ -16,13 +16,14 @@ from posthog.async_migrations.utils import (
 from posthog.constants import AnalyticsDBMS
 from posthog.models.async_migration import AsyncMigrationError, MigrationStatus
 
+pytestmark = pytest.mark.async_migrations
+
 DEFAULT_CH_OP = AsyncMigrationOperationSQL(sql="SELECT 1", rollback=None, timeout_seconds=10)
 
 DEFAULT_POSTGRES_OP = AsyncMigrationOperationSQL(database=AnalyticsDBMS.POSTGRES, sql="SELECT 1", rollback=None)
 
 
 class TestUtils(AsyncMigrationBaseTest):
-    @pytest.mark.ee
     @patch("posthog.client.sync_execute")
     def test_execute_op_clickhouse(self, mock_sync_execute):
         execute_op(DEFAULT_CH_OP, "some_id")

@@ -19,6 +19,8 @@ from posthog.models.signals import mute_selected_signals
 from posthog.redis import get_client
 from posthog.test.base import ClickhouseTestMixin
 
+pytestmark = pytest.mark.async_migrations
+
 MIGRATION_NAME = "0005_person_replacing_by_version"
 
 ORIGINAL_TABLE_SQL = f"""
@@ -40,7 +42,6 @@ SETTINGS index_granularity = 819
 """
 
 
-@pytest.mark.async_migrations
 class Test0005PersonCollapsedByVersion(AsyncMigrationBaseTest, ClickhouseTestMixin):
     def setUp(self):
         self.recreate_person_table()
