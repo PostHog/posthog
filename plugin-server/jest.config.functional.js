@@ -15,6 +15,7 @@ module.exports = {
     testMatch: ['<rootDir>/functional_tests/**/*.test.ts'],
     setupFilesAfterEnv: ['<rootDir>/functional_tests/jest.setup.ts'],
     globalTeardown: '<rootDir>/functional_tests/jest.global-teardown.ts',
+    globalSetup: '<rootDir>/functional_tests/jest.global-setup.ts',
     testTimeout: 60000,
     maxConcurrency: 10,
     maxWorkers: 6,

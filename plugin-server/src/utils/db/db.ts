@@ -1773,8 +1773,7 @@ export class DB {
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
         properties: Properties,
-        createdAt: DateTime,
-        version: number
+        createdAt: DateTime
     ): Promise<void> {
         await this.kafkaProducer.queueMessage({
             topic: KAFKA_GROUPS,
@@ -1786,7 +1785,6 @@ export class DB {
                         team_id: teamId,
                         group_properties: JSON.stringify(properties),
                         created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
-                        version,
                     }),
                 },
             ],
