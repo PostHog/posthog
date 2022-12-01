@@ -55,6 +55,7 @@ export function loadPostHogJS(): void {
             ...(window.location.host.indexOf('app.posthog.com') > -1 && {
                 integrations: [new posthog.SentryIntegration(posthog, 'posthog2', 1899813) as Integration],
             }),
+            tracesSampleRate: 0.1,
         })
     }
 }
