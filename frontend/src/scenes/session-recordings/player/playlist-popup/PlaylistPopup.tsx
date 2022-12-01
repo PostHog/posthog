@@ -7,25 +7,15 @@ import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { Popup } from 'lib/components/Popup/Popup'
 import { Field } from 'lib/forms/Field'
-import { useEffect, useState } from 'react'
 import { playerSettingsLogic } from '../playerSettingsLogic'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { playlistPopupLogic } from './playlistPopupLogic'
 
 export function PlaylistPopup(props: SessionRecordingPlayerLogicProps): JSX.Element {
-    const [showPlaylistPopup, setShowPlaylistPopup] = useState(false)
     const { isFullScreen } = useValues(playerSettingsLogic)
     const logic = playlistPopupLogic(props)
-    const { playlists, playlistsLoading, searchQuery, newFormShowing } = useValues(logic)
-    const { setSearchQuery, loadPlaylists, setNewFormShowing } = useActions(logic)
-    const { setPause } = useActions(sessionRecordingPlayerLogic(props))
-
-    useEffect(() => {
-        if (showPlaylistPopup) {
-            setPause()
-            loadPlaylists()
-        }
-    }, [showPlaylistPopup])
+    const { playlists, playlistsLoading, searchQuery, newFormShowing, showPlaylistPopup } = useValues(logic)
+    const { setSearchQuery, setNewFormShowing, setShowPlaylistPopup } = useActions(logic)
 
     return (
         <Popup
