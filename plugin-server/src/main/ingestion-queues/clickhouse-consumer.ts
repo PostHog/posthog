@@ -256,6 +256,9 @@ const retriableErrorCodes = {
 // consumer group. As we are switching over just a handful of topics to start
 // with, we need to make sure we use the same partition assignment strategy,
 // otherwise we end up with a Kafka protocol conflict.
+//
+// TODO: when all KafkaTables habe been removed from ClickHouse, we can remove
+// this custom assigner.
 const RangeAssigner =
     (kafka: Kafka): PartitionAssigner =>
     ({}) => ({
