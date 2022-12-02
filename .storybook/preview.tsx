@@ -5,6 +5,7 @@ import { loadPostHogJS } from '~/loadPostHogJS'
 import { KeaStory } from './kea-story'
 import { getStorybookAppContext } from 'storybook/app-context'
 import { useAvailableFeatures } from '~/mocks/features'
+import MockDate from 'mockdate'
 
 const setupMsw = () => {
     // Make sure the msw worker is started
@@ -20,9 +21,6 @@ const setupPosthogJs = () => {
     // Make sure we don't hit production posthog. We want to control requests to,
     // e.g. `/decide/` for feature flags
     window.JS_POSTHOG_HOST = window.location.origin
-
-    // We don't be doing any authn so we can just use a fake key
-    window.JS_POSTHOG_API_KEY = 'dummy-key'
 
     loadPostHogJS()
 }
@@ -75,5 +73,11 @@ export const decorators = [
                 <Story />
             </KeaStory>
         )
+    },
+    // Allow us to time travel to ensure our stories don't change over time
+    (Story: any) => {
+        // MockDate.reset();
+        MockDate.set('2022-03-11')
+        return <Story />
     },
 ]
