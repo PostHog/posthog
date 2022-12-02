@@ -2077,8 +2077,8 @@
         WHERE team_id = 2
           AND event = 'viewed video'
           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC') )
-     WHERE "$group_0" != ''
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
+          AND "$group_0" != '' )
      GROUP BY "$group_0") events
   '
 ---
@@ -2108,8 +2108,8 @@
               WHERE team_id = 2
                 AND event = 'viewed video'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC') )
-           WHERE "$group_0" != ''
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
+                AND "$group_0" != '' )
            GROUP BY "$group_0", date)
         GROUP BY date)
      group by day_start

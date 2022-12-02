@@ -29,7 +29,6 @@ from posthog.queries.trends.util import (
     COUNT_PER_ACTOR_MATH_FUNCTIONS,
     PROPERTY_MATH_FUNCTIONS,
     determine_aggregator,
-    determine_intermediate_conditions,
     ensure_value_is_json_serializable,
     enumerate_time_range,
     parse_response,
@@ -73,12 +72,10 @@ class TrendsTotalVolume:
                 # generalise this query to work for everything, not just sessions.
                 content_sql = SESSION_DURATION_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
             elif entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
-                aggregator = determine_aggregator(entity, team)
                 content_sql = VOLUME_PER_ACTOR_AGGREGATE_SQL.format(
                     event_query=event_query,
                     **content_sql_params,
-                    intermediate_conditions=determine_intermediate_conditions(entity).format(aggregator=aggregator),
-                    aggregator=aggregator,
+                    aggregator=determine_aggregator(entity, team),
                 )
             else:
                 content_sql = VOLUME_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
@@ -107,12 +104,10 @@ class TrendsTotalVolume:
             elif entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
                 # Calculate average number of events per actor
                 # (only including actors with at least one matching event in a period)
-                aggregator = determine_aggregator(entity, team)
                 content_sql = VOLUME_PER_ACTOR_SQL.format(
                     event_query=event_query,
                     start_of_week_fix=start_of_week_fix(filter.interval),
-                    intermediate_conditions=determine_intermediate_conditions(entity).format(aggregator=aggregator),
-                    aggregator=aggregator,
+                    aggregator=determine_aggregator(entity, team),
                     **content_sql_params,
                 )
             elif entity.math_property == "$session_duration":
