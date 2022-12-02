@@ -23,6 +23,7 @@ import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
+import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
 
@@ -85,6 +86,7 @@ export async function startPluginsServer(
     // meantime.
     let bufferConsumer: Consumer | undefined
     let jobsConsumer: Consumer | undefined
+    let schedulerTasksConsumer: Consumer | undefined
 
     let httpServer: Server | undefined // healthcheck server
     let mmdbServer: net.Server | undefined // geoip server
@@ -119,6 +121,7 @@ export async function startPluginsServer(
             graphileWorker?.stop(),
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
+            schedulerTasksConsumer?.disconnect(),
         ])
 
         await new Promise<void>((resolve, reject) =>
@@ -234,6 +237,15 @@ export async function startPluginsServer(
             // for.
             await graphileWorker.connectProducer()
             await startGraphileWorker(hub, graphileWorker, piscina)
+
+            if (hub.capabilities.pluginScheduledTasks) {
+                schedulerTasksConsumer = await startScheduledTasksConsumer({
+                    piscina: piscina,
+                    kafka: hub.kafka,
+                    producer: hub.kafkaProducer.producer,
+                    statsd: hub.statsd,
+                })
+            }
 
             if (hub.capabilities.processPluginJobs) {
                 jobsConsumer = await startJobsConsumer({
