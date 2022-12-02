@@ -1,9 +1,10 @@
 import '~/styles'
 import './storybook.scss'
+import type { Meta } from '@storybook/react'
 import { worker } from '~/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
-import { getStorybookAppContext } from 'storybook/app-context'
-import type { Meta } from '@storybook/react'
+
+import { getStorybookAppContext } from './app-context'
 import { withKea } from './decorators/withKea'
 import { withMockDate } from './decorators/withMockDate'
 
@@ -24,7 +25,6 @@ const setupPosthogJs = () => {
 
     loadPostHogJS()
 }
-
 setupPosthogJs()
 
 // Setup storybook global parameters. See https://storybook.js.org/docs/react/writing-stories/parameters#global-parameters
