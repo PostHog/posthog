@@ -5,6 +5,7 @@ import { loaders } from 'kea-loaders'
 
 import type { importSessionRecordingLogicType } from './importSessionRecordingLogicType'
 import { beforeUnload } from 'kea-router'
+import { lemonToast } from '@posthog/lemon-ui'
 
 export const importSessionRecordingLogic = kea<importSessionRecordingLogicType>([
     path(['scenes', 'session-recordings', 'detail', 'sessionRecordingDetailLogic']),
@@ -13,27 +14,40 @@ export const importSessionRecordingLogic = kea<importSessionRecordingLogicType>(
         sessionRecording: {
             __default: null as SessionPlayerData | null,
             loadFromFile: async (file: File) => {
-                const loadedFile: string = await new Promise((resolve, reject) => {
-                    const filereader = new FileReader()
-                    filereader.onload = (e) => {
-                        resolve(e.target?.result as string)
-                    }
-                    filereader.onerror = (e) => {
-                        alert(e)
-                        reject(e)
-                    }
-                    filereader.readAsText(file)
-                })
+                try {
+                    const loadedFile: string = await new Promise((resolve, reject) => {
+                        const filereader = new FileReader()
+                        filereader.onload = (e) => {
+                            resolve(e.target?.result as string)
+                        }
+                        filereader.onerror = (e) => {
+                            alert(e)
+                            reject(e)
+                        }
+                        filereader.readAsText(file)
+                    })
 
-                return JSON.parse(loadedFile) as SessionPlayerData
+                    const data = JSON.parse(loadedFile) as SessionPlayerData
+
+                    if (!data.metadata || !data.snapshotsByWindowId) {
+                        throw new Error('File does not appear to be a valid session recording export')
+                    }
+                    return data
+                } catch (error) {
+                    lemonToast.error(`File import failed: ${error}`)
+                }
             },
+
+            resetSessionRecording: () => null,
         },
     }),
 
     beforeUnload(({ values, actions }) => ({
         enabled: () => !!values.sessionRecording,
         message: 'The loaded session recording will be lost. Are you sure you want to leave?',
-        onConfirm: () => {},
+        onConfirm: () => {
+            actions.resetSessionRecording()
+        },
     })),
 
     selectors({
