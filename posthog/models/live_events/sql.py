@@ -143,3 +143,29 @@ FROM (
     ORDER BY timestamp_aggregated {order} {limit}
 )
 """
+
+# test utilities
+INSERT_INTO_LIVE_EVENTS_SQL = """
+INSERT INTO live_events (
+    uuid,
+    event,
+    properties,
+    timestamp,
+    team_id,
+    distinct_id,
+    elements_chain,
+    created_at,
+    _timestamp
+)
+VALUES (
+    %(uuid)s,
+    %(event)s,
+    %(properties)s,
+    %(timestamp)s,
+    %(team_id)s,
+    %(distinct_id)s,
+    '',
+    toDateTime64(0, 6, 'UTC'),
+    now()
+)
+"""
