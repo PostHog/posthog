@@ -144,7 +144,16 @@ def ensure_value_is_json_serializable(value: Any) -> Optional[float]:
     return value
 
 
+def determine_intermediate_conditions(entity: Entity) -> str:
+    """If the entity using an intermediate query requires some intermediate filtering, this returns the WHERE clause."""
+    if entity.math_group_type_index is not None:
+        # Ignore events without group
+        return "WHERE {aggregator} != ''"
+    return ""
+
+
 def determine_aggregator(entity: Entity, team: Team) -> str:
+    """Return the relevant actor column."""
     if entity.math_group_type_index is not None:
         return f'"$group_{entity.math_group_type_index}"'
     return "distinct_id" if team.aggregate_users_by_distinct_id else "person_id"
