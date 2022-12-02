@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props, reducers } from 'kea'
+import { actions, kea, key, path, props, propsChanged, reducers } from 'kea'
 import type { dataTableLogicType } from './dataTableLogicType'
 import { DataTableNode, DataTableStringColumn } from '~/queries/schema'
 import { defaultDataTableStringColumns } from './defaults'
@@ -19,4 +19,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
             { setColumns: (_, { columns }) => columns },
         ],
     })),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (JSON.stringify(props.query.columns) !== JSON.stringify(oldProps.query.columns)) {
+            actions.setColumns(props.query.columns ?? defaultDataTableStringColumns)
+        }
+    }),
 ])

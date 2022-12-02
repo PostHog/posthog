@@ -75,7 +75,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
                         {showEventFilter && <EventName query={query.source} setQuery={setQuerySource} />}
                         {showPropertyFilter && <EventPropertyFilters query={query.source} setQuery={setQuerySource} />}
                         {showExport && <DataTableExport query={query} setQuery={setQuery} />}
-                        {showColumnConfigurator && <ColumnConfigurator />}
+                        {showColumnConfigurator && <ColumnConfigurator query={query} setQuery={setQuery} />}
                     </div>
                 )}
                 <LemonTable
