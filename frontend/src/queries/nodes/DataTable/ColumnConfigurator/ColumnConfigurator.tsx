@@ -226,7 +226,7 @@ function ColumnConfiguratorModal(): JSX.Element {
                                                 TaxonomicFilterGroupType.EventFeatureFlags,
                                             ]}
                                             value={undefined}
-                                            onChange={(_, value) => value && selectColumn(String(value))}
+                                            onChange={(_, value) => value && selectColumn(`properties.${value}`)}
                                             popoverEnabled={false}
                                             selectFirstItem={false}
                                             excludedProperties={{
