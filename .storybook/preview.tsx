@@ -65,6 +65,7 @@ export const parameters = {
 export const decorators: Meta['decorators'] = [
     // Make sure the msw service worker is started, and reset the handlers to defaults.
     withKea,
-    // Allow us to time travel to ensure our stories don't change over time
+    // Allow us to time travel to ensure our stories don't change over time.
+    // To mock a date for a story, set the `mockDate` parameter.
     withMockDate,
 ]

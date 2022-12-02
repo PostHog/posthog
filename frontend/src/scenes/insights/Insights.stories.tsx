@@ -5,7 +5,12 @@ import { createInsightScene } from 'scenes/insights/__mocks__/createInsightScene
 
 export default {
     title: 'Scenes-App/Insights',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+        mockDate: '2022-03-11',
+    },
     decorators: [
         mswDecorator({
             get: {
