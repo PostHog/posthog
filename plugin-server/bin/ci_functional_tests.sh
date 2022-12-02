@@ -9,7 +9,7 @@
 # Context is this was originally written in the GitHub Actions workflow file,
 # but it's easier to debug in a script.
 
-set -ex -o pipefail
+set -e -o pipefail
 
 export WORKER_CONCURRENCY=1
 export CONVERSION_BUFFER_ENABLED=true
@@ -40,12 +40,15 @@ exit_code=$?
 set -e
 
 kill $SERVER_PID
-wait $SERVER_PID
 
-if [ $exit_code -ne 0 ]; then
-    echo '::group::Plugin Server logs'
-    cat $LOG_FILE
-    echo '::endgroup::'
-fi
+while kill -0 $SERVER_PID; do
+    echo "Waiting for plugin-server to exit, pid $SERVER_PID..."
+    ((c++)) && ((c==60)) && break
+    sleep 1
+done
+
+echo '::group::Plugin Server logs'
+cat $LOG_FILE
+echo '::endgroup::'
 
 exit $exit_code
