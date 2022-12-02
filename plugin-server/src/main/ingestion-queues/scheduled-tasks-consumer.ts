@@ -68,40 +68,39 @@ export const startScheduledTasksConsumer = async ({
                 continue
             }
 
-            // If the messages is older than the grace period, we ignore it. The
-            // Kafka timestamp should be epoch milliseconds.
-            if (Number.parseInt(message.timestamp) < Date.now() - gracePeriodMilliSecondsByTaskType[task.taskType]) {
-                status.warn('🔁', 'Skip stale task', {
-                    taskType: task.taskType,
-                    pluginConfigId: task.pluginConfigId,
-                    timestamp: message.timestamp,
-                })
-                resolveOffset(message.offset)
-                statsd?.increment('scheduled_tasks.skip_stale', { taskType: task.taskType })
-                continue
-            }
-
             status.debug('⬆️', 'Running scheduled task', task)
 
             try {
+                status.info('⏲️', 'running_scheduled_task', {
+                    taskType: task.taskType,
+                    pluginConfigId: task.pluginConfigId,
+                })
                 await piscina.run({ task: task.taskType, args: { pluginConfigId: task.pluginConfigId } })
                 resolveOffset(message.offset)
-                statsd?.increment('scheduled_tasks.success', { taskType: task.taskType })
+                statsd?.increment('completed_scheduled_task', { taskType: task.taskType })
             } catch (error) {
                 if (error instanceof DependencyUnavailableError) {
                     // For errors relating to PostHog dependencies that are unavailable,
                     // e.g. Postgres, Kafka, Redis, we don't want to log the error to Sentry
                     // but rather bubble this up the stack for someone else to decide on
                     // what to do with it.
-                    status.warn('⚠️', `Dependency unavailable for scheduled task`, {
+                    status.warn('⚠️', `dependency_unavailable`, {
+                        taskType: task.taskType,
                         pluginConfigId: task.pluginConfigId,
+                        error: error,
+                        stack: error.stack,
                     })
-                    statsd?.increment('scheduled_tasks.retriable', { taskType: task.taskType })
+                    statsd?.increment('retriable_scheduled_task', { taskType: task.taskType })
                     throw error
                 }
 
-                status.error('⚠️', 'Failed to run scheduled task', { error: error.stack ?? error })
-                statsd?.increment('scheduled_tasks.failure', { taskType: task.taskType })
+                status.error('⚠️', 'scheduled_task_failed', {
+                    taskType: task.taskType,
+                    pluginConfigId: task.pluginConfigId,
+                    error: error,
+                    stack: error.stack,
+                })
+                statsd?.increment('failed_scheduled_tasks', { taskType: task.taskType })
             }
 
             // After processing each message, we need to heartbeat to ensure
@@ -124,9 +123,3 @@ export const startScheduledTasksConsumer = async ({
 
     return consumer
 }
-
-const gracePeriodMilliSecondsByTaskType = {
-    runEveryMinute: 60 * 1000,
-    runEveryHour: 60 * 60 * 1000,
-    runEveryDay: 24 * 60 * 60 * 1000,
-} as const
