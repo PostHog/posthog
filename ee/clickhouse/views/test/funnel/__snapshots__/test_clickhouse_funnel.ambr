@@ -51,10 +51,10 @@
                       AND (NOT has([''], "$group_0")) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1) SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
   '
 ---
 # name: ClickhouseTestFunnelGroups.test_funnel_aggregation_with_groups.1
@@ -108,14 +108,14 @@
                            AND (NOT has([''], "$group_0"))) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     HAVING steps = max_steps)
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: ClickhouseTestFunnelGroups.test_funnel_group_aggregation_with_groups_entity_filtering
@@ -172,10 +172,10 @@
                       AND (NOT has([''], "$group_0")) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1) SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
   '
 ---
 # name: ClickhouseTestFunnelGroups.test_funnel_group_aggregation_with_groups_entity_filtering.1
@@ -230,14 +230,14 @@
                            AND (NOT has([''], "$group_0"))) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     HAVING steps = max_steps)
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_entity_filtering
@@ -301,10 +301,10 @@
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1) SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
   '
 ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_entity_filtering.1
@@ -365,14 +365,14 @@
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     HAVING steps = max_steps)
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_global_filtering
@@ -443,10 +443,10 @@
                       AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1) SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
   '
 ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_global_filtering.1
@@ -514,13 +514,13 @@
                       AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     HAVING steps = max_steps)
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
