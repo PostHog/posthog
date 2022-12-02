@@ -27,7 +27,7 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
             {
                 showModal: () => true,
                 hideModal: () => false,
-                setColumns: () => false,
+                save: () => false,
             },
         ],
         columns: [
