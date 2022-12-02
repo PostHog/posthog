@@ -236,14 +236,19 @@ function LemonSelectOptionRow<T>({
 
     let tooltipContent: string | JSX.Element | undefined
     if (option.tooltip && option.disabledReason) {
+        // TODO: Pull this logic into LemonButton, so that `disabledReason` is a thing in the entire design system
         tooltipContent = (
             <>
                 {option.tooltip}
-                <div className="mt-1">{option.disabledReason}</div>
+                <div className="mt-1 italic">{option.disabledReason}</div>
             </>
         )
     } else {
-        tooltipContent = option.disabledReason || option.tooltip
+        tooltipContent = option.disabledReason ? (
+            <span className="italic">{option.disabledReason}</span>
+        ) : (
+            option.tooltip
+        )
     }
 
     return 'options' in option ? (
