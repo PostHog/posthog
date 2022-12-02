@@ -51,6 +51,7 @@ export enum AvailableFeature {
     APP_METRICS = 'app_metrics',
     RECORDINGS_PLAYLISTS = 'recordings_playlists',
     ROLE_BASED_ACCESS = 'role_based_access',
+    RECORDINGS_FILE_EXPORT = 'recordings_file_export',
 }
 
 export enum LicensePlan {

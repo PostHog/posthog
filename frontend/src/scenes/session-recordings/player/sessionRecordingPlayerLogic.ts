@@ -4,6 +4,7 @@ import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLo
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
+    AvailableFeature,
     MatchedRecording,
     PlayerPosition,
     RecordingSegment,
@@ -27,6 +28,8 @@ import { downloadFile, fromParamsGivenUrl } from 'lib/utils'
 import { lemonToast } from '@posthog/lemon-ui'
 import { delay } from 'kea-test-utils'
 import { ExportedSessionRecordingFile } from '../file-playback/sessionRecodingFilePlaybackLogic'
+import { userLogic } from 'scenes/userLogic'
+import { openBillingPopupModal } from 'scenes/billing/v2/BillingPopup'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -70,6 +73,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 ['tab'],
                 playerSettingsLogic,
                 ['speed', 'skipInactivitySetting', 'isFullScreen'],
+                userLogic,
+                ['hasAvailableFeature'],
             ],
             actions: [
                 sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime, sessionRecordingData }),
@@ -632,6 +637,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         exportRecordingToFile: async () => {
             if (!values.sessionPlayerData) {
+                return
+            }
+
+            if (!values.hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)) {
+                openBillingPopupModal({
+                    title: 'Unlock recording exports',
+                    description:
+                        'Export recordings to a file that can be stored wherever you like and loaded back into PostHog for playback at any time.',
+                })
                 return
             }
 

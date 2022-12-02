@@ -5,10 +5,31 @@ import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { sessionRecodingFilePlaybackLogic } from './sessionRecodingFilePlaybackLogic'
+import { userLogic } from 'scenes/userLogic'
+import { AvailableFeature } from '~/types'
+import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 
 export function SessionRecordingFilePlayback(): JSX.Element {
     const { loadFromFile, resetSessionRecording } = useActions(sessionRecodingFilePlaybackLogic)
     const { sessionRecording, sessionRecordingLoading } = useValues(sessionRecodingFilePlaybackLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const filePlaybackEnabled = hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)
+
+    if (!filePlaybackEnabled) {
+        return (
+            <PayGatePage
+                featureKey={AvailableFeature.RECORDINGS_FILE_EXPORT}
+                featureName="Recording Exports"
+                header={
+                    <>
+                        Export and playback <span className="highlight">Recordings from file</span>!
+                    </>
+                }
+                caption="Store your recordings outside of PostHog wherever you like."
+                docsLink="https://posthog.com/docs/user-guides/session-recordings"
+            />
+        )
+    }
 
     return (
         <div>
