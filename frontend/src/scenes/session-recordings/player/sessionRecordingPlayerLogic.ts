@@ -631,7 +631,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     await delay(1000)
                 }
 
-                const payload: SessionPlayerData = values.sessionPlayerData
+                const payload = {
+                    version: '2022-12-02',
+                    data: values.sessionPlayerData,
+                }
                 const recordingFile = new File(
                     [JSON.stringify(payload)],
                     `export-${props.sessionRecordingId}.ph-recording.json`,
