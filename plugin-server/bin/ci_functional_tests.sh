@@ -40,7 +40,12 @@ exit_code=$?
 set -e
 
 kill $SERVER_PID
-timeout --kill-after 30s 30s wait $SERVER_PID
+
+while kill -0 $SERVER_PID; do
+    echo "Waiting for plugin-server to exit..."
+    ((c++)) && ((c==30)) && break
+    sleep 1
+done
 
 if [ $exit_code -ne 0 ]; then
     echo '::group::Plugin Server logs'
