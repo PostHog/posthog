@@ -248,7 +248,7 @@ def test_upsert_text_tile_does_not_create_record(mock_active_teams, team: Team, 
     caching_state = upsert(team, tile)
 
     assert caching_state is None
-    assert InsightCachingState.objects.filter(team=team).count() == 0
+    assert not InsightCachingState.objects.filter(team=team).exists()
 
 
 @pytest.mark.parametrize(
