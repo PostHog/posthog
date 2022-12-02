@@ -69,10 +69,8 @@ function ColumnConfiguratorModal(): JSX.Element {
     const rowItemHeight = 32
 
     const { modalVisible, columns } = useValues(columnConfiguratorLogic)
-    const { hideModal, setColumns, resetColumns, selectColumn, unselectColumn, save, toggleSaveAsDefault } =
+    const { hideModal, setColumns, selectColumn, unselectColumn, save, toggleSaveAsDefault } =
         useActions(columnConfiguratorLogic)
-
-    const immutableColumns: string[] = []
 
     function SaveColumnsAsDefault({ isRestricted }: RestrictedComponentProps): JSX.Element {
         return (
@@ -128,13 +126,9 @@ function ColumnConfiguratorModal(): JSX.Element {
     const SortableSelectedColumn = sortableElement(SelectedColumn)
 
     const SortableSelectedColumnRenderer = ({ index, style, key }: ListRowProps): JSX.Element => {
-        const disabled = immutableColumns?.includes(columns[index])
         return (
             <div style={style} key={key}>
-                {disabled && <SelectedColumn column={columns[index]} disabled={Boolean(disabled)} />}
-                {!disabled && (
-                    <SortableSelectedColumn column={columns[index]} index={index} collection="selected-columns" />
-                )}
+                <SortableSelectedColumn column={columns[index]} index={index} collection="selected-columns" />
             </div>
         )
     }
@@ -183,7 +177,7 @@ function ColumnConfiguratorModal(): JSX.Element {
             footer={
                 <Row>
                     <Space style={{ flexGrow: 1 }} align="start">
-                        <Button className="text-blue" onClick={() => resetColumns(defaultDataTableStringColumns)}>
+                        <Button className="text-blue" onClick={() => setColumns(defaultDataTableStringColumns)}>
                             Reset to defaults
                         </Button>
                     </Space>

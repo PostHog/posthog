@@ -16,7 +16,6 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
         hideModal: true,
         selectColumn: (column: string) => ({ column }),
         unselectColumn: (column: string) => ({ column }),
-        resetColumns: (columns: string[]) => ({ columns }),
         setColumns: (columns: string[]) => ({ columns }),
         toggleSaveAsDefault: true,
         save: true,
@@ -33,10 +32,10 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
         columns: [
             props.columns,
             {
+                showModal: () => props.columns,
                 setColumns: (_, { columns }) => columns,
                 selectColumn: (state, { column }) => Array.from(new Set([...state, column])),
                 unselectColumn: (state, { column }) => state.filter((c) => c !== column),
-                resetColumns: (_, { columns }) => columns,
             },
         ],
         saveAsDefault: [
