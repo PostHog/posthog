@@ -28,6 +28,7 @@ from posthog.queries.trends.trends_event_query import TrendsEventQuery
 from posthog.queries.trends.util import (
     COUNT_PER_ACTOR_MATH_FUNCTIONS,
     PROPERTY_MATH_FUNCTIONS,
+    determine_aggregator,
     ensure_value_is_json_serializable,
     enumerate_time_range,
     parse_response,
@@ -74,7 +75,7 @@ class TrendsTotalVolume:
                 content_sql = VOLUME_PER_ACTOR_AGGREGATE_SQL.format(
                     event_query=event_query,
                     **content_sql_params,
-                    aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
+                    aggregator=determine_aggregator(entity, team),
                 )
             else:
                 content_sql = VOLUME_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
@@ -88,7 +89,7 @@ class TrendsTotalVolume:
                     **content_sql_params,
                     parsed_date_to=trend_event_query.parsed_date_to,
                     parsed_date_from=trend_event_query.parsed_date_from,
-                    aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
+                    aggregator=determine_aggregator(entity, team),  # TODO: Officially groups (when the issue is raised)
                     start_of_week_fix=start_of_week_fix(filter.interval),
                     **trend_event_query.active_user_params,
                 )
@@ -107,7 +108,7 @@ class TrendsTotalVolume:
                     event_query=event_query,
                     start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
-                    aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
+                    aggregator=determine_aggregator(entity, team),
                 )
             elif entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,

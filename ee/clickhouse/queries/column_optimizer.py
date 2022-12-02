@@ -76,7 +76,7 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
             # If groups are involved, they're also used
             #
             # See ee/clickhouse/queries/trends/util.py#process_math
-            if entity.math == "unique_group":
+            if entity.math_group_type_index is not None:
                 counter[(f"$group_{entity.math_group_type_index}", "event", None)] += 1
 
             if entity.math == "unique_session":

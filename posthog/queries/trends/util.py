@@ -142,3 +142,9 @@ def ensure_value_is_json_serializable(value: Any) -> Optional[float]:
             capture_exception(exception)
         return None
     return value
+
+
+def determine_aggregator(entity: Entity, team: Team) -> str:
+    if entity.math_group_type_index is not None:
+        return f'"$group_{entity.math_group_type_index}"'
+    return "distinct_id" if team.aggregate_users_by_distinct_id else "person_id"
