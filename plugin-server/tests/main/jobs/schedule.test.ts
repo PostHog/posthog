@@ -33,10 +33,7 @@ describe('Graphile Worker schedule', () => {
             } as KafkaProducerWrapper,
         }
 
-        await runScheduledTasks(mockHubWithPluginSchedule, 'iDontExist')
-        expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).not.toHaveBeenCalled()
-
-        await runScheduledTasks(mockHubWithPluginSchedule, 'runEveryMinute')
+        await runScheduledTasks(mockHubWithPluginSchedule, 'runEveryMinute', { job: { run_at: new Date() } } as any)
 
         expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(1, {
             topic: KAFKA_SCHEDULED_TASKS,
@@ -75,7 +72,7 @@ describe('Graphile Worker schedule', () => {
             ],
         })
 
-        await runScheduledTasks(mockHubWithPluginSchedule, 'runEveryHour')
+        await runScheduledTasks(mockHubWithPluginSchedule, 'runEveryHour', { job: { run_at: new Date() } } as any)
         expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(4, {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
@@ -113,7 +110,7 @@ describe('Graphile Worker schedule', () => {
             ],
         })
 
-        await runScheduledTasks(mockHubWithPluginSchedule, 'runEveryDay')
+        await runScheduledTasks(mockHubWithPluginSchedule, 'runEveryDay', { job: { run_at: new Date() } } as any)
         expect(mockHubWithPluginSchedule.kafkaProducer.producer.send).toHaveBeenNthCalledWith(7, {
             topic: KAFKA_SCHEDULED_TASKS,
             messages: [
