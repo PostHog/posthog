@@ -74,6 +74,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "errors_calculating",
             "count",
             "is_static",
+            "aggregation_group_type_index",
         ]
         read_only_fields = [
             "id",
@@ -139,6 +140,9 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.groups = validated_data.get("groups", cohort.groups)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
         cohort.filters = validated_data.get("filters", cohort.filters)
+        cohort.aggregation_group_type_index = validated_data.get(
+            "aggregation_group_type_index", cohort.aggregation_group_type_index
+        )
         deleted_state = validated_data.get("deleted", None)
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state

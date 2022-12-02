@@ -89,6 +89,7 @@ class Cohort(models.Model):
     errors_calculating: models.IntegerField = models.IntegerField(default=0)
 
     is_static: models.BooleanField = models.BooleanField(default=False)
+    aggregation_group_type_index: models.IntegerField = models.IntegerField(null=True, blank=False)
 
     objects = CohortManager()
 

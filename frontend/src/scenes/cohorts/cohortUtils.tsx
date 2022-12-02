@@ -121,7 +121,9 @@ export function createCohortFormData(cohort: CohortType): FormData {
                       },
                   }
         ),
+        ...{ aggregation_group_type_index: cohort.aggregation_group_type_index },
     }
+    console.log(rawCohort)
 
     // Must use FormData to encode file binary in request
     const cohortFormData = new FormData()

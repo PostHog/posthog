@@ -15,11 +15,14 @@ import { useActions, useValues } from 'kea'
 import { CohortCriteriaRowBuilder } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
+import { groupsModel } from '~/models/groupsModel'
 
 export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element {
     const logic = cohortEditLogic(logicProps)
     const { cohort } = useValues(logic)
     const { setInnerGroupType, duplicateFilter, removeFilter, addFilter } = useActions(logic)
+    const { aggregationLabel } = useValues(groupsModel)
+    const grouptypeLabel = aggregationLabel(cohort.aggregation_group_type_index).plural
 
     return (
         <>
@@ -44,7 +47,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                         <Row align="middle" wrap={false} className="px-4">
                                             <Lettermark name={alphabet[groupIndex]} color={LettermarkColor.Gray} />
                                             <AndOrFilterSelect
-                                                prefix="Match persons against"
+                                                prefix={`Match ${grouptypeLabel} against`}
                                                 suffix="criteria"
                                                 onChange={(value) => setInnerGroupType(value, groupIndex)}
                                                 value={group.type}

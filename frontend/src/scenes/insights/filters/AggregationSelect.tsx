@@ -9,19 +9,26 @@ const UNIQUE_USERS = -1
 interface AggregationSelectProps {
     aggregationGroupTypeIndex: number | undefined
     onChange: (aggregationGroupTypeIndex: number | undefined) => void
+    title?: string
+    labelTransform?: (label: string) => string
 }
 
-export function AggregationSelect({ aggregationGroupTypeIndex, onChange }: AggregationSelectProps): JSX.Element {
+export function AggregationSelect({
+    aggregationGroupTypeIndex,
+    onChange,
+    title = 'Event Aggregation',
+    labelTransform = (label) => `Unique ${label}`,
+}: AggregationSelectProps): JSX.Element {
     const { groupTypes, aggregationLabel } = useValues(groupsModel)
     const { needsUpgradeForGroups, canStartUsingGroups } = useValues(groupsAccessLogic)
 
     const optionSections: LemonSelectSection<number>[] = [
         {
-            title: 'Event Aggregation',
+            title: title,
             options: [
                 {
                     value: UNIQUE_USERS,
-                    label: 'Unique users',
+                    label: labelTransform('users'),
                 },
             ],
         },
@@ -33,7 +40,7 @@ export function AggregationSelect({ aggregationGroupTypeIndex, onChange }: Aggre
         groupTypes.forEach((groupType) => {
             optionSections[0].options.push({
                 value: groupType.group_type_index,
-                label: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
+                label: labelTransform(`${aggregationLabel(groupType.group_type_index).plural}`),
             })
         })
     }

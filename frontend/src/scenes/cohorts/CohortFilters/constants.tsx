@@ -977,6 +977,7 @@ export const NEW_COHORT: CohortType = {
             values: [NEW_CRITERIA_GROUP],
         },
     },
+    aggregation_group_type_index: undefined,
 }
 
 export const BEHAVIORAL_TYPE_TO_LABEL = {

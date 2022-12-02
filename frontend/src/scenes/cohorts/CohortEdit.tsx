@@ -6,7 +6,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/components/LemonButton'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { Divider } from 'antd'
+import { Divider, Row } from 'antd'
 import { Field } from 'lib/forms/Field'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -25,6 +25,9 @@ import { Persons } from 'scenes/persons/Persons'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
+import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { groupsModel } from '~/models/groupsModel'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
@@ -33,6 +36,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const { cohort, cohortLoading, cohortMissing } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
+    const { aggregationLabel } = useValues(groupsModel)
+    const grouptypeLabel = capitalizeFirstLetter(aggregationLabel(cohort.aggregation_group_type_index).plural)
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
@@ -180,14 +185,28 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     updated automatically.
                                 </span>
                             </div>
-                            <AndOrFilterSelect
-                                value={cohort.filters.properties.type}
-                                onChange={(value) => {
-                                    setOuterGroupsType(value)
-                                }}
-                                topLevelFilter={true}
-                                suffix="criteria"
-                            />
+                            <Row>
+                                <AndOrFilterSelect
+                                    value={cohort.filters.properties.type}
+                                    onChange={(value) => {
+                                        setOuterGroupsType(value)
+                                    }}
+                                    topLevelFilter={true}
+                                    suffix="criteria"
+                                />
+                                <Field name="aggregation_group_type_index">
+                                    {({ value, onChange }) => (
+                                        <div className="ml-2">
+                                            <AggregationSelect
+                                                aggregationGroupTypeIndex={value}
+                                                onChange={onChange}
+                                                title="Aggregation"
+                                                labelTransform={(label) => capitalizeFirstLetter(label)}
+                                            />
+                                        </div>
+                                    )}
+                                </Field>
+                            </Row>
                         </div>
                         <CohortCriteriaGroups id={logicProps.id} />
                     </>
@@ -197,7 +216,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     <>
                         <Divider />
                         <div>
-                            <h3 className="l3">Persons in this cohort</h3>
+                            <h3 className="l3">{grouptypeLabel} in this cohort</h3>
                             {cohort.is_calculating ? (
                                 <div className="cohort-recalculating flex items-center">
                                     <Spinner className="mr-4" />

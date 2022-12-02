@@ -191,6 +191,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 saveCohort: async ({ cohortParams }, breakpoint) => {
                     let cohort = { ...cohortParams }
                     const cohortFormData = createCohortFormData(cohort)
+                    console.log(cohort, cohortFormData.values())
 
                     try {
                         if (cohort.id !== 'new') {

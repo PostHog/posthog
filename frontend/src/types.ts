@@ -756,6 +756,7 @@ export interface CohortType {
     filters: {
         properties: CohortCriteriaGroupFilter
     }
+    aggregation_group_type_index?: number | undefined // Groups aggregation
 }
 
 export interface InsightHistory {
