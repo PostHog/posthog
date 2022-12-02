@@ -35,7 +35,7 @@ echo ''
 echo '::endgroup::'
 
 set +e
-yarn functional_tests --maxConcurrency=10 --verbose -t "asdf"
+yarn functional_tests --maxConcurrency=10 --verbose
 exit_code=$?
 set -e
 
@@ -46,10 +46,6 @@ while kill -0 $SERVER_PID; do
     ((c++)) && ((c==60)) && break
     sleep 1
 done
-
-if kill -0 $SERVER_PID; then
-    echo 'WARNING: plugin-server did not exit in time'
-fi
 
 echo '::group::Plugin Server logs'
 cat $LOG_FILE
