@@ -20,15 +20,15 @@ export function SessionRecordingFilePlayback(): JSX.Element {
                         type="info"
                         action={{
                             onClick: () => resetSessionRecording(),
-                            children: 'Import a different recording',
+                            children: 'Load a different recording',
                         }}
                     >
-                        You are viewing a recording imported from a file.
+                        You are viewing a recording loaded from a file.
                     </AlertMessage>
                     <SessionRecordingPlayer
                         sessionRecordingId=""
                         sessionRecordingData={sessionRecording}
-                        playerKey={`importer`}
+                        playerKey="file-playback"
                     />
                 </div>
             ) : (
