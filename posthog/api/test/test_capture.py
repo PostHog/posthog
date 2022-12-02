@@ -576,7 +576,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {"type": "capture", "distinct_id": "2"},  # type: ignore
+                "data": {"type": "capture", "distinct_id": "2"},
                 "team_id": self.team.pk,
                 "properties": {},
                 "event": "user signed up",
@@ -1254,7 +1254,7 @@ class TestCapture(BaseTest):
                         "distinct_id": "2",
                         "ip": "127.0.0.1",
                         "site_url": "http://testserver",
-                        "data": {"type": "capture", "distinct_id": "2"},  # type: ignore
+                        "data": {"type": "capture", "distinct_id": "2"},
                         "team_id": None,  # this will be set by the plugin server later
                         "properties": {},
                         "event": "user signed up",

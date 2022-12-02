@@ -51,8 +51,8 @@ class TestCaptureAPI(APIBaseTest):
         properties1 = json.loads(kafka_produce_call1["data"]["properties"])
         properties2 = json.loads(kafka_produce_call2["data"]["properties"])
 
-        self.assertEqual(kafka_produce_call1["event"], "event1")
-        self.assertEqual(kafka_produce_call2["event"], "event2")
+        self.assertEqual(kafka_produce_call1["data"]["event"], "event1")
+        self.assertEqual(kafka_produce_call2["data"]["event"], "event2")
 
         self.assertEqual(properties1["distinct_id"], "id1")
         self.assertEqual(properties2["distinct_id"], "id2")
