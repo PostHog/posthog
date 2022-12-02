@@ -2,10 +2,10 @@ import '~/styles'
 import './storybook.scss'
 import { worker } from '~/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
-import { KeaStory } from './kea-story'
 import { getStorybookAppContext } from 'storybook/app-context'
-import { useAvailableFeatures } from '~/mocks/features'
-import MockDate from 'mockdate'
+import type { Meta } from '@storybook/react'
+import { withKea } from './decorators/withKea'
+import { withMockDate } from './decorators/withMockDate'
 
 const setupMsw = () => {
     // Make sure the msw worker is started
@@ -62,22 +62,9 @@ export const parameters = {
 }
 
 // Setup storybook global decorators. See https://storybook.js.org/docs/react/writing-stories/decorators#global-decorators
-export const decorators = [
-    // Make sure the msw service worker is started, and reset the handlers to
-    // defaults.
-    (Story: any) => {
-        // Reset enabled enterprise features. Overwrite this line within your stories.
-        useAvailableFeatures([])
-        return (
-            <KeaStory>
-                <Story />
-            </KeaStory>
-        )
-    },
+export const decorators: Meta['decorators'] = [
+    // Make sure the msw service worker is started, and reset the handlers to defaults.
+    withKea,
     // Allow us to time travel to ensure our stories don't change over time
-    (Story: any) => {
-        // MockDate.reset();
-        MockDate.set('2022-03-11')
-        return <Story />
-    },
+    withMockDate,
 ]
