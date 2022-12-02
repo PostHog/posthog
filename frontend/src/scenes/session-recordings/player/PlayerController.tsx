@@ -8,7 +8,7 @@ import { SessionPlayerState } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { IconFullScreen, IconPause, IconPlay, IconSkipInactivity } from 'lib/components/icons'
+import { IconExport, IconFullScreen, IconInfo, IconPause, IconPlay, IconSkipInactivity } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
 import { PlayerInspectorPicker } from './PlayerInspector'
@@ -28,7 +28,7 @@ export function PlayerController({
     hideInspectorPicker = false,
 }: PlayerControllerProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    const { togglePlayPause } = useActions(logic)
+    const { togglePlayPause, exportRecordingToFile } = useActions(logic)
     const { currentPlayerState } = useValues(logic)
 
     const { speed, skipInactivitySetting, isFullScreen, autoplayEnabled } = useValues(playerSettingsLogic)
@@ -133,6 +133,16 @@ export function PlayerController({
                                         }
                                     >
                                         Autoplay enabled
+                                    </LemonButton>
+
+                                    <LemonButton
+                                        status="stealth"
+                                        onClick={() => exportRecordingToFile()}
+                                        fullWidth
+                                        sideIcon={<IconExport />}
+                                        tooltip="Export recording to a file. This can be loaded later into PostHog for playback."
+                                    >
+                                        Export to file
                                     </LemonButton>
                                 </>
                             }

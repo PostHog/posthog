@@ -7,6 +7,7 @@ import {
     MatchedRecording,
     PlayerPosition,
     RecordingSegment,
+    SessionPlayerData,
     SessionPlayerState,
     SessionRecordingId,
     SessionRecordingType,
@@ -22,7 +23,9 @@ import {
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 import equal from 'fast-deep-equal'
-import { fromParamsGivenUrl } from 'lib/utils'
+import { downloadFile, fromParamsGivenUrl } from 'lib/utils'
+import { lemonToast } from '@posthog/lemon-ui'
+import { delay } from 'kea-test-utils'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -112,6 +115,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         incrementWarningCount: true,
         setMatching: (matching: SessionRecordingType['matching_events']) => ({ matching }),
         updateFromMetadata: true,
+        exportRecordingToFile: true,
     }),
     reducers(({ props }) => ({
         rootFrame: [
@@ -218,7 +222,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (recordingStartTime) => recordingStartTime ?? null,
         ],
     }),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ props, values, actions, cache }) => ({
         setRootFrame: () => {
             actions.tryInitReplayer()
         },
@@ -615,6 +619,33 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (cache.timer) {
                 cancelAnimationFrame(cache.timer)
             }
+        },
+
+        exportRecordingToFile: async () => {
+            if (!values.sessionPlayerData) {
+                return
+            }
+
+            const doExport = async (): Promise<void> => {
+                while (values.sessionPlayerData.next) {
+                    await delay(1000)
+                }
+
+                const payload: SessionPlayerData = values.sessionPlayerData
+                const recordingFile = new File(
+                    [JSON.stringify(payload)],
+                    `export-${props.sessionRecordingId}.ph-recording.json`,
+                    { type: 'application/json' }
+                )
+
+                downloadFile(recordingFile)
+            }
+
+            await lemonToast.promise(doExport(), {
+                success: 'Export complete!',
+                error: 'Export failed!',
+                pending: 'Exporting recording...',
+            })
         },
     })),
     windowValues({
