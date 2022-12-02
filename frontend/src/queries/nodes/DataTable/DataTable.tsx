@@ -7,7 +7,7 @@ import { EventType } from '~/types'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { EventDetails } from 'scenes/events'
-import { EventActions } from '~/queries/nodes/DataTable/EventActions'
+import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
@@ -57,7 +57,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
                       dataIndex: 'more' as any,
                       title: '',
                       render: function RenderMore(_: any, record: EventType) {
-                          return <EventActions event={record} />
+                          return <EventRowActions event={record} />
                       },
                   },
               ]

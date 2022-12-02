@@ -10,7 +10,7 @@ interface EventActionProps {
     event: EventType
 }
 
-export function EventActions({ event }: EventActionProps): JSX.Element {
+export function EventRowActions({ event }: EventActionProps): JSX.Element {
     let insightParams: Partial<TrendsFilterType> | undefined
     if (event.event === '$pageview') {
         insightParams = {
