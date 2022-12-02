@@ -17,7 +17,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
 import { dayjs } from 'lib/dayjs'
 import { loaders } from 'kea-loaders'
-import { subscriptions } from 'kea-subscriptions'
 
 export type PersonUUID = string
 interface Params {
@@ -181,19 +180,17 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         pinnedRecordingsResponse: [
             null as SessionRecordingsResponse | null,
             {
-                getPinnedRecordings: async (_, breakpoint) => {
+                loadPinnedRecordings: async (_, breakpoint) => {
                     if (!props.playlistShortId) {
                         return null
                     }
 
                     const paramsDict = {
-                        ...values.filters,
-                        person_uuid: props.personUUID ?? '',
                         limit: PLAYLIST_LIMIT,
                     }
 
                     const params = toParams(paramsDict)
-                    await breakpoint(100) // Debounce for lots of quick filter changes
+                    await breakpoint(100)
 
                     const startTime = performance.now()
                     const response = await api.recordings.listPlaylistRecordings(props.playlistShortId, params)
@@ -376,5 +373,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
     afterMount(({ actions }) => {
         actions.getSessionRecordings({})
+        actions.loadPinnedRecordings({})
     }),
 ])

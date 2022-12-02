@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { range } from '~/lib/utils'
-import { RecordingDurationFilter, RecordingFilters, SessionRecordingsTabs, SessionRecordingType } from '~/types'
+import { RecordingDurationFilter, RecordingFilters, SessionRecordingType } from '~/types'
 import {
     defaultPageviewPropertyEntityFilter,
     PLAYLIST_LIMIT,
@@ -10,7 +10,7 @@ import {
 import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import {
     IconChevronLeft,
     IconChevronRight,
@@ -24,164 +24,11 @@ import clsx from 'clsx'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { LemonTableLoader } from 'lib/components/LemonTable/LemonTableLoader'
 import { SessionRecordingPlaylistItem } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistItem'
-import { SceneExport } from 'scenes/sceneTypes'
-import { EditableField } from 'lib/components/EditableField/EditableField'
-import { PageHeader } from 'lib/components/PageHeader'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { DurationFilter } from '../filters/DurationFilter'
-import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
-import { NotFound } from 'lib/components/NotFound'
-import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { More } from 'lib/components/LemonButton/More'
-import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
 import { Tooltip } from 'lib/components/Tooltip'
-
-export const scene: SceneExport = {
-    component: SessionRecordingsPlaylistScene,
-    logic: sessionRecordingsPlaylistLogic,
-    paramsToProps: ({ params: { id } }) => {
-        return { shortId: id as string }
-    },
-}
-
-export function SessionRecordingsPlaylistScene(): JSX.Element {
-    const { playlist, playlistLoading, hasChanges, derivedName } = useValues(sessionRecordingsPlaylistLogic)
-    const { updateSavedPlaylist, setFilters, saveChanges, duplicateSavedPlaylist, deleteSavedPlaylistWithUndo } =
-        useActions(sessionRecordingsPlaylistLogic)
-
-    if (!playlist && playlistLoading) {
-        return (
-            <div className="space-y-4 mt-6">
-                <LemonSkeleton className="h-10 w-1/4" />
-                <LemonSkeleton className=" w-1/3" />
-                <LemonSkeleton className=" w-1/4" />
-
-                <div className="flex justify-between mt-4">
-                    <LemonSkeleton.Button />
-                    <div className="flex gap-4">
-                        <LemonSkeleton.Button />
-                        <LemonSkeleton.Button />
-                    </div>
-                </div>
-
-                <div className="flex justify-between gap-4 mt-8">
-                    <div className="space-y-8 w-1/4">
-                        <LemonSkeleton className="h-10" repeat={10} />
-                    </div>
-                    <div className="flex-1" />
-                </div>
-            </div>
-        )
-    }
-
-    if (!playlist) {
-        return <NotFound object={'Recording Playlist'} />
-    }
-
-    return (
-        <div>
-            <PageHeader
-                title={
-                    <EditableField
-                        name="name"
-                        value={playlist.name || ''}
-                        placeholder={derivedName}
-                        onSave={(value) => updateSavedPlaylist({ short_id: playlist.short_id, name: value })}
-                        saveOnBlur={true}
-                        maxLength={400}
-                        mode={undefined}
-                        data-attr="playlist-name"
-                    />
-                }
-                buttons={
-                    <div className="flex justify-between items-center gap-2">
-                        <More
-                            overlay={
-                                <>
-                                    <LemonButton
-                                        status="stealth"
-                                        onClick={() => duplicateSavedPlaylist(playlist, true)}
-                                        fullWidth
-                                        data-attr="duplicate-playlist"
-                                    >
-                                        Duplicate
-                                    </LemonButton>
-                                    <LemonButton
-                                        status="stealth"
-                                        onClick={() =>
-                                            updateSavedPlaylist({
-                                                short_id: playlist.short_id,
-                                                pinned: !playlist.pinned,
-                                            })
-                                        }
-                                        fullWidth
-                                    >
-                                        {playlist.pinned ? 'Unpin playlist' : 'Pin playlist'}
-                                    </LemonButton>
-                                    <LemonDivider />
-
-                                    <LemonButton
-                                        status="danger"
-                                        onClick={() =>
-                                            deleteSavedPlaylistWithUndo(playlist, () => {
-                                                router.actions.replace(
-                                                    urls.sessionRecordings(SessionRecordingsTabs.Playlists)
-                                                )
-                                            })
-                                        }
-                                        fullWidth
-                                    >
-                                        Delete playlist
-                                    </LemonButton>
-                                </>
-                            }
-                        />
-
-                        <LemonDivider vertical />
-                        <LemonButton
-                            type="primary"
-                            disabled={!hasChanges}
-                            loading={hasChanges && playlistLoading}
-                            onClick={saveChanges}
-                        >
-                            Save changes
-                        </LemonButton>
-                    </div>
-                }
-                caption={
-                    <>
-                        <EditableField
-                            multiline
-                            name="description"
-                            value={playlist.description || ''}
-                            placeholder="Description (optional)"
-                            onSave={(value) => updateSavedPlaylist({ short_id: playlist.short_id, description: value })}
-                            saveOnBlur={true}
-                            maxLength={400}
-                            data-attr="playlist-description"
-                            compactButtons
-                        />
-                        <UserActivityIndicator
-                            at={playlist.last_modified_at}
-                            by={playlist.last_modified_by}
-                            className="mt-2"
-                        />
-                    </>
-                }
-            />
-            {playlist.short_id ? (
-                <SessionRecordingsPlaylist
-                    playlistShortId={playlist.short_id}
-                    filters={playlist.filters}
-                    onFiltersChange={setFilters}
-                />
-            ) : null}
-        </div>
-    )
-}
 
 export type SessionRecordingsPlaylistProps = {
     playlistShortId?: string
@@ -216,6 +63,8 @@ export function SessionRecordingsPlaylist({
         filters,
         totalFiltersCount,
         showFilters,
+        pinnedRecordingsResponse,
+        pinnedRecordingsResponseLoading,
     } = useValues(logic)
     const { setSelectedRecordingId, loadNext, loadPrev, setFilters, reportRecordingsListFilterAdded, setShowFilters } =
         useActions(logic)
@@ -357,29 +206,54 @@ export function SessionRecordingsPlaylist({
                         />
                     ) : null}
 
-                    {playlistShortId ? (
-                        <div className="w-full border border-dashed rounded text-muted-alt p-3">
-                            <div className="flex items-center gap-2 mb-2">
-                                <h5 className="mb-0">Pinned Recordings</h5>
-                                <Tooltip
-                                    title={
-                                        <>
-                                            You can pin recordings to a playlist to easily keep track of relevant
-                                            recordings for the task at hand.
-                                            <br />
-                                            Pinned recordings are not deleted.
-                                        </>
-                                    }
-                                >
-                                    <IconInfo />
-                                </Tooltip>
+                    {/* Pinned recordings */}
+
+                    {!!playlistShortId &&
+                        (pinnedRecordingsResponse?.results?.length ? (
+                            <ul>
+                                {pinnedRecordingsResponse?.results.map((rec, i) => (
+                                    <Fragment key={rec.id}>
+                                        {i > 0 && <div className="border-t" />}
+                                        <SessionRecordingPlaylistItem
+                                            recording={rec}
+                                            recordingProperties={sessionRecordingIdToProperties[rec.id]}
+                                            recordingPropertiesLoading={sessionRecordingsPropertiesResponseLoading}
+                                            onClick={() => onRecordingClick(rec)}
+                                            onPropertyClick={onPropertyClick}
+                                            isActive={activeSessionRecording?.id === rec.id}
+                                        />
+                                    </Fragment>
+                                ))}
+                            </ul>
+                        ) : pinnedRecordingsResponseLoading ? (
+                            <div className="w-full border border-dashed rounded text-muted-alt p-3">
+                                <LemonSkeleton className="my-2" repeat={3} />
                             </div>
-                            <span>
-                                Pinned recordings will appear here. You can use this to save particularly interesting
-                                recordings. They will show regardless of any filters set.
-                            </span>
-                        </div>
-                    ) : null}
+                        ) : (
+                            <div className="w-full border border-dashed rounded text-muted-alt p-3">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <h5 className="mb-0">Pinned Recordings</h5>
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                You can pin recordings to a playlist to easily keep track of relevant
+                                                recordings for the task at hand.
+                                                <br />
+                                                Pinned recordings are not deleted.
+                                            </>
+                                        }
+                                    >
+                                        <IconInfo />
+                                    </Tooltip>
+                                </div>
+                                <span>
+                                    Pinned recordings will appear here. You can use this to save particularly
+                                    interesting recordings. They will show regardless of any filters set.
+                                </span>
+                            </div>
+                        ))}
+
+                    {/* Other recordings */}
 
                     <div className="w-full overflow-hidden border rounded">
                         <div className="relative flex justify-between items-center bg-mid py-3 px-4 border-b">
