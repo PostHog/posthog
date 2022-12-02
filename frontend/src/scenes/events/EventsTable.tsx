@@ -279,9 +279,11 @@ export function EventsTable({
         if (selectedColumns === 'DEFAULT') {
             columnsSoFar = [...defaultColumns]
         } else {
-            const columnsToBeMapped = !showPersonColumn
+            let columnsToBeMapped = !showPersonColumn
                 ? selectedColumns.filter((column) => column !== 'person')
                 : selectedColumns
+            // If user has saved `timestamp`, a column only used in the Data Exploration version of this feature, remove it
+            columnsToBeMapped = columnsToBeMapped.filter((c) => c !== 'timestamp')
             columnsSoFar = columnsToBeMapped.map(
                 (e, index): LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined> => {
                     const defaultColumn = defaultColumns.find((d) => d.key === e)
@@ -304,9 +306,16 @@ export function EventsTable({
                             },
                         }
                     } else {
+                        // If the user has saved their columns for the new data exploration data table, make them work here
+                        // This code will be removed once we release the new events list feature.
+                        const key = e.startsWith('properties.')
+                            ? e.substring(11)
+                            : e.startsWith('person.properties.')
+                            ? e.substring(18)
+                            : e
                         return {
-                            title: keyMapping['event'][e] ? keyMapping['event'][e].label : e,
-                            key: e,
+                            title: keyMapping['event'][key] ? keyMapping['event'][key].label : key,
+                            key: key,
                             render: function render(_, item: EventsTableRowItem) {
                                 const { event } = item
                                 if (!event) {
@@ -320,13 +329,13 @@ export function EventsTable({
                                     return (
                                         <FilterPropertyLink
                                             className="ph-no-capture "
-                                            property={e}
-                                            value={event.properties[e] as string}
+                                            property={key}
+                                            value={event.properties[key] as string}
                                             filters={{ properties }}
                                         />
                                     )
                                 }
-                                return <Property value={event.properties[e]} />
+                                return <Property value={event.properties[key]} />
                             },
                         }
                     }
