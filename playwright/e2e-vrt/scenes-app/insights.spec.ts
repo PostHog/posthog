@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 
-const storybookUrl: string = process.env.STORYBOOK_URL || 'https://storybook.posthog.net'
+// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+const storybookUrl: string = process.env.STORYBOOK_URL!
 
 test.describe('insights vrt', () => {
     test('displays the trends line insight correctly', async ({ page }) => {
