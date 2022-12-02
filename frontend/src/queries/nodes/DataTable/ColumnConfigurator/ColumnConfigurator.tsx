@@ -16,7 +16,6 @@ import {
 } from 'react-sortable-hoc'
 import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/es/List'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { Col, Row } from 'antd'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -70,7 +69,7 @@ function ColumnConfiguratorModal(): JSX.Element {
     const rowItemHeight = 32
 
     const { modalVisible, columns } = useValues(columnConfiguratorLogic)
-    const { hideModal, setColumns, selectColumn, unselectColumn, save, toggleSaveAsDefault } =
+    const { hideModal, moveColumn, setColumns, selectColumn, unselectColumn, save, toggleSaveAsDefault } =
         useActions(columnConfiguratorLogic)
 
     function SaveColumnsAsDefault({ isRestricted }: RestrictedComponentProps): JSX.Element {
@@ -94,7 +93,7 @@ function ColumnConfiguratorModal(): JSX.Element {
     const SelectedColumn = ({ column, disabled }: { column: string; disabled?: boolean }): JSX.Element => {
         return (
             <div
-                className={clsx(['column-display-item', { selected: !disabled, disabled: disabled }])}
+                className={clsx(['SelectedColumn', { selected: !disabled, disabled: disabled }])}
                 style={{ height: `${rowItemHeight}px` }}
             >
                 {!disabled && <DragHandle />}
@@ -152,13 +151,6 @@ function ColumnConfiguratorModal(): JSX.Element {
         </div>
     ))
 
-    const handleSort = ({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void => {
-        const newColumns = [...columns]
-        const [removed] = newColumns.splice(oldIndex, 1)
-        newColumns.splice(newIndex, 0, removed)
-        setColumns(newColumns)
-    }
-
     return (
         <LemonModal
             isOpen={modalVisible}
@@ -180,23 +172,23 @@ function ColumnConfiguratorModal(): JSX.Element {
                 </>
             }
         >
-            <div className="ColumnConfiguratorModal main-content">
-                <Row gutter={16} className="lists">
-                    <Col xs={24} sm={12}>
+            <div className="ColumnConfiguratorModal">
+                <div className="Columns">
+                    <div className="HalfColumn">
                         <h4 className="secondary uppercase text-muted">
                             Visible columns ({columns.length}) - Drag to reorder
                         </h4>
                         <SortableColumnList
                             helperClass="column-configurator-modal-sortable-container"
-                            onSortEnd={handleSort}
+                            onSortEnd={({ oldIndex, newIndex }) => moveColumn(oldIndex, newIndex)}
                             distance={5}
                             useDragHandle
                             lockAxis="y"
                         />
-                    </Col>
-                    <Col xs={24} sm={12}>
+                    </div>
+                    <div className="HalfColumn">
                         <h4 className="secondary uppercase text-muted">Available columns</h4>
-                        <div style={{ height: 320 }}>
+                        <div style={{ height: 334 }}>
                             <AutoSizer>
                                 {({ height, width }: { height: number; width: number }) => {
                                     const trimmedProperties = columns.map((c) =>
@@ -223,8 +215,8 @@ function ColumnConfiguratorModal(): JSX.Element {
                                 }}
                             </AutoSizer>
                         </div>
-                    </Col>
-                </Row>
+                    </div>
+                </div>
                 <RestrictedArea
                     Component={SaveColumnsAsDefault}
                     minimumAccessLevel={TeamMembershipLevel.Admin}

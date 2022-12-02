@@ -1,9 +1,26 @@
 .ColumnConfiguratorModal {
-    .text-blue {
-        color: var(--primary);
+    .Columns {
+        width: 700px;
+        display: flex;
+        column-gap: 1rem;
+        @media (max-width: 960px) {
+            display: block;
+            width: auto;
+        }
+
+        background-color: var(--side);
+        border-radius: 0.25rem;
+        padding: 0.5rem;
     }
 
-    .column-display-item {
+    .HalfColumn {
+        width: 50%;
+        @media (max-width: 960px) {
+            width: 100%;
+        }
+    }
+
+    .SelectedColumn {
         display: flex;
         align-items: center;
         justify-content: flex-start;
@@ -24,18 +41,6 @@
 
         &.selected {
             background-color: var(--primary-bg-hover);
-        }
-    }
-
-    &.main-content {
-        margin-bottom: 0.5rem;
-
-        .lists {
-            background-color: var(--side);
-            border-radius: 0.25rem;
-            padding: 0.5rem;
-            margin-left: 0 !important;
-            margin-right: 0 !important;
         }
     }
 

@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, props, propsChanged, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 import type { columnConfiguratorLogicType } from './columnConfiguratorLogicType'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -11,12 +11,14 @@ export interface ColumnConfiguratorLogicProps {
 export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
     props({} as ColumnConfiguratorLogicProps),
     path(['queries', 'nodes', 'DataTable', 'columnConfiguratorLogic']),
+    key((props) => props.key),
     actions({
         showModal: true,
         hideModal: true,
         selectColumn: (column: string) => ({ column }),
         unselectColumn: (column: string) => ({ column }),
         setColumns: (columns: string[]) => ({ columns }),
+        moveColumn: (oldIndex: number, newIndex: number) => ({ oldIndex, newIndex }),
         toggleSaveAsDefault: true,
         save: true,
     }),
@@ -32,10 +34,15 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
         columns: [
             props.columns,
             {
-                showModal: () => props.columns,
                 setColumns: (_, { columns }) => columns,
                 selectColumn: (state, { column }) => Array.from(new Set([...state, column])),
                 unselectColumn: (state, { column }) => state.filter((c) => c !== column),
+                moveColumn: (state, { oldIndex, newIndex }) => {
+                    const newColumns = [...state]
+                    const [removed] = newColumns.splice(oldIndex, 1)
+                    newColumns.splice(newIndex, 0, removed)
+                    return newColumns
+                },
             },
         ],
         saveAsDefault: [
