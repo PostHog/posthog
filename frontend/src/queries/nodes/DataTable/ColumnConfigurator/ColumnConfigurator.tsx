@@ -134,7 +134,7 @@ function ColumnConfiguratorModal(): JSX.Element {
     }
 
     const SortableColumnList = sortableContainer(() => (
-        <div style={{ height: 320 }} className="selected-columns-col">
+        <div style={{ height: 334 }} className="selected-columns-col">
             <AutoSizer>
                 {({ height, width }: { height: number; width: number }) => {
                     return (
@@ -190,29 +190,20 @@ function ColumnConfiguratorModal(): JSX.Element {
                         <h4 className="secondary uppercase text-muted">Available columns</h4>
                         <div style={{ height: 334 }}>
                             <AutoSizer>
-                                {({ height, width }: { height: number; width: number }) => {
-                                    const trimmedProperties = columns.map((c) =>
-                                        c.replace('person.', '').replace('properties.', '')
-                                    )
-                                    return (
-                                        <TaxonomicFilter
-                                            height={height}
-                                            width={width}
-                                            taxonomicGroupTypes={[
-                                                TaxonomicFilterGroupType.EventProperties,
-                                                TaxonomicFilterGroupType.EventFeatureFlags,
-                                            ]}
-                                            value={undefined}
-                                            onChange={(_, value) => value && selectColumn(`properties.${value}`)}
-                                            popoverEnabled={false}
-                                            selectFirstItem={false}
-                                            excludedProperties={{
-                                                [TaxonomicFilterGroupType.EventProperties]: trimmedProperties,
-                                                [TaxonomicFilterGroupType.EventFeatureFlags]: trimmedProperties,
-                                            }}
-                                        />
-                                    )
-                                }}
+                                {({ height, width }: { height: number; width: number }) => (
+                                    <TaxonomicFilter
+                                        height={height}
+                                        width={width}
+                                        taxonomicGroupTypes={[
+                                            TaxonomicFilterGroupType.EventProperties,
+                                            TaxonomicFilterGroupType.EventFeatureFlags,
+                                        ]}
+                                        value={undefined}
+                                        onChange={(_, value) => value && selectColumn(`properties.${value}`)}
+                                        popoverEnabled={false}
+                                        selectFirstItem={false}
+                                    />
+                                )}
                             </AutoSizer>
                         </div>
                     </div>
