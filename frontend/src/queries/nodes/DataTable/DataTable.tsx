@@ -44,10 +44,9 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
 
     const { currentTeam } = useValues(teamLogic)
     const defaultColumns = currentTeam?.live_events_columns ?? defaultDataTableStringColumns
-    console.log({ defaultColumns })
+
     const dataTableLogicProps: DataTableLogicProps = { query: query, key: `DataTable.${id}`, defaultColumns }
     const { columns } = useValues(dataTableLogic(dataTableLogicProps))
-    console.log({ columns })
 
     const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = [
         ...columns.map((key) => ({

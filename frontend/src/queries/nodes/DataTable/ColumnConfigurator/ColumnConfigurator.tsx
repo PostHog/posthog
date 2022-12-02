@@ -1,5 +1,5 @@
 import './ColumnConfigurator.scss'
-import { useActions, useValues, BindLogic } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { IconTuning, SortableDragIcon } from 'lib/components/icons'
@@ -24,6 +24,8 @@ import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnC
 import { defaultDataTableStringColumns } from '../defaults'
 import { DataTableNode } from '~/queries/schema'
 import { LemonModal } from 'lib/components/LemonModal'
+import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
+import { PropertyFilterType } from '~/types'
 
 let uniqueNode = 0
 
@@ -91,21 +93,31 @@ function ColumnConfiguratorModal(): JSX.Element {
         </span>
     ))
     const SelectedColumn = ({ column, disabled }: { column: string; disabled?: boolean }): JSX.Element => {
+        let columnType: PropertyFilterType | null = null
+        let columnKey = column
+        if (column.startsWith('person.properties')) {
+            columnType = PropertyFilterType.Person
+            columnKey = column.replace('person.properties.', '')
+        }
+        if (column.startsWith('properties')) {
+            columnType = PropertyFilterType.Event
+            columnKey = column.replace('properties.', '')
+        }
+
         return (
             <div
                 className={clsx(['SelectedColumn', { selected: !disabled, disabled: disabled }])}
                 style={{ height: `${rowItemHeight}px` }}
             >
                 {!disabled && <DragHandle />}
-                <PropertyKeyInfo
-                    value={
-                        column.startsWith('properties.')
-                            ? column.substring(11)
-                            : column.startsWith('person.properties')
-                            ? column.substring(18)
-                            : column
-                    }
-                />
+                {columnType && (
+                    <PropertyFilterIcon
+                        item={{
+                            type: columnType,
+                        }}
+                    />
+                )}
+                <PropertyKeyInfo className="ml-1" value={columnKey} />
                 <div className="text-right flex-1">
                     <Tooltip title={disabled ? 'Reserved' : 'Remove'}>
                         {disabled ? (
@@ -134,7 +146,7 @@ function ColumnConfiguratorModal(): JSX.Element {
     }
 
     const SortableColumnList = sortableContainer(() => (
-        <div style={{ height: 334 }} className="selected-columns-col">
+        <div style={{ height: 360 }} className="selected-columns-col">
             <AutoSizer>
                 {({ height, width }: { height: number; width: number }) => {
                     return (
@@ -188,7 +200,7 @@ function ColumnConfiguratorModal(): JSX.Element {
                     </div>
                     <div className="HalfColumn">
                         <h4 className="secondary uppercase text-muted">Available columns</h4>
-                        <div style={{ height: 334 }}>
+                        <div style={{ height: 360 }}>
                             <AutoSizer>
                                 {({ height, width }: { height: number; width: number }) => (
                                     <TaxonomicFilter
@@ -197,9 +209,17 @@ function ColumnConfiguratorModal(): JSX.Element {
                                         taxonomicGroupTypes={[
                                             TaxonomicFilterGroupType.EventProperties,
                                             TaxonomicFilterGroupType.EventFeatureFlags,
+                                            TaxonomicFilterGroupType.PersonProperties,
                                         ]}
                                         value={undefined}
-                                        onChange={(_, value) => value && selectColumn(`properties.${value}`)}
+                                        onChange={(group, value) =>
+                                            value &&
+                                            selectColumn(
+                                                group.type === TaxonomicFilterGroupType.PersonProperties
+                                                    ? `person.properties.${value}`
+                                                    : `properties.${value}`
+                                            )
+                                        }
                                         popoverEnabled={false}
                                         selectFirstItem={false}
                                     />

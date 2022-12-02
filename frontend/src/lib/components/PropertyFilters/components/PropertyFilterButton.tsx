@@ -19,7 +19,7 @@ export interface PropertyFilterButtonProps {
     style?: React.CSSProperties
 }
 
-function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element {
+export function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element {
     let iconElement = <></>
     switch (item?.type) {
         case 'event':
