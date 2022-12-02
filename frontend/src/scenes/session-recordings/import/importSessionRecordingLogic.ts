@@ -7,6 +7,11 @@ import type { importSessionRecordingLogicType } from './importSessionRecordingLo
 import { beforeUnload } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
+export type ExportedSessionRecordingFile = {
+    version: '2022-12-02'
+    data: SessionPlayerData
+}
+
 export const importSessionRecordingLogic = kea<importSessionRecordingLogicType>([
     path(['scenes', 'session-recordings', 'detail', 'sessionRecordingDetailLogic']),
 
@@ -27,14 +32,20 @@ export const importSessionRecordingLogic = kea<importSessionRecordingLogicType>(
                         filereader.readAsText(file)
                     })
 
-                    const data = JSON.parse(loadedFile) as SessionPlayerData
+                    const data = JSON.parse(loadedFile) as ExportedSessionRecordingFile
 
-                    if (!data.metadata || !data.snapshotsByWindowId) {
+                    if (!data.version || !data.data) {
                         throw new Error('File does not appear to be a valid session recording export')
                     }
-                    return data
+
+                    if (data.version === '2022-12-02') {
+                        return data.data
+                    } else {
+                        throw new Error('File version is not supported')
+                    }
                 } catch (error) {
                     lemonToast.error(`File import failed: ${error}`)
+                    return null
                 }
             },
 

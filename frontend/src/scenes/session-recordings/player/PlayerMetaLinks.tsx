@@ -1,15 +1,18 @@
-import {
-    sessionRecordingPlayerLogic,
-    SessionRecordingPlayerLogicProps,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { openPlayerAddToPlaylistDialog } from 'scenes/session-recordings/player/add-to-playlist/PlayerAddToPlaylist'
 import { IconLink, IconPlus, IconWithCount } from 'lib/components/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 import { playerSettingsLogic } from './playerSettingsLogic'
+import { SessionRecordingId } from '~/types'
 
-export function PlayerMetaLinks({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
+export interface PlayerMetaLinksProps {
+    sessionRecordingId: SessionRecordingId
+    playerKey: string
+}
+
+export function PlayerMetaLinks({ sessionRecordingId, playerKey }: PlayerMetaLinksProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     const { recordingStartTime, sessionPlayerData } = useValues(logic)
     const { setPause } = useActions(logic)

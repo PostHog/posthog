@@ -26,6 +26,7 @@ import equal from 'fast-deep-equal'
 import { downloadFile, fromParamsGivenUrl } from 'lib/utils'
 import { lemonToast } from '@posthog/lemon-ui'
 import { delay } from 'kea-test-utils'
+import { ExportedSessionRecordingFile } from '../import/importSessionRecordingLogic'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -639,7 +640,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     await delay(1000)
                 }
 
-                const payload = {
+                const payload: ExportedSessionRecordingFile = {
                     version: '2022-12-02',
                     data: values.sessionPlayerData,
                 }

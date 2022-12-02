@@ -149,7 +149,9 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                 />
 
                 <div className="flex-1">
-                    <PlayerMetaLinks sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+                    {sessionRecordingId ? (
+                        <PlayerMetaLinks sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+                    ) : null}
                 </div>
             </div>
             {sessionPerson && (
