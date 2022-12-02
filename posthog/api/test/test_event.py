@@ -1140,7 +1140,13 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_get_single_action(self, _):
-        event1_uuid = _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val"})
+        event1_uuid = _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="2",
+            properties={"key": "test_val"},
+            event_uuid="48590143-6dfa-43d7-9499-5a3af033ea4b",
+        )
         response = self.client.get(f"/api/projects/{self.team.id}/events/%s/" % event1_uuid)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["event"], "sign up")
@@ -1166,7 +1172,13 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
         _create_person(
             properties={"email": "someone@posthog.com"}, team=self.team, distinct_ids=["1"], is_identified=True
         )
-        event_id = _create_event(team=self.team, event="event", distinct_id="1", timestamp=timezone.now())
+        event_id = _create_event(
+            team=self.team,
+            event="event",
+            distinct_id="1",
+            timestamp=timezone.now(),
+            event_uuid="48590143-6dfa-43d7-9499-5a3af033ea4b",
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/{event_id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1224,8 +1236,20 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
 
         self.assertNotEqual(user2.team.id, self.team.id)
 
-        event1_uuid = _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val"})
-        event2_uuid = _create_event(team=user2.team, event="sign up", distinct_id="2", properties={"key": "test_val"})
+        event1_uuid = _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="2",
+            properties={"key": "test_val"},
+            event_uuid="48590143-6dfa-43d7-9499-5a3af033ea4b",
+        )
+        event2_uuid = _create_event(
+            team=user2.team,
+            event="sign up",
+            distinct_id="2",
+            properties={"key": "test_val"},
+            event_uuid="c9f7fce3-5944-40c8-aa1b-c37e87bc740e",
+        )
 
         response_team1 = self.client.get(f"/api/projects/{self.team.id}/events/{event1_uuid}/")
         response_team1_token = self.client.get(
