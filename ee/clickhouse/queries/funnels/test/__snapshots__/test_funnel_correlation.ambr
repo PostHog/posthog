@@ -1110,12 +1110,12 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1207,12 +1207,12 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1304,12 +1304,12 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1392,12 +1392,12 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1477,12 +1477,12 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1562,12 +1562,12 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1647,12 +1647,12 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1741,12 +1741,12 @@
                          AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1838,12 +1838,12 @@
                          AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1932,12 +1932,12 @@
                          AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -2017,12 +2017,12 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -2116,12 +2116,12 @@
                          AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2199,12 +2199,12 @@
                          AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2282,12 +2282,12 @@
                          AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2365,12 +2365,12 @@
                          AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2439,12 +2439,12 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -2530,12 +2530,12 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -2629,12 +2629,12 @@
                          AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2712,12 +2712,12 @@
                          AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2795,12 +2795,12 @@
                          AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2878,12 +2878,12 @@
                          AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2952,12 +2952,12 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -3043,12 +3043,12 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -3142,12 +3142,12 @@
                          AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3225,12 +3225,12 @@
                          AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3308,12 +3308,12 @@
                          AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3391,12 +3391,12 @@
                          AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3465,12 +3465,12 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -3556,12 +3556,12 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -3655,12 +3655,12 @@
                          AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3738,12 +3738,12 @@
                          AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3821,12 +3821,12 @@
                          AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3904,12 +3904,12 @@
                          AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3978,12 +3978,12 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
