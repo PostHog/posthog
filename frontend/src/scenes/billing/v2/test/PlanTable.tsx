@@ -1,6 +1,7 @@
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { IconArrowRight, IconCheckmark, IconClose, IconWarning } from 'lib/components/icons'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingTestLogic } from './billingTestLogic'
 import './PlanTable.scss'
 
@@ -326,6 +327,7 @@ export const billingPlans: BillingPlan[] = [
 
 export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Element {
     const { billing } = useValues(billingTestLogic)
+    const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     return (
         <div className="PlanCards space-x-4">
             <table className="w-full table-fixed">
@@ -400,6 +402,9 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                     center
                                     disableClientSideRouting
                                     disabled={plan.name === 'PostHog Cloud Lite' && !billing?.billing_period}
+                                    onClick={() => {
+                                        reportBillingUpgradeClicked(plan.name)
+                                    }}
                                 >
                                     {!billing?.billing_period && plan.name === 'PostHog Cloud Lite'
                                         ? 'Current plan'
@@ -470,6 +475,9 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                     center
                                     disableClientSideRouting
                                     disabled={plan.name === 'PostHog Cloud Lite' && !billing?.billing_period}
+                                    onClick={() => {
+                                        reportBillingUpgradeClicked(plan.name)
+                                    }}
                                 >
                                     {!billing?.billing_period && plan.name === 'PostHog Cloud Lite'
                                         ? 'Current plan'
