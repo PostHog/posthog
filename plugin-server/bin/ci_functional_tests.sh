@@ -9,7 +9,7 @@
 # Context is this was originally written in the GitHub Actions workflow file,
 # but it's easier to debug in a script.
 
-set -ex -o pipefail
+set -e -o pipefail
 
 export WORKER_CONCURRENCY=1
 export CONVERSION_BUFFER_ENABLED=true
