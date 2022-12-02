@@ -4,6 +4,7 @@ import type { eventsSceneLogicType } from './eventsSceneLogicType'
 import { AnyPropertyFilter, PropertyFilter } from '~/types'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import equal from 'fast-deep-equal'
+import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/defaults'
 
 export const eventsSceneLogic = kea<eventsSceneLogicType>([
     path(['scenes', 'events', 'eventsSceneLogic']),
@@ -11,6 +12,7 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
     actions({
         setProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setEventFilter: (event: string) => ({ event }),
+        setColumns: (columns: string[]) => ({ columns }),
     }),
     reducers({
         properties: [
@@ -23,6 +25,12 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
             '',
             {
                 setEventFilter: (_, { event }) => event,
+            },
+        ],
+        columns: [
+            defaultDataTableStringColumns as string[],
+            {
+                setColumns: (_, { columns }) => columns,
             },
         ],
     }),
@@ -49,6 +57,17 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
                 { replace: true },
             ]
         },
+        setColumns: () => {
+            return [
+                router.values.location.pathname,
+                {
+                    ...router.values.searchParams,
+                    columns: values.columns || undefined,
+                },
+                router.values.hashParams,
+                { replace: true },
+            ]
+        },
     })),
 
     urlToAction(({ actions, values }) => ({
@@ -61,6 +80,11 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
             const nextEventFilter = searchParams.eventFilter || ''
             if (!equal(nextEventFilter, values.eventFilter)) {
                 actions.setEventFilter(nextEventFilter)
+            }
+
+            const nextColumns = searchParams.columns || defaultDataTableStringColumns
+            if (!equal(nextColumns, values.columns)) {
+                actions.setColumns(nextColumns)
             }
         },
     })),

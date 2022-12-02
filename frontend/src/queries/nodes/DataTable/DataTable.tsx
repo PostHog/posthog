@@ -1,4 +1,4 @@
-import { DataTableNode, DataTableStringColumn, EventsNode } from '~/queries/schema'
+import { DataTableNode, EventsNode } from '~/queries/schema'
 import { useState } from 'react'
 import { useValues, BindLogic } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -15,20 +15,12 @@ import { renderTitle } from '~/queries/nodes/DataTable/renderTitle'
 import { renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
 import { dataTableLogic, DataTableLogicProps } from '~/queries/nodes/DataTable/dataTableLogic'
-import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator'
+import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 
 interface DataTableProps {
     query: DataTableNode
     setQuery?: (node: DataTableNode) => void
 }
-
-export const defaultDataTableStringColumns: DataTableStringColumn[] = [
-    'event',
-    'person',
-    'properties.$current_url',
-    'person.properties.email',
-    'timestamp',
-]
 
 let uniqueNode = 0
 
@@ -72,22 +64,16 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
             : []),
     ]
     const dataSource = (response as null | EventsNode['response'])?.results ?? []
+    const setQuerySource = (source: EventsNode): void => setQuery?.({ ...query, source })
 
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                {(showPropertyFilter || showEventFilter || showExport) && (
+                {(showReload || showEventFilter || showPropertyFilter || showExport || showColumnConfigurator) && (
                     <div className="flex space-x-4 mb-4">
                         {showReload && (canLoadNewData ? <AutoLoad /> : <Reload />)}
-                        {showEventFilter && (
-                            <EventName query={query.source} setQuery={(source) => setQuery?.({ ...query, source })} />
-                        )}
-                        {showPropertyFilter && (
-                            <EventPropertyFilters
-                                query={query.source}
-                                setQuery={(source) => setQuery?.({ ...query, source })}
-                            />
-                        )}
+                        {showEventFilter && <EventName query={query.source} setQuery={setQuerySource} />}
+                        {showPropertyFilter && <EventPropertyFilters query={query.source} setQuery={setQuerySource} />}
                         {showExport && <DataTableExport query={query} setQuery={setQuery} />}
                         {showColumnConfigurator && <ColumnConfigurator />}
                     </div>

@@ -5,7 +5,7 @@ import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
 import api from 'lib/api'
 import { DataTableNode } from '~/queries/schema'
-import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/DataTable'
+import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/defaults'
 
 function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void {
     const exportContext = {

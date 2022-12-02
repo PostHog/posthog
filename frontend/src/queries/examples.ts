@@ -8,7 +8,7 @@ import {
     PropertyMathType,
     FilterLogicalOperator,
 } from '~/types'
-import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/DataTable'
+import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/defaults'
 
 const Events: EventsNode = {
     kind: NodeKind.EventsNode,

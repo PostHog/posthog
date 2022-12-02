@@ -1,7 +1,7 @@
 import { actions, kea, key, path, props, reducers } from 'kea'
 import type { dataTableLogicType } from './dataTableLogicType'
 import { DataTableNode, DataTableStringColumn } from '~/queries/schema'
-import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/DataTable'
+import { defaultDataTableStringColumns } from './defaults'
 
 export interface DataTableLogicProps {
     key: string
