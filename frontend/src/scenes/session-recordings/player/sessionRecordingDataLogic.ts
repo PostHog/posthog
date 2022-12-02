@@ -118,7 +118,9 @@ const calculateBufferedTo = (
 }
 
 export interface SessionRecordingDataLogicProps {
-    sessionRecordingId: SessionRecordingId
+    sessionRecordingId?: SessionRecordingId
+    // Data can be preloaded (e.g. via browser import)
+    sessionRecordingData?: SessionPlayerData
     recordingStartTime?: string
 }
 
@@ -451,6 +453,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     afterMount(({ props, actions }) => {
         if (props.sessionRecordingId) {
             actions.loadEntireRecording()
+        }
+
+        if (props.sessionRecordingData) {
+            actions.loadRecordingMetaSuccess({
+                person: props.sessionRecordingData.person,
+                metadata: props.sessionRecordingData.metadata,
+            })
+            actions.loadRecordingSnapshotsSuccess({
+                snapshotsByWindowId: props.sessionRecordingData.snapshotsByWindowId,
+            })
         }
     }),
 ])

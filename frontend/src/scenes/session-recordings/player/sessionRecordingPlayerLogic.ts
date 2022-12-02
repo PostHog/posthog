@@ -36,7 +36,8 @@ export interface Player {
 }
 
 export interface SessionRecordingPlayerLogicProps {
-    sessionRecordingId: SessionRecordingId
+    sessionRecordingId?: SessionRecordingId
+    sessionRecordingData?: SessionPlayerData
     playerKey: string
     matching?: MatchedRecording[]
     recordingStartTime?: string
@@ -46,39 +47,46 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
-    connect(({ sessionRecordingId, playerKey, recordingStartTime }: SessionRecordingPlayerLogicProps) => ({
-        values: [
-            sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }),
-            [
-                'sessionRecordingId',
-                'sessionPlayerData',
-                'sessionPlayerSnapshotDataLoading',
-                'sessionPlayerMetaDataLoading',
-                'loadMetaTimeMs',
-                'loadFirstSnapshotTimeMs',
-                'loadAllSnapshotsTimeMs',
+    connect(
+        ({
+            sessionRecordingId,
+            sessionRecordingData,
+            playerKey,
+            recordingStartTime,
+        }: SessionRecordingPlayerLogicProps) => ({
+            values: [
+                sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime, sessionRecordingData }),
+                [
+                    'sessionRecordingId',
+                    'sessionPlayerData',
+                    'sessionPlayerSnapshotDataLoading',
+                    'sessionPlayerMetaDataLoading',
+                    'loadMetaTimeMs',
+                    'loadFirstSnapshotTimeMs',
+                    'loadAllSnapshotsTimeMs',
+                ],
+                sharedListLogic({ sessionRecordingId, playerKey }),
+                ['tab'],
+                playerSettingsLogic,
+                ['speed', 'skipInactivitySetting', 'isFullScreen'],
             ],
-            sharedListLogic({ sessionRecordingId, playerKey }),
-            ['tab'],
-            playerSettingsLogic,
-            ['speed', 'skipInactivitySetting', 'isFullScreen'],
-        ],
-        actions: [
-            sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }),
-            ['loadRecordingSnapshotsSuccess', 'loadRecordingSnapshotsFailure', 'loadRecordingMetaSuccess'],
-            sharedListLogic({ sessionRecordingId, playerKey }),
-            ['setTab'],
-            playerSettingsLogic,
-            ['setSpeed', 'setSkipInactivitySetting', 'setIsFullScreen'],
-            eventUsageLogic,
-            [
-                'reportNextRecordingTriggered',
-                'reportRecordingPlayerSkipInactivityToggled',
-                'reportRecordingPlayerSpeedChanged',
-                'reportRecordingViewedSummary',
+            actions: [
+                sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime, sessionRecordingData }),
+                ['loadRecordingSnapshotsSuccess', 'loadRecordingSnapshotsFailure', 'loadRecordingMetaSuccess'],
+                sharedListLogic({ sessionRecordingId, playerKey }),
+                ['setTab'],
+                playerSettingsLogic,
+                ['setSpeed', 'setSkipInactivitySetting', 'setIsFullScreen'],
+                eventUsageLogic,
+                [
+                    'reportNextRecordingTriggered',
+                    'reportRecordingPlayerSkipInactivityToggled',
+                    'reportRecordingPlayerSpeedChanged',
+                    'reportRecordingViewedSummary',
+                ],
             ],
-        ],
-    })),
+        })
+    ),
     propsChanged(({ actions, props: { matching } }, { matching: oldMatching }) => {
         // Ensures that if filter results change, then matching results in this player logic will also change
         if (!equal(matching, oldMatching)) {
