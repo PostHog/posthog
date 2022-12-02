@@ -6,6 +6,7 @@ import { defaultDataTableStringColumns } from './defaults'
 export interface DataTableLogicProps {
     key: string
     query: DataTableNode
+    defaultColumns?: DataTableStringColumn[]
 }
 
 export const dataTableLogic = kea<dataTableLogicType>([
@@ -15,13 +16,15 @@ export const dataTableLogic = kea<dataTableLogicType>([
     actions({ setColumns: (columns: DataTableStringColumn[]) => ({ columns }) }),
     reducers(({ props }) => ({
         columns: [
-            (props.query.columns || defaultDataTableStringColumns) as DataTableStringColumn[],
+            (props.query.columns ?? props.defaultColumns ?? defaultDataTableStringColumns) as DataTableStringColumn[],
             { setColumns: (_, { columns }) => columns },
         ],
     })),
     propsChanged(({ actions, props }, oldProps) => {
-        if (JSON.stringify(props.query.columns) !== JSON.stringify(oldProps.query.columns)) {
-            actions.setColumns(props.query.columns ?? defaultDataTableStringColumns)
+        const newColumns = props.query.columns ?? props.defaultColumns ?? defaultDataTableStringColumns
+        const oldColumns = oldProps.query.columns ?? oldProps.defaultColumns ?? defaultDataTableStringColumns
+        if (JSON.stringify(newColumns) !== JSON.stringify(oldColumns)) {
+            actions.setColumns(newColumns)
         }
     }),
 ])

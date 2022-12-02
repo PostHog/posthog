@@ -16,6 +16,8 @@ import { renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
 import { dataTableLogic, DataTableLogicProps } from '~/queries/nodes/DataTable/dataTableLogic'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
+import { teamLogic } from 'scenes/teamLogic'
+import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/defaults'
 
 interface DataTableProps {
     query: DataTableNode
@@ -40,8 +42,12 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
         dataNodeLogic(dataNodeLogicProps)
     )
 
-    const dataTableLogicProps: DataTableLogicProps = { query: query, key: `DataTable.${id}` }
+    const { currentTeam } = useValues(teamLogic)
+    const defaultColumns = currentTeam?.live_events_columns ?? defaultDataTableStringColumns
+    console.log({ defaultColumns })
+    const dataTableLogicProps: DataTableLogicProps = { query: query, key: `DataTable.${id}`, defaultColumns }
     const { columns } = useValues(dataTableLogic(dataTableLogicProps))
+    console.log({ columns })
 
     const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = [
         ...columns.map((key) => ({

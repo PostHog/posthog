@@ -3,7 +3,6 @@ import { eventsSceneLogic } from 'scenes/events/eventsSceneLogic'
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { isDataTableNode } from '~/queries/utils'
-import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/defaults'
 import { objectsEqual } from 'lib/utils'
 
 export function EventsScene(): JSX.Element {
@@ -12,7 +11,7 @@ export function EventsScene(): JSX.Element {
 
     const query: DataTableNode = {
         kind: NodeKind.DataTableNode,
-        columns,
+        columns: columns ?? undefined,
         source: {
             kind: NodeKind.EventsNode,
             properties: properties,
@@ -32,8 +31,8 @@ export function EventsScene(): JSX.Element {
                         if (!objectsEqual(newQuery.source.event ?? '', query.source.event ?? '')) {
                             setEventFilter(newQuery.source.event ?? '')
                         }
-                        if (!objectsEqual(newQuery.columns ?? [], query.columns ?? [])) {
-                            setColumns(newQuery.columns ?? defaultDataTableStringColumns)
+                        if (!objectsEqual(newQuery.columns ?? null, query.columns ?? null)) {
+                            setColumns(newQuery.columns ?? null)
                         }
                     }
                 }}
