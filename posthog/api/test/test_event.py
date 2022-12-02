@@ -694,6 +694,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "event"
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_filter_events(self, _):
@@ -729,6 +730,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["results"][0]["elements"][0]["order"], 0)
         self.assertEqual(response["results"][0]["elements"][1]["order"], 1)
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_filter_events_by_event_name(self, _):
@@ -745,6 +747,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
         self.assertEqual(response["results"][0]["event"], "event_name")
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_filter_events_by_properties(self, _):
@@ -775,6 +778,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
             response.json(), self.validation_error_response("Properties are unparsable!", "invalid_input")
         )
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_filter_events_by_precalculated_cohort(self, _):
@@ -804,6 +808,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(response["results"]), 2)
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_filter_by_person(self, _):
@@ -828,6 +833,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/events/?person_id={person.uuid}").json()
         self.assertEqual(len(response["results"]), 2)
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_filter_by_nonexisting_person(self, _):
@@ -835,6 +841,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["results"]), 0)
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_custom_event_values(self, _):
@@ -849,7 +856,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=custom_event").json()
         self.assertListEqual(sorted(events), sorted(event["name"] for event in response))
 
-    @snapshot_clickhouse_queries
+    @freeze_time("2022-01-01")
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @test_with_materialized_columns(["random_prop"])
     @snapshot_clickhouse_queries
@@ -921,6 +928,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=6").json()
             self.assertEqual(response[0]["name"], "565")
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_before_and_after(self, _):
@@ -960,6 +968,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["results"][0]["id"], event2_uuid)
         self.assertEqual(response["results"][1]["id"], event3_uuid)
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_pagination(self, _):
@@ -1006,6 +1015,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(len(page3["results"]), 50)
             self.assertIsNone(page3["next"])
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_pagination_bounded_date_range(self, _):
@@ -1055,6 +1065,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(len(page3["results"]), 3)
             self.assertIsNone(page3["next"])
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_ascending_order_timestamp(self, _):
@@ -1075,6 +1086,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
         )
         assert "after=" in response["next"]
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_default_descending_order_timestamp(self, _):
@@ -1093,6 +1105,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
         )
         assert "before=" in response["next"]
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_specified_descending_order_timestamp(self, _):
@@ -1113,6 +1126,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
         )
         assert "before=" in response["next"]
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_action_no_steps(self, _):
@@ -1122,6 +1136,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["results"]), 0)
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_get_single_action(self, _):
@@ -1131,6 +1146,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["event"], "sign up")
         self.assertEqual(response.json()["properties"], {"key": "test_val"})
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_events_in_future(self, _):
@@ -1143,6 +1159,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/events/").json()
         self.assertEqual(len(response["results"]), 1)
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_get_event_by_id(self, _):
@@ -1170,6 +1187,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/events/im_a_string_not_an_integer")
         self.assertIn(response.status_code, [status.HTTP_404_NOT_FOUND, status.HTTP_400_BAD_REQUEST])
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_limit(self, _):
@@ -1196,6 +1214,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/events/?limit=2").json()
         self.assertEqual(2, len(response["results"]))
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_get_events_with_specified_token(self, _):
@@ -1235,6 +1254,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
         response_invalid_token = self.client.get(f"/api/projects/{self.team.id}/events?token=invalid")
         self.assertEqual(response_invalid_token.status_code, 401)
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.models.event.query_event_list.query_with_columns")
@@ -1271,6 +1291,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/events/").json()
         self.assertEqual(patch_query_with_columns.call_count, 3)
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_filter_events_by_being_after_properties_with_date_type(self, _):
@@ -1313,6 +1334,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 2)
         self.assertEqual([r["event"] for r in response["results"]], ["should_be_included", "should_be_included"])
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_filter_events_by_being_before_properties_with_date_type(self, _):
@@ -1354,6 +1376,7 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual([r["event"] for r in response["results"]], ["should_be_included"])
 
+    @freeze_time("2022-01-01")
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_filter_events_with_date_format(self, _):
