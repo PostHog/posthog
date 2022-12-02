@@ -94,6 +94,338 @@
   LIMIT 10
   '
 ---
+# name: TestLiveEvents.test_ascending_order_timestamp
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2022-12-01 12:57:02.833077'
+       AND timestamp < '2022-12-02 12:57:07.833086'
+       AND distinct_id = '1'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated ASC
+     LIMIT 11)
+  '
+---
+# name: TestLiveEvents.test_ascending_order_timestamp.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2022-12-02 12:57:08.170552'
+       AND distinct_id = '1'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated ASC
+     LIMIT 11)
+  '
+---
+# name: TestLiveEvents.test_before_and_after
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2020-01-09 00:00:00.000000'
+       AND timestamp < '2022-12-02 12:57:08.435552'
+       AND ((event = 'sign up'))
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_before_and_after.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2022-12-01 12:57:03.571822'
+       AND timestamp < '2020-01-09 00:00:00.000000'
+       AND ((event = 'sign up'))
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_before_and_after.2
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2020-01-09 00:00:00.000000'
+       AND ((event = 'sign up'))
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_before_and_after.3
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2020-01-09 00:00:00.000000'
+       AND timestamp < '2022-12-02 12:57:08.633151'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_before_and_after.4
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2022-12-01 12:57:03.663985'
+       AND timestamp < '2020-01-09 00:00:00.000000'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_before_and_after.5
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2020-01-09 00:00:00.000000'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_custom_event_values
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT event
+  FROM events
+  where team_id = 2
+    AND event NOT IN ['$autocapture', '$pageview', '$identify', '$pageleave', '$screen']
+  '
+---
+# name: TestLiveEvents.test_default_descending_order_timestamp
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2022-12-01 12:57:04.162719'
+       AND timestamp < '2022-12-02 12:57:09.162729'
+       AND distinct_id = '1'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 11)
+  '
+---
+# name: TestLiveEvents.test_default_descending_order_timestamp.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2022-12-02 12:57:09.570352'
+       AND distinct_id = '1'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 11)
+  '
+---
 # name: TestLiveEvents.test_event_property_values
   '
   /* user_id:0 request:_snapshot_ */
@@ -131,6 +463,54 @@
   '
 ---
 # name: TestLiveEvents.test_event_property_values.3
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
+  FROM events
+  WHERE team_id = 2
+    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%6%'
+    AND timestamp >= '2020-01-13 00:00:00'
+    AND timestamp <= '2020-01-20 23:59:59'
+  LIMIT 10
+  '
+---
+# name: TestLiveEvents.test_event_property_values.4
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
+  FROM events
+  WHERE team_id = 2
+    AND JSONHas(properties, 'random_prop')
+    AND timestamp >= '2020-01-13 00:00:00'
+    AND timestamp <= '2020-01-20 23:59:59'
+  LIMIT 10
+  '
+---
+# name: TestLiveEvents.test_event_property_values.5
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
+  FROM events
+  WHERE team_id = 2
+    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
+    AND timestamp >= '2020-01-13 00:00:00'
+    AND timestamp <= '2020-01-20 23:59:59'
+  LIMIT 10
+  '
+---
+# name: TestLiveEvents.test_event_property_values.6
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
+  FROM events
+  WHERE team_id = 2
+    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%QW%'
+    AND timestamp >= '2020-01-13 00:00:00'
+    AND timestamp <= '2020-01-20 23:59:59'
+  LIMIT 10
+  '
+---
+# name: TestLiveEvents.test_event_property_values.7
   '
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
@@ -188,5 +568,1403 @@
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
   LIMIT 10
+  '
+---
+# name: TestLiveEvents.test_events_in_future
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2012-01-14 04:01:34.000000'
+       AND timestamp < '2012-01-15 04:01:39.000000'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_events_in_future.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2012-01-15 04:01:39.000000'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_by_nonexisting_person
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2022-12-01 12:57:06.751553'
+       AND timestamp < '2022-12-02 12:57:11.751563'
+       AND distinct_id IN ([])
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_by_nonexisting_person.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2022-12-02 12:57:11.774762'
+       AND distinct_id IN ([])
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_by_person
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2022-12-01 12:57:07.088411'
+       AND timestamp < '2022-12-02 12:57:12.088424'
+       AND distinct_id IN (['2', 'some-random-uid'])
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_by_person.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2022-12-02 12:57:12.112251'
+       AND distinct_id IN (['2', 'some-random-uid'])
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_by_person.2
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2022-12-01 12:57:07.146584'
+       AND timestamp < '2022-12-02 12:57:12.146597'
+       AND distinct_id IN (['2', 'some-random-uid'])
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_by_person.3
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2022-12-02 12:57:12.170218'
+       AND distinct_id IN (['2', 'some-random-uid'])
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_events
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2022-12-01 12:57:07.475715'
+       AND timestamp < '2022-12-02 12:57:12.475733'
+       AND distinct_id = '2'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_events.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2022-12-02 12:57:12.498841'
+       AND distinct_id = '2'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_events_by_being_after_properties_with_date_type
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2022-12-01 12:57:07.755298'
+       AND timestamp < '2022-12-02 12:57:12.755315'
+       AND (coalesce(parseDateTimeBestEffortOrNull(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_a_unix_timestamp'), '^"|"$', '')), parseDateTimeBestEffortOrNull(substring(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_a_unix_timestamp'), '^"|"$', ''), 1, 10))) > '2012-01-07 18:30:00')
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_events_by_being_after_properties_with_date_type.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2022-12-02 12:57:12.792461'
+       AND (coalesce(parseDateTimeBestEffortOrNull(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_a_unix_timestamp'), '^"|"$', '')), parseDateTimeBestEffortOrNull(substring(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_a_unix_timestamp'), '^"|"$', ''), 1, 10))) > '2012-01-07 18:30:00')
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_events_by_being_before_properties_with_date_type
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2022-12-01 12:57:08.072661'
+       AND timestamp < '2022-12-02 12:57:13.072677'
+       AND (coalesce(parseDateTimeBestEffortOrNull(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_a_unix_timestamp'), '^"|"$', '')), parseDateTimeBestEffortOrNull(substring(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_a_unix_timestamp'), '^"|"$', ''), 1, 10))) < '2012-01-07 18:30:00')
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_events_by_being_before_properties_with_date_type.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2022-12-02 12:57:13.108955'
+       AND (coalesce(parseDateTimeBestEffortOrNull(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_a_unix_timestamp'), '^"|"$', '')), parseDateTimeBestEffortOrNull(substring(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_a_unix_timestamp'), '^"|"$', ''), 1, 10))) < '2012-01-07 18:30:00')
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_events_by_event_name
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2022-12-01 12:57:08.398954'
+       AND timestamp < '2022-12-02 12:57:13.398971'
+       AND event = 'event_name'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_events_by_event_name.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2022-12-02 12:57:13.422012'
+       AND event = 'event_name'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_events_by_precalculated_cohort
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id,
+              version
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestLiveEvents.test_filter_events_by_precalculated_cohort.1
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id,
+              version
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestLiveEvents.test_filter_events_by_precalculated_cohort.2
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2020-01-03 13:01:01.000000'
+       AND timestamp < '2020-01-04 13:01:06.000000'
+       AND (distinct_id IN
+              (SELECT distinct_id
+               FROM
+                 (SELECT distinct_id,
+                         argMax(person_id, version) as person_id
+                  FROM person_distinct_id2
+                  WHERE team_id = 2
+                  GROUP BY distinct_id
+                  HAVING argMax(is_deleted, version) = 0)
+               WHERE person_id IN
+                   (SELECT person_id
+                    FROM cohortpeople
+                    WHERE team_id = 2
+                      AND cohort_id = 2
+                    GROUP BY person_id,
+                             cohort_id,
+                             team_id,
+                             version
+                    HAVING sum(sign) > 0) ))
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_events_by_precalculated_cohort.3
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2020-01-04 13:01:06.000000'
+       AND (distinct_id IN
+              (SELECT distinct_id
+               FROM
+                 (SELECT distinct_id,
+                         argMax(person_id, version) as person_id
+                  FROM person_distinct_id2
+                  WHERE team_id = 2
+                  GROUP BY distinct_id
+                  HAVING argMax(is_deleted, version) = 0)
+               WHERE person_id IN
+                   (SELECT person_id
+                    FROM cohortpeople
+                    WHERE team_id = 2
+                      AND cohort_id = 2
+                    GROUP BY person_id,
+                             cohort_id,
+                             team_id,
+                             version
+                    HAVING sum(sign) > 0) ))
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_events_by_properties
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2022-12-01 12:57:09.216084'
+       AND timestamp < '2022-12-02 12:57:14.216099'
+       AND (has(['Safari'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_events_by_properties.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2022-12-02 12:57:14.247127'
+       AND (has(['Safari'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_events_with_date_format
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2022-12-01 12:57:09.523506'
+       AND timestamp < '2022-12-02 12:57:14.523534'
+       AND (coalesce(parseDateTimeBestEffortOrNull(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_an_sdk_style_unix_timestamp'), '^"|"$', '')), parseDateTimeBestEffortOrNull(substring(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_an_sdk_style_unix_timestamp'), '^"|"$', ''), 1, 10))) < '2021-12-25 12:00:00')
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_filter_events_with_date_format.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2022-12-02 12:57:14.614372'
+       AND (coalesce(parseDateTimeBestEffortOrNull(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_an_sdk_style_unix_timestamp'), '^"|"$', '')), parseDateTimeBestEffortOrNull(substring(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_an_sdk_style_unix_timestamp'), '^"|"$', ''), 1, 10))) < '2021-12-25 12:00:00')
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_get_event_by_id
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         properties,
+         timestamp,
+         team_id,
+         distinct_id,
+         elements_chain,
+         created_at
+  FROM events
+  WHERE uuid = '2a00920637d54b2791c7addf18763588'
+    AND team_id = 2
+  '
+---
+# name: TestLiveEvents.test_get_event_by_id.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         properties,
+         timestamp,
+         team_id,
+         distinct_id,
+         elements_chain,
+         created_at
+  FROM events
+  WHERE uuid = '2a00920637d54b2791c7addf18763588'
+    AND team_id = 2
+  '
+---
+# name: TestLiveEvents.test_get_events_with_specified_token
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         properties,
+         timestamp,
+         team_id,
+         distinct_id,
+         elements_chain,
+         created_at
+  FROM events
+  WHERE uuid = '9579947b54bb42878c1c5be4bcd98051'
+    AND team_id = 2
+  '
+---
+# name: TestLiveEvents.test_get_events_with_specified_token.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         properties,
+         timestamp,
+         team_id,
+         distinct_id,
+         elements_chain,
+         created_at
+  FROM events
+  WHERE uuid = '9579947b54bb42878c1c5be4bcd98051'
+    AND team_id = 2
+  '
+---
+# name: TestLiveEvents.test_get_events_with_specified_token.2
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         properties,
+         timestamp,
+         team_id,
+         distinct_id,
+         elements_chain,
+         created_at
+  FROM events
+  WHERE uuid = '78824ae8145446e78ceb604e4ddd52c8'
+    AND team_id = 2
+  '
+---
+# name: TestLiveEvents.test_get_single_action
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         properties,
+         timestamp,
+         team_id,
+         distinct_id,
+         elements_chain,
+         created_at
+  FROM events
+  WHERE uuid = 'bcf404cf0ec24b25ae0f8450e22323f1'
+    AND team_id = 2
+  '
+---
+# name: TestLiveEvents.test_limit
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2022-12-01 12:57:10.654983'
+       AND timestamp < '2022-12-02 12:57:15.654994'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 2)
+  '
+---
+# name: TestLiveEvents.test_limit.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2022-12-01 12:57:10.772232'
+       AND timestamp < '2022-12-02 12:57:15.772250'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 3)
+  '
+---
+# name: TestLiveEvents.test_pagination
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2021-10-09 12:03:03.829294'
+       AND timestamp < '2021-10-10 12:03:08.829294'
+       AND distinct_id = '1'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_pagination.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2021-10-10 12:03:08.829294'
+       AND distinct_id = '1'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_pagination.2
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2021-10-09 12:03:03.829294'
+       AND timestamp < '2021-10-10 12:03:08.829294'
+       AND distinct_id = '1'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_pagination.3
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2021-10-10 12:03:08.829294'
+       AND distinct_id = '1'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_pagination.4
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2021-10-09 12:03:03.829294'
+       AND timestamp < '2021-04-09 12:05:33.829294'
+       AND distinct_id = '1'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_pagination.5
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2021-04-09 12:05:33.829294'
+       AND distinct_id = '1'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_pagination.6
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2021-10-09 12:03:03.829294'
+       AND timestamp < '2020-12-30 12:03:53.829294'
+       AND distinct_id = '1'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_pagination.7
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2020-12-30 12:03:53.829294'
+       AND distinct_id = '1'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 101)
+  '
+---
+# name: TestLiveEvents.test_pagination_bounded_date_range
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2020-11-10 12:03:03.829294'
+       AND timestamp < '2020-12-03 12:03:03.829294'
+       AND distinct_id = '1'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 11)
+  '
+---
+# name: TestLiveEvents.test_pagination_bounded_date_range.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2020-11-10 12:03:03.829294'
+       AND timestamp < '2020-12-03 12:03:03.829294'
+       AND distinct_id = '1'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 11)
+  '
+---
+# name: TestLiveEvents.test_pagination_bounded_date_range.2
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2020-11-10 12:03:03.829294'
+       AND timestamp < '2020-11-24 12:02:49.829294'
+       AND distinct_id = '1'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 11)
+  '
+---
+# name: TestLiveEvents.test_pagination_bounded_date_range.3
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2020-11-10 12:03:03.829294'
+       AND timestamp < '2020-11-14 12:02:59.829294'
+       AND distinct_id = '1'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 11)
+  '
+---
+# name: TestLiveEvents.test_specified_descending_order_timestamp
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp > '2022-12-01 12:57:16.572213'
+       AND timestamp < '2022-12-02 12:57:21.572222'
+       AND distinct_id = '1'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 11)
+  '
+---
+# name: TestLiveEvents.test_specified_descending_order_timestamp.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT uuid,
+         event,
+         team_id,
+         distinct_id,
+         properties_aggregated as properties,
+         timestamp_aggregated as timestamp,
+         elements_chain_aggregated as elements_chain,
+         source_table
+  FROM
+    (SELECT uuid,
+            event,
+            team_id,
+            distinct_id,
+            argMax(properties, created_at) as properties_aggregated,
+            argMax(elements_chain, created_at) as elements_chain_aggregated,
+            argMax(timestamp, created_at) as timestamp_aggregated,
+            argMax(_table, created_at) as source_table
+     FROM merge('posthog_test', '^(events|live_events)$')
+     WHERE team_id = 2
+       AND timestamp < '2022-12-02 12:57:21.918670'
+       AND distinct_id = '1'
+     GROUP BY uuid,
+              event,
+              team_id,
+              distinct_id
+     ORDER BY timestamp_aggregated DESC
+     LIMIT 11)
   '
 ---
