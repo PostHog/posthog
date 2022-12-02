@@ -14,14 +14,14 @@ import { navigationLogic } from './navigationLogic'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
-        <>
-            {team.name}
+        <div className="flex items-center">
+            <span>{team.name}</span>
             {team.is_demo ? (
-                <LemonSnack title="Demo" className="ml-3 text-xs" color="primary-extralight">
+                <LemonSnack className="ml-2 text-xs shrink-0" color="primary-extralight">
                     Demo
                 </LemonSnack>
             ) : null}
-        </>
+        </div>
     )
 }
 

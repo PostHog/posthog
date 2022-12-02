@@ -52,8 +52,7 @@ export function IngestionWizardV2(): JSX.Element {
 function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
-    const { isSmallScreen, hasInvitedMembers } = useValues(ingestionLogicV2)
-    const { next } = useActions(ingestionLogicV2)
+    const { isSmallScreen } = useValues(ingestionLogicV2)
 
     return (
         <div className="flex h-full flex-col">
@@ -64,15 +63,7 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
                     <SitePopover />
                 </div>
             </div>
-            <InviteModal
-                isOpen={isInviteModalShown}
-                onClose={() => {
-                    hideInviteModal()
-                    if (hasInvitedMembers) {
-                        next({ isTechnicalUser: false })
-                    }
-                }}
-            />
+            <InviteModal isOpen={isInviteModalShown} onClose={hideInviteModal} />
             <div className="flex h-full">
                 {!isSmallScreen && <Sidebar />}
                 {/* <div className="IngestionContainer" */}

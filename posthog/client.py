@@ -26,7 +26,7 @@ from statshog.defaults.django import statsd
 
 from posthog import redis
 from posthog.celery import enqueue_clickhouse_execute_with_progress
-from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.errors import wrap_query_error
 from posthog.settings import (
     CLICKHOUSE_CA,
@@ -130,9 +130,10 @@ def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, setti
         return result
 
 
-def validate_client_query_id(
-    client_query_id: Optional[str], client_query_team_id: Optional[int] = None
-) -> Optional[str]:
+def validated_client_query_id() -> Optional[str]:
+    client_query_id = get_query_tag_value("client_query_id")
+    client_query_team_id = get_query_tag_value("team_id")
+
     if client_query_id and not client_query_team_id:
         raise Exception("Query needs to have a team_id arg if you've passed client_query_id")
     random_id = generate_short_id()
@@ -145,8 +146,6 @@ def sync_execute(
     settings=None,
     with_column_types=False,
     flush=True,
-    client_query_id: Optional[str] = None,
-    client_query_team_id: Optional[int] = None,
 ):
     if TEST and flush:
         try:
@@ -171,7 +170,7 @@ def sync_execute(
                 params=prepared_args,
                 settings=settings,
                 with_column_types=with_column_types,
-                query_id=validate_client_query_id(client_query_id, client_query_team_id),
+                query_id=validated_client_query_id(),
             )
         except Exception as err:
             err = wrap_query_error(err)

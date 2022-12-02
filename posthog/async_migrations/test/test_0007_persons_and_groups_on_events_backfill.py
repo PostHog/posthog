@@ -16,6 +16,8 @@ from posthog.models.person.util import create_person, create_person_distinct_id,
 from posthog.models.utils import UUIDT
 from posthog.test.base import ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 
+pytestmark = pytest.mark.async_migrations
+
 MIGRATION_NAME = "0007_persons_and_groups_on_events_backfill"
 
 uuid1, uuid2, uuid3 = [UUIDT() for _ in range(3)]
@@ -62,7 +64,6 @@ def query_events() -> List[Dict]:
     )
 
 
-@pytest.mark.async_migrations
 class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, ClickhouseTestMixin):
     def setUp(self):
         MIGRATION_DEFINITION.parameters["TEAM_ID"] = (None, "", int)

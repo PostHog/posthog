@@ -31,9 +31,7 @@ jobs:
                   cache: 'pip' # caching pip dependencies
             - name: Get python deps
               run: pip install python-digitalocean==1.17.0 requests==2.28.1
-            - name: Get branch name
-              run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
             - name: Run smoke tests on DO
-              run: python3 bin/hobby-ci.py "${{ env.BRANCH_NAME  }}"
+              run: python3 bin/hobby-ci.py $GITHUB_HEAD_REF
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}

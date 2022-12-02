@@ -169,6 +169,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             {
                 setEndReached: (_, { reached }) => reached,
                 tryInitReplayer: () => false,
+                setCurrentPlayerPosition: () => false,
             },
         ],
     })),

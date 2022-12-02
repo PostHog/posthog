@@ -42,6 +42,18 @@ describe('processPersonsStep()', () => {
         const response = await processPersonsStep(runner, pluginEvent, personContainer)
 
         expect(response).toEqual(['prepareEventStep', pluginEvent, personContainer])
+        expect(jest.mocked(updatePersonState)).toHaveBeenCalled()
+    })
+
+    it('forwards $snapshot events to `prepareEventStep` without creating / updating the person', async () => {
+        const snapshotEvent = {
+            ...pluginEvent,
+            event: '$snapshot',
+        }
+        const response = await processPersonsStep(runner, snapshotEvent, personContainer)
+
+        expect(response).toEqual(['prepareEventStep', snapshotEvent, personContainer])
+        expect(jest.mocked(updatePersonState)).not.toHaveBeenCalled()
     })
 
     it('re-normalizes the event with properties set by plugins', async () => {

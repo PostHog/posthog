@@ -12,7 +12,8 @@ interface LemonSelectOptionBase {
     label: string | JSX.Element
     icon?: React.ReactElement
     sideIcon?: React.ReactElement
-    disabled?: boolean
+    /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
+    disabledReason?: string
     tooltip?: string | JSX.Element
     'data-attr'?: string
 }
@@ -231,14 +232,33 @@ function LemonSelectOptionRow<T>({
     onSelect: (value: T) => void
     tooltipPlacement: TooltipPlacement | undefined
 }): JSX.Element {
+    const disabled = !!option.disabledReason
+
+    let tooltipContent: string | JSX.Element | undefined
+    if (option.tooltip && option.disabledReason) {
+        // TODO: Pull this logic into LemonButton, so that `disabledReason` is a thing in the entire design system
+        tooltipContent = (
+            <>
+                {option.tooltip}
+                <div className="mt-1 italic">{option.disabledReason}</div>
+            </>
+        )
+    } else {
+        tooltipContent = option.disabledReason ? (
+            <span className="italic">{option.disabledReason}</span>
+        ) : (
+            option.tooltip
+        )
+    }
+
     return 'options' in option ? (
         <LemonButtonWithPopup
             icon={option.icon}
             sideIcon={option.sideIcon}
-            tooltip={option.tooltip}
+            tooltip={tooltipContent}
             tooltipPlacement={tooltipPlacement}
             status="stealth"
-            disabled={option.disabled}
+            disabled={disabled}
             fullWidth
             data-attr={option['data-attr']}
             active={doOptionsContainActiveValue(option.options, activeValue)}
@@ -267,10 +287,10 @@ function LemonSelectOptionRow<T>({
         <LemonButton
             icon={option.icon}
             sideIcon={option.sideIcon}
-            tooltip={option.tooltip}
+            tooltip={tooltipContent}
             tooltipPlacement={tooltipPlacement}
             status="stealth"
-            disabled={option.disabled}
+            disabled={disabled}
             fullWidth
             data-attr={option['data-attr']}
             active={option.value === activeValue}

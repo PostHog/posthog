@@ -8,12 +8,12 @@ import { BillingEnrollment } from 'scenes/billing/BillingEnrollment'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/components/icons'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { billingLogic as billingLogicV2 } from 'scenes/billing/v2/billingLogic'
+import { billingLogic as billingLogicV2 } from 'scenes/billing/v2/control/billingLogic'
 import { Plan } from 'scenes/billing/Plan'
-import { BillingV2 } from 'scenes/billing/v2/Billing'
+import { BillingV2 } from 'scenes/billing/v2/control/Billing'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { urls } from 'scenes/urls'
-import { BillingHero } from 'scenes/billing/v2/BillingHero'
+import { BillingHero } from 'scenes/billing/v2/control/BillingHero'
 
 export function BillingPanel(): JSX.Element {
     const { completeOnboarding } = useActions(ingestionLogicV2)

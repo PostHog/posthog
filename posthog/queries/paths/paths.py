@@ -89,8 +89,6 @@ class Paths:
             self.params,
             query_type="paths",
             filter=self._filter,
-            client_query_id=self._filter.client_query_id,
-            client_query_team_id=self._team.pk,
         )
 
     def get_query(self) -> str:
