@@ -25,7 +25,11 @@ export function ImportSessionRecording(): JSX.Element {
                     >
                         You are viewing a recording imported from a file.
                     </AlertMessage>
-                    <SessionRecordingPlayer sessionRecordingData={sessionRecording} playerKey={`importer`} />
+                    <SessionRecordingPlayer
+                        sessionRecordingId=""
+                        sessionRecordingData={sessionRecording}
+                        playerKey={`importer`}
+                    />
                 </div>
             ) : (
                 <Dragger

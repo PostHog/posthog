@@ -37,7 +37,7 @@ export interface Player {
 }
 
 export interface SessionRecordingPlayerLogicProps {
-    sessionRecordingId?: SessionRecordingId
+    sessionRecordingId: SessionRecordingId
     sessionRecordingData?: SessionPlayerData
     playerKey: string
     matching?: MatchedRecording[]

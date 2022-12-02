@@ -11,9 +11,9 @@ import {
     PlaylistTypeWithIds,
     savedSessionRecordingPlaylistModelLogic,
 } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
-import { SessionRecordingPlayerLogicProps } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 
 export const playerAddToPlaylistLogic = kea<playerAddToPlaylistLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'add-to-playlist', 'playerAddToPlaylistLogic', key]),
