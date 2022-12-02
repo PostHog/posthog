@@ -100,7 +100,6 @@ export interface SessionRecordingListLogicProps {
     personUUID?: PersonUUID
     filters?: RecordingFilters
     updateSearchParams?: boolean
-    isStatic?: boolean
 }
 
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
@@ -131,17 +130,10 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             } as SessionRecordingsResponse,
             {
                 getSessionRecordings: async (_, breakpoint) => {
-                    let paramsDict = {
+                    const paramsDict = {
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
                         limit: PLAYLIST_LIMIT,
-                    }
-
-                    // If list should be a static list
-                    if (props.isStatic) {
-                        paramsDict = {
-                            ...paramsDict,
-                        }
                     }
 
                     const params = toParams(paramsDict)
@@ -180,6 +172,34 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                     const loadTimeMs = performance.now() - startTime
 
                     actions.reportRecordingsListPropertiesFetched(loadTimeMs)
+
+                    breakpoint()
+                    return response
+                },
+            },
+        ],
+        pinnedRecordingsResponse: [
+            null as SessionRecordingsResponse | null,
+            {
+                getPinnedRecordings: async (_, breakpoint) => {
+                    if (!props.playlistShortId) {
+                        return null
+                    }
+
+                    const paramsDict = {
+                        ...values.filters,
+                        person_uuid: props.personUUID ?? '',
+                        limit: PLAYLIST_LIMIT,
+                    }
+
+                    const params = toParams(paramsDict)
+                    await breakpoint(100) // Debounce for lots of quick filter changes
+
+                    const startTime = performance.now()
+                    const response = await api.recordings.listPlaylistRecordings(props.playlistShortId, params)
+                    const loadTimeMs = performance.now() - startTime
+
+                    actions.reportRecordingsListFetched(loadTimeMs)
 
                     breakpoint()
                     return response
@@ -263,10 +283,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                     Object.fromEntries(propertiesResponse.results.map(({ id, properties }) => [id, properties])) ?? {}
                 )
             },
-        ],
-        staticRecordings: [
-            () => [(_, props) => props.staticRecordings],
-            (staticRecordings) => staticRecordings ?? null,
         ],
         activeSessionRecording: [
             (s) => [s.selectedRecordingId, s.sessionRecordings],
@@ -356,17 +372,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             '*': urlToAction,
         }
     }),
-
-    subscriptions(({ actions, props }) => ({
-        staticRecordings: (staticRecording, oldStaticRecording) => {
-            if (!props.isStatic) {
-                return
-            }
-            if (!equal(staticRecording || [], oldStaticRecording || [])) {
-                actions.getSessionRecordings({})
-            }
-        },
-    })),
 
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
     afterMount(({ actions }) => {

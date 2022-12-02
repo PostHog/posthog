@@ -976,6 +976,17 @@ const api = {
             return await new ApiRequest().recordingPlaylist(playlistId).update({ data: playlist })
         },
 
+        async listPlaylistRecordings(
+            playlistId: SessionRecordingPlaylistType['short_id'],
+            params: string
+        ): Promise<SessionRecordingsResponse> {
+            return await new ApiRequest()
+                .recordingPlaylist(playlistId)
+                .withAction('recordings')
+                .withQueryString(params)
+                .get()
+        },
+
         async addRecordingToPlaylist(
             playlistId: SessionRecordingPlaylistType['short_id'],
             session_recording_id: SessionRecordingType['id']

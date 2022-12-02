@@ -1,7 +1,7 @@
 import { kea, props, path, key, actions, reducers, selectors, listeners, connect } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { delay, toParams } from 'lib/utils'
+import { toParams } from 'lib/utils'
 import { createPlaylist } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
 import {
     sessionRecordingPlayerLogic,
@@ -50,13 +50,11 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
             },
 
             addToPlaylist: async ({ playlist }) => {
-                await delay(1000)
                 await api.recordings.addRecordingToPlaylist(playlist.short_id, props.sessionRecordingId)
                 return [playlist, ...values.currentPlaylists]
             },
 
             removeFromPlaylist: async ({ playlist }) => {
-                await delay(1000)
                 await api.recordings.removeRecordingFromPlaylist(playlist.short_id, props.sessionRecordingId)
                 return values.currentPlaylists.filter((x) => x.short_id !== playlist.short_id)
             },
@@ -133,6 +131,7 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
         allPlaylists: [
             (s) => [s.playlists, s.currentPlaylists],
             (playlists, currentPlaylists) => {
+                // TODO: When searching we probably want to hide the current playlists and just show the searched ones
                 const results: {
                     selected: boolean
                     playlist: SessionRecordingPlaylistType

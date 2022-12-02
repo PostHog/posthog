@@ -1,6 +1,5 @@
 import json
-from datetime import datetime
-from typing import Any, List, Optional, Union
+from typing import Any, Union
 
 from dateutil import parser
 from rest_framework import exceptions, request, response, serializers, viewsets
@@ -75,33 +74,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     throttle_classes = [PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle]
 
-    def _get_session_recording_list(self, filter):
-        return SessionRecordingList(filter=filter, team=self.team).run()
-
-    def _get_session_recording_list_properties(self, filter, session_ids: List[str]):
-        return SessionRecordingProperties(team=self.team, filter=filter, session_ids=session_ids).run()
-
-    def _get_session_recording_snapshots(
-        self, request, session_recording_id, limit, offset, recording_start_time: Optional[datetime]
-    ):
-        return SessionRecording(
-            request=request,
-            team=self.team,
-            session_recording_id=session_recording_id,
-            recording_start_time=recording_start_time,
-        ).get_snapshots(limit, offset)
-
-    def _get_session_recording_meta_data(self, request, session_recording_id, recording_start_time: Optional[datetime]):
-        return SessionRecording(
-            request=request,
-            team=self.team,
-            session_recording_id=session_recording_id,
-            recording_start_time=recording_start_time,
-        ).get_metadata()
-
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request)
-        (session_recordings, more_recordings_available) = self._get_session_recording_list(filter)
+        (session_recordings, more_recordings_available) = SessionRecordingList(filter=filter, team=self.team).run()
 
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
@@ -124,9 +99,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         )
 
         session_recording_serializer = SessionRecordingSerializer(data=session_recordings, many=True)
-
         session_recording_serializer.is_valid(raise_exception=True)
-
         session_recording_serializer_with_person = list(
             map(
                 lambda session_recording: {
@@ -147,9 +120,13 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         recording_start_time_string = request.GET.get("recording_start_time")
         recording_start_time = parser.parse(recording_start_time_string) if recording_start_time_string else None
 
-        session_recording_meta_data = self._get_session_recording_meta_data(
-            request, session_recording_id, recording_start_time
-        )
+        session_recording_meta_data = SessionRecording(
+            request=request,
+            team=self.team,
+            session_recording_id=session_recording_id,
+            recording_start_time=recording_start_time,
+        ).get_metadata()
+
         if not session_recording_meta_data:
             raise exceptions.NotFound("Session not found")
 
@@ -202,9 +179,12 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         recording_start_time_string = request.GET.get("recording_start_time")
         recording_start_time = parser.parse(recording_start_time_string) if recording_start_time_string else None
 
-        session_recording_snapshot_data = self._get_session_recording_snapshots(
-            request, session_recording_id, limit, offset, recording_start_time
-        )
+        session_recording_snapshot_data = SessionRecording(
+            request=request,
+            team=self.team,
+            session_recording_id=session_recording_id,
+            recording_start_time=recording_start_time,
+        ).get_snapshots(limit, offset)
 
         if session_recording_snapshot_data["snapshot_data_by_window_id"] == {}:
             raise exceptions.NotFound("Snapshots not found")
@@ -231,7 +211,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         session_ids = [
             recording_id for recording_id in json.loads(self.request.GET.get("session_ids", "[]")) if recording_id
         ]
-        session_recordings_properties = self._get_session_recording_list_properties(filter, session_ids)
+        session_recordings_properties = SessionRecordingProperties(
+            team=self.team, filter=filter, session_ids=session_ids
+        ).run()
 
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
