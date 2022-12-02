@@ -118,7 +118,7 @@ const calculateBufferedTo = (
 }
 
 export interface SessionRecordingDataLogicProps {
-    sessionRecordingId?: SessionRecordingId
+    sessionRecordingId: SessionRecordingId
     // Data can be preloaded (e.g. via browser import)
     sessionRecordingData?: SessionPlayerData
     recordingStartTime?: string
