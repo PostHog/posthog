@@ -17,7 +17,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconDelete, IconEdit } from 'lib/components/icons'
-import { PlanCards } from './PlanCards'
+import { PlanTable } from './PlanTable'
 import { BillingHero } from './BillingHero'
 
 export type BillingV2Props = {
@@ -89,7 +89,7 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
                         multivariate feature flags, and more.
                     </p>
                     <div className="mb-18 flex justify-center">
-                        <PlanCards redirectPath={redirectPath} />
+                        <PlanTable redirectPath={redirectPath} />
                     </div>
                     <div>
                         <h1 className="font-bold">Current usage</h1>

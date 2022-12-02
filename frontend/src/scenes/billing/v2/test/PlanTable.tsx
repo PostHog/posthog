@@ -2,7 +2,7 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { IconArrowRight, IconCheckmark, IconClose, IconWarning } from 'lib/components/icons'
 import { billingTestLogic } from './billingTestLogic'
-import './PlanCards.scss'
+import './PlanTable.scss'
 
 export type Product = {
     name: string
@@ -324,7 +324,7 @@ export const billingPlans: BillingPlan[] = [
     },
 ]
 
-export function PlanCards({ redirectPath }: { redirectPath: string }): JSX.Element {
+export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Element {
     const { billing } = useValues(billingTestLogic)
     return (
         <div className="PlanCards space-x-4">
