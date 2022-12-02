@@ -8,7 +8,7 @@ import { SessionPlayerState } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { IconExport, IconFullScreen, IconInfo, IconPause, IconPlay, IconSkipInactivity } from 'lib/components/icons'
+import { IconExport, IconFullScreen, IconPause, IconPlay, IconSkipInactivity } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
 import { PlayerInspectorPicker } from './PlayerInspector'
@@ -35,7 +35,7 @@ export function PlayerController({
     const { setSpeed, setSkipInactivitySetting, setIsFullScreen, setAutoplayEnabled } = useActions(playerSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const featureAutoplay = !!featureFlags[FEATURE_FLAGS.RECORDING_AUTOPLAY]
+    const featureExport = !!featureFlags[FEATURE_FLAGS.RECORDINGS_EXPORT]
 
     return (
         <div className="p-3 bg-light flex flex-col select-none space-y-2">
@@ -120,21 +120,21 @@ export function PlayerController({
                         </LemonButton>
                     </Tooltip>
 
-                    {featureAutoplay && (
-                        <More
-                            overlay={
-                                <>
-                                    <LemonButton
-                                        status="stealth"
-                                        onClick={() => setAutoplayEnabled(!autoplayEnabled)}
-                                        fullWidth
-                                        sideIcon={
-                                            <LemonCheckbox className="pointer-events-none" checked={autoplayEnabled} />
-                                        }
-                                    >
-                                        Autoplay enabled
-                                    </LemonButton>
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={() => setAutoplayEnabled(!autoplayEnabled)}
+                                    fullWidth
+                                    sideIcon={
+                                        <LemonCheckbox className="pointer-events-none" checked={autoplayEnabled} />
+                                    }
+                                >
+                                    Autoplay enabled
+                                </LemonButton>
 
+                                {featureExport && (
                                     <LemonButton
                                         status="stealth"
                                         onClick={() => exportRecordingToFile()}
@@ -144,10 +144,10 @@ export function PlayerController({
                                     >
                                         Export to file
                                     </LemonButton>
-                                </>
-                            }
-                        />
-                    )}
+                                )}
+                            </>
+                        }
+                    />
                 </div>
             </div>
         </div>
