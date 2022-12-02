@@ -64,3 +64,12 @@ services:
         ports:
             - '1080:1080'
             - '1025:1025'
+
+    playwright:
+        build:
+            context: .
+            dockerfile: Dockerfile.playwright
+        network_mode: host
+        volumes:
+            - './playwright/e2e-vrt:/work/playwright/e2e-vrt'
+        profiles: [playwright]
