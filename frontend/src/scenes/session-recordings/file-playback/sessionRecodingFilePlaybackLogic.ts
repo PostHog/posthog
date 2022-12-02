@@ -31,7 +31,6 @@ export const sessionRecodingFilePlaybackLogic = kea<sessionRecodingFilePlaybackL
                             resolve(e.target?.result as string)
                         }
                         filereader.onerror = (e) => {
-                            alert(e)
                             reject(e)
                         }
                         filereader.readAsText(file)
