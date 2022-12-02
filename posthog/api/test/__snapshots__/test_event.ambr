@@ -116,8 +116,8 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp > '2022-12-01 14:07:12.404444'
-       AND timestamp < '2022-12-02 14:07:17.404463'
+       AND timestamp > '2022-12-01 14:12:37.153677'
+       AND timestamp < '2022-12-02 14:12:42.153696'
        AND distinct_id = '1'
      GROUP BY uuid,
               event,
@@ -149,7 +149,7 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp < '2022-12-02 14:07:17.952931'
+       AND timestamp < '2022-12-02 14:12:42.597936'
        AND distinct_id = '1'
      GROUP BY uuid,
               event,
@@ -182,7 +182,7 @@
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
        AND timestamp > '2020-01-09 00:00:00.000000'
-       AND timestamp < '2022-12-02 14:07:18.410823'
+       AND timestamp < '2022-12-02 14:12:42.974655'
        AND ((event = 'sign up'))
      GROUP BY uuid,
               event,
@@ -214,7 +214,7 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp > '2022-12-01 14:07:13.648344'
+       AND timestamp > '2022-12-01 14:12:38.133671'
        AND timestamp < '2020-01-09 00:00:00.000000'
        AND ((event = 'sign up'))
      GROUP BY uuid,
@@ -280,7 +280,7 @@
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
        AND timestamp > '2020-01-09 00:00:00.000000'
-       AND timestamp < '2022-12-02 14:07:18.764940'
+       AND timestamp < '2022-12-02 14:12:43.219680'
      GROUP BY uuid,
               event,
               team_id,
@@ -311,7 +311,7 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp > '2022-12-01 14:07:13.820368'
+       AND timestamp > '2022-12-01 14:12:38.264368'
        AND timestamp < '2020-01-09 00:00:00.000000'
      GROUP BY uuid,
               event,
@@ -383,8 +383,8 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp > '2022-12-01 14:07:14.607815'
-       AND timestamp < '2022-12-02 14:07:19.607836'
+       AND timestamp > '2022-12-01 14:12:38.940043'
+       AND timestamp < '2022-12-02 14:12:43.940062'
        AND distinct_id = '1'
      GROUP BY uuid,
               event,
@@ -416,7 +416,7 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp < '2022-12-02 14:07:20.148881'
+       AND timestamp < '2022-12-02 14:12:44.545085'
        AND distinct_id = '1'
      GROUP BY uuid,
               event,
@@ -655,8 +655,8 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp > '2022-12-01 14:07:18.551088'
-       AND timestamp < '2022-12-02 14:07:23.551111'
+       AND timestamp > '2022-12-01 14:12:42.280743'
+       AND timestamp < '2022-12-02 14:12:47.280761'
        AND distinct_id IN ([])
      GROUP BY uuid,
               event,
@@ -688,7 +688,7 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp < '2022-12-02 14:07:23.599505'
+       AND timestamp < '2022-12-02 14:12:47.313057'
        AND distinct_id IN ([])
      GROUP BY uuid,
               event,
@@ -720,8 +720,8 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp > '2022-12-01 14:07:19.099502'
-       AND timestamp < '2022-12-02 14:07:24.099537'
+       AND timestamp > '2022-12-01 14:12:42.749067'
+       AND timestamp < '2022-12-02 14:12:47.749091'
        AND distinct_id IN (['2', 'some-random-uid'])
      GROUP BY uuid,
               event,
@@ -753,7 +753,7 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp < '2022-12-02 14:07:24.144427'
+       AND timestamp < '2022-12-02 14:12:47.783918'
        AND distinct_id IN (['2', 'some-random-uid'])
      GROUP BY uuid,
               event,
@@ -785,8 +785,8 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp > '2022-12-01 14:07:19.210791'
-       AND timestamp < '2022-12-02 14:07:24.210822'
+       AND timestamp > '2022-12-01 14:12:42.833498'
+       AND timestamp < '2022-12-02 14:12:47.833521'
        AND distinct_id IN (['2', 'some-random-uid'])
      GROUP BY uuid,
               event,
@@ -818,7 +818,7 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp < '2022-12-02 14:07:24.254311'
+       AND timestamp < '2022-12-02 14:12:47.867919'
        AND distinct_id IN (['2', 'some-random-uid'])
      GROUP BY uuid,
               event,
@@ -850,8 +850,8 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp > '2022-12-01 14:07:19.772402'
-       AND timestamp < '2022-12-02 14:07:24.772431'
+       AND timestamp > '2022-12-01 14:12:43.296118'
+       AND timestamp < '2022-12-02 14:12:48.296145'
        AND distinct_id = '2'
      GROUP BY uuid,
               event,
@@ -883,7 +883,7 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp < '2022-12-02 14:07:24.813993'
+       AND timestamp < '2022-12-02 14:12:48.328507'
        AND distinct_id = '2'
      GROUP BY uuid,
               event,
@@ -915,8 +915,8 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp > '2022-12-01 14:07:20.294776'
-       AND timestamp < '2022-12-02 14:07:25.294813'
+       AND timestamp > '2022-12-01 14:12:43.681309'
+       AND timestamp < '2022-12-02 14:12:48.681332'
        AND (coalesce(parseDateTimeBestEffortOrNull(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_a_unix_timestamp'), '^"|"$', '')), parseDateTimeBestEffortOrNull(substring(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_a_unix_timestamp'), '^"|"$', ''), 1, 10))) > '2012-01-07 18:30:00')
      GROUP BY uuid,
               event,
@@ -948,7 +948,7 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp < '2022-12-02 14:07:25.377201'
+       AND timestamp < '2022-12-02 14:12:48.730742'
        AND (coalesce(parseDateTimeBestEffortOrNull(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_a_unix_timestamp'), '^"|"$', '')), parseDateTimeBestEffortOrNull(substring(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_a_unix_timestamp'), '^"|"$', ''), 1, 10))) > '2012-01-07 18:30:00')
      GROUP BY uuid,
               event,
@@ -980,8 +980,8 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp > '2022-12-01 14:07:20.838896'
-       AND timestamp < '2022-12-02 14:07:25.838928'
+       AND timestamp > '2022-12-01 14:12:44.120270'
+       AND timestamp < '2022-12-02 14:12:49.120293'
        AND (coalesce(parseDateTimeBestEffortOrNull(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_a_unix_timestamp'), '^"|"$', '')), parseDateTimeBestEffortOrNull(substring(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_a_unix_timestamp'), '^"|"$', ''), 1, 10))) < '2012-01-07 18:30:00')
      GROUP BY uuid,
               event,
@@ -1013,7 +1013,7 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp < '2022-12-02 14:07:25.907906'
+       AND timestamp < '2022-12-02 14:12:49.170621'
        AND (coalesce(parseDateTimeBestEffortOrNull(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_a_unix_timestamp'), '^"|"$', '')), parseDateTimeBestEffortOrNull(substring(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_a_unix_timestamp'), '^"|"$', ''), 1, 10))) < '2012-01-07 18:30:00')
      GROUP BY uuid,
               event,
@@ -1045,8 +1045,8 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp > '2022-12-01 14:07:21.389352'
-       AND timestamp < '2022-12-02 14:07:26.389384'
+       AND timestamp > '2022-12-01 14:12:44.578170'
+       AND timestamp < '2022-12-02 14:12:49.578195'
        AND event = 'event_name'
      GROUP BY uuid,
               event,
@@ -1078,7 +1078,7 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp < '2022-12-02 14:07:26.434508'
+       AND timestamp < '2022-12-02 14:12:49.610858'
        AND event = 'event_name'
      GROUP BY uuid,
               event,
@@ -1243,8 +1243,8 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp > '2022-12-01 14:07:22.731954'
-       AND timestamp < '2022-12-02 14:07:27.731987'
+       AND timestamp > '2022-12-01 14:12:45.706358'
+       AND timestamp < '2022-12-02 14:12:50.706387'
        AND (has(['Safari'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
      GROUP BY uuid,
               event,
@@ -1276,7 +1276,7 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp < '2022-12-02 14:07:27.788151'
+       AND timestamp < '2022-12-02 14:12:50.754795'
        AND (has(['Safari'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
      GROUP BY uuid,
               event,
@@ -1308,8 +1308,8 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp > '2022-12-01 14:07:23.235203'
-       AND timestamp < '2022-12-02 14:07:28.235241'
+       AND timestamp > '2022-12-01 14:12:46.139342'
+       AND timestamp < '2022-12-02 14:12:51.139365'
        AND (coalesce(parseDateTimeBestEffortOrNull(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_an_sdk_style_unix_timestamp'), '^"|"$', '')), parseDateTimeBestEffortOrNull(substring(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_an_sdk_style_unix_timestamp'), '^"|"$', ''), 1, 10))) < '2021-12-25 12:00:00')
      GROUP BY uuid,
               event,
@@ -1341,7 +1341,7 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp < '2022-12-02 14:07:28.298891'
+       AND timestamp < '2022-12-02 14:12:51.190765'
        AND (coalesce(parseDateTimeBestEffortOrNull(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_an_sdk_style_unix_timestamp'), '^"|"$', '')), parseDateTimeBestEffortOrNull(substring(replaceRegexpAll(JSONExtractRaw(properties, 'prop_that_is_an_sdk_style_unix_timestamp'), '^"|"$', ''), 1, 10))) < '2021-12-25 12:00:00')
      GROUP BY uuid,
               event,
@@ -1363,7 +1363,7 @@
          elements_chain,
          created_at
   FROM events
-  WHERE uuid = '83b48966cc484f069e6d21c460cf6b3d'
+  WHERE uuid = '72f04086865f4cf991c815f281383658'
     AND team_id = 2
   '
 ---
@@ -1379,7 +1379,7 @@
          elements_chain,
          created_at
   FROM events
-  WHERE uuid = '83b48966cc484f069e6d21c460cf6b3d'
+  WHERE uuid = '72f04086865f4cf991c815f281383658'
     AND team_id = 2
   '
 ---
@@ -1395,7 +1395,7 @@
          elements_chain,
          created_at
   FROM events
-  WHERE uuid = 'b700eabfde034ff580577e8370ed68c4'
+  WHERE uuid = 'c816dc83846c42408298b45320297e47'
     AND team_id = 2
   '
 ---
@@ -1411,7 +1411,7 @@
          elements_chain,
          created_at
   FROM events
-  WHERE uuid = 'b700eabfde034ff580577e8370ed68c4'
+  WHERE uuid = 'c816dc83846c42408298b45320297e47'
     AND team_id = 2
   '
 ---
@@ -1427,7 +1427,7 @@
          elements_chain,
          created_at
   FROM events
-  WHERE uuid = '528ef1e20884444db2023462b4388c57'
+  WHERE uuid = 'a43576e72aba4546a6d3a3c4858fc15b'
     AND team_id = 2
   '
 ---
@@ -1443,7 +1443,7 @@
          elements_chain,
          created_at
   FROM events
-  WHERE uuid = 'ee4bc488e7d544d0bb1933a5b1d7372d'
+  WHERE uuid = '402c7a906834458195e83e5fee0860d9'
     AND team_id = 2
   '
 ---
@@ -1469,8 +1469,8 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp > '2022-12-01 14:07:24.904385'
-       AND timestamp < '2022-12-02 14:07:29.904477'
+       AND timestamp > '2022-12-01 14:12:47.554749'
+       AND timestamp < '2022-12-02 14:12:52.554768'
      GROUP BY uuid,
               event,
               team_id,
@@ -1501,8 +1501,8 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp > '2022-12-01 14:07:25.119990'
-       AND timestamp < '2022-12-02 14:07:30.120024'
+       AND timestamp > '2022-12-01 14:12:47.707459'
+       AND timestamp < '2022-12-02 14:12:52.707479'
      GROUP BY uuid,
               event,
               team_id,
@@ -1925,8 +1925,8 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp > '2022-12-01 14:07:34.873681'
-       AND timestamp < '2022-12-02 14:07:39.873748'
+       AND timestamp > '2022-12-01 14:12:55.662000'
+       AND timestamp < '2022-12-02 14:13:00.662019'
        AND distinct_id = '1'
      GROUP BY uuid,
               event,
@@ -1958,7 +1958,7 @@
             argMax(_table, created_at) as source_table
      FROM merge('posthog_test', '^(events|live_events)$')
      WHERE team_id = 2
-       AND timestamp < '2022-12-02 14:07:40.422999'
+       AND timestamp < '2022-12-02 14:13:01.104410'
        AND distinct_id = '1'
      GROUP BY uuid,
               event,
