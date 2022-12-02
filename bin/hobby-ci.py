@@ -30,7 +30,7 @@ user_data = (
     "cd hobby \n"
     "sed -i \"s/#\\$nrconf{restart} = 'i';/\\$nrconf{restart} = 'a';/g\" /etc/needrestart/needrestart.conf \n"
     "git clone https://github.com/PostHog/posthog.git \n"
-    "cd posthog \n" 
+    "cd posthog \n"
     f"git checkout {branch} \n"
     "cd .. \n"
     f"chmod +x posthog/bin/deploy-hobby \n"
