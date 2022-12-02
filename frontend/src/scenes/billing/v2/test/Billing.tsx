@@ -84,9 +84,15 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
                 </div>
             ) : !billing?.billing_period && preflight?.cloud ? (
                 <>
-                    <p className="mb-8"> You're on the PostHog Free plan. Upgrade to get access to more features.</p>
-                    <div className="mb-12 flex justify-center">
+                    <p className="mb-8 ml-0">
+                        You're on the PostHog Cloud Lite plan. Upgrade to get access to more features like A/B testing,
+                        multivariate feature flags, and more.
+                    </p>
+                    <div className="mb-18 flex justify-center">
                         <PlanCards redirectPath={redirectPath} />
+                    </div>
+                    <div>
+                        <h1 className="font-bold">Current usage</h1>
                     </div>
                 </>
             ) : (

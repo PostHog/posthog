@@ -1,5 +1,24 @@
 .PlanCards {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    max-width: 1400px;
+    max-width: 1200px;
+    table {
+        table-layout: fixed;
+        td {
+            vertical-align: top;
+            padding: 1.25rem;
+        }
+        th {
+            vertical-align: top;
+            padding: 1.25rem;
+            font-weight: 800;
+            text-align: left;
+
+            &.PlansCards__th__section {
+                padding: 0.25rem 1.25rem 0.25rem;
+                font-weight: 500;
+            }
+        }
+    }
+    .PlanCards__tr__border {
+        border-bottom: 3px rgba(0, 0, 0, 0.07) dotted;
+    }
 }
