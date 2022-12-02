@@ -1,3 +1,4 @@
+import './ColumnConfigurator.scss'
 import { useActions, useValues, BindLogic } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
@@ -15,8 +16,7 @@ import {
 } from 'react-sortable-hoc'
 import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/es/List'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import Modal from 'antd/lib/modal/Modal'
-import { Button, Col, Row, Space } from 'antd'
+import { Col, Row } from 'antd'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -24,6 +24,7 @@ import { useState } from 'react'
 import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
 import { defaultDataTableStringColumns } from '../defaults'
 import { DataTableNode } from '~/queries/schema'
+import { LemonModal } from 'lib/components/LemonModal'
 
 let uniqueNode = 0
 
@@ -106,7 +107,7 @@ function ColumnConfiguratorModal(): JSX.Element {
                             : column
                     }
                 />
-                <div className="text-right" style={{ flex: 1 }}>
+                <div className="text-right flex-1">
                     <Tooltip title={disabled ? 'Reserved' : 'Remove'}>
                         {disabled ? (
                             <LockOutlined />
@@ -159,40 +160,27 @@ function ColumnConfiguratorModal(): JSX.Element {
     }
 
     return (
-        <Modal
-            id="column-configurator-modal"
-            centered
-            visible={modalVisible}
+        <LemonModal
+            isOpen={modalVisible}
             title="Configure columns"
-            onOk={save}
-            width={700}
-            bodyStyle={{ padding: '16px 16px 0 16px' }}
-            className="column-configurator-modal"
-            okButtonProps={{
-                // @ts-expect-error
-                'data-attr': 'items-selector-confirm',
-            }}
-            okText="Save"
-            onCancel={hideModal}
+            onClose={hideModal}
             footer={
-                <Row>
-                    <Space style={{ flexGrow: 1 }} align="start">
-                        <Button className="text-blue" onClick={() => setColumns(defaultDataTableStringColumns)}>
+                <>
+                    <div className="flex-1">
+                        <LemonButton type="secondary" onClick={() => setColumns(defaultDataTableStringColumns)}>
                             Reset to defaults
-                        </Button>
-                    </Space>
-                    <Space>
-                        <Button className="text-blue" type="text" onClick={hideModal}>
-                            Close
-                        </Button>
-                        <Button type="primary" onClick={save}>
-                            Save
-                        </Button>
-                    </Space>
-                </Row>
+                        </LemonButton>
+                    </div>
+                    <LemonButton type="secondary" onClick={hideModal}>
+                        Close
+                    </LemonButton>
+                    <LemonButton type="primary" onClick={save} data-attr="items-selector-confirm">
+                        Save
+                    </LemonButton>
+                </>
             }
         >
-            <div className="main-content">
+            <div className="ColumnConfiguratorModal main-content">
                 <Row gutter={16} className="lists">
                     <Col xs={24} sm={12}>
                         <h4 className="secondary uppercase text-muted">
@@ -211,6 +199,9 @@ function ColumnConfiguratorModal(): JSX.Element {
                         <div style={{ height: 320 }}>
                             <AutoSizer>
                                 {({ height, width }: { height: number; width: number }) => {
+                                    const trimmedProperties = columns.map((c) =>
+                                        c.replace('person.', '').replace('properties.', '')
+                                    )
                                     return (
                                         <TaxonomicFilter
                                             height={height}
@@ -224,8 +215,8 @@ function ColumnConfiguratorModal(): JSX.Element {
                                             popoverEnabled={false}
                                             selectFirstItem={false}
                                             excludedProperties={{
-                                                [TaxonomicFilterGroupType.EventProperties]: columns,
-                                                [TaxonomicFilterGroupType.EventFeatureFlags]: columns,
+                                                [TaxonomicFilterGroupType.EventProperties]: trimmedProperties,
+                                                [TaxonomicFilterGroupType.EventFeatureFlags]: trimmedProperties,
                                             }}
                                         />
                                     )
@@ -240,6 +231,6 @@ function ColumnConfiguratorModal(): JSX.Element {
                     scope={RestrictionScope.Project}
                 />
             </div>
-        </Modal>
+        </LemonModal>
     )
 }
