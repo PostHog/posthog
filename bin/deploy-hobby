@@ -78,7 +78,7 @@ cd posthog
 git pull
 cd ..
 
-if ! [ -z "$3" ]
+if [ -n "$3" ]
 then
 export TLS_BLOCK="acme_ca https://acme-staging-v02.api.letsencrypt.org/directory"
 fi
@@ -86,8 +86,10 @@ fi
 # rewrite caddyfile
 rm -f Caddyfile
 envsubst > Caddyfile <<EOF
-$DOMAIN, :80, :443 {
+{
 $TLS_BLOCK
+}
+$DOMAIN, :80, :443 {
 reverse_proxy http://web:8000
 }
 EOF
