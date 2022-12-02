@@ -47,7 +47,11 @@ while kill -0 $SERVER_PID; do
     sleep 1
 done
 
-if [ $exit_code -ne 0 ]; then
+if kill -0 $SERVER_PID; then
+    echo 'WARNING: plugin-server did not exit in time'
+fi
+
+if [ $exit_code -ne 0 ] || [ kill -0 $SERVER_PID ]; then
     echo '::group::Plugin Server logs'
     cat $LOG_FILE
     echo '::endgroup::'
