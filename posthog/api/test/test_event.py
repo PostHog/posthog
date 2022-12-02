@@ -1166,7 +1166,6 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 1)
 
     @freeze_time("2022-01-01")
-    @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_get_event_by_id(self, _):
         _create_person(
@@ -1227,7 +1226,6 @@ class TestLiveEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(2, len(response["results"]))
 
     @freeze_time("2022-01-01")
-    @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_get_events_with_specified_token(self, _):
         _, _, user2 = User.objects.bootstrap("Test", "team2@posthog.com", None)
