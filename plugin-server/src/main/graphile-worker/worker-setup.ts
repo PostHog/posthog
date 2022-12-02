@@ -52,7 +52,7 @@ export async function startGraphileWorker(hub: Hub, graphileWorker: GraphileWork
 
         jobHandlers = {
             ...jobHandlers,
-            ...getScheduledTaskHandlers(hub),
+            ...getScheduledTaskHandlers(hub, piscina),
         }
 
         status.info('🔄', 'Graphile Worker: set up scheduled task handlers...')
@@ -76,11 +76,11 @@ export function getPluginJobHandlers(hub: Hub, graphileWorker: GraphileWorker, p
     return pluginJobHandlers
 }
 
-export function getScheduledTaskHandlers(hub: Hub): TaskList {
+export function getScheduledTaskHandlers(hub: Hub, piscina: Piscina): TaskList {
     const scheduledTaskHandlers: TaskList = {
-        runEveryMinute: async () => await runScheduledTasks(hub, 'runEveryMinute'),
-        runEveryHour: async () => await runScheduledTasks(hub, 'runEveryHour'),
-        runEveryDay: async () => await runScheduledTasks(hub, 'runEveryDay'),
+        runEveryMinute: async () => await runScheduledTasks(hub, piscina, 'runEveryMinute'),
+        runEveryHour: async () => await runScheduledTasks(hub, piscina, 'runEveryHour'),
+        runEveryDay: async () => await runScheduledTasks(hub, piscina, 'runEveryDay'),
     }
 
     return scheduledTaskHandlers
