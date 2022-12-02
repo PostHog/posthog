@@ -40,7 +40,7 @@ exit_code=$?
 set -e
 
 kill $SERVER_PID
-wait $SERVER_PID
+timeout --kill-after 30s 30s wait $SERVER_PID
 
 if [ $exit_code -ne 0 ]; then
     echo '::group::Plugin Server logs'
