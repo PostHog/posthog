@@ -89,6 +89,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     'reportRecordingPlayerSkipInactivityToggled',
                     'reportRecordingPlayerSpeedChanged',
                     'reportRecordingViewedSummary',
+                    'reportRecordingExportedToFile',
                 ],
             ],
         })
@@ -665,6 +666,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 )
 
                 downloadFile(recordingFile)
+                actions.reportRecordingExportedToFile()
             }
 
             await lemonToast.promise(doExport(), {

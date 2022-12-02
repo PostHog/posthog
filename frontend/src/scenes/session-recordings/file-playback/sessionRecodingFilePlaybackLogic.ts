@@ -1,4 +1,4 @@
-import { kea, path, selectors } from 'kea'
+import { connect, kea, path, selectors } from 'kea'
 import { Breadcrumb, SessionPlayerData } from '~/types'
 import { urls } from 'scenes/urls'
 import { loaders } from 'kea-loaders'
@@ -7,6 +7,7 @@ import { beforeUnload } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import type { sessionRecodingFilePlaybackLogicType } from './sessionRecodingFilePlaybackLogicType'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export type ExportedSessionRecordingFile = {
     version: '2022-12-02'
@@ -15,8 +16,11 @@ export type ExportedSessionRecordingFile = {
 
 export const sessionRecodingFilePlaybackLogic = kea<sessionRecodingFilePlaybackLogicType>([
     path(['scenes', 'session-recordings', 'detail', 'sessionRecordingDetailLogic']),
+    connect({
+        actions: [eventUsageLogic, ['reportRecordingLoadedFromFile']],
+    }),
 
-    loaders({
+    loaders(({ actions }) => ({
         sessionRecording: {
             __default: null as SessionPlayerData | null,
             loadFromFile: async (file: File) => {
@@ -40,11 +44,13 @@ export const sessionRecodingFilePlaybackLogic = kea<sessionRecodingFilePlaybackL
                     }
 
                     if (data.version === '2022-12-02') {
+                        actions.reportRecordingLoadedFromFile({ success: true })
                         return data.data
                     } else {
                         throw new Error('File version is not supported')
                     }
                 } catch (error) {
+                    actions.reportRecordingLoadedFromFile({ success: false, error: `${error}` })
                     lemonToast.error(`File import failed: ${error}`)
                     return null
                 }
@@ -52,7 +58,7 @@ export const sessionRecodingFilePlaybackLogic = kea<sessionRecodingFilePlaybackL
 
             resetSessionRecording: () => null,
         },
-    }),
+    })),
 
     beforeUnload(({ values, actions }) => ({
         enabled: () => !!values.sessionRecording,
