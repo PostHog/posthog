@@ -369,7 +369,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                 <td key={`${plan.name}-${product}`}>
                                     {plan.products[i].tiers.map((tier) => (
                                         <div
-                                            key={`${plan.name}-${product}-${tier}`}
+                                            key={`${plan.name}-${product}-${tier.description}`}
                                             className="flex justify-between items-center"
                                         >
                                             <span className="text-xs">{tier.description}</span>
@@ -392,7 +392,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                     <tr>
                         <td />
                         {billingPlans.map((plan) => (
-                            <td key={`${plan}-cta`}>
+                            <td key={`${plan.name}-cta`}>
                                 <LemonButton
                                     to={`${plan.signupLink}&redirect_path=${redirectPath}`}
                                     type={plan.name === 'PostHog Cloud Lite' ? 'secondary' : 'primary'}
@@ -462,7 +462,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                     <tr>
                         <td />
                         {billingPlans.map((plan) => (
-                            <td key={`${plan}-cta`}>
+                            <td key={`${plan.name}-cta-2`}>
                                 <LemonButton
                                     to={`${plan.signupLink}&redirect_path=${redirectPath}`}
                                     type={plan.name === 'PostHog Cloud Lite' ? 'secondary' : 'primary'}
