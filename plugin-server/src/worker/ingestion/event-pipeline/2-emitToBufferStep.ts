@@ -104,6 +104,14 @@ export function shouldSendEventToBuffer(
         event.event == `$create_alias` && 'alias' in eventProperties && eventProperties['alias'] !== event.distinct_id
 
     const conversionBufferDisabled = !hub.CONVERSION_BUFFER_ENABLED && !hub.conversionBufferEnabledTeams.has(teamId)
+    const statsdExtra: { [key: string]: string } = {
+        teamId: event.team_id.toString(),
+        isBufferDisabled: conversionBufferDisabled.toString(),
+        personExists: (!!person).toString(),
+        isGroupIdentifyEvent: isGroupIdentifyEvent.toString(),
+        isMergingAliasEvent: isMergingAliasEvent.toString(),
+        isMergingIdentifyEvent: isMergingIdentifyEvent.toString(),
+    }
     if (conversionBufferDisabled || person || isGroupIdentifyEvent || isMergingIdentifyEvent || isMergingAliasEvent) {
         status.debug('🔁', 'Not sending event to buffer', {
             event,
@@ -114,28 +122,22 @@ export function shouldSendEventToBuffer(
             isMergingAliasEvent,
             personExists: !!person,
         })
-        const reason = conversionBufferDisabled ? 'disabled' : person ? 'personExists' : 'isidentify'
-        hub.statsd?.increment('conversion_events_no_buffer', { teamId: event.team_id.toString(), reason: reason })
+        hub.statsd?.increment('conversion_events_no_buffer', statsdExtra)
         return false
     }
 
     const shouldBufferAnonymousEvents = teamId <= hub.MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR
-
+    statsdExtra['shouldBufferAnonymous'] = shouldBufferAnonymousEvents.toString()
     if (shouldBufferAnonymousEvents) {
-        hub.statsd?.increment('conversion_events_buffer_size', {
-            teamId: event.team_id.toString(),
-            reason: 'shouldBufferAnonymous',
-        })
+        hub.statsd?.increment('conversion_events_buffer_size', statsdExtra)
         return true
     }
 
     // KLUDGE: This definition is not currently not encompassing all anonymous events
     const isAnonymousEvent = event.distinct_id === eventProperties['$device_id']
+    statsdExtra['isAnonymous'] = isAnonymousEvent.toString()
     if (isAnonymousEvent) {
-        hub.statsd?.increment('conversion_events_no_buffer', {
-            teamId: event.team_id.toString(),
-            reason: 'isAnonymous',
-        })
+        hub.statsd?.increment('conversion_events_no_buffer', statsdExtra)
         return false
     }
 
@@ -146,14 +148,12 @@ export function shouldSendEventToBuffer(
     const isMobileLibrary = ['posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'].includes(
         eventProperties['$lib']
     )
+    statsdExtra['isMobileLib'] = isMobileLibrary.toString()
     if (isMobileLibrary) {
-        hub.statsd?.increment('conversion_events_no_buffer', {
-            teamId: event.team_id.toString(),
-            reason: 'isMobile',
-        })
+        hub.statsd?.increment('conversion_events_no_buffer', statsdExtra)
         return false
     }
 
-    hub.statsd?.increment('conversion_events_buffer_size', { teamId: event.team_id.toString(), reason: 'default' })
+    hub.statsd?.increment('conversion_events_buffer_size', statsdExtra)
     return true
 }
