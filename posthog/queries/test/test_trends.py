@@ -5226,7 +5226,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-    def test_trends_volume_per_user_average_daily(self):
+    @snapshot_clickhouse_queries
+    def test_trends_count_per_user_average_daily(self):
         self._create_event_count_per_actor_events()
 
         daily_response = Trends().run(
@@ -5253,7 +5254,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         ]
         assert daily_response[0]["data"] == [1.5, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0]
 
-    def test_trends_volume_per_user_average_weekly(self):
+    def test_trends_count_per_user_average_weekly(self):
         # Weekly aggregation uses "start_of_week_fix"
         self._create_event_count_per_actor_events()
 
@@ -5274,7 +5275,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert weekly_response[0]["days"] == ["2019-12-29", "2020-01-05"]
         assert weekly_response[0]["data"] == [1.3333333333333333, 2.0]
 
-    def test_trends_volume_per_user_average_aggregated(self):
+    @snapshot_clickhouse_queries
+    def test_trends_count_per_user_average_aggregated(self):
         self._create_event_count_per_actor_events()
 
         daily_response = Trends().run(
@@ -5292,7 +5294,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert len(daily_response) == 1
         assert daily_response[0]["aggregated_value"] == 2.6666666666666665  # 8 events divided by 3 users
 
-    def test_trends_volume_per_user_maximum(self):
+    def test_trends_count_per_user_maximum(self):
         self._create_event_count_per_actor_events()
 
         daily_response = Trends().run(
@@ -5319,7 +5321,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         ]
         assert daily_response[0]["data"] == [2.0, 0.0, 0.0, 1.0, 3.0, 0.0, 0.0]
 
-    def test_trends_volume_per_user_average_with_event_property_breakdown(self):
+    def test_trends_count_per_user_average_with_event_property_breakdown(self):
         self._create_event_count_per_actor_events()
 
         daily_response = Trends().run(
@@ -5354,7 +5356,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert daily_response[1]["data"] == [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]  # blue
         assert daily_response[2]["data"] == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # none
 
-    def test_trends_volume_per_user_average_with_person_property_breakdown(self):
+    def test_trends_count_per_user_average_with_person_property_breakdown(self):
         self._create_event_count_per_actor_events()
 
         daily_response = Trends().run(
@@ -5387,7 +5389,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert daily_response[0]["data"] == [2.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0]  # red
         assert daily_response[1]["data"] == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # blue
 
-    def test_trends_volume_per_user_average_aggregated_with_event_property_breakdown(self):
+    def test_trends_count_per_user_average_aggregated_with_event_property_breakdown(self):
         self._create_event_count_per_actor_events()
 
         daily_response = Trends().run(
@@ -5411,7 +5413,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert daily_response[1]["aggregated_value"] == 1.0  # blue
         assert daily_response[2]["aggregated_value"] == 1.0  # none
 
-    def test_trends_volume_per_group_average_daily(self):
+    @snapshot_clickhouse_queries
+    def test_trends_count_per_group_average_daily(self):
         self._create_event_count_per_actor_events()
         GroupTypeMapping.objects.create(team=self.team, group_type="shape", group_type_index=0)
         create_group(team_id=self.team.pk, group_type_index=0, group_key="bouba")
@@ -5450,7 +5453,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             0.0,  # No events at all
         ]
 
-    def test_trends_volume_per_group_average_aggregated(self):
+    @snapshot_clickhouse_queries
+    def test_trends_count_per_group_average_aggregated(self):
         self._create_event_count_per_actor_events()
         GroupTypeMapping.objects.create(team=self.team, group_type="shape", group_type_index=0)
         create_group(team_id=self.team.pk, group_type_index=0, group_key="bouba")
