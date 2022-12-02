@@ -390,7 +390,7 @@ export enum SavedInsightsTabs {
 export enum SessionRecordingsTabs {
     Recent = 'recent',
     Playlists = 'playlists',
-    Import = 'import',
+    FilePlayback = 'file-playback',
 }
 
 export enum ExperimentsTabs {

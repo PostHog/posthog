@@ -1,14 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { IconUploadFile } from 'lib/components/icons'
 import Dragger from 'antd/lib/upload/Dragger'
-import { importSessionRecordingLogic } from './importSessionRecordingLogic'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { AlertMessage } from 'lib/components/AlertMessage'
+import { sessionRecodingFilePlaybackLogic } from './sessionRecodingFilePlaybackLogic'
 
-export function ImportSessionRecording(): JSX.Element {
-    const { loadFromFile, resetSessionRecording } = useActions(importSessionRecordingLogic)
-    const { sessionRecording, sessionRecordingLoading } = useValues(importSessionRecordingLogic)
+export function SessionRecordingFilePlayback(): JSX.Element {
+    const { loadFromFile, resetSessionRecording } = useActions(sessionRecodingFilePlaybackLogic)
+    const { sessionRecording, sessionRecordingLoading } = useValues(sessionRecodingFilePlaybackLogic)
 
     return (
         <div>
@@ -57,9 +57,9 @@ export function ImportSessionRecording(): JSX.Element {
                     )} */}
 
                     <div className="p-20 flex flex-col items-center justify-center space-y-2 text-muted-alt">
-                        <p className="flex items-center gap-2 font-semibold uppercase">
+                        <p className="flex items-center gap-2 font-semibold">
                             <IconUploadFile className="text-xl" />
-                            Import file
+                            Load recording
                         </p>
                         <p className="text-muted-alt ">
                             Drag and drop your exported recording here or click to open the file browser.

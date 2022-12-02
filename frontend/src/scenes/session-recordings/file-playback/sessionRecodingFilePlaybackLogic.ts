@@ -3,16 +3,17 @@ import { Breadcrumb, SessionPlayerData } from '~/types'
 import { urls } from 'scenes/urls'
 import { loaders } from 'kea-loaders'
 
-import type { importSessionRecordingLogicType } from './importSessionRecordingLogicType'
 import { beforeUnload } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
+
+import type { sessionRecodingFilePlaybackLogicType } from './sessionRecodingFilePlaybackLogicType'
 
 export type ExportedSessionRecordingFile = {
     version: '2022-12-02'
     data: SessionPlayerData
 }
 
-export const importSessionRecordingLogic = kea<importSessionRecordingLogicType>([
+export const sessionRecodingFilePlaybackLogic = kea<sessionRecodingFilePlaybackLogicType>([
     path(['scenes', 'session-recordings', 'detail', 'sessionRecordingDetailLogic']),
 
     loaders({

@@ -18,7 +18,7 @@ import { openSessionRecordingSettingsDialog } from './settings/SessionRecordingS
 import { openPlayerNewPlaylistDialog } from 'scenes/session-recordings/player/new-playlist/PlayerNewPlaylist'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { ImportSessionRecording } from './import/ImportSessionRecording'
+import { SessionRecordingFilePlayback } from './file-playback/SessionRecodingFilePlayback'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -30,7 +30,7 @@ export function SessionsRecordings(): JSX.Element {
     const visibleTabs = [SessionRecordingsTabs.Recent, SessionRecordingsTabs.Playlists]
 
     if (!featureFlags[FEATURE_FLAGS.RECORDINGS_EXPORT]) {
-        visibleTabs.push(SessionRecordingsTabs.Import)
+        visibleTabs.push(SessionRecordingsTabs.FilePlayback)
     }
 
     return (
@@ -142,8 +142,8 @@ export function SessionsRecordings(): JSX.Element {
                 <SessionRecordingsPlaylist logicKey="recents" updateSearchParams />
             ) : tab === SessionRecordingsTabs.Playlists ? (
                 <SavedSessionRecordingPlaylists tab={SessionRecordingsTabs.Playlists} />
-            ) : tab === SessionRecordingsTabs.Import ? (
-                <ImportSessionRecording />
+            ) : tab === SessionRecordingsTabs.FilePlayback ? (
+                <SessionRecordingFilePlayback />
             ) : null}
         </div>
     )
