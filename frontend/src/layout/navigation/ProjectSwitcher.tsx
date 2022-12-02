@@ -15,9 +15,9 @@ import { navigationLogic } from './navigationLogic'
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
         <div className="flex items-center">
-            <span className="mb-1">{team.name}</span>
+            <span>{team.name}</span>
             {team.is_demo ? (
-                <LemonSnack title="Demo" className="ml-3 text-xs shrink-0" color="primary-extralight">
+                <LemonSnack className="ml-2 text-xs shrink-0" color="primary-extralight">
                     Demo
                 </LemonSnack>
             ) : null}

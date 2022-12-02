@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 import { Row } from 'antd'
 import { useValues } from 'kea'
 import { IconDelete } from 'lib/components/icons'
@@ -6,6 +6,7 @@ import {
     LemonSelectMultiple,
     LemonSelectMultipleOptionItem,
 } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonTableColumns } from 'lib/components/LemonTable'
 import { AccessLevel, Resource, RoleType } from '~/types'
 import {
     FormattedResourceLevel,
@@ -14,6 +15,7 @@ import {
 } from './organization/Settings/Permissions/permissionsLogic'
 import { rolesLogic } from './organization/Settings/Roles/rolesLogic'
 import { organizationLogic } from './organizationLogic'
+import { urls } from './urls'
 
 interface ResourcePermissionProps {
     addableRoles: RoleType[]
@@ -88,7 +90,7 @@ export function ResourcePermission({
     isNewResource,
     resourceType,
 }: ResourcePermissionProps): JSX.Element {
-    const { allPermissions } = useValues(permissionsLogic)
+    const { allPermissions, shouldShowPermissionsTable } = useValues(permissionsLogic)
     const { roles: possibleRolesWithAccess } = useValues(rolesLogic)
     const { isAdminOrOwner } = useValues(organizationLogic)
 
@@ -97,14 +99,72 @@ export function ResourcePermission({
     const rolesWithAccess = possibleRolesWithAccess.filter(
         (role) => role.feature_flags_access_level === AccessLevel.WRITE
     )
+    interface TableRoleType extends RoleType {
+        deletable?: boolean
+    }
+
+    const columns: LemonTableColumns<TableRoleType> = [
+        {
+            title: 'Role',
+            dataIndex: 'name',
+            key: 'name',
+            render: function RenderRoleName(_, role) {
+                return (
+                    <>
+                        {role.name === 'Organization default' ? (
+                            <Link to={`${urls.organizationSettings()}?tab=role_access`}>{role.name}</Link>
+                        ) : (
+                            role.name
+                        )}
+                    </>
+                )
+            },
+        },
+        {
+            title: 'Access',
+            dataIndex: 'feature_flags_access_level',
+            key: 'feature_flags_access_level',
+            render: function RenderAccessLevel(_, role) {
+                return (
+                    <div className="flex flex-row justify-between">
+                        {role.feature_flags_access_level === AccessLevel.WRITE ? 'Edit' : 'View'}
+                        {role.deletable && (
+                            <LemonButton
+                                icon={<IconDelete />}
+                                onClick={() => deleteAssociatedRole(role.id)}
+                                tooltip={'Remove custom role from feature flag'}
+                                status="primary-alt"
+                                type="tertiary"
+                                size="small"
+                            />
+                        )}
+                    </div>
+                )
+            },
+        },
+    ]
+    const tableData: TableRoleType[] = [
+        {
+            id: '',
+            name: 'Organization default',
+            feature_flags_access_level: resourceLevel ? resourceLevel.access_level : AccessLevel.WRITE,
+            created_by: null,
+            created_at: '',
+        } as TableRoleType,
+        ...rolesWithAccess,
+        ...roles.map((role) => ({ ...role, feature_flags_access_level: AccessLevel.WRITE, deletable: true })), // associated flag roles with custom write access
+    ]
 
     return (
         <>
-            {resourceLevel && <OrganizationResourcePermissionLabel resourceLevel={resourceLevel} />}
-            {<OrganizationResourcePermissionRoles roles={rolesWithAccess} />}
+            {!shouldShowPermissionsTable && (
+                <>
+                    {resourceLevel && <OrganizationResourcePermissionLabel resourceLevel={resourceLevel} />}
+                    {<OrganizationResourcePermissionRoles roles={rolesWithAccess} />}
+                </>
+            )}
             {isAdminOrOwner && (
                 <>
-                    <LemonDivider className="mt-4" />
                     <h5 className="mt-4">Custom edit roles</h5>
                     <div className="flex gap-2">
                         <div className="flex-1">
@@ -132,7 +192,8 @@ export function ResourcePermission({
                     </div>
                 </>
             )}
-            {!isNewResource && (
+            {shouldShowPermissionsTable && <LemonTable dataSource={tableData} columns={columns} className="mt-4" />}
+            {!shouldShowPermissionsTable && !isNewResource && (
                 <>
                     <h5 className="mt-4">Roles</h5>
                     {roles.length > 0 ? (
@@ -169,7 +230,9 @@ function OrganizationResourcePermissionLabel({
     return (
         <>
             <h5>Organization Default</h5>
-            <b>{ResourcePermissionMapping[resourceLevel.access_level]}</b>
+            <Link to={`${urls.organizationSettings()}?tab=role_access`}>
+                <b>{ResourcePermissionMapping[resourceLevel.access_level]}</b>
+            </Link>
         </>
     )
 }
