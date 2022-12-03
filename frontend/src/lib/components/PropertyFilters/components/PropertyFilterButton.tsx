@@ -1,6 +1,6 @@
 import './PropertyFilterButton.scss'
 import { Button } from 'antd'
-import { AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType } from '~/types'
 import { CloseButton } from 'lib/components/CloseButton'
 import { IconCohort, IconPerson, UnverifiedEvent } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -19,9 +19,9 @@ export interface PropertyFilterButtonProps {
     style?: React.CSSProperties
 }
 
-export function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element {
+export function PropertyFilterIcon({ type }: { type?: PropertyFilterType }): JSX.Element {
     let iconElement = <></>
-    switch (item?.type) {
+    switch (type) {
         case 'event':
             iconElement = (
                 <Tooltip title={'Event property'}>
@@ -69,7 +69,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                 ref={ref}
                 className="PropertyFilterButton ph-no-capture"
             >
-                <PropertyFilterIcon item={item} />
+                <PropertyFilterIcon type={item.type} />
                 <span className="PropertyFilterButton-content" title={label}>
                     {midEllipsis(label, 32)}
                 </span>

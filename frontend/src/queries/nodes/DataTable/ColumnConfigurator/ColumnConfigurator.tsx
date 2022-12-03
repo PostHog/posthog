@@ -110,13 +110,7 @@ function ColumnConfiguratorModal(): JSX.Element {
                 style={{ height: `${rowItemHeight}px` }}
             >
                 {!disabled && <DragHandle />}
-                {columnType && (
-                    <PropertyFilterIcon
-                        item={{
-                            type: columnType,
-                        }}
-                    />
-                )}
+                {columnType && <PropertyFilterIcon type={columnType} />}
                 <PropertyKeyInfo className="ml-1" value={columnKey} />
                 <div className="text-right flex-1">
                     <Tooltip title={disabled ? 'Reserved' : 'Remove'}>
