@@ -75,7 +75,7 @@ export type PromptConfig = {
 export type PromptState = {
     key: string
     last_updated_at: string
-    step: number
+    step: number | null
     completed?: boolean
     dismissed?: boolean
 }
@@ -425,7 +425,7 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                         valid.push({
                             sequence,
                             state: {
-                                step: sequenceState.step + 1,
+                                step: sequenceState.step ? sequenceState.step + 1 : 0,
                                 completed,
                                 canRun,
                             },
