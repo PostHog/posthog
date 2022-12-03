@@ -19,10 +19,17 @@ function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void
         max_limit: 3500,
     }
 
+    const columnMapping = {
+        url: ['properties.$current_url', 'properties.$screen_name'],
+        time: 'timestamp',
+        event: 'event',
+        source: 'properties.$lib',
+        person: ['person.distinct_ids.0', 'person.properties.email'],
+    }
+
     if (onlySelectedColumns) {
-        exportContext['columns'] = (query.columns ?? defaultDataTableStringColumns)?.map((c) =>
-            // replace "person" with "distinct_id" for export
-            c === 'person' ? 'distinct_id' : c
+        exportContext['columns'] = (query.columns ?? defaultDataTableStringColumns)?.flatMap(
+            (c) => columnMapping[c] || c
         )
     }
     triggerExport({

@@ -1,3 +1,4 @@
+import './DataTable.scss'
 import { DataTableNode, EventsNode } from '~/queries/schema'
 import { useState } from 'react'
 import { useValues, BindLogic } from 'kea'
@@ -18,6 +19,7 @@ import { dataTableLogic, DataTableLogicProps } from '~/queries/nodes/DataTable/d
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { teamLogic } from 'scenes/teamLogic'
 import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/defaults'
+import { LemonDivider } from 'lib/components/LemonDivider'
 
 interface DataTableProps {
     query: DataTableNode
@@ -71,19 +73,32 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     const dataSource = (response as null | EventsNode['response'])?.results ?? []
     const setQuerySource = (source: EventsNode): void => setQuery?.({ ...query, source })
 
+    const showFilters = showEventFilter || showPropertyFilter
+    const showTools = showReload || showExport || showColumnConfigurator
+
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                {(showReload || showEventFilter || showPropertyFilter || showExport || showColumnConfigurator) && (
+                {showFilters && (
                     <div className="flex space-x-4 mb-4">
-                        {showReload && (canLoadNewData ? <AutoLoad /> : <Reload />)}
                         {showEventFilter && <EventName query={query.source} setQuery={setQuerySource} />}
                         {showPropertyFilter && <EventPropertyFilters query={query.source} setQuery={setQuerySource} />}
-                        {showExport && <DataTableExport query={query} setQuery={setQuery} />}
+                    </div>
+                )}
+                {showFilters && showTools ? (
+                    <div className="my-4">
+                        <LemonDivider />
+                    </div>
+                ) : null}
+                {showTools && (
+                    <div className="flex space-x-4 mb-4">
+                        <div className="flex-1">{showReload && (canLoadNewData ? <AutoLoad /> : <Reload />)}</div>
                         {showColumnConfigurator && <ColumnConfigurator query={query} setQuery={setQuery} />}
+                        {showExport && <DataTableExport query={query} setQuery={setQuery} />}
                     </div>
                 )}
                 <LemonTable
+                    className="DataTable"
                     loading={responseLoading && !nextDataLoading && !newDataLoading}
                     columns={lemonColumns}
                     dataSource={dataSource}
@@ -98,6 +113,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
                               }
                             : undefined
                     }
+                    rowKey={(row) => row.id ?? undefined}
                 />
                 {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && <LoadNext />}
             </BindLogic>
