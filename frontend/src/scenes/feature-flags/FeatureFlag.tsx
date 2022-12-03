@@ -254,6 +254,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 onAdd={() => addAssociatedRoles()}
                                                 roles={derivedRoles}
                                                 deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+                                                canEdit={featureFlag.can_edit}
                                             />
                                         </PayGateMini>
                                     </Card>
@@ -414,6 +415,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     onAdd={() => addAssociatedRoles()}
                                                     roles={derivedRoles}
                                                     deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+                                                    canEdit={featureFlag.can_edit}
                                                 />
                                             </PayGateMini>
                                         </Tabs.TabPane>
