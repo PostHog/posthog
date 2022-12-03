@@ -1,12 +1,19 @@
+import json
 from typing import Any, Dict, List
 
 from dateutil import parser
-from rest_framework import exceptions, request, serializers, viewsets
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.utils import get_token
+from posthog.exceptions import generate_exception_response
 from posthog.models.prompt import Prompt, PromptSequence, UserPromptState
+from posthog.models.user import User
+from posthog.utils import cors_response
 
 
 class PromptButtonSerializer(serializers.Serializer):
@@ -17,6 +24,9 @@ class PromptButtonSerializer(serializers.Serializer):
 
 class PromptSerializer(serializers.ModelSerializer):
     buttons = PromptButtonSerializer(many=True, required=False)
+    reference = serializers.CharField(default=None)
+    placement = serializers.CharField(default="top")
+    type = serializers.CharField(default="tooltip")
 
     class Meta:
         model = Prompt
@@ -25,10 +35,13 @@ class PromptSerializer(serializers.ModelSerializer):
 
 class PromptSequenceSerializer(serializers.ModelSerializer):
     prompts = PromptSerializer(many=True)
+    path_match = serializers.ListField(child=serializers.CharField(), default=[])
+    path_exclude = serializers.ListField(child=serializers.CharField(), default=[])
+    status = serializers.CharField(default="active")
 
     class Meta:
         model = PromptSequence
-        fields = ["key", "path_match", "path_exclude", "type", "status", "prompts"]
+        fields = ["key", "path_match", "path_exclude", "requires_opt_in", "type", "status", "prompts"]
 
 
 class UserPromptStateSerializer(serializers.ModelSerializer):
@@ -37,7 +50,7 @@ class UserPromptStateSerializer(serializers.ModelSerializer):
         fields = ["last_updated_at", "step", "completed", "dismissed"]
 
 
-class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
+class PromptSequenceViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     """
     Create, read, update and delete prompt sequences state for a person.
     """
@@ -51,21 +64,22 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         all_sequences = PromptSequence.objects.filter(status="active")
         for key in request.data:
             if key not in local_state_keys:
-                sequence = all_sequences.get(key=key)
-                if not sequence:
-                    continue
-                parsed_state: Dict[str, Any] = dict(
-                    request.data[key],
-                    last_updated_at=parser.isoparse(request.data[key]["last_updated_at"]),
-                    sequence=sequence,
-                )
-                local_states.append(
-                    UserPromptState(
-                        user=request.user,
-                        **parsed_state,
+                try:
+                    sequence = all_sequences.get(key=key)
+                    parsed_state: Dict[str, Any] = dict(
+                        request.data[key],
+                        last_updated_at=parser.isoparse(request.data[key]["last_updated_at"]),
+                        sequence=sequence,
                     )
-                )
-                local_state_keys.add(key)  # prevent duplicates
+                    local_states.append(
+                        UserPromptState(
+                            user=request.user,
+                            **parsed_state,
+                        )
+                    )
+                    local_state_keys.add(key)  # prevent duplicates
+                except:
+                    continue
 
         states_to_update: List[UserPromptState] = []
         states_to_create: List[UserPromptState] = []
@@ -120,3 +134,92 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             UserPromptState.objects.bulk_update(states_to_update, ["last_updated_at", "step", "completed", "dismissed"])
 
         return Response(my_prompts)
+
+
+class WebhookSerializer(serializers.Serializer):
+    sequence = PromptSequenceSerializer()
+    email = serializers.EmailField()
+
+
+class WebhookSequenceSerializer(serializers.ModelSerializer):
+    path_match = serializers.ListField(child=serializers.CharField(), default=["/*"])
+    path_exclude = serializers.ListField(child=serializers.CharField(), default=[])
+    requires_opt_in = serializers.BooleanField(default=False)
+    status = serializers.CharField(default="active")
+
+    class Meta:
+        model = PromptSequence
+        fields = ["key", "path_match", "path_exclude", "type", "status", "requires_opt_in"]
+
+
+@csrf_exempt
+def prompt_webhook(request: request.Request):
+
+    if request.method == "POST":
+        data = json.loads(request.body)
+    else:
+        return (
+            None,
+            cors_response(
+                request,
+                generate_exception_response(
+                    "prompts_webhook",
+                    "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
+                    code="no_data",
+                ),
+            ),
+        )
+
+    token = get_token(data, request)
+
+    if not token:
+        return cors_response(
+            request,
+            generate_exception_response(
+                "prompts_webhook",
+                "API key not provided. You can find your project API key in PostHog project settings.",
+                type="authentication_error",
+                code="missing_api_key",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            ),
+        )
+
+    serializer = WebhookSerializer(data=data)
+    if not serializer.is_valid():
+        return cors_response(
+            request,
+            generate_exception_response(
+                "prompts_webhook",
+                serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            ),
+        )
+    serialized_data = serializer.validated_data
+    try:
+        user = User.objects.get(email=serialized_data["email"])
+    except User.DoesNotExist:
+        return cors_response(
+            request,
+            generate_exception_response(
+                "prompts_webhook",
+                "User does not exist",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            ),
+        )
+
+    prompt_data = []
+    for prompt in serialized_data["sequence"]["prompts"]:
+        prompt_data.append(PromptSerializer(prompt).data)
+
+    sequence_data = WebhookSequenceSerializer(serialized_data["sequence"]).data
+    try:
+        sequence = PromptSequence.objects.get(key=sequence_data["key"])
+    except PromptSequence.DoesNotExist:
+        sequence = PromptSequence.objects.create(**sequence_data, autorun=False)
+        for prompt in prompt_data:
+            new_prompt = Prompt.objects.create(**prompt)
+            sequence.prompts.add(new_prompt)
+
+    UserPromptState.objects.get_or_create(user=user, sequence=sequence, step=None)
+
+    return cors_response(request, JsonResponse(status=status.HTTP_201_CREATED, data={"success": True}))

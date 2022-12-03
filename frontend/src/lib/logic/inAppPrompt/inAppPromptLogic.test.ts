@@ -40,11 +40,8 @@ const configProductTours: PromptConfig & { state: PromptUserState } = {
                     reference: 'tooltip-test',
                 },
             ],
-            rule: {
-                path: {
-                    must_match: ['/events'],
-                },
-            },
+            path_match: ['/events'],
+            path_exclude: [],
             type: 'product-tour',
         },
         {
@@ -67,12 +64,8 @@ const configProductTours: PromptConfig & { state: PromptUserState } = {
                     reference: 'tooltip-test',
                 },
             ],
-            rule: {
-                path: {
-                    must_match: ['/dashboard'],
-                    exclude: ['/dashboard/*'],
-                },
-            },
+            path_match: ['/dashboard'],
+            path_exclude: ['/dashboard/*'],
             type: 'product-tour',
         },
     ],
@@ -80,6 +73,13 @@ const configProductTours: PromptConfig & { state: PromptUserState } = {
         'experiment-events-product-tour': {
             key: 'experiment-events-product-tour',
             step: 0,
+            completed: false,
+            dismissed: false,
+            last_updated_at: '2022-07-26T16:32:55.153Z',
+        },
+        'experiment-dashboards-product-tour': {
+            key: 'experiment-dashboards-product-tour',
+            step: null,
             completed: false,
             dismissed: false,
             last_updated_at: '2022-07-26T16:32:55.153Z',
@@ -101,11 +101,8 @@ const configOptIn: PromptConfig & { state: PromptUserState } = {
                     reference: 'tooltip-test',
                 },
             ],
-            rule: {
-                path: {
-                    must_match: ['/*'],
-                },
-            },
+            path_match: ['/*'],
+            path_exclude: [],
             type: 'one-off',
         },
         {
@@ -120,16 +117,28 @@ const configOptIn: PromptConfig & { state: PromptUserState } = {
                     reference: 'tooltip-test',
                 },
             ],
-            rule: {
-                path: {
-                    must_match: ['/*'],
-                },
-                requires_opt_in: true,
-            },
+            path_match: ['/*'],
+            path_exclude: [],
+            requires_opt_in: true,
             type: 'one-off',
         },
     ],
-    state: {},
+    state: {
+        'experiment-one-off-intro': {
+            key: 'experiment-one-off-intro',
+            step: null,
+            completed: false,
+            dismissed: false,
+            last_updated_at: '2022-07-26T16:32:55.153Z',
+        },
+        'experiment-one-off': {
+            key: 'experiment-one-off',
+            step: null,
+            completed: false,
+            dismissed: false,
+            last_updated_at: '2022-07-26T16:32:55.153Z',
+        },
+    },
 }
 
 describe('inAppPromptLogic', () => {
@@ -194,14 +203,7 @@ describe('inAppPromptLogic', () => {
                             sequence: configOptIn.sequences[0],
                             state: {
                                 step: 0,
-                                canRun: true,
-                            },
-                        },
-                        {
-                            sequence: configOptIn.sequences[1],
-                            state: {
-                                step: 0,
-                                canRun: false,
+                                completed: false,
                             },
                         },
                     ],
@@ -216,14 +218,14 @@ describe('inAppPromptLogic', () => {
                         sequence: configOptIn.sequences[0],
                         state: {
                             step: 0,
-                            canRun: true,
+                            completed: false,
                         },
                     },
                     {
                         sequence: configOptIn.sequences[1],
                         state: {
                             step: 0,
-                            canRun: true,
+                            completed: false,
                         },
                     },
                 ],
@@ -280,7 +282,7 @@ describe('inAppPromptLogic', () => {
                             sequence: configProductTours.sequences[1],
                             state: {
                                 step: 0,
-                                canRun: true,
+                                completed: false,
                             },
                         },
                     ],
@@ -300,13 +302,6 @@ describe('inAppPromptLogic', () => {
                     currentSequence: configProductTours.sequences[1],
                     currentStep: 0,
                 })
-        })
-
-        it('does not run a sequence left unfinished', async () => {
-            router.actions.push(urls.events())
-            await expectLogic(logic).toNotHaveDispatchedActions(['promptShownSuccessfully']).toMatchValues({
-                isPromptVisible: false,
-            })
         })
 
         it('can dismiss a sequence', async () => {
@@ -392,6 +387,13 @@ describe('inAppPromptLogic', () => {
                         2
                     ),
                 ])
+        })
+
+        it('does not run a sequence left unfinished', async () => {
+            router.actions.push(urls.events())
+            await expectLogic(logic).toNotHaveDispatchedActions(['promptShownSuccessfully']).toMatchValues({
+                isPromptVisible: false,
+            })
         })
     })
 })
