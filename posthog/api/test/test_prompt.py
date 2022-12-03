@@ -117,7 +117,7 @@ class TestPrompt(APIBaseTest):
     def test_webhook(self):
         webhook_data = {
             "api_key": self.team.api_token,
-            "email": self.user.email,
+            "emails": [self.user.email],
             "sequence": {
                 "key": "start-flow",
                 "type": "one-off",
