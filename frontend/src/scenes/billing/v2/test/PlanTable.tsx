@@ -476,7 +476,9 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                     disableClientSideRouting
                                     disabled={plan.name === 'PostHog Cloud Lite' && !billing?.billing_period}
                                     onClick={() => {
-                                        reportBillingUpgradeClicked(plan.name)
+                                        if (plan.name != 'PostHog Cloud Lite') {
+                                            reportBillingUpgradeClicked(plan.name)
+                                        }
                                     }}
                                 >
                                     {!billing?.billing_period && plan.name === 'PostHog Cloud Lite'
