@@ -822,11 +822,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.layoutForItem],
             (layoutForItem) => (tiles: Array<DashboardTile>) => {
                 return [...tiles].sort((a: DashboardTile, b: DashboardTile) => {
-                    const aPos = layoutForItem[a.id]
-                    const bPos = layoutForItem[b.id]
-                    if (aPos.x < bPos.x || (aPos.x == bPos.x && aPos.y < bPos.y)) {
+                    const ax = layoutForItem[a.id]?.x ?? 0
+                    const ay = layoutForItem[a.id]?.y ?? 0
+                    const bx = layoutForItem[b.id]?.x ?? 0
+                    const by = layoutForItem[b.id]?.y ?? 0
+                    if (ax < bx || (ax == bx && ay < by)) {
                         return -1
-                    } else if (aPos.x > bPos.x || (aPos.x == bPos.x && aPos.y > bPos.y)) {
+                    } else if (ax > bx || (ax == bx && by > by)) {
                         return 1
                     } else {
                         return 0
