@@ -12,6 +12,7 @@ from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.caching.calculate_results import calculate_result_by_cache_type, get_cache_type
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import Dashboard, Insight, InsightCachingState, Team
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import generate_insight_cache_key
@@ -108,6 +109,7 @@ def update_cache(caching_state_id: UUID):
 
     exception = None
     try:
+        tag_queries(team_id=team.pk, insight_id=insight.pk, cache_type=cache_type, cache_key=cache_key)
         result = calculate_result_by_cache_type(cache_type, filter, team)
     except Exception as err:
         capture_exception(err, metadata)
