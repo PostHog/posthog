@@ -139,7 +139,11 @@ def update_cache(caching_state_id: UUID):
             refresh_attempt=caching_state.refresh_attempt,
         )
         statsd.incr("caching_state_update_errors")
-        # :TODO: Queue task to try again later
+
+        if caching_state.refresh_attempt < MAX_ATTEMPTS:
+            from posthog.celery import update_cache_task
+
+            update_cache_task.apply_async(args=[caching_state_id], countdown=timedelta(minutes=10).total_seconds())
 
 
 def update_cached_state(team_id: int, cache_key: str, timestamp: datetime, result: Any):
