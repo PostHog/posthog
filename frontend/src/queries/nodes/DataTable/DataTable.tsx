@@ -53,7 +53,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
             dataIndex: key as any,
             title: renderTitle(key),
             render: function RenderDataTableColumn(_: any, record: EventType) {
-                return renderColumn(key, record)
+                return renderColumn(key, record, query, setQuery)
             },
         })),
         ...(showActions

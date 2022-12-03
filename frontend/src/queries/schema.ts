@@ -116,6 +116,8 @@ export interface DataTableNode extends Node {
     showColumnConfigurator?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
+    /** Link properties via the URL (default: false) */
+    urlProperties?: boolean
 }
 
 // Base class should not be used directly

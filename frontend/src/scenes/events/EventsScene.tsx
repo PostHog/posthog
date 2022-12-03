@@ -18,6 +18,7 @@ export function EventsScene(): JSX.Element {
             event: eventFilter,
             limit: 100,
         },
+        urlProperties: true,
     }
     return (
         <>
