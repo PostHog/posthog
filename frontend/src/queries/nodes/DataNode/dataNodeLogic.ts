@@ -35,48 +35,47 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     return (await query<DataNode>(values.query)) ?? null
                 },
                 loadNewData: async () => {
-                    if (!values.canLoadNewData) {
-                        return
+                    if (!values.canLoadNewData || values.dataLoading) {
+                        return values.response
                     }
-                    const oldResponse = values.response as EventsNode['response'] | null
                     const diffQuery: EventsNode =
-                        oldResponse && oldResponse.results?.length > 0
+                        values.response && values.response.results?.length > 0
                             ? {
                                   ...values.query,
-                                  after: oldResponse.results[0].timestamp,
+                                  after: values.response.results[0].timestamp,
                               }
                             : values.query
                     const newResponse = (await query(diffQuery)) ?? null
                     return {
-                        results: [...(newResponse?.results ?? []), ...(oldResponse?.results ?? [])],
-                        next: oldResponse?.next,
+                        results: [...(newResponse?.results ?? []), ...(values.response?.results ?? [])],
+                        next: values.response?.next,
                     }
                 },
                 loadNextData: async () => {
-                    if (!values.canLoadNextData) {
-                        return
+                    if (!values.canLoadNextData || values.dataLoading) {
+                        return values.response
                     }
-                    const oldResponse = values.response as EventsNode['response'] | null
                     const diffQuery: EventsNode =
-                        oldResponse && oldResponse.results?.length > 0
+                        values.response && values.response.results?.length > 0
                             ? {
                                   ...values.query,
-                                  before: oldResponse.results[oldResponse.results.length - 1].timestamp,
+                                  before: values.response.results[values.response.results.length - 1].timestamp,
                               }
                             : values.query
                     const newResponse = (await query(diffQuery)) ?? null
                     return {
-                        results: [...(oldResponse?.results ?? []), ...(newResponse?.results ?? [])],
-                        next: oldResponse?.next,
+                        results: [...(values.response?.results ?? []), ...(newResponse?.results ?? [])],
+                        next: values.response?.next,
                     }
                 },
             },
         ],
     })),
     reducers({
+        dataLoading: [false, { loadData: () => true, loadDataSuccess: () => false, loadDataFailure: () => false }],
         newDataLoading: [
             false,
-            { loadNewData: () => true, loadNewDataSuccess: () => false, loadDataFailure: () => false },
+            { loadNewData: () => true, loadNewDataSuccess: () => false, loadNewDataFailure: () => false },
         ],
         nextDataLoading: [
             false,
@@ -104,8 +103,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
         autoLoadRunning: [
-            (s) => [s.autoLoadEnabled, s.autoLoadStarted],
-            (autoLoadEnabled, autoLoadStarted) => autoLoadEnabled && autoLoadStarted,
+            (s) => [s.autoLoadEnabled, s.autoLoadStarted, s.dataLoading],
+            (autoLoadEnabled, autoLoadStarted, dataLoading) => autoLoadEnabled && autoLoadStarted && !dataLoading,
         ],
     }),
     subscriptions(({ actions, cache, values }) => ({
