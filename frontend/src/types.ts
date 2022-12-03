@@ -51,6 +51,7 @@ export enum AvailableFeature {
     APP_METRICS = 'app_metrics',
     RECORDINGS_PLAYLISTS = 'recordings_playlists',
     ROLE_BASED_ACCESS = 'role_based_access',
+    RECORDINGS_FILE_EXPORT = 'recordings_file_export',
 }
 
 export enum LicensePlan {
@@ -390,6 +391,7 @@ export enum SavedInsightsTabs {
 export enum SessionRecordingsTabs {
     Recent = 'recent',
     Playlists = 'playlists',
+    FilePlayback = 'file-playback',
 }
 
 export enum ExperimentsTabs {
@@ -2380,6 +2382,8 @@ export interface RoleType {
     id: string
     name: string
     feature_flags_access_level: AccessLevel
+    members: RoleMemberType[]
+    associated_flags: { id: number; key: string }[]
     created_at: string
     created_by: UserBasicType | null
 }
