@@ -1,6 +1,6 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from time import perf_counter
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 from uuid import UUID
 
 import structlog
@@ -116,13 +116,11 @@ def update_cache(caching_state_id: UUID):
     duration = perf_counter() - start_time
     if exception is None:
         timestamp = now()
-        cache.set(
-            cache_key, {"result": result, "type": cache_type, "last_refresh": timestamp}, settings.CACHED_RESULTS_TTL
-        )
-        # :TRICKY: We update _all_ states with same cache_key to avoid needless re-calculations and
-        #   handle race conditions around cache_key changing.
-        rows_updated = InsightCachingState.objects.filter(team_id=caching_state.team_id, cache_key=cache_key).update(
-            last_refresh=timestamp, refresh_attempt=0
+        rows_updated = update_cached_state(
+            caching_state.team_id,
+            cache_key,
+            timestamp,
+            {"result": result, "type": cache_type, "last_refresh": timestamp},
         )
         statsd.incr("caching_state_update_success")
         statsd.incr("caching_state_update_rows_updated", rows_updated)
@@ -142,6 +140,16 @@ def update_cache(caching_state_id: UUID):
         )
         statsd.incr("caching_state_update_errors")
         # :TODO: Queue task to try again later
+
+
+def update_cached_state(team_id: int, cache_key: str, timestamp: datetime, result: Any):
+    cache.set(cache_key, result, settings.CACHED_RESULTS_TTL)
+
+    # :TRICKY: We update _all_ states with same cache_key to avoid needless re-calculations and
+    #   handle race conditions around cache_key changing.
+    return InsightCachingState.objects.filter(team_id=team_id, cache_key=cache_key).update(
+        last_refresh=timestamp, refresh_attempt=0
+    )
 
 
 def _extract_insight_dashboard(caching_state: InsightCachingState) -> Tuple[Insight, Optional[Dashboard]]:
