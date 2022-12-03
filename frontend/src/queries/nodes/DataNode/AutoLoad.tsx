@@ -8,6 +8,9 @@ export function AutoLoad(): JSX.Element {
     const { autoLoadEnabled, newDataLoading } = useValues(dataNodeLogic)
     const { startAutoLoad, stopAutoLoad, toggleAutoLoad } = useActions(dataNodeLogic)
 
+    // Reload data only when this AutoLoad component is mounted.
+    // This avoids needless reloading in the background, as logics might be kept around,
+    // even if not visually present.
     useEffect(() => {
         startAutoLoad()
         return () => stopAutoLoad()

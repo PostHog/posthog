@@ -94,7 +94,7 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
                     value={
                         column.startsWith('properties.')
                             ? column.substring(11)
-                            : column.startsWith('person.properties')
+                            : column.startsWith('person.properties.')
                             ? column.substring(18)
                             : column
                     }
