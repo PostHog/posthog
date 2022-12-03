@@ -1,4 +1,4 @@
-.PlanCards {
+.PlanTable {
     max-width: 1200px;
     table {
         table-layout: fixed;
@@ -12,13 +12,18 @@
             font-weight: 800;
             text-align: left;
 
-            &.PlansCards__th__section {
+            &.PlanTable__th__section {
                 padding: 0.25rem 1.25rem 0.25rem;
                 font-weight: 500;
             }
+
+            &.PlanTable__th__subfeature {
+                padding: 1rem 0 1rem 2rem;
+                font-weight: 600;
+            }
         }
     }
-    .PlanCards__tr__border {
+    .PlanTable__tr__border {
         border-bottom: 3px rgba(0, 0, 0, 0.07) dotted;
     }
 }

@@ -63,15 +63,17 @@ export const billingPlans: BillingPlan[] = [
                     {
                         name: 'Funnels',
                         value: 'limited functionality',
+                        note: 'Limited',
                     },
                     {
                         name: 'Path analysis',
                         value: 'limited functionality',
+                        note: 'Limited',
                     },
                     {
                         name: 'Dashboards',
                         value: '1 dashboard',
-                        note: '1 dashbaord',
+                        note: '1 dashboard',
                     },
                     {
                         name: 'Group analytics',
@@ -325,6 +327,37 @@ export const billingPlans: BillingPlan[] = [
     },
 ]
 
+export function PlanIcon({
+    value,
+    note,
+    className,
+}: {
+    value: boolean | string
+    note?: string
+    className?: string
+}): JSX.Element {
+    return (
+        <div className="flex items-center">
+            {value === true ? (
+                <>
+                    <IconCheckmark className={`text-success mr-4 ${className}`} />
+                    {note}
+                </>
+            ) : value === false ? (
+                <>
+                    <IconClose className={`text-danger mr-4 ${className}`} />
+                    {note}
+                </>
+            ) : (
+                <>
+                    <IconWarning className={`text-warning mr-4 ${className}`} />
+                    {note}
+                </>
+            )}
+        </div>
+    )
+}
+
 export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Element {
     const { billing } = useValues(billingTestLogic)
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
@@ -350,7 +383,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
     ))
 
     return (
-        <div className="PlanCards space-x-4">
+        <div className="PlanTable space-x-4">
             <table className="w-full table-fixed">
                 <thead>
                     <tr>
@@ -367,12 +400,12 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                     <tr>
                         <th
                             colSpan={4}
-                            className="PlansCards__th__section bg-muted-light text-muted justify-left rounded text-left mb-2"
+                            className="PlanTable__th__section bg-muted-light text-muted justify-left rounded text-left mb-2"
                         >
                             <span>Pricing</span>
                         </th>
                     </tr>
-                    <tr className="PlanCards__tr__border">
+                    <tr className="PlanTable__tr__border">
                         <td className="font-bold">Monthly Base Price</td>
                         {billingPlans.map((plan) => (
                             <td key={`${plan.name}-basePrice`} className="text-sm font-bold">
@@ -384,7 +417,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                         <tr
                             key={product}
                             className={
-                                i !== Object.keys(billingPlans[0].products).length - 1 ? 'PlanCards__tr__border' : ''
+                                i !== Object.keys(billingPlans[0].products).length - 1 ? 'PlanTable__tr__border' : ''
                             }
                         >
                             <th scope="row">{billingPlans[0].products[product].name}</th>
@@ -419,7 +452,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                     <tr>
                         <th
                             colSpan={4}
-                            className="PlansCards__th__section bg-muted-light text-muted justify-left rounded text-left mb-2"
+                            className="PlanTable__th__section bg-muted-light text-muted justify-left rounded text-left mb-2"
                         >
                             <div className="flex justify-between items-center">
                                 <span>Features</span>
@@ -436,36 +469,56 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                         </th>
                     </tr>
                     {Object.keys(billingPlans[0].featureList).map((feature, i) => (
-                        <tr
-                            key={feature}
-                            className={
-                                i !== Object.keys(billingPlans[0].featureList).length - 1 ? 'PlanCards__tr__border' : ''
-                            }
-                        >
-                            <th>{billingPlans[0].featureList[feature].name || 'Product analytics'}</th>
-                            {billingPlans.map((plan) => (
-                                <td key={`${plan.name}-${feature}`}>
-                                    <div className="flex items-center">
-                                        {plan.featureList[feature].value === true ? (
-                                            <>
-                                                <IconCheckmark className="text-success text-xl mr-4" />
-                                                {plan.featureList[feature].note}
-                                            </>
-                                        ) : plan.featureList[feature].value === false ? (
-                                            <>
-                                                <IconClose className="text-danger text-xl" />
-                                                {plan.featureList[feature].note}
-                                            </>
-                                        ) : (
-                                            <>
-                                                <IconWarning className="text-warning text-xl mr-4" />
-                                                {plan.featureList[feature].note}
-                                            </>
-                                        )}
-                                    </div>
-                                </td>
-                            ))}
-                        </tr>
+                        <>
+                            <tr
+                                key={feature}
+                                className={
+                                    // Show the bottom border if it's not the last feature in the list and it doesn't have subfeatures
+                                    i !== Object.keys(billingPlans[0].featureList).length - 1 &&
+                                    !billingPlans[0].featureList[feature].subfeatures
+                                        ? 'PlanTable__tr__border'
+                                        : ''
+                                }
+                            >
+                                <th>{billingPlans[0].featureList[feature].name}</th>
+                                {billingPlans.map((plan) => (
+                                    <td key={`${plan.name}-${feature}`}>
+                                        <PlanIcon
+                                            value={plan.featureList[feature].value}
+                                            note={plan.featureList[feature].note}
+                                            className={'text-xl'}
+                                        />
+                                    </td>
+                                ))}
+                            </tr>
+                            {billingPlans[0].featureList[feature].subfeatures
+                                ? Object.keys(billingPlans[0].featureList[feature].subfeatures).map((subfeature, j) => (
+                                      <tr
+                                          key={subfeature}
+                                          className={
+                                              // Show the bottom border on the row if it's the last subfeature in the list
+                                              j ===
+                                              Object.keys(billingPlans[0].featureList[feature].subfeatures).length - 1
+                                                  ? 'PlanTable__tr__border'
+                                                  : ''
+                                          }
+                                      >
+                                          <th className="PlanTable__th__subfeature text-muted text-xs">
+                                              {billingPlans[0].featureList[feature].subfeatures[subfeature].name}
+                                          </th>
+                                          {billingPlans.map((plan) => (
+                                              <td key={`${plan.name}-${subfeature}`}>
+                                                  <PlanIcon
+                                                      value={plan.featureList[feature].subfeatures[subfeature]?.value}
+                                                      note={plan.featureList[feature].subfeatures[subfeature]?.note}
+                                                      className={'text-base'}
+                                                  />
+                                              </td>
+                                          ))}
+                                      </tr>
+                                  ))
+                                : null}
+                        </>
                     ))}
                     <tr>
                         <td />
