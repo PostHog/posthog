@@ -138,7 +138,7 @@ class PromptSequenceViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
 class WebhookSerializer(serializers.Serializer):
     sequence = PromptSequenceSerializer()
-    email = serializers.EmailField()
+    email = serializers.EmailField(required=False)
 
 
 class WebhookSequenceSerializer(serializers.ModelSerializer):
@@ -195,17 +195,6 @@ def prompt_webhook(request: request.Request):
             ),
         )
     serialized_data = serializer.validated_data
-    try:
-        user = User.objects.get(email=serialized_data["email"])
-    except User.DoesNotExist:
-        return cors_response(
-            request,
-            generate_exception_response(
-                "prompts_webhook",
-                "User does not exist",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            ),
-        )
 
     prompt_data = []
     for prompt in serialized_data["sequence"]["prompts"]:
@@ -220,6 +209,18 @@ def prompt_webhook(request: request.Request):
             new_prompt = Prompt.objects.create(**prompt)
             sequence.prompts.add(new_prompt)
 
-    UserPromptState.objects.get_or_create(user=user, sequence=sequence, step=None)
+    if serialized_data.get("email"):
+        try:
+            user = User.objects.get(email=serialized_data["email"])
+        except User.DoesNotExist:
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "prompts_webhook",
+                    "User does not exist",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                ),
+            )
+        UserPromptState.objects.get_or_create(user=user, sequence=sequence, step=None)
 
     return cors_response(request, JsonResponse(status=status.HTTP_201_CREATED, data={"success": True}))
