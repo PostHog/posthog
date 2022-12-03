@@ -2,6 +2,7 @@ import json
 from typing import Any, Dict, List
 
 from dateutil import parser
+from django.db import IntegrityError
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import exceptions, request, serializers, status, viewsets
@@ -215,8 +216,8 @@ def prompt_webhook(request: request.Request):
         for email in serialized_data["emails"]:
             try:
                 user = User.objects.get(email=email)
-                UserPromptState.objects.get_or_create(user=user, sequence=sequence, step=None)
-            except User.DoesNotExist:
+                UserPromptState.objects.create(user=user, sequence=sequence, step=None)
+            except (User.DoesNotExist, IntegrityError):
                 pass
 
     return cors_response(request, JsonResponse(status=status.HTTP_201_CREATED, data={"success": True}))
