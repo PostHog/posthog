@@ -26,8 +26,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         startAutoLoad: true,
         stopAutoLoad: true,
         toggleAutoLoad: true,
+        highlightRows: (rowIds: string[], now = new Date().valueOf()) => ({ rowIds, now }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         response: [
             null as DataNode['response'] | null,
             {
@@ -46,6 +47,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                               }
                             : values.query
                     const newResponse = (await query(diffQuery)) ?? null
+                    actions.highlightRows((newResponse?.results ?? []).map((r) => r.id))
                     return {
                         results: [...(newResponse?.results ?? []), ...(values.response?.results ?? [])],
                         next: values.response?.next,
@@ -83,6 +85,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
         autoLoadEnabled: [false, { toggleAutoLoad: (state) => !state }],
         autoLoadStarted: [false, { startAutoLoad: () => true, stopAutoLoad: () => false }],
+        highlightedRows: [
+            {} as Record<string, number>,
+            {
+                highlightRows: (state, { rowIds, now }) => {
+                    const newState = { ...state }
+                    for (const rowId of rowIds) {
+                        newState[rowId] = now
+                    }
+                    return newState
+                },
+                loadDataSuccess: () => ({}),
+            },
+        ],
     }),
     selectors({
         query: [() => [(_, props) => props.query], (query) => query],

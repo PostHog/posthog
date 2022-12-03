@@ -21,6 +21,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/defaults'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
+import clsx from 'clsx'
 
 interface DataTableProps {
     query: DataTableNode
@@ -42,9 +43,15 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     const [id] = useState(() => uniqueNode++)
 
     const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key: `DataTable.${id}` }
-    const { response, responseLoading, canLoadNextData, canLoadNewData, nextDataLoading, newDataLoading } = useValues(
-        dataNodeLogic(dataNodeLogicProps)
-    )
+    const {
+        response,
+        responseLoading,
+        canLoadNextData,
+        canLoadNewData,
+        nextDataLoading,
+        newDataLoading,
+        highlightedRows,
+    } = useValues(dataNodeLogic(dataNodeLogicProps))
 
     const { currentTeam } = useValues(teamLogic)
     const defaultColumns = currentTeam?.live_events_columns ?? defaultDataTableStringColumns
@@ -122,6 +129,9 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
                             : undefined
                     }
                     rowKey={(row) => row.id ?? undefined}
+                    rowClassName={(row) =>
+                        clsx('DataTable__row', { 'DataTable__row--highlight_once': highlightedRows[row?.id] })
+                    }
                 />
                 {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && <LoadNext />}
             </BindLogic>
