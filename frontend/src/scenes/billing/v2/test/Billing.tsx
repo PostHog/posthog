@@ -43,6 +43,15 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
     }
 
     if (!billing && !billingLoading) {
+        const supportLink = (
+            <Link
+                target="blank"
+                to="https://posthog.com/support?utm_medium=in-product&utm_campaign=billing-service-unreachable"
+            >
+                {' '}
+                contact support{' '}
+            </Link>
+        )
         return (
             <div className="space-y-4">
                 <AlertMessage type="error">
@@ -61,16 +70,6 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
             </div>
         )
     }
-
-    const supportLink = (
-        <Link
-            target="blank"
-            to="https://posthog.com/support?utm_medium=in-product&utm_campaign=billing-service-unreachable"
-        >
-            {' '}
-            contact support{' '}
-        </Link>
-    )
 
     const products = billing?.products
 
