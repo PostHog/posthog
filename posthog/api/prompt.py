@@ -138,7 +138,7 @@ class PromptSequenceViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
 class WebhookSerializer(serializers.Serializer):
     sequence = PromptSequenceSerializer()
-    email = serializers.EmailField(required=False)
+    emails = serializers.ListField(child=serializers.EmailField(), required=False)
 
 
 class WebhookSequenceSerializer(serializers.ModelSerializer):
@@ -146,10 +146,11 @@ class WebhookSequenceSerializer(serializers.ModelSerializer):
     path_exclude = serializers.ListField(child=serializers.CharField(), default=[])
     requires_opt_in = serializers.BooleanField(default=False)
     status = serializers.CharField(default="active")
+    autorun = serializers.BooleanField(default=False)
 
     class Meta:
         model = PromptSequence
-        fields = ["key", "path_match", "path_exclude", "type", "status", "requires_opt_in"]
+        fields = ["key", "path_match", "path_exclude", "type", "status", "requires_opt_in", "autorun"]
 
 
 @csrf_exempt
@@ -204,23 +205,18 @@ def prompt_webhook(request: request.Request):
     try:
         sequence = PromptSequence.objects.get(key=sequence_data["key"])
     except PromptSequence.DoesNotExist:
-        sequence = PromptSequence.objects.create(**sequence_data, autorun=False)
+        sequence = PromptSequence.objects.create(**sequence_data)
         for prompt in prompt_data:
             new_prompt = Prompt.objects.create(**prompt)
             sequence.prompts.add(new_prompt)
 
-    if serialized_data.get("email"):
-        try:
-            user = User.objects.get(email=serialized_data["email"])
-        except User.DoesNotExist:
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "prompts_webhook",
-                    "User does not exist",
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                ),
-            )
-        UserPromptState.objects.get_or_create(user=user, sequence=sequence, step=None)
+    if serialized_data.get("emails"):
+        # trigger the sequence for these users
+        for email in serialized_data["emails"]:
+            try:
+                user = User.objects.get(email=email)
+                UserPromptState.objects.get_or_create(user=user, sequence=sequence, step=None)
+            except User.DoesNotExist:
+                pass
 
     return cors_response(request, JsonResponse(status=status.HTTP_201_CREATED, data={"success": True}))
