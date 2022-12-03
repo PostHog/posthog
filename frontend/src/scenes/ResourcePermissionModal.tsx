@@ -14,7 +14,6 @@ import {
     ResourcePermissionMapping,
 } from './organization/Settings/Permissions/permissionsLogic'
 import { rolesLogic } from './organization/Settings/Roles/rolesLogic'
-import { organizationLogic } from './organizationLogic'
 import { urls } from './urls'
 
 interface ResourcePermissionProps {
@@ -27,6 +26,7 @@ interface ResourcePermissionProps {
     deleteAssociatedRole: (id: RoleType['id']) => void
     isNewResource: boolean
     resourceType: Resource
+    canEdit: boolean
 }
 
 interface ResourcePermissionModalProps extends ResourcePermissionProps {
@@ -59,6 +59,7 @@ export function ResourcePermissionModal({
     roles,
     deleteAssociatedRole,
     isNewResource,
+    canEdit,
 }: ResourcePermissionModalProps): JSX.Element {
     return (
         <>
@@ -73,6 +74,7 @@ export function ResourcePermissionModal({
                     onAdd={onAdd}
                     roles={roles}
                     deleteAssociatedRole={deleteAssociatedRole}
+                    canEdit={canEdit}
                 />
             </LemonModal>
         </>
@@ -89,11 +91,10 @@ export function ResourcePermission({
     deleteAssociatedRole,
     isNewResource,
     resourceType,
+    canEdit,
 }: ResourcePermissionProps): JSX.Element {
     const { allPermissions, shouldShowPermissionsTable } = useValues(permissionsLogic)
     const { roles: possibleRolesWithAccess } = useValues(rolesLogic)
-    const { isAdminOrOwner } = useValues(organizationLogic)
-
     const resourceLevel = allPermissions.find((permission) => permission.resource === resourceType)
     // TODO: feature_flag_access_level should eventually be generic in this component
     const rolesWithAccess = possibleRolesWithAccess.filter(
@@ -163,7 +164,7 @@ export function ResourcePermission({
                     {<OrganizationResourcePermissionRoles roles={rolesWithAccess} />}
                 </>
             )}
-            {isAdminOrOwner && (
+            {(isNewResource || canEdit) && (
                 <>
                     <h5 className="mt-4">Custom edit roles</h5>
                     <div className="flex gap-2">
