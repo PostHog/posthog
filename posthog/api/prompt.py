@@ -148,6 +148,7 @@ class WebhookSequenceSerializer(serializers.ModelSerializer):
     requires_opt_in = serializers.BooleanField(default=False)
     status = serializers.CharField(default="active")
     autorun = serializers.BooleanField(default=False)
+    type = serializers.CharField(default="one-off")
 
     class Meta:
         model = PromptSequence
