@@ -20,6 +20,7 @@ import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator
 import { teamLogic } from 'scenes/teamLogic'
 import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/defaults'
 import { LemonDivider } from 'lib/components/LemonDivider'
+import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 
 interface DataTableProps {
     query: DataTableNode
@@ -35,6 +36,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     const showExport = query.showExport ?? true
     const showReload = query.showReload ?? true
     const showColumnConfigurator = query.showColumnConfigurator ?? true
+    const showEventsBufferWarning = query.showEventsBufferWarning ?? false
     const expandable = query.expandable ?? true
 
     const [id] = useState(() => uniqueNode++)
@@ -96,6 +98,12 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
                         {showColumnConfigurator && <ColumnConfigurator query={query} setQuery={setQuery} />}
                         {showExport && <DataTableExport query={query} setQuery={setQuery} />}
                     </div>
+                )}
+                {showEventsBufferWarning && (
+                    <EventBufferNotice
+                        additionalInfo=" - this helps ensure accuracy of insights grouped by unique users"
+                        className="mb-4"
+                    />
                 )}
                 <LemonTable
                     className="DataTable"

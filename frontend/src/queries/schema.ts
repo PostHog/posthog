@@ -118,6 +118,8 @@ export interface DataTableNode extends Node {
     expandable?: boolean
     /** Link properties via the URL (default: false) */
     urlProperties?: boolean
+    /** Show warning about live events being buffered max 60 sec (default: false) */
+    showEventsBufferWarning?: boolean
 }
 
 // Base class should not be used directly

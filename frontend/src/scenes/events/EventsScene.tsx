@@ -19,6 +19,7 @@ export function EventsScene(): JSX.Element {
             limit: 100,
         },
         urlProperties: true,
+        showEventsBufferWarning: true,
     }
     return (
         <>
