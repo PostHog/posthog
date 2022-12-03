@@ -328,6 +328,27 @@ export const billingPlans: BillingPlan[] = [
 export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Element {
     const { billing } = useValues(billingTestLogic)
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
+
+    const upgradeButtons = billingPlans.map((plan) => (
+        <td key={`${plan.name}-cta`}>
+            <LemonButton
+                to={`${plan.signupLink}&redirect_path=${redirectPath}`}
+                type={plan.name === 'PostHog Cloud Lite' ? 'secondary' : 'primary'}
+                fullWidth
+                center
+                disableClientSideRouting
+                disabled={plan.name === 'PostHog Cloud Lite' && !billing?.billing_period}
+                onClick={() => {
+                    if (plan.name != 'PostHog Cloud Lite') {
+                        reportBillingUpgradeClicked(plan.name)
+                    }
+                }}
+            >
+                {!billing?.billing_period && plan.name === 'PostHog Cloud Lite' ? 'Current plan' : plan.cta}
+            </LemonButton>
+        </td>
+    ))
+
     return (
         <div className="PlanCards space-x-4">
             <table className="w-full table-fixed">
@@ -393,25 +414,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                     ))}
                     <tr>
                         <td />
-                        {billingPlans.map((plan) => (
-                            <td key={`${plan.name}-cta`}>
-                                <LemonButton
-                                    to={`${plan.signupLink}&redirect_path=${redirectPath}`}
-                                    type={plan.name === 'PostHog Cloud Lite' ? 'secondary' : 'primary'}
-                                    fullWidth
-                                    center
-                                    disableClientSideRouting
-                                    disabled={plan.name === 'PostHog Cloud Lite' && !billing?.billing_period}
-                                    onClick={() => {
-                                        reportBillingUpgradeClicked(plan.name)
-                                    }}
-                                >
-                                    {!billing?.billing_period && plan.name === 'PostHog Cloud Lite'
-                                        ? 'Current plan'
-                                        : plan.cta}
-                                </LemonButton>
-                            </td>
-                        ))}
+                        {upgradeButtons}
                     </tr>
                     <tr>
                         <th
@@ -466,27 +469,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                     ))}
                     <tr>
                         <td />
-                        {billingPlans.map((plan) => (
-                            <td key={`${plan.name}-cta-2`}>
-                                <LemonButton
-                                    to={`${plan.signupLink}&redirect_path=${redirectPath}`}
-                                    type={plan.name === 'PostHog Cloud Lite' ? 'secondary' : 'primary'}
-                                    fullWidth
-                                    center
-                                    disableClientSideRouting
-                                    disabled={plan.name === 'PostHog Cloud Lite' && !billing?.billing_period}
-                                    onClick={() => {
-                                        if (plan.name != 'PostHog Cloud Lite') {
-                                            reportBillingUpgradeClicked(plan.name)
-                                        }
-                                    }}
-                                >
-                                    {!billing?.billing_period && plan.name === 'PostHog Cloud Lite'
-                                        ? 'Current plan'
-                                        : plan.cta}
-                                </LemonButton>
-                            </td>
-                        ))}
+                        {upgradeButtons}
                     </tr>
                 </tbody>
             </table>
