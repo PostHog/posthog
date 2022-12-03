@@ -32,8 +32,9 @@ export function renderColumn(
         }
     } else if (key === 'timestamp') {
         return <TZLabel time={record.timestamp} showSeconds />
-    } else if (key.startsWith('properties.')) {
-        const propertyKey = key.substring(11)
+    } else if (key.startsWith('properties.') || key === 'url') {
+        const propertyKey =
+            key === 'url' ? (record.properties['$screen_name'] ? '$screen_name' : '$current_url') : key.substring(11)
         if (setQuery && isEventsNode(query.source)) {
             const newProperty: AnyPropertyFilter = {
                 key: propertyKey,

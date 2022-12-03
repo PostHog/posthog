@@ -8,6 +8,8 @@ export function renderTitle(key: string): JSX.Element | string {
         return 'Event'
     } else if (key === 'person') {
         return 'Person'
+    } else if (key === 'url') {
+        return 'URL / Screen'
     } else if (key.startsWith('properties.')) {
         return <PropertyKeyInfo value={key.substring(11)} type={PropertyFilterType.Event} disableIcon />
     } else if (key.startsWith('person.properties.')) {
