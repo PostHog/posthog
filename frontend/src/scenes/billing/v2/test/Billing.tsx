@@ -87,7 +87,9 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
             ) : null}
             {!billing?.billing_period && (
                 <>
-                    <BillingHero />
+                    <div className="my-8">
+                        <BillingHero />
+                    </div>
                     {preflight?.cloud && (
                         <>
                             <div className="mb-18 flex justify-center">
