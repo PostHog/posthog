@@ -48,7 +48,7 @@ export function renderColumn(
             const newProperties = matchingProperty
                 ? (query.source.properties || []).filter((p) => p !== matchingProperty)
                 : [...(query.source.properties || []), newProperty]
-            const newUrl = query.urlProperties
+            const newUrl = query.propertiesViaUrl
                 ? combineUrl(
                       router.values.location.pathname,
                       {
@@ -93,7 +93,7 @@ export function renderColumn(
             const newProperties = matchingProperty
                 ? (query.source.properties || []).filter((p) => p !== matchingProperty)
                 : [...(query.source.properties || []), newProperty]
-            const newUrl = query.urlProperties
+            const newUrl = query.propertiesViaUrl
                 ? combineUrl(
                       router.values.location.pathname,
                       {

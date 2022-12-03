@@ -117,7 +117,7 @@ export interface DataTableNode extends Node {
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
     /** Link properties via the URL (default: false) */
-    urlProperties?: boolean
+    propertiesViaUrl?: boolean
     /** Show warning about live events being buffered max 60 sec (default: false) */
     showEventsBufferWarning?: boolean
 }
