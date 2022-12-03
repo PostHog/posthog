@@ -63,6 +63,7 @@ class PromptSequenceViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         local_states: List[UserPromptState] = []
         local_state_keys = set()
         all_sequences = PromptSequence.objects.filter(status="active")
+        # get the local state (sent from localstorage), and filter it based on active sequences
         for key in request.data:
             if key not in local_state_keys:
                 try:
@@ -88,6 +89,9 @@ class PromptSequenceViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         saved_states = UserPromptState.objects.filter(user=request.user)
         up_to_date_states: List[UserPromptState] = []
 
+        # for each sequence, we check if either the local state, or the one saved in the db is more up to date
+        # if the local state is more up to date, we update the db state
+        # if the db state is more up to date, we send it back to the frontend
         for sequence in all_sequences:
             local_state = next((s for s in local_states if sequence == s.sequence), None)
             saved_state = next((s for s in saved_states if sequence == s.sequence), None)
@@ -119,6 +123,7 @@ class PromptSequenceViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         my_prompts: Dict[str, Any] = {"state": {}, "sequences": []}
         # filter only the sequences where `must_be_completed` rule passes
+        # this allows to run certain sequences only if other have been completed first
         for state in up_to_date_states:
             sequence = state.sequence
             must_have_completed = sequence.must_have_completed.all()
@@ -129,6 +134,7 @@ class PromptSequenceViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             my_prompts["state"][sequence.key] = UserPromptStateSerializer(state).data
             my_prompts["sequences"].append(PromptSequenceSerializer(sequence).data)
 
+        # update or create any state to db
         if states_to_create:
             UserPromptState.objects.bulk_create(states_to_create)
         if states_to_update:
@@ -203,6 +209,7 @@ def prompt_webhook(request: request.Request):
     for prompt in serialized_data["sequence"]["prompts"]:
         prompt_data.append(PromptSerializer(prompt).data)
 
+    # get or create sequence from webhook
     sequence_data = WebhookSequenceSerializer(serialized_data["sequence"]).data
     try:
         sequence = PromptSequence.objects.get(key=sequence_data["key"])
@@ -212,8 +219,8 @@ def prompt_webhook(request: request.Request):
             new_prompt = Prompt.objects.create(**prompt)
             sequence.prompts.add(new_prompt)
 
+    # trigger the sequence for users matching the emails, by creating empty states for them
     if serialized_data.get("emails"):
-        # trigger the sequence for these users
         for email in serialized_data["emails"]:
             try:
                 user = User.objects.get(email=email)
