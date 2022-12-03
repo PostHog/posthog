@@ -818,6 +818,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
             ],
         ],
+        sortTilesByLayout: [
+            (s) => [s.layoutForItem],
+            (layoutForItem) => (tiles: Array<DashboardTile>) => {
+                return [...tiles].sort((a: DashboardTile, b: DashboardTile) => {
+                    const aPos = layoutForItem[a.id]
+                    const bPos = layoutForItem[b.id]
+                    if (aPos.x < bPos.x || (aPos.x == bPos.x && aPos.y < bPos.y)) {
+                        return -1
+                    } else if (aPos.x > bPos.x || (aPos.x == bPos.x && aPos.y > bPos.y)) {
+                        return 1
+                    } else {
+                        return 0
+                    }
+                })
+            },
+        ],
     })),
     events(({ actions, cache, props }) => ({
         afterMount: () => {
@@ -961,7 +977,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
             const dashboardId: number = props.id
 
-            const insights = (tiles || values.insightTiles || [])
+            const insights = values
+                .sortTilesByLayout(tiles || values.insightTiles || [])
                 .map((t) => t.insight)
                 .filter((i): i is InsightModel => !!i)
 
