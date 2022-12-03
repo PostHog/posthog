@@ -18,7 +18,7 @@ from posthog.utils import cors_response
 
 
 class PromptButtonSerializer(serializers.Serializer):
-    label = serializers.CharField()
+    label = serializers.CharField()  # type: ignore
     url = serializers.CharField(required=False)
     action = serializers.CharField(required=False)
 
@@ -199,7 +199,7 @@ def prompt_webhook(request: request.Request):
             request,
             generate_exception_response(
                 "prompts_webhook",
-                serializer.errors,
+                str(serializer.errors),
                 status_code=status.HTTP_400_BAD_REQUEST,
             ),
         )
