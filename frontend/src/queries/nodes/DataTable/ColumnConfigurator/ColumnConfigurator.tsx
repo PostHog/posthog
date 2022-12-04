@@ -95,13 +95,13 @@ function ColumnConfiguratorModal(): JSX.Element {
     const SelectedColumn = ({ column, disabled }: { column: string; disabled?: boolean }): JSX.Element => {
         let columnType: PropertyFilterType | null = null
         let columnKey = column
-        if (column.startsWith('person.properties')) {
+        if (column.startsWith('person.properties.')) {
             columnType = PropertyFilterType.Person
-            columnKey = column.replace('person.properties.', '')
+            columnKey = column.substring(18)
         }
-        if (column.startsWith('properties')) {
+        if (column.startsWith('properties.')) {
             columnType = PropertyFilterType.Event
-            columnKey = column.replace('properties.', '')
+            columnKey = column.substring(11)
         }
 
         return (

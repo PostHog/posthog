@@ -8,18 +8,20 @@ import { EventsScene } from 'scenes/events/EventsScene'
 
 export const scene: SceneExport = {
     component: Events,
+    // NOTE: Removing the lines below because turbo mode messes up having two separate versions of this scene.
+    //       It's a small price to pay. Put this back when the flag is removed.
     // logic: eventsTableLogic,
     // paramsToProps: ({ params: { fixedFilters } }) => ({ fixedFilters, key: 'EventsTable', sceneUrl: urls.events() }),
 }
 
 export function Events(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const useDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
     return (
         <>
             <PageHeader title="Live events" caption="Event history limited to the last twelve months." />
             <div className="pt-4 border-t" />
-            {useDataExploration ? <EventsScene /> : <EventsTable pageKey={'EventsTable'} />}
+            {featureDataExploration ? <EventsScene /> : <EventsTable pageKey={'EventsTable'} />}
         </>
     )
 }

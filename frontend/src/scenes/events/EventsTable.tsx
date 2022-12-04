@@ -282,7 +282,7 @@ export function EventsTable({
             let columnsToBeMapped = !showPersonColumn
                 ? selectedColumns.filter((column) => column !== 'person')
                 : selectedColumns
-            // If user has saved `timestamp`, a column only used in the Data Exploration version of this feature, remove it
+            // If user has saved `timestamp`, a column only used in the Data Exploration flagged version of this feature, remove it
             columnsToBeMapped = columnsToBeMapped.filter((c) => c !== 'timestamp')
             columnsSoFar = columnsToBeMapped.map(
                 (e, index): LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined> => {
@@ -307,7 +307,7 @@ export function EventsTable({
                         }
                     } else {
                         // If the user has saved their columns for the new data exploration data table, make them work here
-                        // This code will be removed once we release the new events list feature.
+                        // This entire file will be removed once we release the new events list feature.
                         const key = e.startsWith('properties.')
                             ? e.substring(11)
                             : e.startsWith('person.properties.')
