@@ -73,7 +73,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(({ props }) => ({
         dataLoading: [false, { loadData: () => true, loadDataSuccess: () => false, loadDataFailure: () => false }],
         newDataLoading: [
             false,
@@ -83,7 +83,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             false,
             { loadNextData: () => true, loadNextDataSuccess: () => false, loadNextDataFailure: () => false },
         ],
-        autoLoadToggled: [false, { toggleAutoLoad: (state) => !state }],
+        autoLoadToggled: [
+            false,
+            // store the autoload toggle's state in localstorage, separately for each data node kind
+            { persist: true, storageKey: `queries.nodes.dataNodeLogic..autoLoadToggled.${props.query.kind}` },
+            { toggleAutoLoad: (state) => !state },
+        ],
         autoLoadStarted: [false, { startAutoLoad: () => true, stopAutoLoad: () => false }],
         highlightedRows: [
             {} as Record<string, number>,
@@ -98,7 +103,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadDataSuccess: () => ({}),
             },
         ],
-    }),
+    })),
     selectors({
         query: [() => [(_, props) => props.query], (query) => query],
         canLoadNewData: [
