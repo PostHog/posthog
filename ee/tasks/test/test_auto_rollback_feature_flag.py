@@ -24,7 +24,7 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
                     event="$pageview",
                     distinct_id="1",
                     team=self.team,
-                    timestamp="2021-08-21 00:00:00",
+                    timestamp="2021-08-21 05:00:00",
                     properties={"prop": 1},
                 )
 
@@ -32,7 +32,7 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
                     event="$pageview",
                     distinct_id="1",
                     team=self.team,
-                    timestamp="2021-08-22 00:00:00",
+                    timestamp="2021-08-22 05:00:00",
                     properties={"prop": 1},
                 )
         with freeze_time("2021-08-21T21:00:00.000Z"):
