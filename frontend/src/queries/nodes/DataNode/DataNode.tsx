@@ -10,11 +10,11 @@ interface DataNodeProps {
     query: DataNodeType
 }
 
-let i = 0
+let uniqueNode = 0
 
 /** Default renderer for data nodes. Display the JSON in a Monaco editor.  */
 export function DataNode(props: DataNodeProps): JSX.Element {
-    const [key] = useState(() => String(i++))
+    const [key] = useState(() => `DataNode.${uniqueNode++}`)
     const logic = dataNodeLogic({ ...props, key })
     const { response, responseLoading } = useValues(logic)
 

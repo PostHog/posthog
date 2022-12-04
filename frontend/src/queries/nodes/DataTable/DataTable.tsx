@@ -32,9 +32,9 @@ interface DataTableProps {
 let uniqueNode = 0
 
 export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
-    const [id] = useState(() => uniqueNode++)
+    const [key] = useState(() => `DataTable.${uniqueNode++}`)
 
-    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key: `DataTable.${id}` }
+    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key }
     const {
         response,
         responseLoading,
@@ -48,7 +48,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const defaultColumns = currentTeam?.live_events_columns ?? defaultDataTableStringColumns
 
-    const dataTableLogicProps: DataTableLogicProps = { query: query, key: `DataTable.${id}`, defaultColumns }
+    const dataTableLogicProps: DataTableLogicProps = { query, key, defaultColumns }
     const { columns, queryWithDefaults } = useValues(dataTableLogic(dataTableLogicProps))
 
     const {
