@@ -29,14 +29,14 @@ def check_feature_flag_rollback_conditions(feature_flag_id: int) -> None:
         flag.save()
 
 
-def calculate_rolling_average(rollback_condition: Dict, team_id: int, timezone: str) -> float:
+def calculate_rolling_average(threshold_metric: Dict, team_id: int, timezone: str) -> float:
     curr = datetime.now(tz=pytz.timezone(timezone))
 
     rolling_average_days = 7
 
     filter = Filter(
         data={
-            **rollback_condition["threshold_metric"],
+            **threshold_metric,
             "date_from": (curr - timedelta(days=rolling_average_days)).strftime("%Y-%m-%d %H:%M:%S.%f"),
             "date_to": curr.strftime("%Y-%m-%d %H:%M:%S.%f"),
         },
@@ -71,7 +71,9 @@ def check_condition(rollback_condition: Dict, feature_flag: FeatureFlag) -> bool
             return target > float(rollback_condition["threshold"]) * base
 
     elif rollback_condition["threshold_type"] == "insight":
-        rolling_average = calculate_rolling_average(rollback_condition, feature_flag.team, feature_flag.team.timezone)
+        rolling_average = calculate_rolling_average(
+            rollback_condition["threshold_metric"], feature_flag.team, feature_flag.team.timezone
+        )
 
         if rollback_condition["operator"] == "lt":
             return rolling_average < rollback_condition["threshold"]

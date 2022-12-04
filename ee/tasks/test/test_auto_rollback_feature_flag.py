@@ -13,15 +13,9 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 
 class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
     def test_calculate_rolling_average(self):
-        # rollback_condition: Dict, team_id: int, timezone
-        rollback_condition = {
-            "threshold": 10,
-            "threshold_metric": {
-                "insight": "trends",
-                "events": [{"order": 0, "id": "$pageview"}],
-            },
-            "operator": "lt",
-            "threshold_type": "insight",
+        threshold_metric = {
+            "insight": "trends",
+            "events": [{"order": 0, "id": "$pageview"}],
         }
 
         with freeze_time("2021-08-21T20:00:00.000Z"):
@@ -36,7 +30,7 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
 
             self.assertEqual(
                 calculate_rolling_average(
-                    rollback_condition=rollback_condition,
+                    threshold_metric=threshold_metric,
                     team_id=self.team,
                     timezone="UTC",
                 ),
