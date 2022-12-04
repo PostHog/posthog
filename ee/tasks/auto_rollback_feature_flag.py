@@ -29,6 +29,31 @@ def check_feature_flag_rollback_conditions(feature_flag_id: int) -> None:
         flag.save()
 
 
+def calculate_rolling_average(rollback_condition: Dict, team_id: int, timezone: str) -> float:
+    curr = datetime.now(tz=pytz.timezone(timezone))
+
+    days = 7
+
+    # rolling average last 7 days
+    filter = Filter(
+        data={
+            **rollback_condition["threshold_metric"],
+            "date_from": (curr - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "date_to": curr.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        },
+        team=team_id,
+    )
+    trends_query = Trends()
+    result = trends_query.run(filter, team_id)
+
+    if not len(result):
+        return False
+
+    data = result[0]["data"]
+
+    return sum(data) / days
+
+
 def check_condition(rollback_condition: Dict, feature_flag: FeatureFlag) -> bool:
     if rollback_condition["threshold_type"] == "sentry":
         created_date = feature_flag.created_at
@@ -47,29 +72,11 @@ def check_condition(rollback_condition: Dict, feature_flag: FeatureFlag) -> bool
             return target > float(rollback_condition["threshold"]) * base
 
     elif rollback_condition["threshold_type"] == "insight":
-        curr = datetime.now(tz=pytz.timezone(feature_flag.team.timezone))
-
-        # rolling average last 7 days
-        filter = Filter(
-            data={
-                **rollback_condition["threshold_metric"],
-                "date_from": (curr - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S.%f"),
-                "date_to": curr.strftime("%Y-%m-%d %H:%M:%S.%f"),
-            },
-            team=feature_flag.team,
-        )
-        trends_query = Trends()
-        result = trends_query.run(filter, feature_flag.team)
-
-        if not len(result):
-            return False
-
-        data = result[0]["data"]
-        data = data[0:7]
+        rolling_average = calculate_rolling_average(rollback_condition, feature_flag.team, feature_flag.team.timezone)
 
         if rollback_condition["operator"] == "lt":
-            return sum(data) / len(data) < rollback_condition["threshold"]
+            return rolling_average < rollback_condition["threshold"]
         else:
-            return sum(data) / len(data) > rollback_condition["threshold"]
+            return rolling_average > rollback_condition["threshold"]
 
     return False

@@ -471,8 +471,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     )}`
                 )
                 const counts = response.result?.[0]?.data
-                const firstWeek = counts.slice(0, 7)
-                const avg = Math.round(sum(firstWeek) / 7)
+                console.log(counts)
+                const avg = Math.round(sum(counts) / 7)
                 actions.setInsightResultAtIndex(index, avg)
             }
         },
