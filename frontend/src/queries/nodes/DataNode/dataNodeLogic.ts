@@ -83,7 +83,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             false,
             { loadNextData: () => true, loadNextDataSuccess: () => false, loadNextDataFailure: () => false },
         ],
-        autoLoadEnabled: [false, { toggleAutoLoad: (state) => !state }],
+        autoLoadToggled: [false, { toggleAutoLoad: (state) => !state }],
         autoLoadStarted: [false, { startAutoLoad: () => true, stopAutoLoad: () => false }],
         highlightedRows: [
             {} as Record<string, number>,
@@ -118,8 +118,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
         autoLoadRunning: [
-            (s) => [s.autoLoadEnabled, s.autoLoadStarted, s.dataLoading],
-            (autoLoadEnabled, autoLoadStarted, dataLoading) => autoLoadEnabled && autoLoadStarted && !dataLoading,
+            (s) => [s.autoLoadToggled, s.autoLoadStarted, s.dataLoading],
+            (autoLoadToggled, autoLoadStarted, dataLoading) => autoLoadToggled && autoLoadStarted && !dataLoading,
         ],
     }),
     subscriptions(({ actions, cache, values }) => ({

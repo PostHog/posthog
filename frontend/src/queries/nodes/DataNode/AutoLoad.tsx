@@ -5,7 +5,7 @@ import { useEffect } from 'react'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 
 export function AutoLoad(): JSX.Element {
-    const { autoLoadEnabled, newDataLoading } = useValues(dataNodeLogic)
+    const { autoLoadToggled, newDataLoading } = useValues(dataNodeLogic)
     const { startAutoLoad, stopAutoLoad, toggleAutoLoad } = useActions(dataNodeLogic)
 
     // Reload data only when this AutoLoad component is mounted.
@@ -23,7 +23,7 @@ export function AutoLoad(): JSX.Element {
                 data-attr="live-events-refresh-toggle"
                 id="autoload-switch"
                 label="Automatically load new events"
-                checked={autoLoadEnabled}
+                checked={autoLoadToggled}
                 onChange={toggleAutoLoad}
             />
             {newDataLoading ? <Spinner className="text-2xl" /> : null}
