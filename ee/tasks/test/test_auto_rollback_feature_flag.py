@@ -40,7 +40,7 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
                     team_id=self.team,
                     timezone="UTC",
                 ),
-                10,
+                10,  # because we have 70 events in the last 7 days
             )
 
     def test_check_condition(self):
