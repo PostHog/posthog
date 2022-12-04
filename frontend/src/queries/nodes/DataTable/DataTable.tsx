@@ -32,15 +32,6 @@ interface DataTableProps {
 let uniqueNode = 0
 
 export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
-    const showPropertyFilter = query.showPropertyFilter ?? true
-    const showEventFilter = query.showEventFilter ?? true
-    const showActions = query.showActions ?? true
-    const showExport = query.showExport ?? true
-    const showReload = query.showReload ?? true
-    const showColumnConfigurator = query.showColumnConfigurator ?? true
-    const showEventsBufferWarning = query.showEventsBufferWarning ?? false
-    const expandable = query.expandable ?? true
-
     const [id] = useState(() => uniqueNode++)
 
     const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key: `DataTable.${id}` }
@@ -58,7 +49,18 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     const defaultColumns = currentTeam?.live_events_columns ?? defaultDataTableStringColumns
 
     const dataTableLogicProps: DataTableLogicProps = { query: query, key: `DataTable.${id}`, defaultColumns }
-    const { columns } = useValues(dataTableLogic(dataTableLogicProps))
+    const { columns, queryWithDefaults } = useValues(dataTableLogic(dataTableLogicProps))
+
+    const {
+        showActions,
+        showEventFilter,
+        showPropertyFilter,
+        showReload,
+        showExport,
+        showColumnConfigurator,
+        showEventsBufferWarning,
+        expandable,
+    } = queryWithDefaults
 
     const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = [
         ...columns.map((key) => ({

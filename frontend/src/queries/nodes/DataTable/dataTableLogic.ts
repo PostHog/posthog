@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props, propsChanged, reducers } from 'kea'
+import { actions, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 import type { dataTableLogicType } from './dataTableLogicType'
 import { DataTableNode, DataTableStringColumn } from '~/queries/schema'
 import { defaultDataTableStringColumns } from './defaults'
@@ -20,6 +20,24 @@ export const dataTableLogic = kea<dataTableLogicType>([
             { setColumns: (_, { columns }) => columns },
         ],
     })),
+    selectors({
+        queryWithDefaults: [
+            (s) => [(_, props) => props.query, s.columns],
+            (query: DataTableNode, columns): Required<DataTableNode> => ({
+                ...query,
+                columns: columns,
+                showPropertyFilter: query.showPropertyFilter ?? true,
+                showEventFilter: query.showEventFilter ?? true,
+                showActions: query.showActions ?? true,
+                showExport: query.showExport ?? true,
+                showReload: query.showReload ?? true,
+                showColumnConfigurator: query.showColumnConfigurator ?? true,
+                showEventsBufferWarning: query.showEventsBufferWarning ?? false,
+                expandable: query.expandable ?? true,
+                propertiesViaUrl: query.propertiesViaUrl ?? false,
+            }),
+        ],
+    }),
     propsChanged(({ actions, props }, oldProps) => {
         const newColumns = props.query.columns ?? props.defaultColumns ?? defaultDataTableStringColumns
         const oldColumns = oldProps.query.columns ?? oldProps.defaultColumns ?? defaultDataTableStringColumns
