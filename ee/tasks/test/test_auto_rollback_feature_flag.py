@@ -28,6 +28,14 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
                     properties={"prop": 1},
                 )
 
+                _create_event(
+                    event="$pageview",
+                    distinct_id="1",
+                    team=self.team,
+                    timestamp="2021-08-22 00:00:00",
+                    properties={"prop": 1},
+                )
+        with freeze_time("2021-08-21T21:00:00.000Z"):
             self.assertEqual(
                 calculate_rolling_average(
                     threshold_metric=threshold_metric,
@@ -35,6 +43,16 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
                     timezone="UTC",
                 ),
                 10,  # because we have 70 events in the last 7 days
+            )
+
+        with freeze_time("2021-08-22T21:00:00.000Z"):
+            self.assertEqual(
+                calculate_rolling_average(
+                    threshold_metric=threshold_metric,
+                    team_id=self.team,
+                    timezone="UTC",
+                ),
+                20,  # because we have 140 events in the last 7 days
             )
 
     def test_check_condition(self):
