@@ -4,11 +4,13 @@ import { useEffect, useState } from 'react'
 import schema from '~/queries/schema.json'
 import { LemonButton } from 'lib/components/LemonButton'
 import { queryEditorLogic } from '~/queries/QueryEditor/queryEditorLogic'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import clsx from 'clsx'
 
 export interface QueryEditorProps {
     query: string
     setQuery?: (query: string) => void
-    height?: number
+    className?: string
 }
 
 let i = 0
@@ -35,15 +37,21 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
     }, [monaco])
 
     return (
-        <div className="p-2 bg-border space-y-2">
-            <MonacoEditor
-                theme="vs-light"
-                className="border"
-                language="json"
-                value={queryInput}
-                onChange={(v) => setQueryInput(v ?? '')}
-                height={props.height ?? 300}
-            />
+        <div className={clsx('flex flex-col p-2 bg-border space-y-2 h-full min-h-80', props.className)}>
+            <div className="flex-1">
+                <AutoSizer disableWidth>
+                    {({ height }) => (
+                        <MonacoEditor
+                            theme="vs-light"
+                            className="border"
+                            language="json"
+                            value={queryInput}
+                            onChange={(v) => setQueryInput(v ?? '')}
+                            height={height}
+                        />
+                    )}
+                </AutoSizer>
+            </div>
             {error ? (
                 <div className="bg-danger text-white p-2">
                     <strong>Error parsing JSON:</strong> {error}
@@ -57,7 +65,7 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
                 fullWidth
                 center
             >
-                Update
+                {!props.setQuery ? 'No permission to update' : 'Update'}
             </LemonButton>
         </div>
     )

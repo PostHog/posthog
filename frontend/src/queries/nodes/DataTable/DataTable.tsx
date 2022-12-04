@@ -1,5 +1,5 @@
 import './DataTable.scss'
-import { DataTableNode, EventsNode } from '~/queries/schema'
+import { DataTableNode, EventsNode, Node } from '~/queries/schema'
 import { useState } from 'react'
 import { useValues, BindLogic } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -23,6 +23,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
+import { QueryEditorModal } from '~/queries/nodes/Node/QueryEditorModal'
 
 interface DataTableProps {
     query: DataTableNode
@@ -106,6 +107,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
                             <div className="flex-1">{showReload && (canLoadNewData ? <AutoLoad /> : <Reload />)}</div>
                             {showColumnConfigurator && <ColumnConfigurator query={query} setQuery={setQuery} />}
                             {showExport && <DataTableExport query={query} setQuery={setQuery} />}
+                            <QueryEditorModal query={query} setQuery={setQuery as (node: Node) => void} />
                         </div>
                     )}
                     {showEventsBufferWarning && (
