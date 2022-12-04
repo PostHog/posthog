@@ -9,8 +9,6 @@ export interface DataTableLogicProps {
     defaultColumns?: DataTableStringColumn[]
 }
 
-const topLevelColumns = ['event', 'timestamp', 'id', 'distinct_id']
-
 export const dataTableLogic = kea<dataTableLogicType>([
     props({} as DataTableLogicProps),
     key((props) => props.key),
@@ -27,8 +25,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
             (s) => [s.storedColumns],
             (storedColumns) => {
                 // This makes old stored columns (e.g. on the Team model) compatible with the new view that prepends 'properties.'
+                const topLevelFields = ['event', 'timestamp', 'id', 'distinct_id', 'person', 'url']
                 return storedColumns.map((column) => {
-                    if (topLevelColumns.includes(column) || column.includes('properties.')) {
+                    if (topLevelFields.includes(column) || column.includes('properties.')) {
                         return column
                     } else {
                         return `properties.${column}`
