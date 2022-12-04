@@ -32,13 +32,12 @@ def check_feature_flag_rollback_conditions(feature_flag_id: int) -> None:
 def calculate_rolling_average(rollback_condition: Dict, team_id: int, timezone: str) -> float:
     curr = datetime.now(tz=pytz.timezone(timezone))
 
-    days = 7
+    rolling_average_days = 7
 
-    # rolling average last 7 days
     filter = Filter(
         data={
             **rollback_condition["threshold_metric"],
-            "date_from": (curr - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "date_from": (curr - timedelta(days=rolling_average_days)).strftime("%Y-%m-%d %H:%M:%S.%f"),
             "date_to": curr.strftime("%Y-%m-%d %H:%M:%S.%f"),
         },
         team=team_id,
@@ -51,7 +50,7 @@ def calculate_rolling_average(rollback_condition: Dict, team_id: int, timezone: 
 
     data = result[0]["data"]
 
-    return sum(data) / days
+    return sum(data) / rolling_average_days
 
 
 def check_condition(rollback_condition: Dict, feature_flag: FeatureFlag) -> bool:
