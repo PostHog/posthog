@@ -22,6 +22,7 @@ import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/default
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
+import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 
 interface DataTableProps {
     query: DataTableNode
@@ -134,6 +135,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
                     }
                 />
                 {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && <LoadNext />}
+                <SessionPlayerModal />
             </BindLogic>
         </BindLogic>
     )
