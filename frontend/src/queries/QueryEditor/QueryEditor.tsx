@@ -8,6 +8,7 @@ import { queryEditorLogic } from '~/queries/QueryEditor/queryEditorLogic'
 export interface QueryEditorProps {
     query: string
     setQuery?: (query: string) => void
+    height?: number
 }
 
 let i = 0
@@ -34,30 +35,30 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
     }, [monaco])
 
     return (
-        <div className="flex flex-col space-y-2">
+        <div className="p-2 bg-border space-y-2">
             <MonacoEditor
                 theme="vs-light"
                 className="border"
                 language="json"
                 value={queryInput}
                 onChange={(v) => setQueryInput(v ?? '')}
-                height={300}
+                height={props.height ?? 300}
             />
-            <div className="flex flex-row items-center space-x-2">
-                <LemonButton
-                    onClick={() => saveQuery()}
-                    type="primary"
-                    status={error ? 'danger' : 'primary'}
-                    disabled={!props.setQuery || !!error || !inputChanged}
-                >
-                    Update
-                </LemonButton>
-                {error ? (
-                    <div className="text-danger">
-                        <strong>Error parsing JSON:</strong> {error}
-                    </div>
-                ) : null}
-            </div>
+            {error ? (
+                <div className="bg-danger text-white p-2">
+                    <strong>Error parsing JSON:</strong> {error}
+                </div>
+            ) : null}
+            <LemonButton
+                onClick={() => saveQuery()}
+                type="primary"
+                status={error ? 'danger' : 'muted-alt'}
+                disabled={!props.setQuery || !!error || !inputChanged}
+                fullWidth
+                center
+            >
+                Update
+            </LemonButton>
         </div>
     )
 }
