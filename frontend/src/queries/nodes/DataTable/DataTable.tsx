@@ -91,53 +91,50 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                {showFilters && (
-                    <div className="flex space-x-4 mb-4">
-                        {showEventFilter && <EventName query={query.source} setQuery={setQuerySource} />}
-                        {showPropertyFilter && <EventPropertyFilters query={query.source} setQuery={setQuerySource} />}
-                    </div>
-                )}
-                {showFilters && showTools ? (
-                    <div className="my-4">
-                        <LemonDivider />
-                    </div>
-                ) : null}
-                {showTools && (
-                    <div className="flex space-x-4 mb-4">
-                        <div className="flex-1">{showReload && (canLoadNewData ? <AutoLoad /> : <Reload />)}</div>
-                        {showColumnConfigurator && <ColumnConfigurator query={query} setQuery={setQuery} />}
-                        {showExport && <DataTableExport query={query} setQuery={setQuery} />}
-                    </div>
-                )}
-                {showEventsBufferWarning && (
-                    <EventBufferNotice
-                        additionalInfo=" - this helps ensure accuracy of insights grouped by unique users"
-                        className="mb-4"
+                <div className="space-y-4">
+                    {showFilters && (
+                        <div className="flex gap-4">
+                            {showEventFilter && <EventName query={query.source} setQuery={setQuerySource} />}
+                            {showPropertyFilter && (
+                                <EventPropertyFilters query={query.source} setQuery={setQuerySource} />
+                            )}
+                        </div>
+                    )}
+                    {showFilters && showTools && <LemonDivider />}
+                    {showTools && (
+                        <div className="flex gap-4">
+                            <div className="flex-1">{showReload && (canLoadNewData ? <AutoLoad /> : <Reload />)}</div>
+                            {showColumnConfigurator && <ColumnConfigurator query={query} setQuery={setQuery} />}
+                            {showExport && <DataTableExport query={query} setQuery={setQuery} />}
+                        </div>
+                    )}
+                    {showEventsBufferWarning && (
+                        <EventBufferNotice additionalInfo=" - this helps ensure accuracy of insights grouped by unique users" />
+                    )}
+                    <LemonTable
+                        className="DataTable"
+                        loading={responseLoading && !nextDataLoading && !newDataLoading}
+                        columns={lemonColumns}
+                        dataSource={dataSource}
+                        expandable={
+                            expandable
+                                ? {
+                                      expandedRowRender: function renderExpand(event) {
+                                          return event && <EventDetails event={event} />
+                                      },
+                                      rowExpandable: () => true,
+                                      noIndent: true,
+                                  }
+                                : undefined
+                        }
+                        rowKey={(row) => row.id ?? undefined}
+                        rowClassName={(row) =>
+                            clsx('DataTable__row', { 'DataTable__row--highlight_once': highlightedRows[row?.id] })
+                        }
                     />
-                )}
-                <LemonTable
-                    className="DataTable"
-                    loading={responseLoading && !nextDataLoading && !newDataLoading}
-                    columns={lemonColumns}
-                    dataSource={dataSource}
-                    expandable={
-                        expandable
-                            ? {
-                                  expandedRowRender: function renderExpand(event) {
-                                      return event && <EventDetails event={event} />
-                                  },
-                                  rowExpandable: () => true,
-                                  noIndent: true,
-                              }
-                            : undefined
-                    }
-                    rowKey={(row) => row.id ?? undefined}
-                    rowClassName={(row) =>
-                        clsx('DataTable__row', { 'DataTable__row--highlight_once': highlightedRows[row?.id] })
-                    }
-                />
-                {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && <LoadNext />}
-                <SessionPlayerModal />
+                    {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && <LoadNext />}
+                    <SessionPlayerModal />
+                </div>
             </BindLogic>
         </BindLogic>
     )
