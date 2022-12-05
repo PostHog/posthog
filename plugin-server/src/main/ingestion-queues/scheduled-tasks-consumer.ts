@@ -71,12 +71,32 @@ export const startScheduledTasksConsumer = async ({
             status.debug('⬆️', 'Running scheduled task', task)
 
             try {
-                const startTime = performance.now()
                 status.info('⏲️', 'running_scheduled_task', {
                     taskType: task.taskType,
                     pluginConfigId: task.pluginConfigId,
                 })
-                await piscina.run({ task: task.taskType, args: { pluginConfigId: task.pluginConfigId } })
+                const startTime = performance.now()
+
+                // Make sure tasks can't run forever. We time out after a minute
+                // for runEveryMinute tasks, and 5 minutes for runEveryHour and
+                // runEveryDay tasks.
+                const abortController = new AbortController()
+                const timeout = setTimeout(() => {
+                    abortController.abort()
+                    status.warn('⚠️', 'scheduled_task_timed_out', {
+                        taskType: task.taskType,
+                        pluginConfigId: task.pluginConfigId,
+                    })
+                }, taskTimeouts[task.taskType])
+
+                // The part that actually runs the task.
+                await piscina.run(
+                    { task: task.taskType, args: { pluginConfigId: task.pluginConfigId } },
+                    { signal: abortController.signal }
+                )
+
+                clearTimeout(timeout)
+
                 resolveOffset(message.offset)
                 status.info('⏲️', 'finished_scheduled_task', {
                     taskType: task.taskType,
@@ -129,3 +149,9 @@ export const startScheduledTasksConsumer = async ({
 
     return consumer
 }
+
+const taskTimeouts = {
+    runEveryMinute: 1000 * 60,
+    runEveryHour: 1000 * 60 * 5,
+    runEveryDay: 1000 * 60 * 5,
+} as const
