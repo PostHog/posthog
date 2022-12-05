@@ -1603,7 +1603,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self._test_events_with_dates(
             dates=["2020-06-2", "2020-07-30"],
             interval="month",
-            date_from="2020-6-7",  #  should round down to 6-1
+            date_from="2020-6-7",  # should round down to 6-1
             date_to="2020-7-30",
             result=[
                 {
