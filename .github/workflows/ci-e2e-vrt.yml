@@ -18,6 +18,8 @@ jobs:
         #     image: mcr.microsoft.com/playwright:v1.28.0-focal
         steps:
             - uses: actions/checkout@v3
+              with:
+                  ref: ${{ github.event.pull_request.head.sha }}
 
             - name: Set up Node 16
               uses: actions/setup-node@v3
