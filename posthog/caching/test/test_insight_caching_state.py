@@ -10,6 +10,7 @@ from posthog.caching.insight_caching_state import (
     LazyLoader,
     TargetCacheAge,
     calculate_target_age,
+    sync_insight_cache_states,
     upsert,
 )
 from posthog.models import (
@@ -94,7 +95,6 @@ def create_tile(
         text=text,
         deleted=dashboard_tile_deleted,
     )
-
 
 
 @pytest.mark.parametrize(
@@ -246,6 +246,18 @@ def test_upsert_text_tile_does_not_create_record(mock_active_teams, team: Team, 
 
     assert caching_state is None
     assert InsightCachingState.objects.filter(team=team).count() == 0
+
+
+@pytest.mark.django_db
+@freeze_time("2020-01-04T13:01:01Z")
+def test_sync_insight_cache_states(team: Team, user: User):
+    with mute_selected_signals():
+        create_insight(team=team, user=user)
+        create_tile(team=team, user=user)
+
+    sync_insight_cache_states()
+
+    assert InsightCachingState.objects.filter(team=team).count() == 3
 
 
 class TestLazyLoader(BaseTest):

@@ -4,6 +4,7 @@ from functools import cached_property
 from typing import Optional, Union
 
 import structlog
+from django.core.paginator import Paginator
 from django.utils.timezone import now
 
 from posthog.caching.utils import active_teams
@@ -37,6 +38,22 @@ class LazyLoader:
             last_viewed_at__gte=now() - VERY_RECENTLY_VIEWED_THRESHOLD
         ).distinct("insight_id")
         return set(recently_viewed_insights.values_list("insight_id", flat=True))
+
+
+def sync_insight_cache_states():
+    lazy_loader = LazyLoader()
+
+    insights = Insight.objects.all().prefetch_related("team", "sharingconfiguration_set").order_by("pk")
+    for insight in _iterate_large_queryset(insights, 1000):
+        upsert(insight.team, insight, lazy_loader)
+
+    tiles = (
+        DashboardTile.objects.all()
+        .prefetch_related("dashboard", "dashboard__team", "dashboard__sharingconfiguration_set", "insight")
+        .order_by("pk")
+    )
+    for tile in _iterate_large_queryset(tiles, 1000):
+        upsert(tile.dashboard.team, tile, lazy_loader)
 
 
 def upsert(
@@ -134,3 +151,12 @@ def calculate_target_age_dashboard_tile(
         return TargetCacheAge.LOW_PRIORITY
 
     return TargetCacheAge.NO_CACHING
+
+
+def _iterate_large_queryset(queryset, page_size):
+    paginator = Paginator(queryset, page_size)
+    for page_number in paginator.page_range:
+        page = paginator.page(page_number)
+
+        for item in page.object_list:
+            yield item

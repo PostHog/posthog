@@ -100,6 +100,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     # Sync all Organization.available_features every hour
     sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
+    sync_insight_cache_states_schedule = get_crontab(settings.SYNC_INSIGHT_CACHE_STATES_SCHEDULE)
+    if sync_insight_cache_states_schedule:
+        sender.add_periodic_task(
+            sync_insight_cache_states_schedule, sync_insight_cache_states_task.s(), name="sync insight cache states"
+        )
+
     sender.add_periodic_task(
         settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS,
         schedule_cache_updates_task.s(),
@@ -468,6 +474,13 @@ def calculate_cohort():
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
     calculate_cohorts()
+
+
+@app.task(ignore_result=True)
+def sync_insight_cache_states_task():
+    from posthog.caching.insight_caching_state import sync_insight_cache_states
+
+    sync_insight_cache_states()
 
 
 @app.task(ignore_result=True)
