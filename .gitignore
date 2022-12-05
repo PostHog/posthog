@@ -47,3 +47,4 @@ a11y/
 .python-version
 /test-results/
 /playwright-report/
+playwright/e2e-vrt/**/*-darwin.png
