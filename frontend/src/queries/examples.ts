@@ -65,6 +65,7 @@ const PersonsTable: DataTableNode = {
 
 const PersonsTableFull: DataTableNode = {
     ...PersonsTable,
+    showSearch: true,
     showPropertyFilter: true,
     showExport: true,
     showReload: true,

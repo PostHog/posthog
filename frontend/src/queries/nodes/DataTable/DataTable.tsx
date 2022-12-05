@@ -26,6 +26,7 @@ import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/Sessi
 import { InlineEditor } from '~/queries/nodes/Node/InlineEditor'
 import { isEventsNode, isPersonsNode } from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
+import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 
 interface DataTableProps {
     query: DataTableNode
@@ -58,6 +59,7 @@ export function DataTable({ query, setQuery, custom }: DataTableProps): JSX.Elem
 
     const {
         showActions,
+        showSearch,
         showEventFilter,
         showPropertyFilter,
         showReload,
@@ -90,7 +92,7 @@ export function DataTable({ query, setQuery, custom }: DataTableProps): JSX.Elem
     const dataSource = (response as null | EventsNode['response'])?.results ?? []
     const setQuerySource = (source: EventsNode | PersonsNode): void => setQuery?.({ ...query, source })
 
-    const showFilters = showEventFilter || showPropertyFilter
+    const showFilters = showSearch || showEventFilter || showPropertyFilter
     const showTools = showReload || showExport || showColumnConfigurator
     const inlineRow = showFilters ? 1 : showTools ? 2 : 0
 
@@ -102,6 +104,9 @@ export function DataTable({ query, setQuery, custom }: DataTableProps): JSX.Elem
                         <div className="flex gap-4">
                             {showEventFilter && isEventsNode(query.source) && (
                                 <EventName query={query.source} setQuery={setQuerySource} />
+                            )}
+                            {showSearch && isPersonsNode(query.source) && (
+                                <PersonsSearch query={query.source} setQuery={setQuerySource} />
                             )}
                             {showPropertyFilter && isEventsNode(query.source) && (
                                 <EventPropertyFilters query={query.source} setQuery={setQuerySource} />

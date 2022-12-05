@@ -1286,7 +1286,7 @@
                     "type": "boolean"
                 },
                 "showEventFilter": {
-                    "description": "Include an event filter above the table (default: true)",
+                    "description": "Include an event filter above the table",
                     "type": "boolean"
                 },
                 "showEventsBufferWarning": {
@@ -1298,11 +1298,15 @@
                     "type": "boolean"
                 },
                 "showPropertyFilter": {
-                    "description": "Include a property filter above the table (default: true)",
+                    "description": "Include a property filter above the table",
                     "type": "boolean"
                 },
                 "showReload": {
                     "description": "Show a reload button",
+                    "type": "boolean"
+                },
+                "showSearch": {
+                    "description": "Include a free text search field",
                     "type": "boolean"
                 },
                 "source": {

@@ -122,9 +122,11 @@ export interface DataTableNode extends Node {
     source: EventsNode | PersonsNode
     /** Columns shown in the table  */
     columns?: DataTableStringColumn[]
-    /** Include an event filter above the table (default: true) */
+    /** Include an event filter above the table */
     showEventFilter?: boolean
-    /** Include a property filter above the table (default: true) */
+    /** Include a free text search field */
+    showSearch?: boolean
+    /** Include a property filter above the table */
     showPropertyFilter?: boolean
     /** Show the kebab menu at the end of the row */
     showActions?: boolean

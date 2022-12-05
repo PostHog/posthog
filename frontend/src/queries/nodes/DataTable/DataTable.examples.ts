@@ -46,7 +46,7 @@ const ShowFilters: DataTableNode = {
         limit: 100,
     },
     columns: ['event', 'person', 'properties.$lib', 'person.properties.email'],
-    showEventFilter: true,
+    showSearch: true,
     showPropertyFilter: true,
 }
 
@@ -78,7 +78,7 @@ const ShowAllTheThings: DataTableNode = {
     showExport: true,
     showReload: true,
     showColumnConfigurator: true,
-    showEventFilter: true,
+    showSearch: true,
     showPropertyFilter: true,
     showEventsBufferWarning: true,
 }
