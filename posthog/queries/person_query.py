@@ -1,4 +1,5 @@
 from typing import Dict, List, Optional, Set, Tuple, Union
+from datetime import datetime
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
@@ -40,6 +41,7 @@ class PersonQuery:
     _extra_fields: Set[ColumnName]
     _inner_person_properties: Optional[PropertyGroup]
     _cohort: Optional[Cohort]
+    _created_at_range: Optional[Tuple[Optional[datetime], Optional[datetime]]]
 
     def __init__(
         self,
@@ -50,6 +52,7 @@ class PersonQuery:
         *,
         entity: Optional[Entity] = None,
         extra_fields: List[ColumnName] = [],
+        created_at_range: Optional[Tuple[Optional[datetime], Optional[datetime]]] = None,
     ) -> None:
         self._filter = filter
         self._team_id = team_id
@@ -57,6 +60,7 @@ class PersonQuery:
         self._cohort = cohort
         self._column_optimizer = column_optimizer or ColumnOptimizer(self._filter, self._team_id)
         self._extra_fields = set(extra_fields)
+        self._created_at_range = created_at_range
 
         if self.PERSON_PROPERTIES_ALIAS in self._extra_fields:
             self._extra_fields = self._extra_fields - {self.PERSON_PROPERTIES_ALIAS} | {"properties"}
@@ -226,20 +230,17 @@ class PersonQuery:
         return clause, params
 
     def _get_created_at_clause(self) -> Tuple[str, Dict]:
-        if not isinstance(self._filter, Filter):
-            return "", {}
-
         clause = ""
         params = {}
 
-        # We explicitly check the private var as we only want to use it if it is set by the user - not the defaults
-        if self._filter._date_from:
+        print(self._created_at_range)
+        if self._created_at_range and self._created_at_range[0]:
             clause += " AND created_at >= %(created_at_from)s"
-            params.update({"created_at_from": self._filter.date_from})
+            params.update({"created_at_from": self._created_at_range[0]})
 
-        if self._filter._date_to:
+        if self._created_at_range and self._created_at_range[1]:
             clause += " AND created_at < %(created_at_to)s"
-            params.update({"created_at_to": self._filter.date_to})
+            params.update({"created_at_to": self._created_at_range[1]})
 
         return clause, params
 

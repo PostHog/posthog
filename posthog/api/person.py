@@ -15,6 +15,7 @@ from typing import (
 from django.db.models import Prefetch
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
+import pytz
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -24,6 +25,7 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
+from dateutil.parser import isoparse
 
 from posthog.api.capture import capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
@@ -97,6 +99,8 @@ def get_person_name(person: Person) -> str:
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
     name = serializers.SerializerMethodField()
+    created_at_from = serializers.DateTimeField(required=False, allow_null=True)
+    created_at_to = serializers.DateTimeField(required=False, allow_null=True)
 
     class Meta:
         model = Person
@@ -177,12 +181,12 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
                 description="Search persons, either by email (full text search) or distinct_id (exact match).",
             ),
             OpenApiParameter(
-                "date_from",
+                "created_at_from",
                 OpenApiTypes.DATETIME,
                 description="Filter persons by date they were first seen on or after this date.",
             ),
             OpenApiParameter(
-                "date_to",
+                "created_at_to",
                 OpenApiTypes.DATETIME,
                 description="Filter persons by date they were first seen on or before this date. If only the date is specified without a time then it is inclusive (i.e. to the end of the day).",
             ),
@@ -199,7 +203,9 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         elif not filter.limit:
             filter = filter.with_data({LIMIT: DEFAULT_PAGE_LIMIT})
 
-        query, params = PersonQuery(filter, team.pk).get_query(paginate=True)
+        query, params = PersonQuery(filter, team.pk, created_at_range=self._get_created_at_range(request)).get_query(
+            paginate=True
+        )
 
         raw_result = sync_execute(query, params)
 
@@ -215,6 +221,26 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         )
 
         return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
+
+    def _get_created_at_range(self, request: request.Request) -> Tuple[Optional[datetime], Optional[datetime]]:
+        created_at_from = None
+        created_at_to = None
+
+        if "created_at_from" in request.GET:
+            created_at_from = isoparse(request.GET["created_at_from"])
+
+        if "created_at_to" in request.GET:
+            try:
+                # If just a date, round to the end of that day
+                created_at_to = datetime.strptime(request.GET["created_at_to"], "%Y-%m-%d").replace(
+                    hour=23, minute=59, second=59, microsecond=999999, tzinfo=pytz.UTC
+                )
+            except ValueError:
+                created_at_to = isoparse(request.GET["created_at_to"])
+
+        created_at_range = (created_at_from, created_at_to)
+
+        return created_at_range
 
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         try:
