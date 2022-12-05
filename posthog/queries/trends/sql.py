@@ -60,7 +60,14 @@ SELECT counts AS total, timestamp AS day_start FROM (
 ) WHERE 1 = 1 {parsed_date_from} {parsed_date_to}
 """
 
-AGGREGATE_SQL = """
+ACTIVE_USERS_AGGREGATE_SQL = """
+SELECT
+    {aggregate_operation} AS total
+FROM ({event_query}) events
+WHERE 1 = 1 {parsed_date_from_prev_range} - INTERVAL {prev_interval} {parsed_date_to}
+"""
+
+FINAL_TIME_SERIES_SQL = """
 SELECT groupArray(day_start) as date, groupArray({aggregate}) as data FROM (
     SELECT {smoothing_operation} AS count, day_start
     from (
@@ -296,6 +303,23 @@ FROM (
 ) WHERE 11111 = 11111 {parsed_date_from} {parsed_date_to}
 """
 
+BREAKDOWN_ACTIVE_USER_AGGREGATE_SQL = """
+SELECT
+    {aggregate_operation} AS total, breakdown_value
+FROM (
+    SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as timestamp, {person_id_alias}.person_id AS person_id, {breakdown_value} as breakdown_value
+    FROM events e
+    {person_join}
+    {groups_join}
+    {sessions_join}
+    {conditions}
+    {null_person_filter}
+    GROUP BY timestamp, person_id, breakdown_value
+) events
+WHERE 1 = 1 {parsed_date_from_prev_range} - INTERVAL {prev_interval} {parsed_date_to}
+GROUP BY breakdown_value
+ORDER BY breakdown_value
+"""
 
 BREAKDOWN_AGGREGATE_QUERY_SQL = """
 SELECT {aggregate_operation} AS total, {breakdown_value} AS breakdown_value
@@ -309,7 +333,7 @@ ORDER BY breakdown_value
 """
 
 
-SESSION_DURATION_BREAKDOWN_AGGREGATE_QUERY_SQL = """
+SESSION_DURATION_BREAKDOWN_AGGREGATE_SQL = """
 SELECT {aggregate_operation} AS total, breakdown_value
 FROM (
     SELECT any(session_duration) as session_duration, breakdown_value FROM (

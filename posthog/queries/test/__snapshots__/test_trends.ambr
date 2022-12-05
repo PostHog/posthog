@@ -2481,6 +2481,87 @@
   ORDER BY breakdown_value
   '
 ---
+# name: TestTrends.test_weekly_active_users_aggregated_breakdown
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
+            count(DISTINCT person_id) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event = '$pageview'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-11 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
+       AND e.person_id != toUUIDOrZero('')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestTrends.test_weekly_active_users_aggregated_breakdown.1
+  '
+  
+  SELECT count(DISTINCT person_id) AS total,
+         breakdown_value
+  FROM
+    (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as timestamp,
+            e.person_id AS person_id,
+            replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
+     FROM events e
+     WHERE e.team_id = 2
+       AND event = '$pageview'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
+       AND e.person_id != toUUIDOrZero('')
+       AND e.person_id != toUUIDOrZero('')
+     GROUP BY timestamp,
+              person_id,
+              breakdown_value) events
+  WHERE 1 = 1
+    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-04 23:59:59', 'UTC') - INTERVAL 6 DAY
+    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
+# name: TestTrends.test_weekly_active_users_aggregated_range_narrower_than_week
+  '
+  
+  SELECT count(DISTINCT person_id) AS total
+  FROM
+    (SELECT e.timestamp as timestamp,
+            e.person_id as person_id
+     FROM events e
+     WHERE team_id = 2
+       AND event = '$pageview'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-05 23:59:59', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND e.person_id != toUUIDOrZero('') ) events
+  WHERE 1 = 1
+    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-05 23:59:59', 'UTC') - INTERVAL 6 DAY
+    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+  '
+---
+# name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week
+  '
+  
+  SELECT count(DISTINCT person_id) AS total
+  FROM
+    (SELECT e.timestamp as timestamp,
+            e.person_id as person_id
+     FROM events e
+     WHERE team_id = 2
+       AND event = '$pageview'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 23:59:59', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+       AND e.person_id != toUUIDOrZero('') ) events
+  WHERE 1 = 1
+    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 23:59:59', 'UTC') - INTERVAL 6 DAY
+    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+  '
+---
 # name: TestTrends.test_weekly_active_users_daily
   '
   
@@ -2508,19 +2589,13 @@
                      person_id
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as person_id
+                        e.person_id as person_id
                  FROM events e
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 2
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'UTC') ) events
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'UTC')
+                   AND e.person_id != toUUIDOrZero('') ) events
               WHERE 1 = 1
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'UTC')
@@ -2564,19 +2639,13 @@
                      person_id
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as person_id
+                        e.person_id as person_id
                  FROM events e
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 2
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 06:00:00', 'UTC')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-09 17:00:00', 'UTC') ) events
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-09 17:00:00', 'UTC')
+                   AND e.person_id != toUUIDOrZero('') ) events
               WHERE 1 = 1
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 06:00:00', 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-09 17:00:00', 'UTC')
@@ -2620,19 +2689,13 @@
                      person_id
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as person_id
+                        e.person_id as person_id
                  FROM events e
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 2
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'UTC')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC') ) events
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC')
+                   AND e.person_id != toUUIDOrZero('') ) events
               WHERE 1 = 1
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC')
@@ -2676,19 +2739,13 @@
                      person_id
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as person_id
+                        e.person_id as person_id
                  FROM events e
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 2
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC') ) events
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC')
+                   AND e.person_id != toUUIDOrZero('') ) events
               WHERE 1 = 1
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC')
