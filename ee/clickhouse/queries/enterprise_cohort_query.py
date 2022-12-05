@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Tuple, cast
 
 from posthog.constants import PropertyOperatorType
+from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_count_operator
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property.property import Property, PropertyGroup
@@ -263,10 +264,10 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         person_prop_params: dict = {}
 
         _inner_fields = [
-            f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
+            f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id AS {self.ACTOR_FIELD_ALIAS}"
         ]
-        _intermediate_fields = ["person_id"]
-        _outer_fields = ["person_id"]
+        _intermediate_fields = [f"{self.ACTOR_FIELD_ALIAS}"]
+        _outer_fields = [f"{self.ACTOR_FIELD_ALIAS}"]
 
         _inner_fields.extend(names)
         _intermediate_fields.extend(names)
@@ -307,7 +308,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         outer_query = f"""
         SELECT {", ".join(_outer_fields)} FROM ({intermediate_query})
-        GROUP BY person_id
+        GROUP BY {self.ACTOR_FIELD_ALIAS}
         """
         return (
             outer_query,
@@ -365,3 +366,11 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         has_pending_negation, has_primary_clause = check_negation_clause(self._filter.property_groups)
         if has_pending_negation:
             raise ValueError("Negations must be paired with a positive filter.")
+
+    @cached_property
+    def _aggregation_actor_field(self) -> str:
+        cohort: Cohort = Cohort.objects.get(pk=self._cohort_pk)
+        if cohort.aggregation_group_type_index is not None:
+            return f"$group_{cohort.aggregation_group_type_index}"
+        else:
+            return f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id"

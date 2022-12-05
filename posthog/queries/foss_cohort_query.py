@@ -104,6 +104,7 @@ class FOSSCohortQuery(EventQuery):
     BEHAVIOR_QUERY_ALIAS = "behavior_query"
     FUNNEL_QUERY_ALIAS = "funnel_query"
     SEQUENCE_FIELD_ALIAS = "steps"
+    ACTOR_FIELD_ALIAS = "actor_id"
     _fields: List[str]
     _events: List[str]
     _earliest_time_for_event_query: Union[Relative_Date, None]
@@ -269,7 +270,7 @@ class FOSSCohortQuery(EventQuery):
         for idx, (subq_query, subq_alias) in enumerate(filtered_queries):
             if idx == 0:
                 q += f"({subq_query}) {subq_alias}"
-                fields = f"{subq_alias}.person_id"
+                fields = f"{subq_alias}.{self.ACTOR_FIELD_ALIAS}"
             elif prev_alias:  # can't join without a previous alias
                 if subq_alias == self.PERSON_TABLE_ALIAS and self.should_pushdown_persons:
                     if self._using_person_on_events:
@@ -277,13 +278,13 @@ class FOSSCohortQuery(EventQuery):
                         # the event query itself
                         continue
 
-                    q = f"{q} {inner_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
-                    fields = f"{subq_alias}.person_id"
+                    q = f"{q} {inner_join_query(subq_query, subq_alias, f'{subq_alias}.{self.ACTOR_FIELD_ALIAS}', f'{prev_alias}.{self.ACTOR_FIELD_ALIAS}')}"
+                    fields = f"{subq_alias}.{self.ACTOR_FIELD_ALIAS}"
                 else:
-                    q = f"{q} {full_outer_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
+                    q = f"{q} {full_outer_join_query(subq_query, subq_alias, f'{subq_alias}.{self.ACTOR_FIELD_ALIAS}', f'{prev_alias}.{self.ACTOR_FIELD_ALIAS}')}"
                     fields = if_condition(
-                        f"{prev_alias}.person_id = '00000000-0000-0000-0000-000000000000'",
-                        f"{subq_alias}.person_id",
+                        f"{prev_alias}.{self.ACTOR_FIELD_ALIAS} = '00000000-0000-0000-0000-000000000000'",
+                        f"{subq_alias}.{self.ACTOR_FIELD_ALIAS}",
                         f"{fields}",
                     )
 
@@ -303,9 +304,7 @@ class FOSSCohortQuery(EventQuery):
         query, params = "", {}
         if self._should_join_behavioral_query:
 
-            _fields = [
-                f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
-            ]
+            _fields = [f"{self._aggregation_actor_field} AS {self.ACTOR_FIELD_ALIAS}"]
             _fields.extend(self._fields)
 
             if self.should_pushdown_persons and self._using_person_on_events:
@@ -323,7 +322,7 @@ class FOSSCohortQuery(EventQuery):
             AND event IN %({event_param_name})s
             {date_condition}
             {person_prop_query}
-            GROUP BY person_id
+            GROUP BY {self.ACTOR_FIELD_ALIAS}
             """
 
             query, params = (
@@ -522,3 +521,9 @@ class FOSSCohortQuery(EventQuery):
 
     def _add_event(self, event_id: str) -> None:
         self._events.append(event_id)
+
+    @cached_property
+    def _aggregation_actor_field(self) -> str:
+        return (
+            f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id"
+        )
