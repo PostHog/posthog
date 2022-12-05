@@ -152,7 +152,7 @@ def export_image(exported_asset: ExportedAsset) -> None:
         if exported_asset.insight:
             # NOTE: Dashboards are regularly updated but insights are not
             # so, we need to trigger a manual update to ensure the results are good
-            caching_state_id = get_caching_state_id(export_image.insight, exported_asset.dashboard)
+            caching_state_id = get_caching_state_id(exported_asset.insight, exported_asset.dashboard)
             update_cache(caching_state_id)
 
         if exported_asset.export_format == "image/png":

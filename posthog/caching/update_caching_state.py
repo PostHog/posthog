@@ -12,8 +12,9 @@ from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.caching.calculate_results import calculate_result_by_cache_type, get_cache_type
+from posthog.caching.insight_caching_state import upsert
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.models import Dashboard, Insight, InsightCachingState, Team
+from posthog.models import Dashboard, DashboardTile, Insight, InsightCachingState, Team
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import generate_insight_cache_key
 from posthog.models.instance_setting import get_instance_setting
@@ -79,7 +80,20 @@ def fetch_states_in_need_of_updating(limit: int) -> List[Tuple[int, str, UUID]]:
 
 
 def get_caching_state_id(insight: Insight, dashboard: Optional[Dashboard]) -> UUID:
-    return InsightCachingState.objects.only("pk").get(team_id=insight.team_id, insight=insight, dashboard=dashboard).pk
+    query_set = InsightCachingState.objects.only("pk").filter(team_id=insight.team_id, insight=insight)
+
+    if dashboard is not None:
+        query_set = query_set.filter(dashboard_tile__dashboard=dashboard)
+
+    insight_caching_state = query_set.first()
+    if insight_caching_state is None:
+        target = (
+            insight
+            if dashboard is None
+            else DashboardTile.objects.get(team_id=insight.team_id, insight=insight, dashboard=dashboard)
+        )
+        insight_caching_state = upsert(insight.team, target)
+    return insight_caching_state.pk
 
 
 def update_cache(caching_state_id: UUID):
