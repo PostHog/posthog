@@ -72,13 +72,13 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
 
             # Math properties are also implicitly used.
             #
-            # See postgog/queries/trends/util.py#process_math
+            # See posthog/queries/trends/util.py#process_math
             if entity.math_property:
                 counter[(entity.math_property, "event", None)] += 1
 
             # If groups are involved, they're also used
             #
-            # See postgog/queries/trends/util.py#process_math
+            # See posthog/queries/trends/util.py#process_math
             if entity.math_group_type_index is not None:
                 if entity.math == UNIQUE_GROUPS or entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
                     counter[(f"$group_{entity.math_group_type_index}", "event", None)] += 1

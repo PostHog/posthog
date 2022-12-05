@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 
-from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE, PropertyOperatorType
+from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE, UNIQUE_GROUPS, PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -15,7 +15,7 @@ from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.trends.trends_event_query import TrendsEventQuery
-from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS, process_math
+from posthog.queries.trends.util import COUNT_PER_ACTOR_MATH_FUNCTIONS, PROPERTY_MATH_FUNCTIONS, process_math
 
 
 def _handle_date_interval(filter: Filter) -> Filter:
@@ -51,7 +51,8 @@ class TrendsActors(ActorBaseQuery):
 
     @cached_property
     def aggregation_group_type_index(self):
-        if self.entity.math == "unique_group":
+        entity = self.entity
+        if entity.math == UNIQUE_GROUPS or entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
             return self.entity.math_group_type_index
         return None
 
