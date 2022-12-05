@@ -14,5 +14,14 @@ test.describe('insights vrt', () => {
         await expect(content).toHaveScreenshot('content.png')
     })
 
-    // TODO: hover
+    // test('displays the trends line insight correctly - HOVER', async ({ page }) => {
+    //     const storyId = 'scenes-app-insights--trends-line'
+    //     const storyUrl = `${storybookUrl}/iframe.html?id=${storyId}&viewMode=story`
+    //     await page.goto(storyUrl)
+
+    //     await expect(page).toHaveScreenshot('full.png', { fullPage: true })
+
+    //     const content = page.locator('.main-app-content')
+    //     await expect(content).toHaveScreenshot('content.png')
+    // })
 })
