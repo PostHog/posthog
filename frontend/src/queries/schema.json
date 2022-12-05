@@ -1484,6 +1484,10 @@
                 "name": {
                     "type": "string"
                 },
+                "personId": {
+                    "description": "Show events for a given person",
+                    "type": "string"
+                },
                 "properties": {
                     "description": "Properties configurable in the interface",
                     "items": {

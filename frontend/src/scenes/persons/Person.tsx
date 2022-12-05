@@ -27,6 +27,10 @@ import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { NotFound } from 'lib/components/NotFound'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
+import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const { TabPane } = Tabs
 
@@ -97,6 +101,8 @@ export function Person(): JSX.Element | null {
     } = useActions(personsLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
 
     if (!person) {
         return personLoading ? <SpinnerOverlay /> : <NotFound object="Person" />
@@ -157,12 +163,30 @@ export function Person(): JSX.Element | null {
                     />
                 </TabPane>
                 <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key={PersonsTabType.EVENTS}>
-                    <EventsTable
-                        pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
-                        fixedFilters={{ person_id: person.id }}
-                        showPersonColumn={false}
-                        sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
-                    />
+                    {featureDataExploration ? (
+                        <Query
+                            query={{
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.EventsNode,
+                                    personId: person.id,
+                                },
+                                showReload: true,
+                                showColumnConfigurator: true,
+                                showExport: true,
+                                showEventFilter: true,
+                                showPropertyFilter: true,
+                            }}
+                            setQueryLocally
+                        />
+                    ) : (
+                        <EventsTable
+                            pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
+                            fixedFilters={{ person_id: person.id }}
+                            showPersonColumn={false}
+                            sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
+                        />
+                    )}
                 </TabPane>
                 <TabPane
                     tab={<span data-attr="person-session-recordings-tab">Recordings</span>}
