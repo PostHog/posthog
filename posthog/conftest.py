@@ -125,6 +125,8 @@ def unittest_snapshot(request, snapshot):
 def cache():
     from django.core.cache import cache as django_cache
 
+    django_cache.clear()
+
     yield django_cache
 
     django_cache.clear()
