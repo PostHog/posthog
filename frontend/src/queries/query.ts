@@ -25,6 +25,7 @@ export async function query<N extends DataNode = DataNode>(
                 properties: [...(query.fixedProperties || []), ...(query.properties || [])],
                 ...(query.event ? { event: query.event } : {}),
                 ...(query.actionId ? { action_id: query.actionId } : {}),
+                ...(query.personId ? { person_id: query.personId } : {}),
                 before: query.before,
                 after: query.after,
             },

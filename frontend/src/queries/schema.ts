@@ -84,6 +84,8 @@ export interface EventsNode extends EntityNode {
     limit?: number
     /** Show events matching a given action */
     actionId?: number
+    /** Show events for a given person */
+    personId?: string
     /** Only fetch events that happened before this timestamp */
     before?: string
     /** Only fetch events that happened after this timestamp */
