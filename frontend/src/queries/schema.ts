@@ -225,3 +225,6 @@ export interface BreakdownFilter {
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number | undefined // Groups aggregation
 }
+
+/** Pass custom templates and other metadata to queries. Used for e.g. custom columns in the DataTable. */
+export type QueryCustom = Record<string, { title?: string; render?: (props: { record: any }) => JSX.Element }>

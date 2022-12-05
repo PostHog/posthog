@@ -8,6 +8,13 @@
                 "custom_name": {
                     "type": "string"
                 },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
                 "id": {
                     "type": "number"
                 },
@@ -39,6 +46,7 @@
                     "type": "string"
                 },
                 "properties": {
+                    "description": "Properties configurable in the interface",
                     "items": {
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
@@ -1421,6 +1429,10 @@
         "EventsNode": {
             "additionalProperties": false,
             "properties": {
+                "actionId": {
+                    "description": "Show events matching a given action",
+                    "type": "number"
+                },
                 "after": {
                     "description": "Only fetch events that happened after this timestamp",
                     "type": "string"
@@ -1434,6 +1446,13 @@
                 },
                 "event": {
                     "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "kind": {
                     "const": "EventsNode",
@@ -1466,6 +1485,7 @@
                     "type": "string"
                 },
                 "properties": {
+                    "description": "Properties configurable in the interface",
                     "items": {
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
