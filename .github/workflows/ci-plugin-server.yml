@@ -153,13 +153,6 @@ jobs:
         name: Functional tests
         runs-on: ubuntu-20.04
 
-        env:
-            REDIS_URL: 'redis://localhost'
-            CLICKHOUSE_HOST: 'localhost'
-            CLICKHOUSE_DATABASE: 'posthog_test'
-            KAFKA_HOSTS: 'kafka:9092'
-            DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-
         steps:
             - name: Code check out
               uses: actions/checkout@v3
