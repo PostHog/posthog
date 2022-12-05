@@ -103,7 +103,10 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
                             {inlineRow === 1 ? (
                                 <>
                                     <div className="flex-1" />
-                                    <InlineEditor query={query} setQuery={setQuery as (node: Node) => void} />
+                                    <InlineEditor
+                                        query={queryWithDefaults}
+                                        setQuery={setQuery as (node: Node) => void}
+                                    />
                                 </>
                             ) : null}
                         </div>
@@ -115,7 +118,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
                             {showColumnConfigurator && <ColumnConfigurator query={query} setQuery={setQuery} />}
                             {showExport && <DataTableExport query={query} setQuery={setQuery} />}
                             {inlineRow === 2 ? (
-                                <InlineEditor query={query} setQuery={setQuery as (node: Node) => void} />
+                                <InlineEditor query={queryWithDefaults} setQuery={setQuery as (node: Node) => void} />
                             ) : null}
                         </div>
                     )}
@@ -124,7 +127,7 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
                     )}
                     {inlineRow === 0 ? (
                         <div className="absolute right-0 z-10 p-1">
-                            <InlineEditor query={query} setQuery={setQuery as (node: Node) => void} />
+                            <InlineEditor query={queryWithDefaults} setQuery={setQuery as (node: Node) => void} />
                         </div>
                     ) : null}
                     <LemonTable
