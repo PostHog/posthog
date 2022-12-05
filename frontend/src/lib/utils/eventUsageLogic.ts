@@ -389,6 +389,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportNextRecordingTriggered: (automatic: boolean) => ({
             automatic,
         }),
+        reportRecordingExportedToFile: true,
+        reportRecordingLoadedFromFile: (data: { success: boolean; error?: string }) => data,
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
@@ -977,6 +979,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportNextRecordingTriggered: ({ automatic }) => {
             posthog.capture('recording next recording triggered', { automatic })
+        },
+        reportRecordingExportedToFile: () => {
+            posthog.capture('recording exported to file')
+        },
+        reportRecordingLoadedFromFile: (properties) => {
+            posthog.capture('recording loaded from file', properties)
         },
         reportExperimentArchived: ({ experiment }) => {
             posthog.capture('experiment archived', {

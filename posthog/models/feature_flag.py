@@ -18,6 +18,7 @@ from posthog.models.experiment import Experiment
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.organization import OrganizationMembership
 from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
@@ -701,7 +702,11 @@ def can_user_edit_feature_flag(request, feature_flag):
     else:
         if feature_flag.created_by == request.user:
             return True
-
+        if (
+            request.user.organization_memberships.get(organization=request.user.organization).level
+            >= OrganizationMembership.Level.ADMIN
+        ):
+            return True
         all_role_memberships = request.user.role_memberships.select_related("role").all()
         try:
             feature_flag_resource_access = OrganizationResourceAccess.objects.get(

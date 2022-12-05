@@ -4,9 +4,11 @@ import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLo
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
+    AvailableFeature,
     MatchedRecording,
     PlayerPosition,
     RecordingSegment,
+    SessionPlayerData,
     SessionPlayerState,
     SessionRecordingId,
     SessionRecordingType,
@@ -22,7 +24,12 @@ import {
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 import equal from 'fast-deep-equal'
-import { fromParamsGivenUrl } from 'lib/utils'
+import { downloadFile, fromParamsGivenUrl } from 'lib/utils'
+import { lemonToast } from '@posthog/lemon-ui'
+import { delay } from 'kea-test-utils'
+import { ExportedSessionRecordingFile } from '../file-playback/sessionRecodingFilePlaybackLogic'
+import { userLogic } from 'scenes/userLogic'
+import { openBillingPopupModal } from 'scenes/billing/v2/BillingPopup'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -34,6 +41,7 @@ export interface Player {
 
 export interface SessionRecordingPlayerLogicProps {
     sessionRecordingId: SessionRecordingId
+    sessionRecordingData?: SessionPlayerData
     playerKey: string
     matching?: MatchedRecording[]
     recordingStartTime?: string
@@ -43,39 +51,49 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
-    connect(({ sessionRecordingId, playerKey, recordingStartTime }: SessionRecordingPlayerLogicProps) => ({
-        values: [
-            sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }),
-            [
-                'sessionRecordingId',
-                'sessionPlayerData',
-                'sessionPlayerSnapshotDataLoading',
-                'sessionPlayerMetaDataLoading',
-                'loadMetaTimeMs',
-                'loadFirstSnapshotTimeMs',
-                'loadAllSnapshotsTimeMs',
+    connect(
+        ({
+            sessionRecordingId,
+            sessionRecordingData,
+            playerKey,
+            recordingStartTime,
+        }: SessionRecordingPlayerLogicProps) => ({
+            values: [
+                sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime, sessionRecordingData }),
+                [
+                    'sessionRecordingId',
+                    'sessionPlayerData',
+                    'sessionPlayerSnapshotDataLoading',
+                    'sessionPlayerMetaDataLoading',
+                    'loadMetaTimeMs',
+                    'loadFirstSnapshotTimeMs',
+                    'loadAllSnapshotsTimeMs',
+                ],
+                sharedListLogic({ sessionRecordingId, playerKey }),
+                ['tab'],
+                playerSettingsLogic,
+                ['speed', 'skipInactivitySetting', 'isFullScreen'],
+                userLogic,
+                ['hasAvailableFeature'],
             ],
-            sharedListLogic({ sessionRecordingId, playerKey }),
-            ['tab'],
-            playerSettingsLogic,
-            ['speed', 'skipInactivitySetting', 'isFullScreen'],
-        ],
-        actions: [
-            sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }),
-            ['loadRecordingSnapshotsSuccess', 'loadRecordingSnapshotsFailure', 'loadRecordingMetaSuccess'],
-            sharedListLogic({ sessionRecordingId, playerKey }),
-            ['setTab'],
-            playerSettingsLogic,
-            ['setSpeed', 'setSkipInactivitySetting', 'setIsFullScreen'],
-            eventUsageLogic,
-            [
-                'reportNextRecordingTriggered',
-                'reportRecordingPlayerSkipInactivityToggled',
-                'reportRecordingPlayerSpeedChanged',
-                'reportRecordingViewedSummary',
+            actions: [
+                sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime, sessionRecordingData }),
+                ['loadRecordingSnapshotsSuccess', 'loadRecordingSnapshotsFailure', 'loadRecordingMetaSuccess'],
+                sharedListLogic({ sessionRecordingId, playerKey }),
+                ['setTab'],
+                playerSettingsLogic,
+                ['setSpeed', 'setSkipInactivitySetting', 'setIsFullScreen'],
+                eventUsageLogic,
+                [
+                    'reportNextRecordingTriggered',
+                    'reportRecordingPlayerSkipInactivityToggled',
+                    'reportRecordingPlayerSpeedChanged',
+                    'reportRecordingViewedSummary',
+                    'reportRecordingExportedToFile',
+                ],
             ],
-        ],
-    })),
+        })
+    ),
     propsChanged(({ actions, props: { matching } }, { matching: oldMatching }) => {
         // Ensures that if filter results change, then matching results in this player logic will also change
         if (!equal(matching, oldMatching)) {
@@ -112,6 +130,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         incrementWarningCount: true,
         setMatching: (matching: SessionRecordingType['matching_events']) => ({ matching }),
         updateFromMetadata: true,
+        exportRecordingToFile: true,
     }),
     reducers(({ props }) => ({
         rootFrame: [
@@ -218,7 +237,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (recordingStartTime) => recordingStartTime ?? null,
         ],
     }),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ props, values, actions, cache }) => ({
         setRootFrame: () => {
             actions.tryInitReplayer()
         },
@@ -615,6 +634,46 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (cache.timer) {
                 cancelAnimationFrame(cache.timer)
             }
+        },
+
+        exportRecordingToFile: async () => {
+            if (!values.sessionPlayerData) {
+                return
+            }
+
+            if (!values.hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)) {
+                openBillingPopupModal({
+                    title: 'Unlock recording exports',
+                    description:
+                        'Export recordings to a file that can be stored wherever you like and loaded back into PostHog for playback at any time.',
+                })
+                return
+            }
+
+            const doExport = async (): Promise<void> => {
+                while (values.sessionPlayerData.next) {
+                    await delay(1000)
+                }
+
+                const payload: ExportedSessionRecordingFile = {
+                    version: '2022-12-02',
+                    data: values.sessionPlayerData,
+                }
+                const recordingFile = new File(
+                    [JSON.stringify(payload)],
+                    `export-${props.sessionRecordingId}.ph-recording.json`,
+                    { type: 'application/json' }
+                )
+
+                downloadFile(recordingFile)
+                actions.reportRecordingExportedToFile()
+            }
+
+            await lemonToast.promise(doExport(), {
+                success: 'Export complete!',
+                error: 'Export failed!',
+                pending: 'Exporting recording...',
+            })
         },
     })),
     windowValues({
