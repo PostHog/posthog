@@ -40,6 +40,8 @@ export function EventsScene(): JSX.Element {
                     if (!objectsEqual(newQuery.columns ?? null, query.columns ?? null)) {
                         setColumns(newQuery.columns ?? null)
                     }
+                    // If anything else was changed in the query (nice try, hacker), we won't save it.
+                    // Use the query editor to play around.
                 }
             }}
         />
