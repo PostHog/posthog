@@ -119,10 +119,6 @@ def update_cache(caching_state_id: UUID):
         statsd.timing("caching_state_update_success_timing", duration)
         logger.info("Re-calculated insight cache", rows_updated=rows_updated, duration=duration, **metadata)
     else:
-        # Update in a way that avoids race conditions
-        InsightCachingState.objects.filter(pk=caching_state.pk).update(
-            refresh_attempt=caching_state.refresh_attempt + 1
-        )
         logger.warn(
             "Failed to re-calculate insight cache",
             exception=exception,
@@ -136,6 +132,10 @@ def update_cache(caching_state_id: UUID):
             from posthog.celery import update_cache_task
 
             update_cache_task.apply_async(args=[caching_state_id], countdown=timedelta(minutes=10).total_seconds())
+
+        InsightCachingState.objects.filter(pk=caching_state.pk).update(
+            refresh_attempt=caching_state.refresh_attempt + 1, last_refresh_queued_at=now()
+        )
 
 
 def update_cached_state(team_id: int, cache_key: str, timestamp: datetime, result: Any):
