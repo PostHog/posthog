@@ -33,7 +33,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
-from posthog.caching.update_cache import synchronously_update_insight_cache
+from posthog.caching.insight_cache import synchronously_update_cache
 from posthog.client import sync_execute
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
@@ -332,7 +332,7 @@ class InsightSerializer(InsightBasicSerializer):
         dashboard = self.context.get("dashboard", None)
 
         if should_refresh(self.context["request"]):
-            return synchronously_update_insight_cache(insight, dashboard)
+            return synchronously_update_cache(insight, dashboard)
 
         cache_key = insight.filters_hash
         if dashboard is not None:
@@ -375,20 +375,16 @@ class InsightSerializer(InsightBasicSerializer):
         result = self.get_result(insight)
 
         if result is not None:
+            caching_state = dashboard_tile.caching_state if dashboard_tile else insight.caching_state
+
+            if caching_state and caching_state.last_refresh:
+                return caching_state.last_refresh
+
+            # :TODO: Remove once InsightCachingState is all populated
             if dashboard_tile:
                 return dashboard_tile.last_refresh
             else:
                 return insight.last_refresh
-
-        if dashboard_tile is not None:
-            if dashboard_tile.last_refresh is not None:
-                dashboard_tile.last_refresh = None
-                dashboard_tile.save(update_fields=["last_refresh"])
-        else:
-            if insight.last_refresh is not None:
-                # Update last_refresh without updating "updated_at" (insight edit date)
-                insight.last_refresh = None
-                insight.save(update_fields=["last_refresh"])
         return None
 
     def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:
