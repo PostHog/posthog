@@ -1,5 +1,5 @@
-from typing import Dict, List, Optional, Set, Tuple, Union
 from datetime import datetime
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
