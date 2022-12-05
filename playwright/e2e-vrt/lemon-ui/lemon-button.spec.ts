@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-const storybookUrl: string = process.env.STORYBOOK_URL || 'https://storybook.posthog.net'
+const storybookUrl: string = process.env.STORYBOOK_URL || 'http://localhost:6006'
 
 test.describe('Lemon Button', () => {
     test('displays the button correctly', async ({ page }) => {

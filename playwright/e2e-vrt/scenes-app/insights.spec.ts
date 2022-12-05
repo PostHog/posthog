@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-const storybookUrl: string = process.env.STORYBOOK_URL!
+const storybookUrl: string = process.env.STORYBOOK_URL || 'http://localhost:6006'
 
 test.describe('insights vrt', () => {
     test('displays the trends line insight correctly', async ({ page }) => {
