@@ -99,8 +99,6 @@ def get_person_name(person: Person) -> str:
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
     name = serializers.SerializerMethodField()
-    created_at_from = serializers.DateTimeField(required=False, allow_null=True)
-    created_at_to = serializers.DateTimeField(required=False, allow_null=True)
 
     class Meta:
         model = Person
