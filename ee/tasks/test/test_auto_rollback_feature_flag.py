@@ -39,7 +39,7 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 calculate_rolling_average(
                     threshold_metric=threshold_metric,
-                    team_id=self.team,
+                    team=self.team,
                     timezone="UTC",
                 ),
                 10,  # because we have 70 events in the last 7 days
@@ -49,7 +49,7 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 calculate_rolling_average(
                     threshold_metric=threshold_metric,
-                    team_id=self.team,
+                    team=self.team,
                     timezone="UTC",
                 ),
                 20,  # because we have 140 events in the last 7 days

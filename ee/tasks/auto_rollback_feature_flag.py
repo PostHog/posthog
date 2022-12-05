@@ -7,6 +7,7 @@ from celery import shared_task
 from ee.api.sentry_stats import get_stats_for_timerange
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
+from posthog.models.team import Team
 from posthog.queries.trends.trends import Trends
 
 
@@ -29,7 +30,7 @@ def check_feature_flag_rollback_conditions(feature_flag_id: int) -> None:
         flag.save()
 
 
-def calculate_rolling_average(threshold_metric: Dict, team_id: int, timezone: str) -> float:
+def calculate_rolling_average(threshold_metric: Dict, team: Team, timezone: str) -> float:
     curr = datetime.now(tz=pytz.timezone(timezone))
 
     rolling_average_days = 7
@@ -40,10 +41,10 @@ def calculate_rolling_average(threshold_metric: Dict, team_id: int, timezone: st
             "date_from": (curr - timedelta(days=rolling_average_days)).strftime("%Y-%m-%d %H:%M:%S.%f"),
             "date_to": curr.strftime("%Y-%m-%d %H:%M:%S.%f"),
         },
-        team=team_id,
+        team=team,
     )
     trends_query = Trends()
-    result = trends_query.run(filter, team_id)
+    result = trends_query.run(filter, team)
 
     if not len(result):
         return False
