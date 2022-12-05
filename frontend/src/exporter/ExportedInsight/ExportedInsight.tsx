@@ -21,6 +21,11 @@ export function ExportedInsight({
     exportOptions: ExportOptions
     type: ExportType
 }): JSX.Element {
+    if (isTrendsFilter(insight.filters) && insight.filters.show_legend) {
+        // legend is always shown so don't show it alongside the insight
+        insight.filters.show_legend = false
+    }
+
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
         cachedInsight: insight,
