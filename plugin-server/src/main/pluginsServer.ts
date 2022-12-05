@@ -243,6 +243,7 @@ export async function startPluginsServer(
                     piscina: piscina,
                     kafka: hub.kafka,
                     producer: hub.kafkaProducer.producer,
+                    partitionConcurrency: serverConfig.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
                     statsd: hub.statsd,
                 })
             }
