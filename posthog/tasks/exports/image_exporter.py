@@ -17,7 +17,7 @@ from statshog.defaults.django import statsd
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.utils import ChromeType
 
-from posthog.caching.update_caching_state import get_caching_state_id, update_cache
+from posthog.caching.update_caching_state import synchronously_update_cache
 from posthog.logging.timing import timed
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
 from posthog.utils import absolute_uri
@@ -152,8 +152,7 @@ def export_image(exported_asset: ExportedAsset) -> None:
         if exported_asset.insight:
             # NOTE: Dashboards are regularly updated but insights are not
             # so, we need to trigger a manual update to ensure the results are good
-            caching_state_id = get_caching_state_id(exported_asset.insight, exported_asset.dashboard)
-            update_cache(caching_state_id)
+            synchronously_update_cache(exported_asset.insight, exported_asset.dashboard)
 
         if exported_asset.export_format == "image/png":
             _export_to_png(exported_asset)

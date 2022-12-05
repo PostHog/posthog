@@ -1,9 +1,10 @@
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import structlog
 from sentry_sdk import capture_exception
 
 from posthog.caching.utils import ensure_is_date
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import (
     INSIGHT_FUNNELS,
     INSIGHT_PATHS,
@@ -15,9 +16,11 @@ from posthog.constants import (
 )
 from posthog.decorators import CacheType
 from posthog.logging.timing import timed
-from posthog.models import EventDefinition, Filter, RetentionFilter, Team
+from posthog.models import Dashboard, EventDefinition, Filter, Insight, RetentionFilter, Team
 from posthog.models.filters import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.filters.utils import get_filter
+from posthog.models.insight import generate_insight_cache_key
 from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.paths import Paths
@@ -51,6 +54,17 @@ def get_cache_type(filter: FilterType) -> CacheType:
         return CacheType.STICKINESS
     else:
         return CacheType.TRENDS
+
+
+def calculate_result_by_insight(
+    team: Team, insight: Insight, dashboard: Optional[Dashboard]
+) -> Tuple[str, str, List[Dict[str, Any]]]:
+    filter = get_filter(data=insight.dashboard_filters(dashboard), team=team)
+    cache_key = generate_insight_cache_key(insight, dashboard)
+    cache_type = get_cache_type(filter)
+
+    tag_queries(team_id=team.pk, insight_id=insight.pk, cache_type=cache_type, cache_key=cache_key)
+    return cache_key, cache_type, calculate_result_by_cache_type(cache_type, filter, team)
 
 
 def calculate_result_by_cache_type(cache_type: CacheType, filter: Filter, team: Team) -> List[Dict[str, Any]]:

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from time import perf_counter
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 from uuid import UUID
 
 import structlog
@@ -11,12 +11,8 @@ from django.utils.timezone import now
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
-from posthog.caching.calculate_results import calculate_result_by_cache_type, get_cache_type
-from posthog.caching.insight_caching_state import upsert
-from posthog.clickhouse.query_tagging import tag_queries
-from posthog.models import Dashboard, DashboardTile, Insight, InsightCachingState, Team
-from posthog.models.filters.utils import get_filter
-from posthog.models.insight import generate_insight_cache_key
+from posthog.caching.calculate_results import calculate_result_by_insight
+from posthog.models import Dashboard, Insight, InsightCachingState, Team
 from posthog.models.instance_setting import get_instance_setting
 
 logger = structlog.get_logger(__name__)
@@ -79,23 +75,6 @@ def fetch_states_in_need_of_updating(limit: int) -> List[Tuple[int, str, UUID]]:
         return cursor.fetchall()
 
 
-def get_caching_state_id(insight: Insight, dashboard: Optional[Dashboard]) -> UUID:
-    query_set = InsightCachingState.objects.only("pk").filter(team_id=insight.team_id, insight=insight)
-
-    if dashboard is not None:
-        query_set = query_set.filter(dashboard_tile__dashboard=dashboard)
-
-    insight_caching_state = query_set.first()
-    if insight_caching_state is None:
-        target = (
-            insight
-            if dashboard is None
-            else DashboardTile.objects.get(team_id=insight.team_id, insight=insight, dashboard=dashboard)
-        )
-        insight_caching_state = upsert(insight.team, target)
-    return insight_caching_state.pk
-
-
 def update_cache(caching_state_id: UUID):
     caching_state = InsightCachingState.objects.get(pk=caching_state_id)
 
@@ -108,27 +87,20 @@ def update_cache(caching_state_id: UUID):
 
     insight, dashboard = _extract_insight_dashboard(caching_state)
     team: Team = insight.team
-
-    filter = get_filter(data=insight.dashboard_filters(dashboard), team=team)
-    cache_key = generate_insight_cache_key(insight, dashboard)
-    cache_type = get_cache_type(filter)
-
     start_time = perf_counter()
+
+    exception = cache_key = cache_type = None
 
     metadata = {
         "team_id": team.pk,
         "insight_id": insight.pk,
         "dashboard_id": dashboard.pk if dashboard else None,
-        "cache_type": cache_type,
-        "cache_key": cache_key,
         "last_refresh": caching_state.last_refresh,
         "last_refresh_queued_at": caching_state.last_refresh_queued_at,
     }
 
-    exception = None
     try:
-        tag_queries(team_id=team.pk, insight_id=insight.pk, cache_type=cache_type, cache_key=cache_key)
-        result = calculate_result_by_cache_type(cache_type, filter, team)
+        cache_key, cache_type, result = calculate_result_by_insight(team=team, insight=insight, dashboard=dashboard)
     except Exception as err:
         capture_exception(err, metadata)
         exception = err
@@ -138,7 +110,7 @@ def update_cache(caching_state_id: UUID):
         timestamp = now()
         rows_updated = update_cached_state(
             caching_state.team_id,
-            cache_key,
+            cast(str, cache_key),
             timestamp,
             {"result": result, "type": cache_type, "last_refresh": timestamp},
         )
@@ -174,6 +146,15 @@ def update_cached_state(team_id: int, cache_key: str, timestamp: datetime, resul
     return InsightCachingState.objects.filter(team_id=team_id, cache_key=cache_key).update(
         last_refresh=timestamp, refresh_attempt=0
     )
+
+
+def synchronously_update_cache(insight: Insight, dashboard: Optional[Dashboard]) -> List[Dict[str, Any]]:
+    cache_key, cache_type, result = calculate_result_by_insight(team=insight.team, insight=insight, dashboard=dashboard)
+    timestamp = now()
+    update_cached_state(
+        insight.team_id, cache_key, timestamp, {"result": result, "type": cache_type, "last_refresh": timestamp}
+    )
+    return result
 
 
 def _extract_insight_dashboard(caching_state: InsightCachingState) -> Tuple[Insight, Optional[Dashboard]]:
