@@ -591,6 +591,23 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get("/api/person/?date_from=2022-12-01&date_to=2022-12-03").json()
         self.assertEqual(len(response["results"]), 3)
 
+        # Get older inclusive date
+        response = self.client.get("/api/person/?date_to=2022-12-02").json()
+        self.assertEqual(len(response["results"]), 2)
+        assert response["results"][0]["distinct_ids"][0] == "id2"
+        assert response["results"][1]["distinct_ids"][0] == "id1"
+
+        # Get only newer
+        response = self.client.get("/api/person/?date_from=2022-12-02").json()
+        self.assertEqual(len(response["results"]), 2)
+        assert response["results"][0]["distinct_ids"][0] == "id3"
+        assert response["results"][1]["distinct_ids"][0] == "id2"
+
+        # Get older specific time
+        response = self.client.get("/api/person/?date_to=2022-12-02T02:00:00").json()
+        self.assertEqual(len(response["results"]), 1)
+        assert response["results"][0]["distinct_ids"][0] == "id1"
+
     def _get_person_activity(self, person_id: Optional[str] = None, expected_status: int = status.HTTP_200_OK):
         if person_id:
             url = f"/api/person/{person_id}/activity"
