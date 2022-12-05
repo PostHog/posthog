@@ -176,6 +176,16 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
                 OpenApiTypes.STR,
                 description="Search persons, either by email (full text search) or distinct_id (exact match).",
             ),
+            OpenApiParameter(
+                "date_from",
+                OpenApiTypes.DATETIME,
+                description="Filter persons by date they were first seen on or after this date.",
+            ),
+            OpenApiParameter(
+                "date_to",
+                OpenApiTypes.DATETIME,
+                description="Filter persons by date they were first seen on or before this date. If only the date is specified without a time then it is inclusive (i.e. to the end of the day).",
+            ),
             PersonPropertiesSerializer(required=False),
         ],
     )
