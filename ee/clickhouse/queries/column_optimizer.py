@@ -1,9 +1,7 @@
 from typing import Counter, List, Set, cast
 
-from sentry_sdk import capture_exception, push_scope
-
 from posthog.clickhouse.materialized_columns.column import ColumnName
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, UNIQUE_GROUPS, FunnelCorrelationType
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.entity import Entity
 from posthog.models.filters.mixins.utils import cached_property
@@ -12,7 +10,7 @@ from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property import PropertyIdentifier
 from posthog.models.property.util import box_value, extract_tables_and_properties
 from posthog.queries.column_optimizer.foss_column_optimizer import FOSSColumnOptimizer
-from posthog.queries.trends.util import COUNT_PER_ACTOR_MATH_FUNCTIONS
+from posthog.queries.trends.util import is_series_group_based
 
 
 class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
@@ -79,13 +77,8 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
             # If groups are involved, they're also used
             #
             # See posthog/queries/trends/util.py#process_math
-            if entity.math_group_type_index is not None:
-                if entity.math == UNIQUE_GROUPS or entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
-                    counter[(f"$group_{entity.math_group_type_index}", "event", None)] += 1
-                else:
-                    with push_scope() as scope:
-                        scope.set_tag("math", entity.math)
-                        capture_exception(Exception("This math type doesn't support aggregation by group"))
+            if is_series_group_based(entity):
+                counter[(f"$group_{entity.math_group_type_index}", "event", None)] += 1
 
             if entity.math == "unique_session":
                 counter[(f"$session_id", "event", None)] += 1
