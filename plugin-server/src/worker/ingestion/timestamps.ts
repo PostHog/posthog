@@ -7,12 +7,20 @@ import { status } from '../../utils/status'
 type InvalidTimestampCallback = (data: PluginEvent, reason: string) => void
 
 export function parseEventTimestamp(data: PluginEvent, callback?: InvalidTimestampCallback): DateTime {
-    const now = DateTime.fromISO(data['now']).toUTC()
-    const sentAt = data['sent_at'] ? DateTime.fromISO(data['sent_at']).toUTC() : null
+    const now = DateTime.fromISO(data['now']).toUTC() // now is set by the capture endpoint and assumed valid
+
+    let sentAt: DateTime | null = null
+    if (data['sent_at']) {
+        sentAt = DateTime.fromISO(data['sent_at']).toUTC()
+        if (!sentAt.isValid) {
+            callback?.(data, sentAt.invalidExplanation ?? 'sent_at format invalid')
+            sentAt = null
+        }
+    }
 
     const parsedTs = handleTimestamp(data, now, sentAt)
     if (!parsedTs.isValid) {
-        callback?.(data, parsedTs.invalidExplanation ?? 'unknown')
+        callback?.(data, parsedTs.invalidExplanation ?? 'timestamp format invalid')
         return DateTime.utc()
     }
     return parsedTs
@@ -21,7 +29,7 @@ export function parseEventTimestamp(data: PluginEvent, callback?: InvalidTimesta
 function handleTimestamp(data: PluginEvent, now: DateTime, sentAt: DateTime | null): DateTime {
     if (data['timestamp']) {
         const timestamp = parseDate(data['timestamp'])
-        if (sentAt && sentAt.isValid && timestamp.isValid) {
+        if (sentAt && timestamp.isValid) {
             // sent_at - timestamp == now - x
             // x = now + (timestamp - sent_at)
             try {
