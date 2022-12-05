@@ -20,25 +20,28 @@ export function EventsScene(): JSX.Element {
         },
         propertiesViaUrl: true,
         showEventsBufferWarning: true,
+        showColumnConfigurator: true,
+        showEventFilter: true,
+        showExport: true,
+        showPropertyFilter: true,
+        showReload: true,
     }
     return (
-        <>
-            <Query
-                query={query}
-                setQuery={(newQuery) => {
-                    if (isDataTableNode(newQuery)) {
-                        if (!objectsEqual(newQuery.source.properties ?? [], query.source.properties ?? [])) {
-                            setProperties(newQuery.source.properties ?? [])
-                        }
-                        if (!objectsEqual(newQuery.source.event ?? '', query.source.event ?? '')) {
-                            setEventFilter(newQuery.source.event ?? '')
-                        }
-                        if (!objectsEqual(newQuery.columns ?? null, query.columns ?? null)) {
-                            setColumns(newQuery.columns ?? null)
-                        }
+        <Query
+            query={query}
+            setQuery={(newQuery) => {
+                if (isDataTableNode(newQuery)) {
+                    if (!objectsEqual(newQuery.source.properties ?? [], query.source.properties ?? [])) {
+                        setProperties(newQuery.source.properties ?? [])
                     }
-                }}
-            />
-        </>
+                    if (!objectsEqual(newQuery.source.event ?? '', query.source.event ?? '')) {
+                        setEventFilter(newQuery.source.event ?? '')
+                    }
+                    if (!objectsEqual(newQuery.columns ?? null, query.columns ?? null)) {
+                        setColumns(newQuery.columns ?? null)
+                    }
+                }
+            }}
+        />
     )
 }

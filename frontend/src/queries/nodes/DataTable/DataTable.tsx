@@ -23,7 +23,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
-import { QueryEditorModal } from '~/queries/nodes/Node/QueryEditorModal'
+import { InlineEditor } from '~/queries/nodes/Node/InlineEditor'
 
 interface DataTableProps {
     query: DataTableNode
@@ -88,17 +88,24 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
 
     const showFilters = showEventFilter || showPropertyFilter
     const showTools = showReload || showExport || showColumnConfigurator
+    const inlineRow = showFilters ? 1 : showTools ? 2 : 0
 
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <div className="space-y-4">
+                <div className="space-y-4 relative">
                     {showFilters && (
                         <div className="flex gap-4">
                             {showEventFilter && <EventName query={query.source} setQuery={setQuerySource} />}
                             {showPropertyFilter && (
                                 <EventPropertyFilters query={query.source} setQuery={setQuerySource} />
                             )}
+                            {inlineRow === 1 ? (
+                                <>
+                                    <div className="flex-1" />
+                                    <InlineEditor query={query} setQuery={setQuery as (node: Node) => void} />
+                                </>
+                            ) : null}
                         </div>
                     )}
                     {showFilters && showTools && <LemonDivider />}
@@ -107,12 +114,19 @@ export function DataTable({ query, setQuery }: DataTableProps): JSX.Element {
                             <div className="flex-1">{showReload && (canLoadNewData ? <AutoLoad /> : <Reload />)}</div>
                             {showColumnConfigurator && <ColumnConfigurator query={query} setQuery={setQuery} />}
                             {showExport && <DataTableExport query={query} setQuery={setQuery} />}
-                            <QueryEditorModal query={query} setQuery={setQuery as (node: Node) => void} />
+                            {inlineRow === 2 ? (
+                                <InlineEditor query={query} setQuery={setQuery as (node: Node) => void} />
+                            ) : null}
                         </div>
                     )}
                     {showEventsBufferWarning && (
                         <EventBufferNotice additionalInfo=" - this helps ensure accuracy of insights grouped by unique users" />
                     )}
+                    {inlineRow === 0 ? (
+                        <div className="absolute right-0 z-10 p-1">
+                            <InlineEditor query={query} setQuery={setQuery as (node: Node) => void} />
+                        </div>
+                    ) : null}
                     <LemonTable
                         className="DataTable"
                         loading={responseLoading && !nextDataLoading && !newDataLoading}
