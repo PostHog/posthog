@@ -9,6 +9,7 @@ import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { DataTableNode, QueryCustom } from '~/queries/schema'
 import { isEventsNode, isPersonsNode } from '~/queries/utils'
 import { combineUrl, router } from 'kea-router'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 
 export function renderColumn(
     key: string,
@@ -143,6 +144,16 @@ export function renderColumn(
     } else if (key.startsWith('custom.')) {
         const Component = custom?.[key.substring(7)]?.render
         return Component ? <Component record={record} /> : ''
+    } else if (key === 'id' && isPersonsNode(query.source)) {
+        return (
+            <CopyToClipboardInline
+                explicitValue={record[key]}
+                iconStyle={{ color: 'var(--primary)' }}
+                description="person distinct ID"
+            >
+                {record[key]}
+            </CopyToClipboardInline>
+        )
     } else {
         return String(record[key])
     }
