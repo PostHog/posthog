@@ -49,7 +49,7 @@ jobs:
             - name: Serve Storybook and run tests
               run: |
                   npx concurrently -k -s first -n "SB,TEST" -c "magenta,blue" \
-                    "yarn storybook" \
+                    "yarn start-storybook --ci" \
                     "npx wait-on tcp:6006 && npx playwright test"
 
             # - name: Run Playwright tests

@@ -4,15 +4,15 @@
 # same during development and in CI.
 #
 
-# FROM mcr.microsoft.com/playwright:v1.28.0-focal
-FROM ubuntu:20.04
+FROM mcr.microsoft.com/playwright:v1.28.0-focal
+# FROM ubuntu:20.04
 
-RUN apt-get update -yq \
-    && apt-get install curl gnupg -yq \
-    && curl -sL https://deb.nodesource.com/setup_16.x | bash \
-    && apt-get install nodejs -yq
+# RUN apt-get update -yq \
+#     && apt-get install curl gnupg -yq \
+#     && curl -sL https://deb.nodesource.com/setup_16.x | bash \
+#     && apt-get install nodejs -yq
 
-RUN npx playwright install --with-deps
+# RUN npx playwright install --with-deps
 
 WORKDIR /work
 
