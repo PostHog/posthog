@@ -375,20 +375,16 @@ class InsightSerializer(InsightBasicSerializer):
         result = self.get_result(insight)
 
         if result is not None:
+            caching_state = dashboard_tile.caching_state if dashboard_tile else insight.caching_state
+
+            if caching_state and caching_state.last_refresh:
+                return caching_state.last_refresh
+
+            # :TODO: Remove once InsightCachingState is all populated
             if dashboard_tile:
                 return dashboard_tile.last_refresh
             else:
                 return insight.last_refresh
-
-        if dashboard_tile is not None:
-            if dashboard_tile.last_refresh is not None:
-                dashboard_tile.last_refresh = None
-                dashboard_tile.save(update_fields=["last_refresh"])
-        else:
-            if insight.last_refresh is not None:
-                # Update last_refresh without updating "updated_at" (insight edit date)
-                insight.last_refresh = None
-                insight.save(update_fields=["last_refresh"])
         return None
 
     def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:

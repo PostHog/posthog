@@ -79,6 +79,14 @@ class Insight(models.Model):
         sharing_configurations = self.sharingconfiguration_set.all()
         return sharing_configurations[0].enabled if sharing_configurations and sharing_configurations[0] else False
 
+    @property
+    def caching_state(self):
+        # uses .all and not .first so that prefetching can be used
+        for state in self.caching_states.all():
+            if state.dashboard_tile_id is None:
+                return state
+        return None
+
     class Meta:
         db_table = "posthog_dashboarditem"
         unique_together = ("team", "short_id")

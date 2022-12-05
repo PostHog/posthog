@@ -72,6 +72,10 @@ class DashboardTileSerializer(serializers.ModelSerializer):
     def get_last_refresh(self, dashboard_tile: DashboardTile) -> datetime.datetime:
         if should_refresh(self.context["request"]):
             return now()
+
+        # :TODO: Remove once InsightCachingState is all populated
+        if dashboard_tile.caching_state and dashboard_tile.caching_state.last_refresh:
+            return dashboard_tile.caching_state.last_refresh
         return dashboard_tile.last_refresh
 
     def get_is_cached(self, dashboard_tile: DashboardTile) -> bool:
