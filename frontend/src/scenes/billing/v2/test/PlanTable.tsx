@@ -7,6 +7,7 @@ import './PlanTable.scss'
 
 export type Product = {
     name: string
+    note?: string
     tiers: {
         description: string
         price: string
@@ -54,7 +55,7 @@ export const billingPlans: BillingPlan[] = [
             productAnalytics: {
                 name: 'Product analytics',
                 value: 'limited functionality',
-                note: '1M limit/mo',
+                note: 'Limited to 1M events/mo',
                 subfeatures: [
                     {
                         name: 'Graphs & trends',
@@ -84,7 +85,7 @@ export const billingPlans: BillingPlan[] = [
             sessionRecording: {
                 name: 'Session recording',
                 value: '15,000 limit',
-                note: '15,000 limit/mo',
+                note: 'Limited to 15,000 recordings/mo',
             },
             projects: {
                 name: 'Projects',
@@ -115,6 +116,7 @@ export const billingPlans: BillingPlan[] = [
         products: [
             {
                 name: 'Product analytics',
+                note: 'Priced per event',
                 tiers: [
                     {
                         description: 'Up to 1 million events/mo',
@@ -124,6 +126,7 @@ export const billingPlans: BillingPlan[] = [
             },
             {
                 name: 'Session recording',
+                note: 'Priced per recording',
                 tiers: [
                     {
                         description: 'Up to 15,000 recordings/mo',
@@ -337,7 +340,7 @@ export function PlanIcon({
     className?: string
 }): JSX.Element {
     return (
-        <div className="flex items-center">
+        <div className="flex items-center text-xs text-muted">
             {value === true ? (
                 <>
                     <IconCheckmark className={`text-success mr-4 ${className}`} />
@@ -406,7 +409,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                         </th>
                     </tr>
                     <tr className="PlanTable__tr__border">
-                        <td className="font-bold">Monthly Base Price</td>
+                        <td className="font-bold">Monthly base price</td>
                         {billingPlans.map((plan) => (
                             <td key={`${plan.name}-basePrice`} className="text-sm font-bold">
                                 {plan.basePrice}
@@ -420,7 +423,10 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                 i !== Object.keys(billingPlans[0].products).length - 1 ? 'PlanTable__tr__border' : ''
                             }
                         >
-                            <th scope="row">{billingPlans[0].products[product].name}</th>
+                            <th scope="row">
+                                {billingPlans[0].products[product].name}
+                                <p className="ml-0 text-xs text-muted mt-1">{billingPlans[0].products[product].note}</p>
+                            </th>
                             {billingPlans.map((plan) => (
                                 <td key={`${plan.name}-${product}`}>
                                     {plan.products[i].tiers.map((tier) => (
