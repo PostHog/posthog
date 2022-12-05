@@ -90,16 +90,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         # Verify that persons data is in sync every day at 4 AM UTC
         sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
 
-    # PostHog Demo cron jobs
-    if settings.DEMO:
+    if is_cloud() or settings.DEMO:
         # Reset master project data every day at 5 AM UTC
         sender.add_periodic_task(crontab(hour=5, minute=0), demo_reset_master_team.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
-
-    # Send the emails at 3 PM UTC every day
-    sender.add_periodic_task(crontab(hour=15, minute=0), send_first_ingestion_reminder_emails.s())
-    sender.add_periodic_task(crontab(hour=15, minute=0), send_second_ingestion_reminder_emails.s())
 
     # Sync all Organization.available_features every hour
     sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
@@ -476,7 +471,7 @@ def calculate_cohort():
 
 @app.task(ignore_result=True)
 def check_cached_items():
-    from posthog.tasks.update_cache import update_cached_items
+    from posthog.caching.update_cache import update_cached_items
 
     update_cached_items()
 
@@ -487,7 +482,7 @@ def update_cache_item_task(key: str, cache_type, payload: dict) -> List[Dict[str
     Tasks used in a group (as this is) must not ignore their results
     https://docs.celeryq.dev/en/latest/userguide/canvas.html#groups:~:text=Similarly%20to%20chords%2C%20tasks%20used%20in%20a%20group%20must%20not%20ignore%20their%20results.
     """
-    from posthog.tasks.update_cache import update_cache_item
+    from posthog.caching.update_cache import update_cache_item
 
     return update_cache_item(key, cache_type, payload)
 
@@ -553,20 +548,6 @@ def calculate_billing_daily_usage():
         pass
     else:
         compute_daily_usage_for_organizations()
-
-
-@app.task(ignore_result=True)
-def send_first_ingestion_reminder_emails():
-    from posthog.tasks.email import send_first_ingestion_reminder_emails
-
-    send_first_ingestion_reminder_emails()
-
-
-@app.task(ignore_result=True)
-def send_second_ingestion_reminder_emails():
-    from posthog.tasks.email import send_second_ingestion_reminder_emails
-
-    send_second_ingestion_reminder_emails()
 
 
 @app.task(ignore_result=True)

@@ -3,11 +3,11 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { teamMembersLogic } from 'scenes/project/Settings/teamMembersLogic'
 import { AccessLevel, Resource, RoleMemberType, RoleType, UserBasicType } from '~/types'
-import { rolesLogicType } from './rolesLogicType'
+import type { rolesLogicType } from './rolesLogicType'
 
 export const rolesLogic = kea<rolesLogicType>([
     path(['scenes', 'organization', 'rolesLogic']),
-    connect({ values: [teamMembersLogic, ['plainMembers']] }),
+    connect({ values: [teamMembersLogic, ['allMembers']] }),
     actions({
         setCreateRoleModalShown: (shown: boolean) => ({ shown }),
         setRoleInFocus: (role: null | RoleType) => ({ role }),
@@ -130,16 +130,16 @@ export const rolesLogic = kea<rolesLogicType>([
     })),
     selectors({
         addableMembers: [
-            (s) => [s.plainMembers, s.roleMembersInFocus],
-            (plainMembers, roleMembersInFocus): UserBasicType[] => {
+            (s) => [s.allMembers, s.roleMembersInFocus],
+            (allMembers, roleMembersInFocus): UserBasicType[] => {
                 const addableMembers: UserBasicType[] = []
-                for (const plainMember of plainMembers) {
+                for (const member of allMembers) {
                     if (
                         !roleMembersInFocus.some(
-                            (roleMember: RoleMemberType) => roleMember.user.uuid === plainMember.user.uuid
+                            (roleMember: RoleMemberType) => roleMember.user.uuid === member.user.uuid
                         )
                     ) {
-                        addableMembers.push(plainMember.user)
+                        addableMembers.push(member.user)
                     }
                 }
                 addableMembers.sort((a, b) => a.first_name.localeCompare(b.first_name))

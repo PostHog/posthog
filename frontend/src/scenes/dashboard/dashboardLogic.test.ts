@@ -10,11 +10,13 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     DashboardTile,
     DashboardType,
+    FilterType,
     InsightColor,
     InsightModel,
     InsightShortId,
     InsightType,
     TextModel,
+    TileLayout,
 } from '~/types'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -62,9 +64,14 @@ const tileFromInsight = (insight: InsightModel, id: number = tileId++): Dashboar
     refreshing: false,
 })
 
-const dashboardResult = (dashboardId: number, tiles: DashboardTile[]): DashboardType => {
+const dashboardResult = (
+    dashboardId: number,
+    tiles: DashboardTile[],
+    filters: Partial<Pick<FilterType, 'date_from' | 'date_to' | 'properties'>> = {}
+): DashboardType => {
     return {
         ...dashboardJson,
+        filters: { ...dashboardJson.filters, ...filters },
         id: dashboardId,
         tiles,
     }
@@ -158,6 +165,9 @@ describe('dashboardLogic', () => {
             10: {
                 ...dashboardResult(10, [tileFromInsight(insights['800'])]),
             },
+            11: {
+                ...dashboardResult(11, [], { date_from: '-24h' }),
+            },
         }
         useMocks({
             get: {
@@ -167,6 +177,7 @@ describe('dashboardLogic', () => {
                 '/api/projects/:team/dashboards/8/': { ...dashboards['8'] },
                 '/api/projects/:team/dashboards/9/': { ...dashboards['9'] },
                 '/api/projects/:team/dashboards/10/': { ...dashboards['10'] },
+                '/api/projects/:team/dashboards/11/': { ...dashboards['11'] },
                 '/api/projects/:team/dashboards/': {
                     count: 6,
                     next: null,
@@ -263,6 +274,115 @@ describe('dashboardLogic', () => {
         initKeaTests()
         dashboardsModel.mount()
         insightsModel.mount()
+    })
+
+    describe('tile layouts', () => {
+        beforeEach(() => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+        })
+        it('updates layouts via API when starting with empty layouts', async () => {
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    layouts: {
+                        // generates the default layouts because all the tiles start empty
+                        sm: [
+                            { h: 8, i: '0', minH: 5, minW: 3, w: 8, x: 0, y: 0 },
+                            { h: 5, i: '1', minH: 5, minW: 3, w: 6, x: 0, y: 8 },
+                            { h: 6, i: '4', minH: 5, minW: 3, w: 6, x: 6, y: 8 },
+                        ],
+                        xs: [
+                            { h: 8, i: '0', minH: 5, minW: 1, w: 1, x: 0, y: 0 },
+                            { h: 5, i: '1', minH: 5, minW: 1, w: 1, x: 0, y: 8 },
+                            { h: 6, i: '4', minH: 5, minW: 1, w: 1, x: 0, y: 13 },
+                        ],
+                    },
+                })
+                .toDispatchActions([
+                    // frustratingly the same properties are sent in a different order
+                    // and the matcher cares about the order
+                    logic.actionCreators.saveLayouts([
+                        {
+                            id: 0,
+                            layouts: {
+                                sm: { i: '0', x: 0, y: 0, w: 8, h: 8, minW: 3, minH: 5 },
+                                xs: { i: '0', x: 0, y: 0, w: 1, h: 8, minW: 1, minH: 5 },
+                            },
+                        },
+                        {
+                            id: 1,
+                            layouts: {
+                                sm: { i: '1', x: 0, y: 8, w: 6, h: 5, minW: 3, minH: 5 },
+                                xs: { i: '1', x: 0, y: 8, w: 1, h: 5, minW: 1, minH: 5 },
+                            },
+                        },
+                        {
+                            id: 4,
+                            layouts: {
+                                sm: { i: '4', x: 6, y: 8, w: 6, h: 6, minW: 3, minH: 5 },
+                                xs: { i: '4', x: 0, y: 13, w: 1, h: 6, minW: 1, minH: 5 },
+                            },
+                        },
+                    ]),
+                ])
+        })
+
+        it('saving layouts with no provided tiles updates all tiles', async () => {
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveLayouts()
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
+                no_items_field: true,
+                tiles: [
+                    {
+                        id: 9,
+                        layouts: {},
+                    },
+                    {
+                        id: 10,
+                        layouts: {},
+                    },
+                    {
+                        id: 4,
+                        layouts: {},
+                    },
+                ],
+            })
+        })
+
+        it('saving layouts with provided tiles updates only those tiles', async () => {
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveLayouts([{ id: 1, layouts: { sm: {} as TileLayout, xs: {} as TileLayout } }])
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
+                no_items_field: true,
+                tiles: [
+                    {
+                        id: 1,
+                        layouts: { sm: {} as TileLayout, xs: {} as TileLayout },
+                    },
+                ],
+            })
+        })
+    })
+
+    describe('when the dashboard has filters', () => {
+        it('sets the filters reducer on load', async () => {
+            logic = dashboardLogic({ id: 11 })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['setDates'])
+                .toMatchValues({ filters: { date_from: '-24h', date_to: null } })
+        })
     })
 
     describe('moving between dashboards', () => {

@@ -41,24 +41,26 @@ export function SignupForm(): JSX.Element | null {
                     ? 'Get started'
                     : 'Tell us a bit about yourself'}
             </h2>
-            {!preflight?.demo && (preflight?.cloud || preflight?.initiated) && (
-                // If we're in the demo environment, login is unified with signup and it's passwordless
-                // For now, if you're not on Cloud, you wouldn't see this page,
-                // but future-proofing this (with `preflight.initiated`) in case this changes
-                <div className="text-center">
-                    Already have an account?{' '}
-                    <Link to="/login" data-attr="signup-login-link">
-                        Log in
-                    </Link>
-                </div>
-            )}
             {!isSignupPanel2Submitting && signupPanel2ManualErrors?.generic && (
                 <AlertMessage type="error">
                     {signupPanel2ManualErrors.generic?.detail || 'Could not complete your signup. Please try again.'}
                 </AlertMessage>
             )}
             {panel === 0 ? (
-                <SignupPanel1 />
+                <>
+                    <SignupPanel1 />
+                    {!preflight?.demo && (preflight?.cloud || preflight?.initiated) && (
+                        // If we're in the demo environment, login is unified with signup and it's passwordless
+                        // For now, if you're not on Cloud, you wouldn't see this page,
+                        // but future-proofing this (with `preflight.initiated`) in case this changes
+                        <div className="text-center mt-4">
+                            Already have an account?{' '}
+                            <Link to="/login" data-attr="signup-login-link" className="font-bold">
+                                Log in
+                            </Link>
+                        </div>
+                    )}
+                </>
             ) : (
                 <>
                     <SignupPanel2 />

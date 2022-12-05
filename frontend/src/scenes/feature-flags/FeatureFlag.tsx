@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Form, Group } from 'kea-forms'
-import { Row, Col, Radio, InputNumber, Popconfirm, Select, Divider, Tabs, Skeleton } from 'antd'
+import { Row, Col, Radio, InputNumber, Popconfirm, Select, Divider, Tabs, Skeleton, Card } from 'antd'
 import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -56,7 +56,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { EventsTable } from 'scenes/events'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
-import { ResourcePermissionModal } from 'scenes/ResourcePermissionModal'
+import { ResourcePermission } from 'scenes/ResourcePermissionModal'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 export const scene: SceneExport = {
@@ -79,10 +79,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag } = useActions(featureFlagLogic)
 
-    const { permissionModalVisible, addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
+    const { addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
         featureFlagPermissionsLogic({ flagId: featureFlag.id })
     )
-    const { setModalOpen, setRolesToAdd, addAssociatedRoles, deleteAssociatedRole } = useActions(
+    const { setRolesToAdd, addAssociatedRoles, deleteAssociatedRole } = useActions(
         featureFlagPermissionsLogic({ flagId: featureFlag.id })
     )
 
@@ -249,6 +249,24 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </Field>
                             </Col>
                             <Col span={12}>
+                                {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
+                                    <Card title="Permissions" className="mb-4">
+                                        <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                                            <ResourcePermission
+                                                resourceType={Resource.FEATURE_FLAGS}
+                                                isNewResource={id === 'new'}
+                                                onChange={(roleIds) => setRolesToAdd(roleIds)}
+                                                rolesToAdd={rolesToAdd}
+                                                addableRoles={addableRoles}
+                                                addableRolesLoading={unfilteredAddableRolesLoading}
+                                                onAdd={() => addAssociatedRoles()}
+                                                roles={derivedRoles}
+                                                deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+                                                canEdit={featureFlag.can_edit}
+                                            />
+                                        </PayGateMini>
+                                    </Card>
+                                )}
                                 <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
                             </Col>
                         </Row>
@@ -392,18 +410,21 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
                                         </Tabs.TabPane>
                                     )}
-                                    {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
+                                    {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && featureFlag.can_edit && (
                                         <Tabs.TabPane tab="Permissions" key="permissions">
                                             <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                                                {featureFlag.can_edit && (
-                                                    <LemonButton
-                                                        type="secondary"
-                                                        onClick={() => setModalOpen(true)}
-                                                        className="mb-4"
-                                                    >
-                                                        Set permissions
-                                                    </LemonButton>
-                                                )}
+                                                <ResourcePermission
+                                                    resourceType={Resource.FEATURE_FLAGS}
+                                                    isNewResource={id === 'new'}
+                                                    onChange={(roleIds) => setRolesToAdd(roleIds)}
+                                                    rolesToAdd={rolesToAdd}
+                                                    addableRoles={addableRoles}
+                                                    addableRolesLoading={unfilteredAddableRolesLoading}
+                                                    onAdd={() => addAssociatedRoles()}
+                                                    roles={derivedRoles}
+                                                    deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+                                                    canEdit={featureFlag.can_edit}
+                                                />
                                             </PayGateMini>
                                         </Tabs.TabPane>
                                     )}
@@ -413,20 +434,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     </>
                 )}
             </div>
-            <ResourcePermissionModal
-                resourceType={Resource.FEATURE_FLAGS}
-                isNewResource={id === 'new'}
-                onChange={(roleIds) => setRolesToAdd(roleIds)}
-                rolesToAdd={rolesToAdd}
-                addableRoles={addableRoles}
-                addableRolesLoading={unfilteredAddableRolesLoading}
-                onClose={() => setModalOpen(false)}
-                title="Feature Flag Permissions"
-                onAdd={() => addAssociatedRoles()}
-                visible={permissionModalVisible}
-                roles={derivedRoles}
-                deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
-            />
         </>
     )
 }

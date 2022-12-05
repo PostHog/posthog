@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import type { featureFlagLogicType } from './featureFlagLogicType'
 import {
     AnyPropertyFilter,
+    AvailableFeature,
     Breadcrumb,
     FeatureFlagRollbackConditions,
     FeatureFlagType,
@@ -32,6 +33,8 @@ import { forms } from 'kea-forms'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dayjs } from 'lib/dayjs'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
+import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
+import { userLogic } from 'scenes/userLogic'
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -124,6 +127,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['currentTeamId', 'sentryIntegrationEnabled'],
             groupsModel,
             ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel'],
+            userLogic,
+            ['hasAvailableFeature'],
         ],
     }),
     actions({
@@ -409,10 +414,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
                 const { created_at, id, ...flag } = updatedFlag
-
                 try {
                     if (!updatedFlag.id) {
                         const newFlag = await api.create(`api/projects/${values.currentTeamId}/feature_flags`, flag)
+                        if (values.roleBasedAccessEnabled) {
+                            featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(newFlag.id)
+                        }
                         return newFlag
                     } else {
                         return await api.update(
@@ -585,6 +592,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     selectors({
         props: [() => [(_, props) => props], (props) => props],
         multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
+        roleBasedAccessEnabled: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS),
+        ],
         variants: [(s) => [s.featureFlag], (featureFlag) => featureFlag?.filters.multivariate?.variants || []],
         nonEmptyVariants: [(s) => [s.variants], (variants) => variants.filter(({ key }) => !!key)],
         variantRolloutSum: [

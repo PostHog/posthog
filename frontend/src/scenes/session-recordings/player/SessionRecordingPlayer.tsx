@@ -21,7 +21,6 @@ import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNot
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { SessionRecordingType } from '~/types'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
-import { PlayerHeader } from 'scenes/session-recordings/player/PlayerHeader'
 
 export function useFrameRef({
     sessionRecordingId,
@@ -54,6 +53,7 @@ export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysIn
 
 export function SessionRecordingPlayer({
     sessionRecordingId,
+    sessionRecordingData,
     playerKey,
     includeMeta = true,
     recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
@@ -61,12 +61,19 @@ export function SessionRecordingPlayer({
     noBorder = false,
     nextSessionRecording,
 }: SessionRecordingPlayerProps): JSX.Element {
+    const logicProps = {
+        sessionRecordingId,
+        playerKey,
+        matching,
+        sessionRecordingData,
+        recordingStartTime,
+    }
     const { setIsFullScreen, setPause, togglePlayPause, seekBackward, seekForward, setSpeed } = useActions(
-        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey, recordingStartTime, matching })
+        sessionRecordingPlayerLogic(logicProps)
     )
-    const { isNotFound } = useValues(sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }))
-    const { isFullScreen } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
-    const frame = useFrameRef({ sessionRecordingId, playerKey })
+    const { isNotFound } = useValues(sessionRecordingDataLogic(logicProps))
+    const { isFullScreen } = useValues(sessionRecordingPlayerLogic(logicProps))
+    const frame = useFrameRef(logicProps)
 
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
 
@@ -139,9 +146,6 @@ export function SessionRecordingPlayer({
                 {includeMeta || isFullScreen ? (
                     <PlayerMeta sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                 ) : null}
-                <div className="SessionRecordingPlayer__header">
-                    <PlayerHeader sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-                </div>
                 <div className="SessionRecordingPlayer__body">
                     <PlayerFrame sessionRecordingId={sessionRecordingId} ref={frame} playerKey={playerKey} />
                     <PlayerFrameOverlay

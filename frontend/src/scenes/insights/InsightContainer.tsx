@@ -154,7 +154,9 @@ export function InsightContainer({
                         <InsightsTable
                             isLegend
                             filterKey={isTrendsFilter(filters) ? `trends_${activeView}` : ''}
-                            canEditSeriesNameInline={isTrendsFilter(filters) && insightMode === ItemMode.Edit}
+                            canEditSeriesNameInline={
+                                isTrendsFilter(filters) && !filters.formula && insightMode === ItemMode.Edit
+                            }
                             canCheckUncheckSeries={canEditInsight}
                         />
                     </BindLogic>

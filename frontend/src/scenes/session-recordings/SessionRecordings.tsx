@@ -16,14 +16,22 @@ import { IconSettings } from 'lib/components/icons'
 import { router } from 'kea-router'
 import { openSessionRecordingSettingsDialog } from './settings/SessionRecordingSettings'
 import { openPlayerNewPlaylistDialog } from 'scenes/session-recordings/player/new-playlist/PlayerNewPlaylist'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { SessionRecordingFilePlayback } from './file-playback/SessionRecodingFilePlayback'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { tab, newPlaylistLoading } = useValues(sessionRecordingsLogic)
     const { saveNewPlaylist } = useActions(sessionRecordingsLogic)
-    const recentRecordings = <SessionRecordingsPlaylist logicKey="recents" updateSearchParams />
-
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const visibleTabs = [SessionRecordingsTabs.Recent, SessionRecordingsTabs.Playlists]
+
+    if (!featureFlags[FEATURE_FLAGS.RECORDINGS_EXPORT]) {
+        visibleTabs.push(SessionRecordingsTabs.FilePlayback)
+    }
 
     return (
         <div>
@@ -84,7 +92,7 @@ export function SessionsRecordings(): JSX.Element {
                                 >
                                     Save as dynamic playlist
                                 </LemonButtonWithSideAction>
-                            ) : (
+                            ) : tab === SessionRecordingsTabs.Playlists ? (
                                 <LemonButton
                                     type="primary"
                                     onClick={() => {
@@ -98,7 +106,7 @@ export function SessionsRecordings(): JSX.Element {
                                 >
                                     New playlist
                                 </LemonButton>
-                            )}
+                            ) : null}
                         </Tooltip>
                     </>
                 }
@@ -131,10 +139,12 @@ export function SessionsRecordings(): JSX.Element {
             {!tab ? (
                 <Spinner />
             ) : tab === SessionRecordingsTabs.Recent ? (
-                recentRecordings
-            ) : (
+                <SessionRecordingsPlaylist logicKey="recents" updateSearchParams />
+            ) : tab === SessionRecordingsTabs.Playlists ? (
                 <SavedSessionRecordingPlaylists tab={SessionRecordingsTabs.Playlists} />
-            )}
+            ) : tab === SessionRecordingsTabs.FilePlayback ? (
+                <SessionRecordingFilePlayback />
+            ) : null}
         </div>
     )
 }

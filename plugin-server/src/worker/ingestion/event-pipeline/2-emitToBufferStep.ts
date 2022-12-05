@@ -88,38 +88,72 @@ export function shouldSendEventToBuffer(
     // Libraries by default create a unique id for this `type-name_value` for $groupidentify,
     // we don't want to buffer these to make group properties available asap
     // identify and alias are identical and could merge the person - the sooner we update the person_id the better
-    const isIdentifyingEvent =
-        event.event == '$groupidentify' ||
-        (event.event == '$identify' && !!event.properties && !!event.properties['$anon_distinct_id']) ||
-        (event.event == `$create_alias` && !!event.properties && !!event.properties['alias'])
 
-    const isAnonymousEvent =
-        event.properties && event.properties['$device_id'] && event.distinct_id === event.properties['$device_id']
+    const eventProperties = event.properties ?? {}
+
+    const isGroupIdentifyEvent = event.event == '$groupidentify'
+
+    // KLUDGE: A merging $identify event is one where the new ID is different from the old ID. Ideally all $identify
+    // events would be like this, but in reality some libraries use $identify events to set user properties
+    const isMergingIdentifyEvent =
+        event.event == '$identify' &&
+        '$anon_distinct_id' in eventProperties &&
+        eventProperties['$anon_distinct_id'] !== event.distinct_id
+
+    const isMergingAliasEvent =
+        event.event == `$create_alias` && 'alias' in eventProperties && eventProperties['alias'] !== event.distinct_id
+
+    const conversionBufferDisabled = !hub.CONVERSION_BUFFER_ENABLED && !hub.conversionBufferEnabledTeams.has(teamId)
+    const statsdExtra: { [key: string]: string } = {
+        teamId: event.team_id.toString(),
+        isBufferDisabled: conversionBufferDisabled.toString(),
+        personExists: (!!person).toString(),
+        isGroupIdentifyEvent: isGroupIdentifyEvent.toString(),
+        isMergingAliasEvent: isMergingAliasEvent.toString(),
+        isMergingIdentifyEvent: isMergingIdentifyEvent.toString(),
+    }
+    if (conversionBufferDisabled || person || isGroupIdentifyEvent || isMergingIdentifyEvent || isMergingAliasEvent) {
+        status.debug('🔁', 'Not sending event to buffer', {
+            event,
+            person,
+            conversionBufferDisabled,
+            isGroupIdentifyEvent,
+            isMergingIdentifyEvent,
+            isMergingAliasEvent,
+            personExists: !!person,
+        })
+        hub.statsd?.increment('conversion_events_no_buffer', statsdExtra)
+        return false
+    }
+
+    const shouldBufferAnonymousEvents = teamId <= hub.MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR
+    statsdExtra['shouldBufferAnonymous'] = shouldBufferAnonymousEvents.toString()
+    if (shouldBufferAnonymousEvents) {
+        hub.statsd?.increment('conversion_events_buffer_size', statsdExtra)
+        return true
+    }
+
+    // KLUDGE: This definition is not currently not encompassing all anonymous events
+    const isAnonymousEvent = event.distinct_id === eventProperties['$device_id']
+    statsdExtra['isAnonymous'] = isAnonymousEvent.toString()
+    if (isAnonymousEvent) {
+        hub.statsd?.increment('conversion_events_no_buffer', statsdExtra)
+        return false
+    }
 
     // We do not send events from mobile libraries to the buffer because:
     // a) that wouldn't help with the backend problem outlined above
     // b) because of issues with $device_id in the mobile libraries, we often mislabel events
     //  as being from an identified user when in fact they are not, leading to unnecessary buffering
-    const isMobileLibrary =
-        !!event.properties &&
-        ['posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'].includes(event.properties['$lib'])
-
-    const shouldBufferAnonymousEvents = teamId <= hub.MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR
-
-    const processEventImmediately = isMobileLibrary || person || isIdentifyingEvent || isAnonymousEvent
-
-    // shouldBufferAnonymousEvents indicated buffering should happen
-    // for all anonymous events, irrespective of the person existing or not
-    const sendToBuffer = (shouldBufferAnonymousEvents && isAnonymousEvent) || !processEventImmediately
-
-    if (sendToBuffer) {
-        hub.statsd?.increment('conversion_events_buffer_size', { teamId: event.team_id.toString() })
-    }
-
-    if (!hub.CONVERSION_BUFFER_ENABLED && !hub.conversionBufferEnabledTeams.has(teamId)) {
-        status.debug('🔁', 'Conversion buffer disabled, not sending event to buffer', { event, person })
+    const isMobileLibrary = ['posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'].includes(
+        eventProperties['$lib']
+    )
+    statsdExtra['isMobileLib'] = isMobileLibrary.toString()
+    if (isMobileLibrary) {
+        hub.statsd?.increment('conversion_events_no_buffer', statsdExtra)
         return false
     }
 
-    return sendToBuffer
+    hub.statsd?.increment('conversion_events_buffer_size', statsdExtra)
+    return true
 }

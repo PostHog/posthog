@@ -8,7 +8,9 @@ import { useAvailableFeatures } from '~/mocks/features'
 
 const setupMsw = () => {
     // Make sure the msw worker is started
-    worker.start()
+    worker.start({
+        quiet: true,
+    })
     ;(window as any).__mockServiceWorker = worker
     ;(window as any).POSTHOG_APP_CONTEXT = getStorybookAppContext()
 }

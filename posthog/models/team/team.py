@@ -43,6 +43,7 @@ class TeamManager(models.Manager):
                 "key": "$host",
                 "operator": "is_not",
                 "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000", "localhost:3000"],
+                "type": "event",
             }
         ]
         if organization:
@@ -213,12 +214,9 @@ class Team(UUIDClassicModel):
             return posthoganalytics.feature_enabled(
                 "person-on-events-enabled",
                 str(self.uuid),
-                groups={"organization": str(self.organization.id)},
+                groups={"organization": str(self.organization_id)},
                 group_properties={
-                    "organization": {
-                        "id": str(self.organization.id),
-                        "created_at": self.organization.created_at,
-                    }
+                    "organization": {"id": str(self.organization_id), "created_at": self.organization.created_at}
                 },
                 only_evaluate_locally=True,
             )
