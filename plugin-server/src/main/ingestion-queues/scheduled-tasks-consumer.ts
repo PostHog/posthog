@@ -24,8 +24,17 @@ export const startScheduledTasksConsumer = async ({
     statsd?: StatsD
 }) => {
     /*
+
         Consumes from the scheduled tasks topic, and executes them within a
-        Piscina worker.
+        Piscina worker. Some features include:
+
+         1. timing out tasks to ensure we don't end up with backlogs.
+         2. retrying on dependency failures (via not committing offsets on seom
+            failues).
+         3. only running one plugin config id task at a time (to avoid
+            concurrency issues). This is done via partitioning of tasks in the
+            Kafka topic.
+
     */
 
     const consumer = kafka.consumer({ groupId: 'scheduled-tasks-runner' })
@@ -77,9 +86,7 @@ export const startScheduledTasksConsumer = async ({
                 })
                 const startTime = performance.now()
 
-                // Make sure tasks can't run forever. We time out after a minute
-                // for runEveryMinute tasks, and 5 minutes for runEveryHour and
-                // runEveryDay tasks.
+                // Make sure tasks can't run forever, according to `taskTimeouts`.
                 const abortController = new AbortController()
                 const timeout = setTimeout(() => {
                     abortController.abort()
@@ -101,7 +108,7 @@ export const startScheduledTasksConsumer = async ({
                 status.info('⏲️', 'finished_scheduled_task', {
                     taskType: task.taskType,
                     pluginConfigId: task.pluginConfigId,
-                    duration: performance.now() - startTime,
+                    durationSeconds: (performance.now() - startTime) / 1000,
                 })
                 statsd?.increment('completed_scheduled_task', { taskType: task.taskType })
             } catch (error) {
