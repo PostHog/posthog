@@ -35,6 +35,7 @@ describe('Graphile Worker schedule', () => {
                     send: jest.fn(),
                 } as unknown as Producer,
             } as KafkaProducerWrapper,
+            USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         }
 
         await runScheduledTasks(mockHubWithPluginSchedule, mockPiscina as any, 'runEveryMinute', {
