@@ -12,12 +12,11 @@ export async function prepareEventStep(
     personContainer: LazyPersonContainer
 ): Promise<StepResult> {
     const { ip, site_url, team_id, uuid } = event
-    const invalidTimestampCallback = function (data: PluginEvent, reason: string) {
+    const invalidTimestampCallback = function (field: string, value: string, reason: string) {
         runner.hub.statsd?.increment('process_event_invalid_timestamp', { teamId: String(team_id) })
         captureIngestionWarning(runner.hub.db, team_id, 'ignored_invalid_timestamp', {
-            timestamp: data['timestamp'],
-            sentAt: data['sent_at'],
-            offset: data['offset'],
+            field: field,
+            value: value,
             reason: reason,
         })
     }

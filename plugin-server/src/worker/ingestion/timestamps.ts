@@ -4,7 +4,7 @@ import { DateTime, Duration } from 'luxon'
 
 import { status } from '../../utils/status'
 
-type InvalidTimestampCallback = (data: PluginEvent, reason: string) => void
+type InvalidTimestampCallback = (field: string, value: string, reason: string) => void
 
 export function parseEventTimestamp(data: PluginEvent, callback?: InvalidTimestampCallback): DateTime {
     const now = DateTime.fromISO(data['now']).toUTC() // now is set by the capture endpoint and assumed valid
@@ -13,14 +13,14 @@ export function parseEventTimestamp(data: PluginEvent, callback?: InvalidTimesta
     if (data['sent_at']) {
         sentAt = DateTime.fromISO(data['sent_at']).toUTC()
         if (!sentAt.isValid) {
-            callback?.(data, sentAt.invalidExplanation ?? 'sent_at format invalid')
+            callback?.('sent_at', data['sent_at'], sentAt.invalidExplanation ?? '')
             sentAt = null
         }
     }
 
     const parsedTs = handleTimestamp(data, now, sentAt)
     if (!parsedTs.isValid) {
-        callback?.(data, parsedTs.invalidExplanation ?? 'timestamp format invalid')
+        callback?.('timestamp', data['timestamp'] ?? '', parsedTs.invalidExplanation ?? '')
         return DateTime.utc()
     }
     return parsedTs

@@ -61,7 +61,9 @@ describe('parseEventTimestamp()', () => {
 
         const callbackMock = jest.fn()
         const timestamp = parseEventTimestamp(event, callbackMock)
-        expect(callbackMock.mock.calls).toEqual([[event, 'the input "invalid" can\'t be parsed as ISO 8601']])
+        expect(callbackMock.mock.calls).toEqual([
+            ['sent_at', 'invalid', 'the input "invalid" can\'t be parsed as ISO 8601'],
+        ])
 
         expect(timestamp.toISO()).toEqual('2021-10-30T03:02:00.000Z')
     })
@@ -129,7 +131,9 @@ describe('parseEventTimestamp()', () => {
 
         const callbackMock = jest.fn()
         const timestamp = parseEventTimestamp(event, callbackMock)
-        expect(callbackMock.mock.calls).toEqual([[event, 'the input "notISO" can\'t be parsed as ISO 8601']])
+        expect(callbackMock.mock.calls).toEqual([
+            ['timestamp', 'notISO', 'the input "notISO" can\'t be parsed as ISO 8601'],
+        ])
 
         expect(timestamp.toUTC().toISO()).toEqual('2020-08-12T01:02:00.000Z')
     })
