@@ -50,6 +50,8 @@ import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/uti
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { ResourcePermission } from 'scenes/ResourcePermissionModal'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { NodeKind } from '~/queries/schema'
+import { Query } from '~/queries/Query/Query'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -429,7 +431,24 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
 }
 
 function ExposureTab({ id, featureFlagKey }: { id: string; featureFlagKey: string }): JSX.Element {
-    return (
+    const { featureFlags } = useValues(enabledFeaturesLogic)
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+
+    return featureDataExploration ? (
+        <Query
+            query={{
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsNode,
+                    event: '$feature_flag_called',
+                    properties: defaultPropertyOnFlag(featureFlagKey),
+                },
+                showReload: true,
+                showColumnConfigurator: true,
+                showExport: true,
+            }}
+        />
+    ) : (
         <EventsTable
             fixedFilters={{
                 event_filter: '$feature_flag_called',

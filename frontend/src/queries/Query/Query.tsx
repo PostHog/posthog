@@ -1,14 +1,14 @@
 import { isDataNode, isDataTableNode, isLegacyQuery, isInsightQueryNode } from '../utils'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
-import { Node } from '~/queries/schema'
+import { Node, QuerySchema } from '~/queries/schema'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyInsightQuery'
 import { InsightQuery } from '~/queries/nodes/InsightQuery/InsightQuery'
 
-export interface QueryProps {
-    query: Node | string
-    setQuery?: (node: Node) => void
+export interface QueryProps<T extends Node = QuerySchema | Node> {
+    query: T | string
+    setQuery?: (node: T) => void
 }
 
 export function Query(props: QueryProps): JSX.Element {

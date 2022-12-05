@@ -86,7 +86,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         autoLoadToggled: [
             false,
             // store the autoload toggle's state in localstorage, separately for each data node kind
-            { persist: true, storageKey: `queries.nodes.dataNodeLogic..autoLoadToggled.${props.query.kind}` },
+            {
+                persist: true,
+                storageKey: [
+                    'queries.nodes.dataNodeLogic..autoLoadToggled',
+                    props.query.kind,
+                    isEventsNode(props.query) && props.query.actionId ? 'action' : '',
+                ].join('.'),
+            },
             { toggleAutoLoad: (state) => !state },
         ],
         autoLoadStarted: [false, { startAutoLoad: () => true, stopAutoLoad: () => false }],
