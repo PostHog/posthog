@@ -139,7 +139,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             ) fill
             USING (entrance_period_start {breakdown_clause})
             ORDER BY entrance_period_start ASC
-            SETTINGS allow_experimental_window_functions = 1"""
+        """
 
         return query
 

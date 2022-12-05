@@ -12,15 +12,18 @@ from django.db.models.signals import pre_delete
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
+from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.organization import OrganizationMembership
 from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
+from posthog.models.team.team import Team
 from posthog.queries.base import match_property, properties_to_Q
 
 from .filters import Filter
@@ -692,6 +695,36 @@ def set_feature_flag_hash_key_overrides(
         FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides)
 
 
+def get_user_blast_radius(feature_flag_condition: dict, team: Team):
+
+    from posthog.queries.person_query import PersonQuery
+
+    properties = feature_flag_condition.get("properties") or []
+
+    # Removed rollout % from here, since it makes more sense to do that on the frontend
+
+    if len(properties) > 0:
+        filter = Filter(data=feature_flag_condition)
+        person_query, person_query_params = PersonQuery(filter, team.id).get_query()
+
+        total_count = sync_execute(
+            f"""
+            SELECT count(1) FROM (
+                {person_query}
+            )
+        """,
+            person_query_params,
+        )[0][0]
+
+    else:
+        total_count = team.persons_seen_so_far
+
+    blast_radius = total_count
+    total_users = team.persons_seen_so_far
+
+    return blast_radius, total_users
+
+
 def can_user_edit_feature_flag(request, feature_flag):
     try:
         from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
@@ -701,7 +734,11 @@ def can_user_edit_feature_flag(request, feature_flag):
     else:
         if feature_flag.created_by == request.user:
             return True
-
+        if (
+            request.user.organization_memberships.get(organization=request.user.organization).level
+            >= OrganizationMembership.Level.ADMIN
+        ):
+            return True
         all_role_memberships = request.user.role_memberships.select_related("role").all()
         try:
             feature_flag_resource_access = OrganizationResourceAccess.objects.get(

@@ -14,6 +14,7 @@ export interface PropertyFilterBaseProps {
 export interface PropertyFilterLogicProps extends PropertyFilterBaseProps {
     propertyFilters?: AnyPropertyFilter[] | null
     onChange: (filters: PropertyFilter[]) => void
+    sendAllKeyUpdates?: boolean
 }
 
 export interface PropertyGroupFilterLogicProps extends PropertyFilterBaseProps {

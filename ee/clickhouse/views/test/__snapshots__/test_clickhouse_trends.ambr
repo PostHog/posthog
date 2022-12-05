@@ -73,7 +73,7 @@
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_basic.1
@@ -132,7 +132,7 @@
              AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_clean_arg.1
@@ -191,7 +191,7 @@
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.1
@@ -372,7 +372,7 @@
            GROUP BY person_id)
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.3
@@ -706,7 +706,7 @@
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging.1
@@ -742,7 +742,7 @@
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging_skipped_interval
@@ -778,7 +778,7 @@
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging_skipped_interval.1
@@ -814,7 +814,7 @@
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-16 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group
@@ -844,7 +844,7 @@
              AND (NOT has([''], "$group_0")) )
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group.1
@@ -895,7 +895,7 @@
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_session.1
