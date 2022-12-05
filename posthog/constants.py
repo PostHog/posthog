@@ -225,6 +225,7 @@ class AnalyticsDBMS(str, Enum):
 
 
 UNIQUE_USERS = "dau"
+UNIQUE_GROUPS = "unique_groups"
 WEEKLY_ACTIVE = "weekly_active"
 MONTHLY_ACTIVE = "monthly_active"
 
