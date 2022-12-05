@@ -90,6 +90,7 @@ export function Group(): JSX.Element {
                                 showEventFilter: true,
                                 showPropertyFilter: true,
                             }}
+                            setQueryLocally
                         />
                     ) : (
                         <EventsTable
