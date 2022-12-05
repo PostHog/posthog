@@ -44,7 +44,7 @@ export function PlaylistPopup(props: SessionRecordingPlayerLogicProps): JSX.Elem
                                 enableFormOnSubmit
                                 className="space-y-2"
                             >
-                                <Field name="name" label="Playlist name">
+                                <Field name="name">
                                     <LemonInput placeholder="Playlist name" fullWidth />
                                 </Field>
                                 <div className="flex items-center gap-2 justify-end">
