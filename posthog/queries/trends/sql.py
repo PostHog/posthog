@@ -307,18 +307,14 @@ FROM (
 
 BREAKDOWN_ACTIVE_USER_AGGREGATE_SQL = """
 SELECT
-    {aggregate_operation} AS total, breakdown_value
-FROM (
-    SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as timestamp, {person_id_alias}.person_id AS person_id, {breakdown_value} as breakdown_value
-    FROM events e
-    {person_join}
-    {groups_join}
-    {sessions_join}
-    {conditions}
-    {null_person_filter}
-    GROUP BY timestamp, person_id, breakdown_value
-) events
-WHERE 1 = 1 {parsed_date_from_prev_range} - INTERVAL {prev_interval} {parsed_date_to}
+    {aggregate_operation} AS total, {breakdown_value} as breakdown_value
+FROM events AS e
+{person_join}
+{groups_join}
+{sessions_join}
+{conditions}
+{null_person_filter}
+{parsed_date_from_prev_range} - INTERVAL {prev_interval} {parsed_date_to}
 GROUP BY breakdown_value
 ORDER BY breakdown_value
 """
