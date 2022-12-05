@@ -24,6 +24,7 @@ from posthog.models import (
     Text,
     User,
 )
+from posthog.models.signals import mute_selected_signals
 from posthog.test.base import BaseTest
 
 filter_dict = {
@@ -194,7 +195,8 @@ def test_calculate_target_age(
 @pytest.mark.django_db
 @patch("posthog.caching.insight_caching_state.active_teams")
 def test_upsert_new_insight(mock_active_teams, team: Team, user: User):
-    insight = create_insight(team=team, user=user, mock_active_teams=mock_active_teams)
+    with mute_selected_signals():
+        insight = create_insight(team=team, user=user, mock_active_teams=mock_active_teams)
     caching_state = upsert(team, insight)
 
     assert InsightCachingState.objects.filter(team=team).count() == 1
@@ -213,7 +215,8 @@ def test_upsert_new_insight(mock_active_teams, team: Team, user: User):
 @pytest.mark.django_db
 @patch("posthog.caching.insight_caching_state.active_teams")
 def test_upsert_update_insight(mock_active_teams, team: Team, user: User):
-    insight = create_insight(team=team, user=user, mock_active_teams=mock_active_teams)
+    with mute_selected_signals():
+        insight = create_insight(team=team, user=user, mock_active_teams=mock_active_teams)
     caching_state = upsert(team, insight)
     assert caching_state is not None
 
@@ -235,7 +238,8 @@ def test_upsert_update_insight(mock_active_teams, team: Team, user: User):
 @pytest.mark.django_db
 @patch("posthog.caching.insight_caching_state.active_teams")
 def test_upsert_new_tile(mock_active_teams, team: Team, user: User):
-    tile = create_tile(team=team, user=user, mock_active_teams=mock_active_teams)
+    with mute_selected_signals():
+        tile = create_tile(team=team, user=user, mock_active_teams=mock_active_teams)
     caching_state = upsert(team, tile)
 
     assert InsightCachingState.objects.filter(team=team).count() == 1
