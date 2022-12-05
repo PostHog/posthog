@@ -27,7 +27,12 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 // This makes old stored columns (e.g. on the Team model) compatible with the new view that prepends 'properties.'
                 const topLevelFields = ['event', 'timestamp', 'id', 'distinct_id', 'person', 'url']
                 return storedColumns.map((column) => {
-                    if (topLevelFields.includes(column) || column.includes('properties.')) {
+                    if (
+                        topLevelFields.includes(column) ||
+                        column.startsWith('person.properties.') ||
+                        column.startsWith('properties.') ||
+                        column.startsWith('custom.')
+                    ) {
                         return column
                     } else {
                         return `properties.${column}`

@@ -1,18 +1,22 @@
 import { isDataNode, isDataTableNode, isLegacyQuery, isInsightQueryNode } from '../utils'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
-import { Node, QuerySchema } from '~/queries/schema'
+import { Node, QueryCustom, QuerySchema } from '~/queries/schema'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyInsightQuery'
 import { InsightQuery } from '~/queries/nodes/InsightQuery/InsightQuery'
 
 export interface QueryProps<T extends Node = QuerySchema | Node> {
+    /** The query to render */
     query: T | string
+    /** Set this if the user can update the query */
     setQuery?: (node: T) => void
+    /** Custom components passed down to query nodes (e.g. custom table columns) */
+    custom?: QueryCustom
 }
 
 export function Query(props: QueryProps): JSX.Element {
-    const { query, setQuery } = props
+    const { query, setQuery, custom } = props
     if (typeof query === 'string') {
         try {
             return <Query {...props} query={JSON.parse(query)} />
@@ -24,7 +28,7 @@ export function Query(props: QueryProps): JSX.Element {
     if (isLegacyQuery(query)) {
         component = <LegacyInsightQuery query={query} />
     } else if (isDataTableNode(query)) {
-        component = <DataTable query={query} setQuery={setQuery} />
+        component = <DataTable query={query} setQuery={setQuery} custom={custom} />
     } else if (isDataNode(query)) {
         component = <DataNode query={query} />
     } else if (isInsightQueryNode(query)) {
