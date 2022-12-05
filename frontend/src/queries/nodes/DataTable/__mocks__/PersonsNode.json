@@ -1,0 +1,58 @@
+{
+    "results": [
+        {
+            "type": "person",
+            "id": "0184ae06-9d4a-0000-2b26-a771725cc751",
+            "uuid": "0184ae06-9d4a-0000-2b26-a771725cc751",
+            "created_at": "2022-11-25T09:02:59.900000Z",
+            "properties": {
+                "$os": "Mac OS X",
+                "email": "marius@posthog.com",
+                "$browser": "Chrome",
+                "$referrer": "http://localhost:8000/events",
+                "$initial_os": "Mac OS X",
+                "$geoip_latitude": -33.8715,
+                "$browser_version": 107,
+                "$geoip_city_name": "Sydney",
+                "$geoip_longitude": 151.2006,
+                "$geoip_time_zone": "Australia/Sydney",
+                "$initial_browser": "Chrome",
+                "$initial_pathname": "/ingestion",
+                "$initial_referrer": "http://localhost:8000/dashboard",
+                "$referring_domain": "localhost:8000",
+                "$geoip_postal_code": "2000",
+                "$geoip_country_code": "AU",
+                "$geoip_country_name": "Australia",
+                "$initial_current_url": "http://localhost:8000/ingestion",
+                "$initial_device_type": "Desktop",
+                "$geoip_continent_code": "OC",
+                "$geoip_continent_name": "Oceania",
+                "$initial_geoip_latitude": -33.8715,
+                "$initial_browser_version": 107,
+                "$initial_geoip_city_name": "Sydney",
+                "$initial_geoip_longitude": 151.2006,
+                "$initial_geoip_time_zone": "Australia/Sydney",
+                "$geoip_subdivision_1_code": "NSW",
+                "$geoip_subdivision_1_name": "New South Wales",
+                "$initial_referring_domain": "localhost:8000",
+                "$initial_geoip_postal_code": "2000",
+                "$initial_geoip_country_code": "AU",
+                "$initial_geoip_country_name": "Australia",
+                "$initial_geoip_continent_code": "OC",
+                "$initial_geoip_continent_name": "Oceania",
+                "$initial_geoip_subdivision_1_code": "NSW",
+                "$initial_geoip_subdivision_1_name": "New South Wales"
+            },
+            "is_identified": true,
+            "name": "marius@posthog.com",
+            "distinct_ids": [
+                "184ae069d181757-0c7310c8ee02fe-18525635-201b88-184ae069d192e7c",
+                "FXFWiYV3IHFXVo2DuWESQmHvywBwAEIJpvr0KrHiM2J"
+            ],
+            "matched_recordings": [],
+            "value_at_data_point": null
+        }
+    ],
+    "next": null,
+    "previous": null
+}

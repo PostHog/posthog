@@ -5,6 +5,7 @@ import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { examples } from './DataTable.examples'
 import { mswDecorator } from '~/mocks/browser'
 import events from './__mocks__/EventsNode.json'
+import persons from './__mocks__/PersonsNode.json'
 
 export default {
     title: 'Queries/DataTable',
@@ -22,6 +23,7 @@ export default {
         mswDecorator({
             get: {
                 '/api/projects/:projectId/events': events,
+                '/api/projects/:projectId/persons': persons,
             },
         }),
     ],
@@ -57,3 +59,6 @@ ShowTools.args = { query: examples['ShowTools'] }
 
 export const ShowAllTheThings = BasicTemplate.bind({})
 ShowAllTheThings.args = { query: examples['ShowAllTheThings'] }
+
+export const Persons = BasicTemplate.bind({})
+Persons.args = { query: examples['Persons'] }

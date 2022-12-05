@@ -1,5 +1,6 @@
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { PropertyFilterType, PropertyOperator } from '~/types'
+import { defaultDataTablePersonColumns } from '~/queries/nodes/DataTable/defaults'
 
 const AllDefaults: DataTableNode = {
     kind: NodeKind.DataTableNode,
@@ -83,4 +84,14 @@ const ShowAllTheThings: DataTableNode = {
     showEventsBufferWarning: true,
 }
 
-export const examples = { AllDefaults, Minimalist, ManyColumns, ShowFilters, ShowTools, ShowAllTheThings }
+const Persons: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    source: { kind: NodeKind.PersonsNode },
+    columns: defaultDataTablePersonColumns,
+    showSearch: true,
+    showPropertyFilter: true,
+    showExport: true,
+    showReload: true,
+}
+
+export const examples = { AllDefaults, Minimalist, ManyColumns, ShowFilters, ShowTools, ShowAllTheThings, Persons }
