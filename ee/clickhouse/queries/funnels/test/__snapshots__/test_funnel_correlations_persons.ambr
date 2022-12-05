@@ -104,12 +104,12 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        toDateTime('2021-01-08 23:59:59', 'UTC') AS date_to,
        toDateTime('2021-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -327,12 +327,12 @@
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2, 3]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        toDateTime('2021-01-08 23:59:59', 'UTC') AS date_to,
        toDateTime('2021-01-01 00:00:00', 'UTC') AS date_from,
        3 AS target_step,
@@ -490,12 +490,12 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id ,
          any(funnel_actors.matching_events) AS matching_events
@@ -638,7 +638,7 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id ,
          any(funnel_actors.matching_events) AS matching_events
@@ -781,7 +781,7 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id ,
          any(funnel_actors.matching_events) AS matching_events

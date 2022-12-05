@@ -103,6 +103,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: 1.5,
         APP_METRICS_GATHERED_FOR_ALL: isDevEnv() ? true : false,
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
+        USE_KAFKA_FOR_SCHEDULED_TASKS: true,
     }
 }
 
@@ -184,6 +185,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         OBJECT_STORAGE_BUCKET: 'the object storage bucket name',
         HISTORICAL_EXPORTS_ENABLED: 'enables historical exports for export apps',
         APP_METRICS_GATHERED_FOR_ALL: 'whether to gather app metrics for all teams',
+        USE_KAFKA_FOR_SCHEDULED_TASKS: 'distribute scheduled tasks across the scheduler workers',
     }
 }
 

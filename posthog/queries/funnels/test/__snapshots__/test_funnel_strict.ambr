@@ -92,7 +92,7 @@
               steps,
               prop
      HAVING steps = max_steps)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+  GROUP BY prop
   '
 ---
 # name: TestFunnelStrictStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
@@ -194,7 +194,7 @@
               steps,
               prop
      HAVING steps = max_steps)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+  GROUP BY prop
   '
 ---
 # name: TestFunnelStrictStepsBreakdown.test_funnel_step_multiple_breakdown_snapshot
@@ -290,6 +290,6 @@
               steps,
               prop
      HAVING steps = max_steps)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+  GROUP BY prop
   '
 ---
