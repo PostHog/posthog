@@ -28,9 +28,9 @@ const topics = [
     // only enabling for App Metrics and Ingestion Warnings. We will enable for
     // the rest assuming performance is good enough.
     'clickhouse_app_metrics',
-    'clickhouse_ingestion_warnings',
 
     // TODO: enable these other topics assuming the above topics work well.
+    // 'clickhouse_ingestion_warnings',
     // 'clickhouse_events_json',
     // 'clickhouse_groups',
     // 'clickhouse_person',

@@ -1,19 +1,21 @@
 import { createClient } from '@clickhouse/client'
 import * as fs from 'fs'
 import { StatsD } from 'hot-shots'
-import {
-    AssignerProtocol,
-    EachBatchHandler,
-    Kafka,
-    KafkaMessage,
-    PartitionAssigner,
-    PartitionAssigners,
-    Producer,
-} from 'kafkajs'
+import { EachBatchHandler, Kafka, KafkaMessage, Producer } from 'kafkajs'
 import * as path from 'path'
 import { PluginsServerConfig } from 'types'
 
-import { KAFKA_APP_METRICS, KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
+import {
+    KAFKA_APP_METRICS,
+    KAFKA_EVENTS_DEAD_LETTER_QUEUE,
+    KAFKA_EVENTS_JSON,
+    KAFKA_GROUPS,
+    KAFKA_INGESTION_WARNINGS,
+    KAFKA_PERSON,
+    KAFKA_PERSON_DISTINCT_ID,
+    KAFKA_PLUGIN_LOG_ENTRIES,
+    KAFKA_SESSION_RECORDING_EVENTS,
+} from '../../config/kafka-topics'
 import { status } from '../../utils/status'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 
@@ -21,11 +23,13 @@ export const startClickHouseConsumer = async ({
     kafka,
     producer,
     serverConfig,
+    topic,
     statsd,
 }: {
     kafka: Kafka
     producer: Producer
     serverConfig: PluginsServerConfig
+    topic: string
     statsd?: StatsD
 }) => {
     /*
@@ -40,13 +44,10 @@ export const startClickHouseConsumer = async ({
         pass through the JSON string.
     */
 
-    const consumer = kafka.consumer({
-        groupId: 'group1', // NOTE: we align the group ID with the legacy KafkaTable group ID to avoid duplicate processing
-        partitionAssigners: [PartitionAssigners.roundRobin, RangeAssigner(kafka)],
-    })
+    const consumer = kafka.consumer({ groupId: `clickhouse-inserter-${topic}` })
     setupEventHandlers(consumer)
 
-    status.info('🔁', 'Starting ClickHouse inserter consumer')
+    status.info('🔁', 'starting_clickhouse_consumer', { topic })
 
     const clickhouse = createClient({
         host: `${serverConfig.CLICKHOUSE_SECURE ? 'https' : 'http'}://${serverConfig.CLICKHOUSE_HOST}:${
@@ -201,13 +202,11 @@ export const startClickHouseConsumer = async ({
     }
 
     await consumer.connect()
-    await consumer.subscribe({
-        topics: Object.keys(topicToTable),
-    })
+    await consumer.subscribe({ topics: [topic] })
     await consumer.run({
         eachBatchAutoResolve: false,
         eachBatch: async (payload) => {
-            return await instrumentEachBatch(Object.keys(topicToTable).toString(), eachBatch, payload, statsd)
+            return await instrumentEachBatch(topic, eachBatch, payload, statsd)
         },
     })
 
@@ -221,24 +220,24 @@ const topicToTable: { [key: string]: { tableName: string; dlq?: boolean; maxChun
      * topics.
      */
 
-    // [KAFKA_EVENTS_JSON]: { tableName: 'writable_events' },
-    // [KAFKA_EVENTS_DEAD_LETTER_QUEUE]: {
-    //     tableName: 'events_dead_letter_queue',
-    //     // For the DLQ, don't try to insert into another dlq. We use `null`
-    //     // to signify this.
-    //     dlq: false,
-    // },
-    // [KAFKA_GROUPS]: { tableName: 'groups' },
-    // [KAFKA_PERSON]: { tableName: 'person' },
-    // [KAFKA_PERSON_DISTINCT_ID]: { tableName: 'person_distinct_id2' },
-    // [KAFKA_PLUGIN_LOG_ENTRIES]: {
-    //     tableName: 'plugin_log_entries',
-    //     // NOTE: plugin_log_entries is PARTITIONED BY plugin_id, and as such we end
-    //     // up hitting the max number of partitions involved in an insert, a
-    //     // ClickHouse setting.
-    //     maxChunkSize: 100,
-    // },
-    // [KAFKA_SESSION_RECORDING_EVENTS]: { tableName: 'writable_session_recording_events' },
+    [KAFKA_EVENTS_JSON]: { tableName: 'writable_events' },
+    [KAFKA_EVENTS_DEAD_LETTER_QUEUE]: {
+        tableName: 'events_dead_letter_queue',
+        // For the DLQ, don't try to insert into another dlq. We use `null`
+        // to signify this.
+        dlq: false,
+    },
+    [KAFKA_GROUPS]: { tableName: 'groups' },
+    [KAFKA_PERSON]: { tableName: 'person' },
+    [KAFKA_PERSON_DISTINCT_ID]: { tableName: 'person_distinct_id2' },
+    [KAFKA_PLUGIN_LOG_ENTRIES]: {
+        tableName: 'plugin_log_entries',
+        // NOTE: plugin_log_entries is PARTITIONED BY plugin_id, and as such we end
+        // up hitting the max number of partitions involved in an insert, a
+        // ClickHouse setting.
+        maxChunkSize: 100,
+    },
+    [KAFKA_SESSION_RECORDING_EVENTS]: { tableName: 'writable_session_recording_events' },
     [KAFKA_INGESTION_WARNINGS]: { tableName: 'sharded_ingestion_warnings' },
     [KAFKA_APP_METRICS]: { tableName: 'sharded_app_metrics' },
 } as const
@@ -249,93 +248,3 @@ const retriableErrorCodes = {
     KEEPER_EXCEPTION: '999',
     POCO_EXCEPTION: '1000',
 } as const
-
-// Assigner as per
-// https://kafka.apache.org/24/javadoc/org/apache/kafka/clients/consumer/RangeAssignor.html
-// IMPORTANT: to be able to switch over from KafkaTable, we need to use the same
-// consumer group. As we are switching over just a handful of topics to start
-// with, we need to make sure we use the same partition assignment strategy,
-// otherwise we end up with a Kafka protocol conflict.
-//
-// TODO: when all KafkaTables habe been removed from ClickHouse, we can remove
-// this custom assigner.
-const RangeAssigner =
-    (kafka: Kafka): PartitionAssigner =>
-    ({}) => ({
-        version: 1,
-        name: 'range',
-        async assign({ members }) {
-            // perform assignment
-            const topics = Array.from(
-                new Set(
-                    members.flatMap(
-                        ({ memberMetadata }) => AssignerProtocol.MemberMetadata.decode(memberMetadata)?.topics ?? []
-                    )
-                )
-            )
-
-            const partitionsByTopic = Object.fromEntries(
-                (await kafka.admin().fetchTopicMetadata({ topics })).topics.map(({ name, partitions }) => [
-                    name,
-                    partitions.map(({ partitionId }) => partitionId).sort(),
-                ])
-            )
-
-            const membersByTopic = members
-                .flatMap(({ memberId, memberMetadata }) =>
-                    (AssignerProtocol.MemberMetadata.decode(memberMetadata)?.topics ?? []).map(
-                        (topic) => [topic, memberId] as const
-                    )
-                )
-                .sort()
-                .reduce(
-                    (previousValue, [topic, memberId]) => ({
-                        ...previousValue,
-                        [topic]: (previousValue[topic] ?? []).concat([memberId]),
-                    }),
-                    {} as Record<string, string[]>
-                )
-
-            const partitionsByMembersByTopic = Object.fromEntries(
-                Object.entries(membersByTopic).map(([topic, members]) => {
-                    const partitions = partitionsByTopic[topic]
-                    const memberCount = members.length
-
-                    return [
-                        topic,
-                        Object.fromEntries(
-                            members.map((member, index) => [
-                                member,
-                                partitions.filter((partition) => partition % memberCount === index),
-                            ])
-                        ),
-                    ]
-                })
-            )
-
-            return members
-                .map(({ memberId }) => memberId)
-                .map((memberId) => ({
-                    memberId,
-                    memberAssignment: AssignerProtocol.MemberAssignment.encode({
-                        version: this.version,
-                        assignment: Object.fromEntries(
-                            topics
-                                .map((topic) => [topic, partitionsByMembersByTopic[topic][memberId]])
-                                .filter(([_, partitions]) => partitions)
-                        ),
-                        userData: Buffer.from([]),
-                    }),
-                }))
-        },
-        protocol({ topics }) {
-            return {
-                name: this.name,
-                metadata: AssignerProtocol.MemberMetadata.encode({
-                    version: this.version,
-                    topics,
-                    userData: Buffer.from([]),
-                }),
-            }
-        },
-    })

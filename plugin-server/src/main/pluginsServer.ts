@@ -7,6 +7,7 @@ import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
 import { defaultConfig } from '../config/config'
+import { KAFKA_INGESTION_WARNINGS } from '../config/kafka-topics'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub } from '../utils/db/hub'
 import { killProcess } from '../utils/kill'
@@ -88,7 +89,7 @@ export async function startPluginsServer(
     let bufferConsumer: Consumer | undefined
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
-    let clickHouseConsumer: Consumer | undefined
+    let clickHouseConsumers: Consumer[] | undefined
 
     let httpServer: Server | undefined // healthcheck server
     let mmdbServer: net.Server | undefined // geoip server
@@ -117,15 +118,16 @@ export async function startPluginsServer(
         httpServer?.close()
         cancelAllScheduledJobs()
         stopEventLoopMetrics?.()
-        await Promise.allSettled([
-            queue?.stop(),
-            pubSub?.stop(),
-            graphileWorker?.stop(),
-            bufferConsumer?.disconnect(),
-            jobsConsumer?.disconnect(),
-            schedulerTasksConsumer?.disconnect(),
-            clickHouseConsumer?.disconnect(),
-        ])
+        await Promise.allSettled(
+            [
+                queue?.stop(),
+                pubSub?.stop(),
+                graphileWorker?.stop(),
+                bufferConsumer?.disconnect(),
+                jobsConsumer?.disconnect(),
+                schedulerTasksConsumer?.disconnect(),
+            ].concat(clickHouseConsumers?.map((consumer) => consumer.disconnect()))
+        )
 
         await new Promise<void>((resolve, reject) =>
             !mmdbServer
@@ -270,12 +272,18 @@ export async function startPluginsServer(
                 statsd: hub.statsd,
             })
 
-            clickHouseConsumer = await startClickHouseConsumer({
-                kafka: hub.kafka,
-                producer: hub.kafkaProducer.producer,
-                serverConfig: { ...defaultConfig, ...serverConfig },
-                statsd: hub.statsd,
-            })
+            // TODO: allow for these consumers to run separately from the
+            // ingestion related workloads, so allow for better handling of
+            // failure cases.
+            clickHouseConsumers = [
+                await startClickHouseConsumer({
+                    kafka: hub.kafka,
+                    producer: hub.kafkaProducer.producer,
+                    serverConfig: { ...defaultConfig, ...serverConfig },
+                    topic: KAFKA_INGESTION_WARNINGS,
+                    statsd: hub.statsd,
+                }),
+            ]
         }
 
         const queues = await startQueues(hub, piscina)
