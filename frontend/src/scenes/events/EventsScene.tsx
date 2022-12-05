@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { eventsSceneLogic } from 'scenes/events/eventsSceneLogic'
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, NodeKind } from '~/queries/schema'
-import { isDataTableNode } from '~/queries/utils'
+import { isDataTableNode, isEventsNode } from '~/queries/utils'
 import { objectsEqual } from 'lib/utils'
 
 export function EventsScene(): JSX.Element {
@@ -30,7 +30,7 @@ export function EventsScene(): JSX.Element {
         <Query
             query={query}
             setQuery={(newQuery) => {
-                if (isDataTableNode(newQuery)) {
+                if (isDataTableNode(newQuery) && isEventsNode(newQuery.source) && isEventsNode(query.source)) {
                     if (!objectsEqual(newQuery.source.properties ?? [], query.source.properties ?? [])) {
                         setProperties(newQuery.source.properties ?? [])
                     }

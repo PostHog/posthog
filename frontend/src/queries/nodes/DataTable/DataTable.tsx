@@ -1,5 +1,5 @@
 import './DataTable.scss'
-import { DataTableNode, EventsNode, Node, QueryCustom } from '~/queries/schema'
+import { DataTableNode, EventsNode, Node, PersonsNode, QueryCustom } from '~/queries/schema'
 import { useState } from 'react'
 import { useValues, BindLogic } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -24,6 +24,8 @@ import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { InlineEditor } from '~/queries/nodes/Node/InlineEditor'
+import { isEventsNode, isPersonsNode } from '~/queries/utils'
+import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 
 interface DataTableProps {
     query: DataTableNode
@@ -73,7 +75,7 @@ export function DataTable({ query, setQuery, custom }: DataTableProps): JSX.Elem
                 return renderColumn(key, record, query, setQuery, custom)
             },
         })),
-        ...(showActions
+        ...(showActions && isEventsNode(query.source)
             ? [
                   {
                       dataIndex: 'more' as any,
@@ -86,7 +88,7 @@ export function DataTable({ query, setQuery, custom }: DataTableProps): JSX.Elem
             : []),
     ]
     const dataSource = (response as null | EventsNode['response'])?.results ?? []
-    const setQuerySource = (source: EventsNode): void => setQuery?.({ ...query, source })
+    const setQuerySource = (source: EventsNode | PersonsNode): void => setQuery?.({ ...query, source })
 
     const showFilters = showEventFilter || showPropertyFilter
     const showTools = showReload || showExport || showColumnConfigurator
@@ -98,9 +100,14 @@ export function DataTable({ query, setQuery, custom }: DataTableProps): JSX.Elem
                 <div className="space-y-4 relative">
                     {showFilters && (
                         <div className="flex gap-4">
-                            {showEventFilter && <EventName query={query.source} setQuery={setQuerySource} />}
-                            {showPropertyFilter && (
+                            {showEventFilter && isEventsNode(query.source) && (
+                                <EventName query={query.source} setQuery={setQuerySource} />
+                            )}
+                            {showPropertyFilter && isEventsNode(query.source) && (
                                 <EventPropertyFilters query={query.source} setQuery={setQuerySource} />
+                            )}
+                            {showPropertyFilter && isPersonsNode(query.source) && (
+                                <PersonPropertyFilters query={query.source} setQuery={setQuerySource} />
                             )}
                             {inlineRow === 1 ? (
                                 <>
@@ -117,14 +124,16 @@ export function DataTable({ query, setQuery, custom }: DataTableProps): JSX.Elem
                     {showTools && (
                         <div className="flex gap-4">
                             <div className="flex-1">{showReload && (canLoadNewData ? <AutoLoad /> : <Reload />)}</div>
-                            {showColumnConfigurator && <ColumnConfigurator query={query} setQuery={setQuery} />}
+                            {showColumnConfigurator && isEventsNode(query.source) && (
+                                <ColumnConfigurator query={query} setQuery={setQuery} />
+                            )}
                             {showExport && <DataTableExport query={query} setQuery={setQuery} />}
                             {inlineRow === 2 ? (
                                 <InlineEditor query={queryWithDefaults} setQuery={setQuery as (node: Node) => void} />
                             ) : null}
                         </div>
                     )}
-                    {showEventsBufferWarning && (
+                    {showEventsBufferWarning && isEventsNode(query.source) && (
                         <EventBufferNotice additionalInfo=" - this helps ensure accuracy of insights grouped by unique users" />
                     )}
                     {inlineRow === 0 ? (

@@ -12,6 +12,7 @@ import {
     PathsQuery,
     StickinessQuery,
     LifecycleQuery,
+    PersonsNode,
 } from '~/queries/schema'
 import {
     ChartDisplayType,
@@ -38,6 +39,35 @@ const EventsTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
     columns: defaultDataTableStringColumns,
     source: Events,
+}
+const EventsTableFull: DataTableNode = {
+    ...EventsTable,
+    showPropertyFilter: true,
+    showEventFilter: true,
+    showExport: true,
+    showReload: true,
+    showColumnConfigurator: true,
+    showEventsBufferWarning: true,
+}
+
+const Persons: PersonsNode = {
+    kind: NodeKind.PersonsNode,
+    properties: [
+        { type: PropertyFilterType.Person, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
+    ],
+}
+
+const PersonsTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    columns: ['id', 'person', 'properties.$geoip_country_name', 'properties.$browser', 'created_at'],
+    source: Persons,
+}
+
+const PersonsTableFull: DataTableNode = {
+    ...PersonsTable,
+    showPropertyFilter: true,
+    showExport: true,
+    showReload: true,
 }
 
 const LegacyTrendsQuery: LegacyQuery = {
@@ -196,6 +226,10 @@ const InsightLifecycleQuery: LifecycleQuery = {
 export const examples: Record<string, Node> = {
     Events,
     EventsTable,
+    EventsTableFull,
+    Persons,
+    PersonsTable,
+    PersonsTableFull,
     LegacyTrendsQuery,
     InsightTrendsQuery,
     InsightFunnelsQuery,

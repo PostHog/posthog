@@ -5,6 +5,8 @@ import { QueryCustom } from '~/queries/schema'
 export function renderTitle(key: string, custom?: QueryCustom): JSX.Element | string {
     if (key === 'timestamp') {
         return 'Time'
+    } else if (key === 'created_at') {
+        return 'First seen'
     } else if (key === 'event') {
         return 'Event'
     } else if (key === 'person') {

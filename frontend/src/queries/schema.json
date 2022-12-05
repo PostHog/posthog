@@ -1306,7 +1306,14 @@
                     "type": "boolean"
                 },
                 "source": {
-                    "$ref": "#/definitions/EventsNode",
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/PersonsNode"
+                        }
+                    ],
                     "description": "Source of the events"
                 }
             },
@@ -1902,6 +1909,44 @@
             "required": ["kind"],
             "type": "object"
         },
+        "PersonsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "cohort": {
+                    "type": "number"
+                },
+                "distinctId": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "PersonsNode",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                },
+                "search": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
         "PropertyFilterValue": {
             "anyOf": [
                 {
@@ -1996,6 +2041,9 @@
                 },
                 {
                     "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/PersonsNode"
                 },
                 {
                     "$ref": "#/definitions/DataTableNode"

@@ -23,6 +23,7 @@ export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
     ActionsNode = 'ActionsNode',
+    PersonsNode = 'PersonsNode',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -41,6 +42,7 @@ export type QuerySchema =
     // Data nodes (see utils.ts)
     | EventsNode
     | ActionsNode
+    | PersonsNode
 
     // Interface nodes
     | DataTableNode
@@ -101,12 +103,23 @@ export interface ActionsNode extends EntityNode {
     id: number
 }
 
+export interface PersonsNode extends DataNode {
+    kind: NodeKind.PersonsNode
+    search?: string
+    cohort?: number
+    distinctId?: string
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?: AnyPropertyFilter[]
+}
+
 // Data table node
 
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source: EventsNode
+    source: EventsNode | PersonsNode
     /** Columns shown in the table  */
     columns?: DataTableStringColumn[]
     /** Include an event filter above the table (default: true) */

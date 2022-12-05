@@ -3,20 +3,19 @@ import { IconExport } from 'lib/components/icons'
 import { Popconfirm } from 'antd'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
-import api from 'lib/api'
 import { DataTableNode } from '~/queries/schema'
 import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/defaults'
+import { isEventsNode, isPersonsNode } from '~/queries/utils'
+import { getEventsEndpoint, getPersonsEndpoint } from '~/queries/query'
 
 function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void {
-    const exportContext = {
-        path: api.events.determineListEndpoint(
-            {
-                ...(query.source.event ? { event: query.source.event } : {}),
-                ...(query.source.properties ? { properties: query.source.properties } : {}),
-            },
-            3500
-        ),
-        max_limit: 3500,
+    const exportContext = isEventsNode(query.source)
+        ? { path: getEventsEndpoint(query.source), max_limit: query.source.limit ?? 3500 }
+        : isPersonsNode(query.source)
+        ? { path: getPersonsEndpoint(query.source), max_limit: 3500 }
+        : undefined
+    if (!exportContext) {
+        throw new Error('Unsupported node type')
     }
 
     const columnMapping = {
@@ -24,7 +23,9 @@ function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void
         time: 'timestamp',
         event: 'event',
         source: 'properties.$lib',
-        person: ['person.distinct_ids.0', 'person.properties.email'],
+        person: isPersonsNode(query.source)
+            ? ['distinct_ids.0', 'properties.email']
+            : ['person.distinct_ids.0', 'person.properties.email'],
     }
 
     if (onlySelectedColumns) {
