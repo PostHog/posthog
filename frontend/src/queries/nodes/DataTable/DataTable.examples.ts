@@ -1,4 +1,5 @@
 import { DataTableNode, NodeKind } from '~/queries/schema'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 const AllDefaults: DataTableNode = {
     kind: NodeKind.DataTableNode,
@@ -31,7 +32,19 @@ const ManyColumns: DataTableNode = {
 
 const ShowFilters: DataTableNode = {
     kind: NodeKind.DataTableNode,
-    source: { kind: NodeKind.EventsNode },
+    source: {
+        kind: NodeKind.EventsNode,
+        properties: [
+            {
+                key: '$browser',
+                value: ['Chrome'],
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Event,
+            },
+        ],
+        event: '',
+        limit: 100,
+    },
     columns: ['event', 'person', 'properties.$lib', 'person.properties.email'],
     showEventFilter: true,
     showPropertyFilter: true,
@@ -48,7 +61,19 @@ const ShowTools: DataTableNode = {
 
 const ShowAllTheThings: DataTableNode = {
     kind: NodeKind.DataTableNode,
-    source: { kind: NodeKind.EventsNode },
+    source: {
+        kind: NodeKind.EventsNode,
+        properties: [
+            {
+                key: '$browser',
+                value: ['Chrome'],
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Event,
+            },
+        ],
+        event: '',
+        limit: 100,
+    },
     columns: ['event', 'person', 'properties.$lib', 'person.properties.email'],
     showExport: true,
     showReload: true,
