@@ -43,8 +43,8 @@ jobs:
             # - name: Install Playwright
             #   run: npm install -D @playwright/test && npm install -g playwright
 
-            - name: Build Storybook
-              run: yarn build-storybook --quiet
+            # - name: Build Storybook
+            #   run: yarn build-storybook --quiet
 
             - name: Serve Storybook and run tests
               run: |
