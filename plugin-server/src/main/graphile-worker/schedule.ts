@@ -32,7 +32,12 @@ export async function loadPluginSchedule(piscina: Piscina, maxIterations = 2000)
     throw new Error('Could not load plugin schedule in time')
 }
 
-export async function runScheduledTasks(server: Hub, taskType: TaskTypes, helpers: JobHelpers): Promise<void> {
+export async function runScheduledTasks(
+    server: Hub,
+    piscina: Piscina,
+    taskType: TaskTypes,
+    helpers: JobHelpers
+): Promise<void> {
     // If the tasks run_at is older than the grace period, we ignore it. We
     // don't want to end up with old tasks being scheduled if we are backed up.
     if (new Date(helpers.job.run_at).getTime() < Date.now() - gracePeriodMilliSecondsByTaskType[taskType]) {
@@ -44,13 +49,21 @@ export async function runScheduledTasks(server: Hub, taskType: TaskTypes, helper
         return
     }
 
-    for (const pluginConfigId of server.pluginSchedule?.[taskType] || []) {
-        status.info('⏲️', 'queueing_schedule_task', { taskType, pluginConfigId })
-        await server.kafkaProducer.producer.send({
-            topic: KAFKA_SCHEDULED_TASKS,
-            messages: [{ key: pluginConfigId.toString(), value: JSON.stringify({ taskType, pluginConfigId }) }],
-        })
-        server.statsd?.increment('queued_scheduled_task', { taskType })
+    if (server.USE_KAFKA_FOR_SCHEDULED_TASKS) {
+        for (const pluginConfigId of server.pluginSchedule?.[taskType] || []) {
+            status.info('⏲️', 'queueing_schedule_task', { taskType, pluginConfigId })
+            await server.kafkaProducer.producer.send({
+                topic: KAFKA_SCHEDULED_TASKS,
+                messages: [{ key: pluginConfigId.toString(), value: JSON.stringify({ taskType, pluginConfigId }) }],
+            })
+            server.statsd?.increment('queued_scheduled_task', { taskType })
+        }
+    } else {
+        for (const pluginConfigId of server.pluginSchedule?.[taskType] || []) {
+            status.info('⏲️', `Running ${taskType} for plugin config with ID ${pluginConfigId}`)
+            await piscina.run({ task: taskType, args: { pluginConfigId } })
+            server.statsd?.increment('completed_scheduled_task', { taskType })
+        }
     }
 }
 

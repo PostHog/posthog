@@ -113,6 +113,7 @@ export const startScheduledTasksConsumer = async ({
                     error: error,
                     stack: error.stack,
                 })
+                resolveOffset(message.offset)
                 statsd?.increment('failed_scheduled_tasks', { taskType })
             } finally {
                 clearTimeout(timeout)
