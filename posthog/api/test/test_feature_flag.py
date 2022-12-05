@@ -11,7 +11,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
 from posthog.test.db_context_capturing import capture_db_queries
 
 
@@ -1734,3 +1734,78 @@ class TestFeatureFlag(APIBaseTest):
         ).json()
 
         self.assertEqual(len(feature_flag["rollback_conditions"]), 1)
+
+
+class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
+    @snapshot_clickhouse_queries
+    def test_user_blast_radius(self):
+
+        for i in range(10):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [{"key": "group", "type": "person", "value": [0, 1, 2, 3], "operator": "exact"}],
+                    "rollout_percentage": 25,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertDictContainsSubset({"users_affected": 4, "total_users": 10}, response_json)
+
+    def test_user_blast_radius_with_zero_users(self):
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [{"key": "group", "type": "person", "value": [0, 1, 2, 3], "operator": "exact"}],
+                    "rollout_percentage": 25,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertDictContainsSubset({"users_affected": 0, "total_users": 0}, response_json)
+
+    def test_user_blast_radius_with_zero_selected_users(self):
+
+        for i in range(5):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [{"key": "group", "type": "person", "value": [8], "operator": "exact"}],
+                    "rollout_percentage": 25,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertDictContainsSubset({"users_affected": 0, "total_users": 5}, response_json)
+
+    def test_user_blast_radius_with_all_selected_users(self):
+
+        for i in range(5):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {"condition": {"properties": [], "rollout_percentage": 100}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertDictContainsSubset({"users_affected": 5, "total_users": 5}, response_json)

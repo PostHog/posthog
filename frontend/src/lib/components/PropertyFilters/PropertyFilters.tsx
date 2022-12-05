@@ -25,6 +25,8 @@ interface PropertyFiltersProps {
     propertyGroupType?: FilterLogicalOperator | null
     addButton?: JSX.Element | null
     hasRowOperator?: boolean
+    sendAllKeyUpdates?: boolean
+    errorMessages?: JSX.Element[] | null
 }
 
 export function PropertyFilters({
@@ -42,8 +44,10 @@ export function PropertyFilters({
     propertyGroupType = null,
     addButton = null,
     hasRowOperator = true,
+    sendAllKeyUpdates = false,
+    errorMessages = null,
 }: PropertyFiltersProps): JSX.Element {
-    const logicProps = { propertyFilters, onChange, pageKey }
+    const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filtersWithNew } = useValues(propertyFilterLogic(logicProps))
     const { remove, setFilters } = useActions(propertyFilterLogic(logicProps))
 
@@ -94,6 +98,7 @@ export function PropertyFilters({
                                             }}
                                         />
                                     )}
+                                    errorMessage={errorMessages && errorMessages[index]}
                                 />
                             </React.Fragment>
                         )

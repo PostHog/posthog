@@ -459,7 +459,7 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
-/** Format number with space as the thousands separator. */
+/** Format number with comma as the thousands separator. */
 export function humanFriendlyNumber(d: number, precision: number = 2): string {
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
