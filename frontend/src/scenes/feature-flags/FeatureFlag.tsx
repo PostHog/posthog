@@ -926,13 +926,15 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                                 (message) => !!message.value
                                             )
                                                 ? propertySelectErrors[index].properties.map((message, index) => {
-                                                      return (
+                                                      return message.value ? (
                                                           <div
                                                               key={index}
                                                               className="text-danger flex items-center gap-1 text-sm"
                                                           >
                                                               <IconErrorOutline className="text-xl" /> {message.value}
                                                           </div>
+                                                      ) : (
+                                                          <></>
                                                       )
                                                   })
                                                 : null
@@ -968,15 +970,24 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                             <>
                                                 Will match approximately{' '}
                                                 {affectedUsers[index] !== undefined ? (
-                                                    `${humanFriendlyNumber(
-                                                        computeBlastRadiusPercentage(group.rollout_percentage, index)
-                                                    )}%`
+                                                    <b>
+                                                        {`${humanFriendlyNumber(
+                                                            computeBlastRadiusPercentage(
+                                                                group.rollout_percentage,
+                                                                index
+                                                            )
+                                                        )}% `}
+                                                    </b>
                                                 ) : (
                                                     <Spinner className="mr-1" />
                                                 )}{' '}
                                                 {affectedUsers[index] && affectedUsers[index] >= 0 && totalUsers
                                                     ? `(${humanFriendlyNumber(
-                                                          affectedUsers[index]
+                                                          Math.floor(
+                                                              (affectedUsers[index] *
+                                                                  (group.rollout_percentage ?? 100)) /
+                                                                  100
+                                                          )
                                                       )} / ${humanFriendlyNumber(totalUsers)})`
                                                     : ''}{' '}
                                                 of total {aggregationTargetName}.
