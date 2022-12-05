@@ -5,11 +5,12 @@ from django.db import migrations, models
 
 import posthog.models.utils
 from posthog.cloud_utils import is_cloud
+from posthog.settings import DEBUG
 from posthog.year_in_posthog.calculate_2022 import calculate_year_in_posthog_2022
 
 
 def forwards(apps, schema_editor):
-    if is_cloud():
+    if is_cloud() or DEBUG:
         # in Metabase this takes about 1.5 seconds to run the query
         calculate_year_in_posthog_2022()
 
