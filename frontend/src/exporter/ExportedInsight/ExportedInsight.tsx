@@ -76,7 +76,7 @@ export function ExportedInsight({
                         'ExportedInsight__content--with-watermark': showWatermark,
                     })}
                 >
-                    <InsightViz insight={insight as any} style={{ top: 0, left: 0, position: 'relative' }} />
+                    <InsightViz insight={insight as any} style={{ top: 0, left: 0 }} />
                     {showLegend ? (
                         <div className="p-4">
                             <InsightLegend horizontal readOnly />
