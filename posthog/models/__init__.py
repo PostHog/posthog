@@ -1,3 +1,5 @@
+from posthog.year_in_posthog.year_in_posthog import YearInPostHog
+
 from .action import Action
 from .action_step import ActionStep
 from .activity_logging.activity_log import ActivityLog
@@ -105,4 +107,5 @@ __all__ = [
     "User",
     "UserManager",
     "UserPromptSequenceState",
+    "YearInPostHog",
 ]
