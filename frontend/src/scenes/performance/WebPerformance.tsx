@@ -54,6 +54,7 @@ const EventsWithPerformanceTable = (): JSX.Element => {
                         showActions: false,
                         expandable: false,
                     }}
+                    setQueryLocally
                     custom={{
                         waterfallButton: {
                             title: '',
