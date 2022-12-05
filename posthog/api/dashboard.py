@@ -166,20 +166,6 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             except Dashboard.DoesNotExist:
                 raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
 
-        elif request.data.get("items"):
-            for item in request.data["items"]:
-                insight = Insight.objects.create(
-                    **{
-                        key: value
-                        for key, value in item.items()
-                        if key not in ("id", "deleted", "dashboard", "team", "layout", "color")
-                    },
-                    team=team,
-                )
-                DashboardTile.objects.create(
-                    dashboard=dashboard, insight=insight, layouts=item.get("layouts"), color=item.get("color")
-                )
-
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, dashboard)
 

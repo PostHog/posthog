@@ -11,6 +11,8 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.models.dashboard import Dashboard
+from posthog.models.filters.filter import Filter
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team.util import person_on_events_ready
 from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
@@ -230,6 +232,26 @@ class Team(UUIDClassicModel):
     def strict_caching_enabled(self) -> bool:
         enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
+
+    @cached_property
+    def persons_seen_so_far(self) -> int:
+
+        from posthog.client import sync_execute
+        from posthog.queries.person_query import PersonQuery
+
+        filter = Filter(data={"full": "true"})
+        person_query, person_query_params = PersonQuery(filter, self.id).get_query()
+
+        total_count = sync_execute(
+            f"""
+            SELECT count(1) FROM (
+                {person_query}
+            )
+        """,
+            person_query_params,
+        )[0][0]
+
+        return total_count
 
     def __str__(self):
         if self.name:

@@ -103,7 +103,7 @@ class FunnelCorrelation:
 
     def __init__(
         self,
-        filter: Filter,  #  Used to filter people
+        filter: Filter,  # Used to filter people
         team: Team,  # Used to partition by team
         base_uri: str = "/",  # Used to generate absolute urls
     ) -> None:

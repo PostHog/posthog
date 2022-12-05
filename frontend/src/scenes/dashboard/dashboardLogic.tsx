@@ -898,6 +898,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 ? tilesToSave
                 : (values.allItems?.tiles || []).map((tile) => ({ id: tile.id, layouts: tile.layouts }))
 
+            breakpoint()
+
             return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                 tiles: layoutsToUpdate,
                 no_items_field: true,
