@@ -150,6 +150,7 @@ export function DataTable({ query, setQuery, custom }: DataTableProps): JSX.Elem
                         className="DataTable"
                         loading={responseLoading && !nextDataLoading && !newDataLoading}
                         columns={lemonColumns}
+                        key={lemonColumns.join('::')}
                         dataSource={dataSource}
                         expandable={
                             expandable
