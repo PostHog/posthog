@@ -7,7 +7,7 @@
               WHERE team_id = %(team_id)s
               GROUP BY id
               HAVING max(is_deleted) = 0
-                 
+                  
               
               
           
@@ -27,7 +27,7 @@
               )
               GROUP BY id
               HAVING max(is_deleted) = 0
-              AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__0)s)   
+              AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__0)s)    
               
               
           
@@ -47,7 +47,7 @@
               )
               GROUP BY id
               HAVING max(is_deleted) = 0
-              AND ((  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__0_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_grouped_filters__0_1)s), '^"|"$', '') ILIKE %(vpersonquery_grouped_filters__0_1)s))   
+              AND ((  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__0_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_grouped_filters__0_1)s), '^"|"$', '') ILIKE %(vpersonquery_grouped_filters__0_1)s))    
               
               
           
@@ -67,7 +67,7 @@
               )
               GROUP BY id
               HAVING max(is_deleted) = 0
-              AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__0)s  AND has(%(vpersonquery_grouped_filters__1)s, replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_grouped_filters__1)s), '^"|"$', ''))  AND has(%(vpersonquery_grouped_filters__2)s, replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_grouped_filters__2)s), '^"|"$', '')))   
+              AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__0)s  AND has(%(vpersonquery_grouped_filters__1)s, replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_grouped_filters__1)s), '^"|"$', ''))  AND has(%(vpersonquery_grouped_filters__2)s, replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_grouped_filters__2)s), '^"|"$', '')))    
               
               
           
@@ -82,7 +82,7 @@
               WHERE team_id = %(team_id)s
               GROUP BY id
               HAVING max(is_deleted) = 0
-                 
+                  
               
               
           
@@ -102,7 +102,7 @@
               )
               GROUP BY id
               HAVING max(is_deleted) = 0
-              AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__0)s)   
+              AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__0)s)    
               
               
           
@@ -122,7 +122,7 @@
               )
               GROUP BY id
               HAVING max(is_deleted) = 0
-              AND ((  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__0_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_grouped_filters__0_1)s), '^"|"$', '') ILIKE %(vpersonquery_grouped_filters__0_1)s))   
+              AND ((  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__0_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_grouped_filters__0_1)s), '^"|"$', '') ILIKE %(vpersonquery_grouped_filters__0_1)s))    
               
               
           
@@ -142,7 +142,7 @@
               )
               GROUP BY id
               HAVING max(is_deleted) = 0
-              AND (((  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__0_0_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_grouped_filters__0_0_1)s), '^"|"$', '') ILIKE %(vpersonquery_grouped_filters__0_0_1)s))AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__1_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_grouped_filters__1_1)s), '^"|"$', '') ILIKE %(vpersonquery_grouped_filters__1_1)s))   
+              AND (((  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__0_0_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_grouped_filters__0_0_1)s), '^"|"$', '') ILIKE %(vpersonquery_grouped_filters__0_0_1)s))AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__1_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_grouped_filters__1_1)s), '^"|"$', '') ILIKE %(vpersonquery_grouped_filters__1_1)s))    
               
               
           
@@ -162,7 +162,7 @@
               )
               GROUP BY id
               HAVING max(is_deleted) = 0
-              AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__0)s)   
+              AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__0)s)    
               
               
           
@@ -182,7 +182,7 @@
               )
               GROUP BY id
               HAVING max(is_deleted) = 0
-              AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__0)s)   
+              AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__0)s)    
               
               
           
@@ -202,7 +202,7 @@
               )
               GROUP BY id
               HAVING max(is_deleted) = 0
-              AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__0)s)   
+              AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_grouped_filters__0)s)    
               
               
           
