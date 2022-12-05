@@ -471,7 +471,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     )}`
                 )
                 const counts = response.result?.[0]?.data
-                console.log(counts)
                 const avg = Math.round(sum(counts) / 7)
                 actions.setInsightResultAtIndex(index, avg)
             }
