@@ -490,7 +490,7 @@ def update_cache_item_task(key: str, cache_type, payload: dict) -> List[Dict[str
 
 @app.task(ignore_result=True)
 def update_cache_task(caching_state_id: UUID):
-    from posthog.caching.update_caching_state import update_cache
+    from posthog.caching.insight_cache import update_cache
 
     update_cache(caching_state_id)
 

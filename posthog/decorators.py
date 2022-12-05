@@ -32,7 +32,7 @@ U = TypeVar("U", bound=GenericViewSet)
 def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
     @wraps(f)
     def wrapper(self, request) -> T:
-        from posthog.caching.update_caching_state import update_cached_state
+        from posthog.caching.insight_cache import update_cached_state
 
         # prepare caching params
         team = cast(User, request.user).team
