@@ -18,7 +18,7 @@
         "KAFKA_HOSTS": "kafka:9092",
         "KAFKA_URL": "kafka://kafka:9092",
         "CLICKHOUST_HOST": "localhost",
-        "CLICKHOUSE_DATABASE": "posthog_test",
+        "CLICKHOUSE_DATABASE": "posthog",
         "CLICKHOUSE_VERIFY": "False",
         "REDIS_URL": "redis://localhost:6379"
     },
