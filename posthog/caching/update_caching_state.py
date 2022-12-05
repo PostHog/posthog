@@ -78,6 +78,10 @@ def fetch_states_in_need_of_updating(limit: int) -> List[Tuple[int, str, UUID]]:
         return cursor.fetchall()
 
 
+def get_caching_state_id(insight: Insight, dashboard: Optional[Dashboard]) -> UUID:
+    return InsightCachingState.objects.only("pk").get(team_id=insight.team_id, insight=insight, dashboard=dashboard).pk
+
+
 def update_cache(caching_state_id: UUID):
     caching_state = InsightCachingState.objects.get(pk=caching_state_id)
 

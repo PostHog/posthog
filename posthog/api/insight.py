@@ -33,7 +33,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
-from posthog.caching.update_cache import synchronously_update_insight_cache
+from posthog.caching.update_caching_state import get_caching_state_id, update_cache
 from posthog.client import sync_execute
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
@@ -332,7 +332,8 @@ class InsightSerializer(InsightBasicSerializer):
         dashboard = self.context.get("dashboard", None)
 
         if should_refresh(self.context["request"]):
-            return synchronously_update_insight_cache(insight, dashboard)
+            caching_state_id = get_caching_state_id(insight, dashboard)
+            return update_cache(caching_state_id)
 
         cache_key = insight.filters_hash
         if dashboard is not None:
