@@ -71,12 +71,18 @@ export const startScheduledTasksConsumer = async ({
             status.debug('⬆️', 'Running scheduled task', task)
 
             try {
+                const startTime = performance.now()
                 status.info('⏲️', 'running_scheduled_task', {
                     taskType: task.taskType,
                     pluginConfigId: task.pluginConfigId,
                 })
                 await piscina.run({ task: task.taskType, args: { pluginConfigId: task.pluginConfigId } })
                 resolveOffset(message.offset)
+                status.info('⏲️', 'finished_scheduled_task', {
+                    taskType: task.taskType,
+                    pluginConfigId: task.pluginConfigId,
+                    duration: performance.now() - startTime,
+                })
                 statsd?.increment('completed_scheduled_task', { taskType: task.taskType })
             } catch (error) {
                 if (error instanceof DependencyUnavailableError) {
