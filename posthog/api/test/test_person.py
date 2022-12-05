@@ -579,6 +579,18 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
+    def test_date_filters(self):
+        with freeze_time("2022-12-01T12:00:00.000Z"):
+            _create_person(team=self.team, distinct_ids=["id1"], properties={})
+        with freeze_time("2022-12-02T12:00:00.000Z"):
+            _create_person(team=self.team, distinct_ids=["id2"], properties={})
+        with freeze_time("2022-12-03T12:00:00.000Z"):
+            _create_person(team=self.team, distinct_ids=["id3"], properties={})
+
+        # Get all
+        response = self.client.get("/api/person/?date_from=2022-12-01&date_to=2022-12-03").json()
+        self.assertEqual(len(response["results"]), 3)
+
     def _get_person_activity(self, person_id: Optional[str] = None, expected_status: int = status.HTTP_200_OK):
         if person_id:
             url = f"/api/person/{person_id}/activity"

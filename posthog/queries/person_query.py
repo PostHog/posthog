@@ -87,6 +87,7 @@ class PersonQuery:
         search_clause, search_params = self._get_search_clause(prepend=prepend)
         distinct_id_clause, distinct_id_params = self._get_distinct_id_clause()
         email_clause, email_params = self._get_email_clause()
+        created_at_clause, created_at_params = self._get_created_at_clause()
 
         return (
             f"""
@@ -101,7 +102,7 @@ class PersonQuery:
             )
             GROUP BY id
             HAVING max(is_deleted) = 0
-            {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
+            {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause} {created_at_clause}
             {"ORDER BY max(created_at) DESC, id" if paginate else ""}
             {limit_offset}
         """
@@ -113,7 +114,7 @@ class PersonQuery:
             WHERE team_id = %(team_id)s
             GROUP BY id
             HAVING max(is_deleted) = 0
-            {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
+            {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause} {created_at_clause}
             {"ORDER BY max(created_at) DESC, id" if paginate else ""}
             {limit_offset}
         """,
@@ -125,6 +126,7 @@ class PersonQuery:
                 **search_params,
                 **distinct_id_params,
                 **email_params,
+                **created_at_params,
                 "team_id": self._team_id,
             },
         )
@@ -185,7 +187,6 @@ class PersonQuery:
         )
 
     def _get_cohort_query(self) -> Tuple[str, Dict]:
-
         if self._cohort:
             cohort_table = (
                 GET_STATIC_COHORTPEOPLE_BY_COHORT_ID if self._cohort.is_static else GET_COHORTPEOPLE_BY_COHORT_ID
@@ -221,6 +222,24 @@ class PersonQuery:
         if self._filter.offset:
             clause += " OFFSET %(offset)s"
             params.update({"offset": self._filter.offset})
+
+        return clause, params
+
+    def _get_created_at_clause(self) -> Tuple[str, Dict]:
+        if not isinstance(self._filter, Filter):
+            return "", {}
+
+        clause = ""
+        params = {}
+
+        # We explicitly check the private var as we only want to use it if it is set by the user - not the defaults
+        if self._filter._date_from:
+            clause += " AND created_at >= %(created_at_from)s"
+            params.update({"created_at_from": self._filter.date_from})
+
+        if self._filter._date_to:
+            clause += " AND created_at < %(created_at_to)s"
+            params.update({"created_at_to": self._filter.date_to})
 
         return clause, params
 
