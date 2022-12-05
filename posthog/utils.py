@@ -17,12 +17,15 @@ from enum import Enum
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     Dict,
     Generator,
+    Generic,
     List,
     Mapping,
     Optional,
     Tuple,
+    TypeVar,
     Union,
     cast,
 )
@@ -636,12 +639,15 @@ def load_data_from_request(request):
     return decompress(data, compression)
 
 
-class SingletonDecorator:
-    def __init__(self, klass):
-        self.klass = klass
-        self.instance = None
+T = TypeVar("T")
 
-    def __call__(self, *args, **kwds):
+
+class SingletonDecorator(Generic[T]):
+    def __init__(self, klass: Callable[[], T]):
+        self.klass = klass
+        self.instance: Optional[T] = None
+
+    def __call__(self, *args, **kwds) -> T:
         if self.instance is None:
             self.instance = self.klass(*args, **kwds)
         return self.instance

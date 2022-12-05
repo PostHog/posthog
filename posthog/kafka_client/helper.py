@@ -18,7 +18,7 @@ from base64 import standard_b64encode
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
-from kafka import KafkaConsumer, KafkaProducer
+from kafka import KafkaAdminClient, KafkaConsumer, KafkaProducer
 
 
 def get_kafka_ssl_context():
@@ -134,3 +134,18 @@ def get_kafka_consumer(topic=None, value_deserializer=lambda v: json.loads(v.dec
         consumer.subscribe([topic])
 
     return consumer
+
+
+def get_kafka_admin(**kwargs):
+    """
+    Return a KafkaAdminClient that uses the SSLContext created with create_ssl_context.
+    """
+
+    admin = KafkaAdminClient(
+        bootstrap_servers=get_kafka_brokers(),
+        security_protocol="SSL",
+        ssl_context=get_kafka_ssl_context(),
+        **kwargs,
+    )
+
+    return admin
