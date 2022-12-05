@@ -1,42 +1,62 @@
-from typing import Optional
 from datetime import timedelta
-from unittest.mock import patch
+from typing import Optional, cast
+from unittest.mock import call, patch
 
 import pytest
 from django.utils.timezone import now
 
+from posthog.caching.insight_cache import fetch_states_in_need_of_updating, schedule_cache_updates
+from posthog.caching.insight_caching_state import upsert
+from posthog.caching.test.test_insight_caching_state import create_insight, filter_dict
 from posthog.models import InsightCachingState, Team, User
 from posthog.models.signals import mute_selected_signals
-from posthog.caching.insight_cache import fetch_states_in_need_of_updating
-from posthog.caching.test.test_insight_caching_state import create_insight
 
 
 def create_insight_caching_state(
     team: Team,
     user: User,
     last_refresh: Optional[timedelta] = timedelta(days=14),  # noqa
-    last_refresh_queued_at: Optional[timedelta] = None, # noqa
+    last_refresh_queued_at: Optional[timedelta] = None,  # noqa
     target_cache_age: Optional[timedelta] = timedelta(days=1),  # noqa
     refresh_attempt: int = 0,
-    **kw
+    filters=filter_dict,
+    **kw,
 ):
     with mute_selected_signals():
-        insight = create_insight(team, user)
-    InsightCachingState.objects.create(
-        team=team,
-        insight=insight,
-        last_refresh=now() - last_refresh if last_refresh is not None else None,
-        last_refresh_queued_at=now() - last_refresh_queued_at if last_refresh_queued_at is not None else None,
-        target_cache_age_seconds=target_cache_age.total_seconds() if target_cache_age is not None else None,
-        refresh_attempt=refresh_attempt,
+        insight = create_insight(team, user, filters=filters)
+
+    model = cast(InsightCachingState, upsert(team, insight))
+    model.last_refresh = now() - last_refresh if last_refresh is not None else None
+    model.last_refresh_queued_at = now() - last_refresh_queued_at if last_refresh_queued_at is not None else None
+    model.target_cache_age_seconds = target_cache_age.total_seconds() if target_cache_age is not None else None
+    model.refresh_attempt = refresh_attempt
+    model.save()
+    return model
+
+
+@pytest.mark.django_db
+@patch("posthog.celery.update_cache_task")
+def test_schedule_cache_updates(update_cache_task, team: Team, user: User):
+    caching_state1 = create_insight_caching_state(team, user, filters=filter_dict, last_refresh=None)
+    create_insight_caching_state(team, user, filters=filter_dict)
+    caching_state3 = create_insight_caching_state(
+        team,
+        user,
+        filters={
+            **filter_dict,
+            "events": [{"id": "$pageleave"}],
+        },
     )
 
+    schedule_cache_updates()
 
-# @patch('posthog.caching.insight_cache.fetch_states_in_need_of_updating')
-# @patch('posthog.celery.update_cache_task')
-# def test_schedule_cache_updates(fetch_states_in_need_of_updating, update_cache_task, team: Team):
-#     pass
+    assert update_cache_task.delay.call_args_list == [call(caching_state1.pk), call(caching_state3.pk)]
 
+    last_refresh_queued_at = InsightCachingState.objects.filter(team=team).values_list(
+        "last_refresh_queued_at", flat=True
+    )
+    assert len(last_refresh_queued_at) == 3
+    assert None not in last_refresh_queued_at
 
 
 @pytest.mark.parametrize(
