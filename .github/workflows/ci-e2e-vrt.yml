@@ -37,24 +37,29 @@ jobs:
               if: steps.node-modules-cache.outputs.cache-hit != 'true'
               run: yarn install --frozen-lockfile
 
-            - name: Install Playwright Browsers
-              run: npx playwright install --with-deps
-
-            - name: Install Playwright
-              run: npm install -D @playwright/test && npm install -g playwright
-
             - name: Build Storybook
               run: yarn build-storybook --quiet
 
+            - name: Install Playwright Browsers
+              run: npx playwright install --with-deps
+
+            - name: Serve Storybook and run tests
+              run: |
+                  npx concurrently -k -s first -n "SB,TEST" -c "magenta,blue" \
+                    "npx http-server storybook-static --port 6006 --silent" \
+                    "npx wait-on tcp:6006 && npx playwright test"
+
+            # - name: Install Playwright
+            #   run: npm install -D @playwright/test && npm install -g playwright
             # - name: Serve Storybook and run tests
             #   run: |
             #       npx concurrently -k -s first -n "SB,TEST" -c "magenta,blue" \
             #         "yarn start-storybook --ci" \
             #         "npx wait-on tcp:6006 && npx playwright test"
-            - name: Run Playwright tests
-              run: npx playwright test
-              # env:
-              #     STORYBOOK_URL: http://storybook.posthog.net
+            # - name: Run Playwright tests
+            #   run: npx playwright test
+            # env:
+            #     STORYBOOK_URL: http://storybook.posthog.net
 
             - name: Upload Playwright report
               uses: actions/upload-artifact@v3
