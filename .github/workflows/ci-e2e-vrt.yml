@@ -46,16 +46,16 @@ jobs:
             - name: Build Storybook
               run: yarn build-storybook --quiet
 
-            # - name: Serve Storybook and run tests
-            #   run: |
-            #       npx concurrently -k -s first -n "SB,TEST" -c "magenta,blue" \
-            #         "npx http-server storybook-static --port 6006 --silent" \
-            #         "npx wait-on tcp:6006 && npx playwright test"
+            - name: Serve Storybook and run tests
+              run: |
+                  npx concurrently -k -s first -n "SB,TEST" -c "magenta,blue" \
+                    "yarn storybook" \
+                    "npx wait-on tcp:6006 && npx playwright test"
 
-            - name: Run Playwright tests
-              run: npx playwright test
-              env:
-                  STORYBOOK_URL: https://storybook.posthog.net
+            # - name: Run Playwright tests
+            #   run: npx playwright test
+            #   env:
+            #       STORYBOOK_URL: https://storybook.posthog.net
 
             - name: Upload Playwright report
               uses: actions/upload-artifact@v3
