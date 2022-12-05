@@ -75,10 +75,10 @@
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1) SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter
@@ -185,10 +185,10 @@
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1) SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups
@@ -307,10 +307,10 @@
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1) SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.1
@@ -423,14 +423,14 @@
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     HAVING steps = max_steps)
   WHERE steps IN [1, 2, 3]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.2
@@ -543,14 +543,14 @@
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     HAVING steps = max_steps)
   WHERE steps IN [2, 3]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.3
@@ -663,14 +663,14 @@
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     HAVING steps = max_steps)
   WHERE steps IN [3]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter
@@ -743,10 +743,10 @@
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1) SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
   '
 ---
 # name: TestFOSSFunnel.test_timezones
@@ -808,10 +808,10 @@
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'US/Pacific') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1) SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
   '
 ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen
@@ -906,12 +906,12 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) )))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
+  GROUP BY prop
   '
 ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
@@ -1011,12 +1011,12 @@
                            OR step_1 = 1) ) ARRAY
                  JOIN prop_vals as prop
                  WHERE prop != [] ))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
+  GROUP BY prop
   '
 ---
 # name: TestFunnelBreakdown.test_funnel_step_multiple_breakdown_snapshot
@@ -1110,11 +1110,11 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) )))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
+  GROUP BY prop
   '
 ---

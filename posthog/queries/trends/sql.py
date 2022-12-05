@@ -70,7 +70,6 @@ SELECT groupArray(day_start) as date, groupArray({aggregate}) as data FROM (
     )
     group by day_start
     order by day_start
-    SETTINGS allow_experimental_window_functions = 1
 )
 SETTINGS timeout_before_checking_execution_speed = 60
 """
@@ -401,7 +400,6 @@ FROM (
     )
 )
 WHERE period_status_pairs.2 != ''
-SETTINGS allow_experimental_window_functions = 1
 """
 
 LIFECYCLE_SQL = f"""
