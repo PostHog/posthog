@@ -505,7 +505,7 @@
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
-            count(*) as count
+            count(DISTINCT pdi.person_id) as count
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
