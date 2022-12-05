@@ -37,11 +37,11 @@ jobs:
               if: steps.node-modules-cache.outputs.cache-hit != 'true'
               run: yarn install --frozen-lockfile
 
-            # - name: Install Playwright Browsers
-            #   run: npx playwright install --with-deps
+            - name: Install Playwright Browsers
+              run: npx playwright install --with-deps
 
-            - name: Install Playwright
-              run: npm install -D @playwright/test && npm install -g playwright
+            # - name: Install Playwright
+            #   run: npm install -D @playwright/test && npm install -g playwright
 
             - name: Build Storybook
               run: yarn build-storybook --quiet
