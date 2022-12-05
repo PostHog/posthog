@@ -6,4 +6,5 @@ services:
         network_mode: host
         volumes:
             - './playwright/e2e-vrt:/work/playwright/e2e-vrt'
+            - './test-results:/work/test-results'
         # profiles: [playwright]
