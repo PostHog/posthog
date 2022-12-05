@@ -18,7 +18,7 @@ import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
 import { dataTableLogic, DataTableLogicProps } from '~/queries/nodes/DataTable/dataTableLogic'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { teamLogic } from 'scenes/teamLogic'
-import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/defaults'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/defaults'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
@@ -52,7 +52,7 @@ export function DataTable({ query, setQuery, custom }: DataTableProps): JSX.Elem
     } = useValues(dataNodeLogic(dataNodeLogicProps))
 
     const { currentTeam } = useValues(teamLogic)
-    const defaultColumns = currentTeam?.live_events_columns ?? defaultDataTableStringColumns
+    const defaultColumns = currentTeam?.live_events_columns ?? defaultDataTableColumns(query.source)
 
     const dataTableLogicProps: DataTableLogicProps = { query, key, defaultColumns }
     const { columns, queryWithDefaults } = useValues(dataTableLogic(dataTableLogicProps))

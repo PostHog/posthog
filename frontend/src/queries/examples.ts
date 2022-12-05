@@ -1,30 +1,29 @@
 // This file contains example queries, used in storybook and in the /query interface.
 import {
-    EventsNode,
+    ActionsNode,
     DataTableNode,
+    EventsNode,
+    FunnelsQuery,
     LegacyQuery,
+    LifecycleQuery,
     Node,
     NodeKind,
-    TrendsQuery,
-    FunnelsQuery,
-    RetentionQuery,
-    ActionsNode,
     PathsQuery,
-    StickinessQuery,
-    LifecycleQuery,
     PersonsNode,
+    RetentionQuery,
+    StickinessQuery,
+    TrendsQuery,
 } from '~/queries/schema'
 import {
     ChartDisplayType,
+    FilterLogicalOperator,
     InsightType,
     PropertyFilterType,
-    PropertyOperator,
-    // PropertyMathType,
-    FilterLogicalOperator,
-    StepOrderValue,
     PropertyGroupFilter,
+    PropertyOperator,
+    StepOrderValue,
 } from '~/types'
-import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/defaults'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/defaults'
 import { ShownAsValue } from '~/lib/constants'
 
 const Events: EventsNode = {
@@ -37,7 +36,7 @@ const Events: EventsNode = {
 
 const EventsTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
-    columns: defaultDataTableStringColumns,
+    columns: defaultDataTableColumns({ kind: NodeKind.EventsNode }),
     source: Events,
 }
 const EventsTableFull: DataTableNode = {
@@ -59,7 +58,7 @@ const Persons: PersonsNode = {
 
 const PersonsTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
-    columns: ['id', 'person', 'properties.$geoip_country_name', 'properties.$browser', 'created_at'],
+    columns: defaultDataTableColumns({ kind: NodeKind.PersonsNode }),
     source: Persons,
 }
 

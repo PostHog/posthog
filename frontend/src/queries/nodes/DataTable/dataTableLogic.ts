@@ -1,7 +1,7 @@
 import { actions, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 import type { dataTableLogicType } from './dataTableLogicType'
 import { DataTableNode, DataTableStringColumn } from '~/queries/schema'
-import { defaultDataTableStringColumns } from './defaults'
+import { defaultDataTableColumns } from './defaults'
 
 export interface DataTableLogicProps {
     key: string
@@ -16,7 +16,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
     actions({ setColumns: (columns: DataTableStringColumn[]) => ({ columns }) }),
     reducers(({ props }) => ({
         storedColumns: [
-            (props.query.columns ?? props.defaultColumns ?? defaultDataTableStringColumns) as DataTableStringColumn[],
+            (props.query.columns ??
+                props.defaultColumns ??
+                defaultDataTableColumns(props.query.source)) as DataTableStringColumn[],
             { setColumns: (_, { columns }) => columns },
         ],
     })),
@@ -61,8 +63,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
         ],
     }),
     propsChanged(({ actions, props }, oldProps) => {
-        const newColumns = props.query.columns ?? props.defaultColumns ?? defaultDataTableStringColumns
-        const oldColumns = oldProps.query.columns ?? oldProps.defaultColumns ?? defaultDataTableStringColumns
+        const newColumns = props.query.columns ?? props.defaultColumns ?? defaultDataTableColumns(props.query.source)
+        const oldColumns =
+            oldProps.query.columns ?? oldProps.defaultColumns ?? defaultDataTableColumns(oldProps.query.source)
         if (JSON.stringify(newColumns) !== JSON.stringify(oldColumns)) {
             actions.setColumns(newColumns)
         }

@@ -37,7 +37,7 @@ export function renderColumn(
     } else if (key.startsWith('properties.') || key === 'url') {
         const propertyKey =
             key === 'url' ? (record.properties['$screen_name'] ? '$screen_name' : '$current_url') : key.substring(11)
-        if (setQuery && (isEventsNode(query.source) || isPersonsNode(query.source))) {
+        if (setQuery && (isEventsNode(query.source) || isPersonsNode(query.source)) && query.showPropertyFilter) {
             const newProperty: AnyPropertyFilter = {
                 key: propertyKey,
                 value: record.properties[propertyKey],

@@ -21,8 +21,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TeamMembershipLevel } from 'lib/constants'
 import { useState } from 'react'
 import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
-import { defaultDataTableStringColumns } from '../defaults'
-import { DataTableNode } from '~/queries/schema'
+import { defaultDataTableColumns } from '../defaults'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 import { LemonModal } from 'lib/components/LemonModal'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { PropertyFilterType } from '~/types'
@@ -165,7 +165,10 @@ function ColumnConfiguratorModal(): JSX.Element {
             footer={
                 <>
                     <div className="flex-1">
-                        <LemonButton type="secondary" onClick={() => setColumns(defaultDataTableStringColumns)}>
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => setColumns(defaultDataTableColumns({ kind: NodeKind.EventsNode }))}
+                        >
                             Reset to defaults
                         </LemonButton>
                     </div>

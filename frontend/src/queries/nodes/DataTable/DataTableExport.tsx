@@ -4,7 +4,7 @@ import { Popconfirm } from 'antd'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
 import { DataTableNode } from '~/queries/schema'
-import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/defaults'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/defaults'
 import { isEventsNode, isPersonsNode } from '~/queries/utils'
 import { getEventsEndpoint, getPersonsEndpoint } from '~/queries/query'
 
@@ -29,7 +29,7 @@ function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void
     }
 
     if (onlySelectedColumns) {
-        exportContext['columns'] = (query.columns ?? defaultDataTableStringColumns)?.flatMap(
+        exportContext['columns'] = (query.columns ?? defaultDataTableColumns(query.source))?.flatMap(
             (c) => columnMapping[c] || c
         )
     }
