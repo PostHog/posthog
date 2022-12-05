@@ -404,6 +404,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
         if self.action != "list":
             tiles_prefetch_queryset = DashboardTile.dashboard_queryset(
                 DashboardTile.objects.prefetch_related(
+                    "caching_states",
                     Prefetch(
                         "insight__dashboards",
                         queryset=Dashboard.objects.exclude(deleted=True)
