@@ -2113,7 +2113,7 @@
            GROUP BY "$group_0", date)
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated
@@ -2190,7 +2190,7 @@
            GROUP BY person_id, date)
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown
