@@ -14,7 +14,7 @@ jobs:
     playwright:
         name: Visual Regression Tests
         runs-on: ubuntu-20.04
-         container:
+        container:
             image: mcr.microsoft.com/playwright:v1.28.0-focal
         steps:
             - uses: actions/checkout@v3
