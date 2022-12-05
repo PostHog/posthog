@@ -40,22 +40,21 @@ jobs:
             - name: Install Playwright Browsers
               run: npx playwright install --with-deps
 
-            # - name: Install Playwright
-            #   run: npm install -D @playwright/test && npm install -g playwright
+            - name: Install Playwright
+              run: npm install -D @playwright/test && npm install -g playwright
 
-            # - name: Build Storybook
-            #   run: yarn build-storybook --quiet
+            - name: Build Storybook
+              run: yarn build-storybook --quiet
 
-            - name: Serve Storybook and run tests
-              run: |
-                  npx concurrently -k -s first -n "SB,TEST" -c "magenta,blue" \
-                    "yarn start-storybook --ci" \
-                    "npx wait-on tcp:6006 && npx playwright test"
-
-            # - name: Run Playwright tests
-            #   run: npx playwright test
-            #   env:
-            #       STORYBOOK_URL: https://storybook.posthog.net
+            # - name: Serve Storybook and run tests
+            #   run: |
+            #       npx concurrently -k -s first -n "SB,TEST" -c "magenta,blue" \
+            #         "yarn start-storybook --ci" \
+            #         "npx wait-on tcp:6006 && npx playwright test"
+            - name: Run Playwright tests
+              run: npx playwright test
+              # env:
+              #     STORYBOOK_URL: http://storybook.posthog.net
 
             - name: Upload Playwright report
               uses: actions/upload-artifact@v3
