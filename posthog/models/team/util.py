@@ -15,7 +15,7 @@ def delete_bulky_postgres_data(team_ids: List[int]):
     _raw_delete(PersonDistinctId.objects.filter(team_id__in=team_ids))
     _raw_delete(CohortPeople.objects.filter(cohort__team_id__in=team_ids))
     _raw_delete(Person.objects.filter(team_id__in=team_ids))
-    _raw_delete(InsightCachingState.filter(team_id__in=team_ids))
+    _raw_delete(InsightCachingState.objects.filter(team_id__in=team_ids))
 
 
 def _raw_delete(queryset: Any):
