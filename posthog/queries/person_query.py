@@ -233,7 +233,6 @@ class PersonQuery:
         clause = ""
         params = {}
 
-        print(self._created_at_range)
         if self._created_at_range and self._created_at_range[0]:
             clause += " AND created_at >= %(created_at_from)s"
             params.update({"created_at_from": self._created_at_range[0]})
