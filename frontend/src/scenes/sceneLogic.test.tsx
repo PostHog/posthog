@@ -54,21 +54,19 @@ describe('sceneLogic', () => {
         })
     })
 
-    it('reacts to navigating away from scenes that might have cancellable queries', async () => {
+    it('exposes the last transition', async () => {
+        await expectLogic(logic).toMatchValues({ lastTransition: { from: null, to: null } })
+
+        await expectLogic(logic, () => {
+            logic.actions.setScene(Scene.Dashboard, { params: { dashboardId: 1 }, searchParams: {}, hashParams: {} })
+        }).toMatchValues({ lastTransition: { from: null, to: Scene.Dashboard } })
+
         await expectLogic(logic, () => {
             logic.actions.setScene(Scene.Dashboard, { params: { dashboardId: 1 }, searchParams: {}, hashParams: {} })
             router.actions.push(urls.mySettings())
-        }).toDispatchActions([insightsModel.actionTypes.abortRunningQueries])
-
-        await expectLogic(logic, () => {
-            logic.actions.setScene(Scene.Insight, { params: { insightId: 1 }, searchParams: {}, hashParams: {} })
-            router.actions.push(urls.mySettings())
-        }).toDispatchActions([insightsModel.actionTypes.abortRunningQueries])
-
-        await expectLogic(logic, () => {
-            logic.actions.setScene(Scene.Dashboards, { params: {}, searchParams: {}, hashParams: {} })
-            router.actions.push(urls.mySettings())
-        }).toNotHaveDispatchedActions([insightsModel.actionTypes.abortRunningQueries])
+        })
+            .toFinishAllListeners()
+            .toMatchValues({ lastTransition: { from: Scene.Dashboard, to: Scene.MySettings } })
     })
 
     it('persists the loaded scenes', async () => {

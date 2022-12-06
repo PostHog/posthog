@@ -59,6 +59,7 @@ import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { loaders } from 'kea-loaders'
 import { legacyInsightQuery } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
+import { subscriptions } from 'kea-subscriptions'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -104,6 +105,8 @@ export const insightLogic = kea<insightLogicType>([
             ['cohortsById'],
             mathsLogic,
             ['mathDefinitions'],
+            sceneLogic,
+            ['scene'],
         ],
         actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel, prompt({ key: `save-as-insight` })],
@@ -754,10 +757,7 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
     }),
-    listeners(({ actions, selectors, values, cache }) => ({
-        [insightsModel.actionTypes.abortRunningQueries]: () => {
-            cache.abortController?.abort()
-        },
+    listeners(({ actions, selectors, values }) => ({
         setFiltersMerge: ({ filters }) => {
             actions.setFilters({ ...values.filters, ...filters })
         },
@@ -1047,6 +1047,19 @@ export const insightLogic = kea<insightLogicType>([
             if (goToViewMode) {
                 insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
                 eventUsageLogic.actions.reportInsightsTabReset()
+            }
+        },
+    })),
+    subscriptions(({ cache }) => ({
+        scene: (value: Scene | null | undefined, lastValue: Scene | null | undefined) => {
+            const scenesThatMightAbortClickHouseQueries = [Scene.Insight, Scene.Dashboard, Scene.ProjectHomepage]
+            if (
+                value &&
+                lastValue &&
+                scenesThatMightAbortClickHouseQueries.includes(lastValue) &&
+                !scenesThatMightAbortClickHouseQueries.includes(value)
+            ) {
+                cache.abortController?.abort()
             }
         },
     })),

@@ -22,7 +22,6 @@ export const insightsModel = kea<insightsModelType>({
             dashboardId,
             insightIds,
         }),
-        abortRunningQueries: true,
     }),
     listeners: ({ actions }) => ({
         renameInsight: async ({ item }) => {
