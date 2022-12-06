@@ -11,6 +11,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import get_token
+from posthog.celery import app
 from posthog.exceptions import generate_exception_response
 from posthog.models.prompt import Prompt, PromptSequence, UserPromptState
 from posthog.models.user import User
@@ -161,6 +162,16 @@ class WebhookSequenceSerializer(serializers.ModelSerializer):
         fields = ["key", "path_match", "path_exclude", "type", "status", "requires_opt_in", "autorun"]
 
 
+@app.task(ignore_result=True)
+def trigger_prompt_for_user(email: str, sequence_id: int):
+    try:
+        sequence = PromptSequence.objects.get(pk=sequence_id)
+        user = User.objects.get(email=email)
+        UserPromptState.objects.get_or_create(user=user, sequence=sequence, step=None)
+    except (User.DoesNotExist, IntegrityError):
+        pass
+
+
 @csrf_exempt
 def prompt_webhook(request: request.Request):
 
@@ -219,10 +230,6 @@ def prompt_webhook(request: request.Request):
     # trigger the sequence for users matching the emails, by creating empty states for them
     if serialized_data.get("emails"):
         for email in serialized_data["emails"]:
-            try:
-                user = User.objects.get(email=email)
-                UserPromptState.objects.create(user=user, sequence=sequence, step=None)
-            except (User.DoesNotExist, IntegrityError):
-                pass
+            trigger_prompt_for_user.delay(email, sequence.id)
 
     return cors_response(request, JsonResponse(status=status.HTTP_201_CREATED, data={"success": True}))
