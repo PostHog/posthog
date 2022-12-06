@@ -25,7 +25,7 @@ class PromptButtonSerializer(serializers.Serializer):
 
 
 class PromptSerializer(serializers.ModelSerializer):
-    buttons = PromptButtonSerializer(many=True, required=False)
+    buttons = PromptButtonSerializer(many=True, required=False, default=[])
     reference = serializers.CharField(default=None)
     placement = serializers.CharField(default="top")
     type = serializers.CharField(default="tooltip")
@@ -37,7 +37,7 @@ class PromptSerializer(serializers.ModelSerializer):
 
 class PromptSequenceSerializer(serializers.ModelSerializer):
     prompts = PromptSerializer(many=True)
-    path_match = serializers.ListField(child=serializers.CharField(), default=[])
+    path_match = serializers.ListField(child=serializers.CharField(), default=["/*"])
     path_exclude = serializers.ListField(child=serializers.CharField(), default=[])
     status = serializers.CharField(default="active")
     requires_opt_in = serializers.BooleanField(default=False)

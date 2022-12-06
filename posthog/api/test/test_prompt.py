@@ -53,19 +53,11 @@ def _setup_prompts() -> None:
 
 _webhook_prompt = {
     "key": "start-flow",
-    "type": "one-off",
-    "path_match": ["/*"],
-    "status": "active",
-    "path_exclude": ["/ingestion", "/ingestion/*"],
     "prompts": [
         {
             "step": 0,
-            "type": "tooltip",
             "title": "Welcome to PostHog!",
             "text": "We have prepared a list of suggestions and resources to improve your experience with the tool. You can access it at any time by clicking on the question mark icon in the top right corner of the screen, and then selecting 'How to be successful with PostHog'.",
-            "placement": "bottom-start",
-            "reference": "help-button",
-            "buttons": [{"action": "activation-checklist", "label": "Show me suggestions"}],
         }
     ],
 }
@@ -205,9 +197,9 @@ class TestPrompt(APIBaseTest):
             first_saved_prompt.text
             == "We have prepared a list of suggestions and resources to improve your experience with the tool. You can access it at any time by clicking on the question mark icon in the top right corner of the screen, and then selecting 'How to be successful with PostHog'."
         )
-        assert first_saved_prompt.placement == "bottom-start"
-        assert first_saved_prompt.reference == "help-button"
-        assert first_saved_prompt.buttons == [{"action": "activation-checklist", "label": "Show me suggestions"}]
+        assert first_saved_prompt.placement == "top"
+        assert first_saved_prompt.reference is None
+        assert first_saved_prompt.buttons == []
 
         saved_sequences = list(PromptSequence.objects.all())
         assert len(saved_sequences) == 1
@@ -215,7 +207,7 @@ class TestPrompt(APIBaseTest):
         assert first_saved_sequence.key == "start-flow"
         assert first_saved_sequence.type == "one-off"
         assert first_saved_sequence.path_match == ["/*"]
-        assert first_saved_sequence.path_exclude == ["/ingestion", "/ingestion/*"]
+        assert first_saved_sequence.path_exclude == []
         assert first_saved_sequence.status == "active"
         assert first_saved_sequence.autorun is False
         assert first_saved_sequence.must_have_completed.count() == 0
