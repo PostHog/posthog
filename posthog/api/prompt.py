@@ -40,10 +40,13 @@ class PromptSequenceSerializer(serializers.ModelSerializer):
     path_match = serializers.ListField(child=serializers.CharField(), default=[])
     path_exclude = serializers.ListField(child=serializers.CharField(), default=[])
     status = serializers.CharField(default="active")
+    requires_opt_in = serializers.BooleanField(default=False)
+    type = serializers.CharField(default="one-off")
+    autorun = serializers.BooleanField(default=False)
 
     class Meta:
         model = PromptSequence
-        fields = ["key", "path_match", "path_exclude", "requires_opt_in", "type", "status", "prompts"]
+        fields = ["key", "path_match", "path_exclude", "requires_opt_in", "type", "status", "prompts", "autorun"]
 
 
 class UserPromptStateSerializer(serializers.ModelSerializer):
@@ -232,4 +235,4 @@ def prompt_webhook(request: request.Request):
         for email in serialized_data["emails"]:
             trigger_prompt_for_user.delay(email, sequence.id)
 
-    return cors_response(request, JsonResponse(status=status.HTTP_201_CREATED, data={"success": True}))
+    return cors_response(request, JsonResponse(status=status.HTTP_202_ACCEPTED, data={"success": True}))

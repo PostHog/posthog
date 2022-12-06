@@ -191,7 +191,7 @@ class TestPrompt(APIBaseTest):
         assert len(saved_prompts) == 0
 
         response = self.client.post("/api/prompts/webhook", webhook_data, format="json")
-        assert response.status_code == status.HTTP_201_CREATED
+        assert response.status_code == status.HTTP_202_ACCEPTED
         assert response.json() == {"success": True}
 
         # assert that the sequence and prompt have been saved correctly matching the webhook data
