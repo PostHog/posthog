@@ -193,6 +193,7 @@ export function PropertyValue({
                     setValue(nextVal)
                 }}
                 onBlur={commonInputProps.handleBlur}
+                // TODO: When LemonSelectMultiple is free of AntD, add footnote that pressing comma applies the value
                 options={Object.fromEntries([
                     ...displayOptions.map(({ name: _name }, index) => {
                         const name = toString(_name)
