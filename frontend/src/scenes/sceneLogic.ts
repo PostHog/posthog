@@ -294,7 +294,7 @@ export const sceneLogic = kea<sceneLogicType>({
                 actions.setScene(scene, params, clickedLink)
                 return
             } else {
-                const scenesThatMightAbortClickHouseQueries = [Scene.Insight, Scene.Dashboard]
+                const scenesThatMightAbortClickHouseQueries = [Scene.Insight, Scene.Dashboard, Scene.ProjectHomepage]
 
                 if (
                     values.scene &&
