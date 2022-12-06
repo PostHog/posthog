@@ -17871,6 +17871,11 @@ store2@^2.12.0:
   resolved "https://registry.yarnpkg.com/store2/-/store2-2.12.0.tgz#e1f1b7e1a59b6083b2596a8d067f6ee88fd4d3cf"
   integrity sha512-7t+/wpKLanLzSnQPX8WAcuLCCeuSHoWdQuh9SB3xD0kNOM38DNf+0Oa+wmvxmYueRzkmh6IcdKFtvTa+ecgPDw==
 
+storybook-addon-pseudo-states@^1.15.1:
+  version "1.15.1"
+  resolved "https://registry.yarnpkg.com/storybook-addon-pseudo-states/-/storybook-addon-pseudo-states-1.15.1.tgz#2a03b8a7c307be63ec10595c490b6c76673caa0e"
+  integrity sha512-GRBf63wRHoFwN65hRTdTaIcE7jn2Yj2B/dNyj03o8TRBevnmOL80NfLAGsmDYP4a7Ye3kBkILX952aUkK4P+ZA==
+
 storybook-addon-turbo-build@^1.1.0:
   version "1.1.0"
   resolved "https://registry.yarnpkg.com/storybook-addon-turbo-build/-/storybook-addon-turbo-build-1.1.0.tgz#36c883078676046f274260d525a5751abb2e9c16"
