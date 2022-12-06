@@ -79,6 +79,11 @@ describe('PersonState.update()', () => {
         return (await hub.db.clickhouseQuery(query)).data
     }
 
+    async function fetchPersonsRowsWithVersionHigerEqualThan(version = 1) {
+        const query = `SELECT * FROM person FINAL WHERE team_id = ${teamId} AND version >= ${version}`
+        return (await hub.db.clickhouseQuery(query)).data
+    }
+
     async function fetchDistinctIdsClickhouse(person: Person) {
         return hub.db.fetchDistinctIdValues(person, Database.ClickHouse)
     }
@@ -90,7 +95,12 @@ describe('PersonState.update()', () => {
 
     describe('on person creation', () => {
         it('creates person if they are new', async () => {
-            const personContainer = await personState({ event: '$pageview', distinct_id: 'new-user' }).update()
+            const event_uuid = new UUIDT().toString()
+            const personContainer = await personState({
+                event: '$pageview',
+                distinct_id: 'new-user',
+                uuid: event_uuid,
+            }).update()
             await hub.db.kafkaProducer.flush()
 
             expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
@@ -104,7 +114,7 @@ describe('PersonState.update()', () => {
                 expect.objectContaining({
                     id: expect.any(Number),
                     uuid: uuid.toString(),
-                    properties: {},
+                    properties: { $creator_event_uuid: event_uuid },
                     created_at: timestamp,
                     version: 0,
                     is_identified: false,
@@ -353,7 +363,7 @@ describe('PersonState.update()', () => {
         })
     })
 
-    describe.skip('on $identify event', () => {
+    describe('on $identify event', () => {
         it('creates person and sets is_identified false when $anon_distinct_id not passed', async () => {
             const personContainer = await personState({
                 event: '$identify',
@@ -664,7 +674,8 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
+            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchPersonsRows() // but verify full state
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([
@@ -724,7 +735,8 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
+            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchPersonsRows() // but verify full state
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([
@@ -884,7 +896,8 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
+            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchPersonsRows() // but verify full state
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([
@@ -974,7 +987,8 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
+            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(2), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchPersonsRows() // but verify full state
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([
@@ -1004,7 +1018,7 @@ describe('PersonState.update()', () => {
         })
     })
 
-    describe.skip('on $create_alias event', () => {
+    describe('on $create_alias event', () => {
         it('creates person and sets is_identified false when alias property not passed', async () => {
             const personContainer = await personState({
                 event: '$create_alias',
@@ -1324,7 +1338,8 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
+            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchPersonsRows() // but verify full state
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([
@@ -1384,7 +1399,8 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
+            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchPersonsRows() // but verify full state
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([
@@ -1450,7 +1466,8 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
+            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchPersonsRows() // but verify full state
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([

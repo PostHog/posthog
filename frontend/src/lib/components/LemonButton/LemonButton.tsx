@@ -111,7 +111,7 @@ function LemonButtonInternal(
                 className
             )}
             disabled={disabled || loading}
-            to={to}
+            to={disabled ? undefined : to}
             target={targetBlank ? '_blank' : undefined}
             {...linkOnlyProps}
             {...buttonProps}

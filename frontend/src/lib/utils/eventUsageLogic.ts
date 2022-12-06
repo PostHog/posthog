@@ -389,6 +389,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportNextRecordingTriggered: (automatic: boolean) => ({
             automatic,
         }),
+        reportRecordingExportedToFile: true,
+        reportRecordingLoadedFromFile: (data: { success: boolean; error?: string }) => data,
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
@@ -487,6 +489,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             completionPercent: number
         ) => ({ activeTasksCount, completedTasksCount, completionPercent }),
         reportActivationSideBarTaskClicked: (key: string) => ({ key }),
+        reportBillingUpgradeClicked: (plan: string) => ({ plan }),
     },
     listeners: ({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
@@ -978,6 +981,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportNextRecordingTriggered: ({ automatic }) => {
             posthog.capture('recording next recording triggered', { automatic })
         },
+        reportRecordingExportedToFile: () => {
+            posthog.capture('recording exported to file')
+        },
+        reportRecordingLoadedFromFile: (properties) => {
+            posthog.capture('recording loaded from file', properties)
+        },
         reportExperimentArchived: ({ experiment }) => {
             posthog.capture('experiment archived', {
                 name: experiment.name,
@@ -1170,6 +1179,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportActivationSideBarTaskClicked: ({ key }) => {
             posthog.capture('activation sidebar task clicked', {
                 key,
+            })
+        },
+        reportBillingUpgradeClicked: ({ plan }) => {
+            posthog.capture('billing upgrade button clicked', {
+                plan,
             })
         },
     }),

@@ -56,10 +56,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "id": 997,
         "ingested_event": true,
         "is_demo": false,
-        "live_events_columns": [
-          "event",
-          "person",
-        ],
+        "live_events_columns": null,
         "name": "MockHog App + Marketing",
         "organization": "ABCD",
         "path_cleaning_filters": [],

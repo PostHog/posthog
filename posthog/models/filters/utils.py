@@ -45,7 +45,7 @@ def get_filter(team, data: dict = {}, request: Optional[Request] = None):
 
 def validate_group_type_index(param_name: str, value: Any, required=False) -> Optional[GroupTypeIndex]:
     error = ValidationError(
-        f"{param_name} is required to be greater than 0 and less than {GROUP_TYPES_LIMIT}", code="invalid"
+        f"{param_name} is required to be at least 0 and less than {GROUP_TYPES_LIMIT}", code="invalid"
     )
 
     if required and value is None:

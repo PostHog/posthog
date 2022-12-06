@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from django.forms import ValidationError
 
-from posthog.constants import BREAKDOWN_TYPES, PropertyOperatorType
+from posthog.constants import BREAKDOWN_TYPES, MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import format_filter_query
 from posthog.models.entity import Entity
@@ -93,7 +93,7 @@ def get_breakdown_prop_values(
                 INNER JOIN ({get_team_distinct_ids_query(team.pk)}) AS pdi ON e.distinct_id = pdi.distinct_id
                 INNER JOIN ({person_subquery}) person ON pdi.person_id = person.id
             """
-        elif column_optimizer.is_using_cohort_propertes:
+        elif entity.math in (WEEKLY_ACTIVE, MONTHLY_ACTIVE) or column_optimizer.is_using_cohort_propertes:
             person_join_clauses = f"""
                 INNER JOIN ({get_team_distinct_ids_query(team.pk)}) AS pdi ON e.distinct_id = pdi.distinct_id
             """

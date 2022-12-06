@@ -791,6 +791,7 @@ Using the correct cache and enriching the response with dashboard specific confi
             f"KILL QUERY ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE query_id LIKE %(client_query_id)s",
             {"client_query_id": f"{self.team.pk}_{request.data['client_query_id']}%"},
         )
+        statsd.incr("clickhouse.query.cancellation_requested", tags={"team_id": self.team.pk})
         return Response(status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=False)

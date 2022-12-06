@@ -131,12 +131,14 @@ export const FEATURE_FLAGS = {
     WEBSITE_ANALYTICS_TEMPLATE: 'website-analytics-template', // owner: @pauldambra
     VARIANT_OVERRIDES: 'variant-overrides', // owner: @neilkakkar
     ONBOARDING_V2_EXPERIMENT: 'onboarding-v2-experiment', // owner: #team-growth
-    RECORDING_AUTOPLAY: 'recording-autoplay', // owner: #team-session-recordings
+    FEATURE_FLAG_ROLLOUT_UX: 'feature-flag-rollout-ux', // owner: @neilkakkar
     SIGNUP_PRODUCT_BENEFITS_EXPERIMENT: 'signup-product-benefits-experiment', // owner: #team-growth
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
     SECONDARY_ONBOARDING_EXPERIMENT: 'secondary-onboarding-experiment', // owner: #team-growth
     DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra
+    DATA_EXPLORATION_LIVE_EVENTS: 'data-exploration-live-events', // owner @mariusandra
     BILLING_FEATURES_EXPERIMENT: 'billing-features-experiment', // owner: #team-growth
+    RECORDINGS_EXPORT: 'recordings-export', // owner: #team-session-recordings
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -163,6 +165,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.APP_METRICS]: LicensePlan.Scale,
     [AvailableFeature.RECORDINGS_PLAYLISTS]: LicensePlan.Scale,
     [AvailableFeature.ROLE_BASED_ACCESS]: LicensePlan.Enterprise,
+    [AvailableFeature.RECORDINGS_FILE_EXPORT]: LicensePlan.Scale,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

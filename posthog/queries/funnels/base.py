@@ -232,7 +232,7 @@ class ClickhouseFunnelBase(ABC):
 
             steps.append(serialized_result)
 
-        return steps[::-1]  #  reverse
+        return steps[::-1]  # reverse
 
     def _format_results(self, results):
         if not results or len(results) == 0:

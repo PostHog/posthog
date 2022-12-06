@@ -555,7 +555,7 @@ const api = {
         },
         async list(
             filters: EventsListQueryParams,
-            limit: number = 10,
+            limit: number = 100,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): Promise<PaginatedResponse<EventType[]>> {
             const params: EventsListQueryParams = { ...filters, limit, orderBy: ['-timestamp'] }
@@ -563,7 +563,7 @@ const api = {
         },
         determineListEndpoint(
             filters: EventsListQueryParams,
-            limit: number = 10,
+            limit: number = 100,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): string {
             const params: EventsListQueryParams = { ...filters, limit, orderBy: ['-timestamp'] }

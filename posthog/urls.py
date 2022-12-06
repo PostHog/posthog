@@ -28,6 +28,7 @@ from posthog.api import (
     user,
 )
 from posthog.api.decide import hostname_in_allowed_url_list
+from posthog.api.prompt import prompt_webhook
 from posthog.cloud_utils import is_cloud
 from posthog.demo.legacy import demo_route
 from posthog.models import User
@@ -130,6 +131,7 @@ urlpatterns = [
     path("api/", include(router.urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
+    opt_slash_path("api/prompts/webhook", prompt_webhook),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
