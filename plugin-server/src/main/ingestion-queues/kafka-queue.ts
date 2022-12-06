@@ -197,7 +197,7 @@ export const setupEventHandlers = (consumer: Consumer): void => {
         status.info('✅', `Kafka consumer joined group ${groupId}!`)
         clearInterval(statusInterval)
         statusInterval = setInterval(() => {
-            status.info('ℹ️', 'consumer_status', { groupId })
+            status.info('ℹ️', 'consumer_status', { groupId, offsets })
         }, 10000)
     })
     consumer.on(CRASH, ({ payload: { error, groupId } }) => {
@@ -212,7 +212,7 @@ export const setupEventHandlers = (consumer: Consumer): void => {
         status.info('✅', 'Kafka consumer connected!')
     })
     consumer.on(DISCONNECT, () => {
-        status.info('ℹ️', 'consumer_status', { groupId })
+        status.info('ℹ️', 'consumer_status', { groupId, offsets })
         offsets = {}
         clearInterval(statusInterval)
         status.info('🛑', 'Kafka consumer disconnected!')
