@@ -15,7 +15,7 @@ import {
 import api, { getJSONOrThrow } from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { router, urlToAction } from 'kea-router'
-import { areObjectValuesEmpty, clearDOMTextSelection, isUserLoggedIn, toParams, uuid } from 'lib/utils'
+import { clearDOMTextSelection, isUserLoggedIn, toParams, uuid } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
 import {
     AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS,
@@ -578,7 +578,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
     })),
-    selectors(({ actions }) => ({
+    selectors(() => ({
         asDashboardTemplate: [
             (s) => [s.allItems],
             (dashboard: DashboardType): string => {
@@ -688,8 +688,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         layouts: [
             (s) => [s.tiles],
             (tiles) => {
-                const tilesWithNoLayout = tiles.filter((t) => !t.layouts || areObjectValuesEmpty(t.layouts))
-
                 const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout[]>> = {}
 
                 for (const col of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
@@ -771,15 +769,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     allLayouts[col] = cleanLayouts
                 }
 
-                if (tilesWithNoLayout.length > 0) {
-                    const layoutsByTileId = layoutsByTile(allLayouts)
-                    actions.saveLayouts(
-                        tilesWithNoLayout.map((t) => ({
-                            id: t.id,
-                            layouts: layoutsByTileId[t.id],
-                        }))
-                    )
-                }
                 return allLayouts
             },
         ],
