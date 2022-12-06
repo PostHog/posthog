@@ -167,15 +167,12 @@ def prompt_webhook(request: request.Request):
     if request.method == "POST":
         data = json.loads(request.body)
     else:
-        return (
-            None,
-            cors_response(
-                request,
-                generate_exception_response(
-                    "prompts_webhook",
-                    "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
-                    code="no_data",
-                ),
+        return cors_response(
+            request,
+            generate_exception_response(
+                "prompts_webhook",
+                "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
+                code="no_data",
             ),
         )
 

@@ -51,6 +51,26 @@ def _setup_prompts() -> None:
     sequence2.must_have_completed.add(sequence1)
 
 
+_webhook_prompt = {
+    "key": "start-flow",
+    "type": "one-off",
+    "path_match": ["/*"],
+    "status": "active",
+    "path_exclude": ["/ingestion", "/ingestion/*"],
+    "prompts": [
+        {
+            "step": 0,
+            "type": "tooltip",
+            "title": "Welcome to PostHog!",
+            "text": "We have prepared a list of suggestions and resources to improve your experience with the tool. You can access it at any time by clicking on the question mark icon in the top right corner of the screen, and then selecting 'How to be successful with PostHog'.",
+            "placement": "bottom-start",
+            "reference": "help-button",
+            "buttons": [{"action": "activation-checklist", "label": "Show me suggestions"}],
+        }
+    ],
+}
+
+
 class TestPrompt(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
@@ -86,7 +106,7 @@ class TestPrompt(APIBaseTest):
         response = self.client.patch(f"/api/prompts/my_prompts", local_state, format="json")
         assert response.status_code == status.HTTP_200_OK
         json_response = response.json()
-        # we now also receive the other sequences
+        # we now also receive the other sequences, as the first one has been marked as completed
         assert len(json_response["sequences"]) == 2
         assert json_response["state"]["start-flow"]["step"] == 0
         assert json_response["state"]["start-flow"]["completed"] is True
@@ -114,12 +134,27 @@ class TestPrompt(APIBaseTest):
         assert json_response["state"]["start-flow"]["step"] == 0
         assert json_response["state"]["start-flow"]["completed"] is True
 
-    def test_webhook(self):
+    def test_webhook_rejects_missing_token(self):
+        # we send a webhook with a new sequence, but it's missing an api_token so it should get rejected
+        webhook_data = {
+            "emails": [],
+            "sequence": _webhook_prompt,
+        }
+        response = self.client.post("/api/prompts/webhook", webhook_data, format="json")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_webhook_rejects_get_request(self):
+        # we send a webhook with a GET call so it should get rejected
+        response = self.client.get("/api/prompts/webhook", format="json")
+        assert response.json()["code"] == "no_data"
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_webhook_invalid_data(self):
+        # we send a webhook with invalid data so it should get rejected
         webhook_data = {
             "api_key": self.team.api_token,
-            "emails": [self.user.email],
-            "sequence": {
-                "key": "start-flow",
+            "emails": self.user.email,  # this should be a list
+            "sequence": {  # key is missing
                 "type": "one-off",
                 "path_match": ["/*"],
                 "status": "active",
@@ -137,7 +172,19 @@ class TestPrompt(APIBaseTest):
                 ],
             },
         }
+        response = self.client.post("/api/prompts/webhook", webhook_data, format="json")
+        assert response.json()["code"] == "invalid"
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_webhook_creates_sequence_and_state(self):
+        # we send a webhook with a new sequence, and we want to trigger it for a user
+        webhook_data = {
+            "api_key": self.team.api_token,
+            "emails": [self.user.email],
+            "sequence": _webhook_prompt,
+        }
+
+        # there is no sequence or prompt saved yet
         saved_sequences = list(PromptSequence.objects.all())
         assert len(saved_sequences) == 0
         saved_prompts = list(Prompt.objects.all())
@@ -147,6 +194,7 @@ class TestPrompt(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json() == {"success": True}
 
+        # assert that the sequence and prompt have been saved correctly matching the webhook data
         saved_prompts = list(Prompt.objects.all())
         assert len(saved_prompts) == 1
         first_saved_prompt = list(saved_prompts)[0]
@@ -173,6 +221,7 @@ class TestPrompt(APIBaseTest):
         assert first_saved_sequence.must_have_completed.count() == 0
         assert first_saved_prompt in first_saved_sequence.prompts.all()
 
+        # assert that the user prompt state has been created correctly, with step = None so that it triggers the first prompt on first load
         saved_states = list(UserPromptState.objects.filter(user=self.user))
         assert len(saved_states) == 1
         first_saved_state = list(saved_states)[0]
