@@ -2,7 +2,7 @@ import { EventName } from './EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Tooltip } from 'lib/components/Tooltip'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
-import { Col, Radio, Typography, Space, RadioChangeEvent } from 'antd'
+import { Col, Radio, RadioChangeEvent } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { ActionStepType } from '~/types'
 import { LemonButton, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -11,8 +11,6 @@ import { LemonDialog } from 'lib/components/LemonDialog'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
-
-const { Text } = Typography
 
 const learnMoreLink = 'https://posthog.com/docs/user-guides/actions?utm_medium=in-product&utm_campaign=action-page'
 
@@ -228,20 +226,18 @@ function AutocaptureFields({
                     <>
                         HTML selector matches
                         <Tooltip title="Click here to learn more about supported selectors">
-                            <a href={`${learnMoreLink}#matching-selectors`} target="_blank" rel="noopener">
-                                <InfoCircleOutlined style={{ marginLeft: 4 }} />
-                            </a>
+                            <Link to={`${learnMoreLink}#matching-selectors`} target="_blank">
+                                <InfoCircleOutlined />
+                            </Link>
                         </Tooltip>
                     </>
                 }
                 placeholder='button[data-attr="my-id"]'
                 caption={
-                    <Space direction="vertical">
-                        <Text style={{ color: 'var(--muted)' }}>
-                            CSS selector or an HTML attribute that ideally uniquely identifies your element. Example:{' '}
-                            <Text code>[data-attr="signup"]</Text>
-                        </Text>
-                    </Space>
+                    <span>
+                        CSS selector or an HTML attribute that ideally uniquely identifies your element. Example:{' '}
+                        <code className="code">[data-attr="signup"]</code>
+                    </span>
                 }
             />
             <AndSeparator />
