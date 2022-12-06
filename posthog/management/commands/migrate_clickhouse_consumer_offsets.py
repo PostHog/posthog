@@ -1,3 +1,4 @@
+import sys
 import time
 
 import structlog
@@ -48,13 +49,13 @@ def migrate_clickhouse_consumer_group_for_topic(
     """
     logger.info("migrating_consumer_group", source_group=source_group, target_group=target_group, topic=topic)
 
-    groups = admin.describe_consumer_groups([target_group])
-    if len(groups) > 0:
+    target_group_offsets = admin.list_consumer_group_offsets(target_group)
+    if len(target_group_offsets) > 0:
         logger.info("consumer_group_exists", group=target_group)
         return
     elif check:
         logger.info("consumer_group_missing", group=target_group)
-        exit(1)
+        sys.exit(1)
 
     # Wait for no members of the consumer group to have subscribed to the
     # app_metrics topic
@@ -93,4 +94,13 @@ def migrate_clickhouse_consumer_group_for_topic(
     logger.info("creating_consumer_group", group=target_group, offsets=app_metrics_offsets, all_offsets=all_offsets)
     if not fake:
         consumer = build_kafka_consumer(topic=None, group_id=target_group)
-        consumer.commit(offsets=app_metrics_offsets)
+        for attempt in range(10):
+            try:
+                consumer.commit(offsets=app_metrics_offsets)
+                break
+            except Exception as e:
+                logger.warn("failed_to_commit_offsets", group=target_group, offsets=app_metrics_offsets, error=str(e))
+                if attempt == 9:
+                    raise e
+
+            time.sleep(1)
