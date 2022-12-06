@@ -60,7 +60,7 @@ def upsert(
     team: Team, target: Union[DashboardTile, Insight], lazy_loader: Optional[LazyLoader] = None
 ) -> Optional[InsightCachingState]:
     lazy_loader = lazy_loader or LazyLoader()
-    cache_key = calculate_cache_key(team, target)
+    cache_key = calculate_cache_key(target)
     if cache_key is None:  # Non-cachable model
         return None
 
@@ -90,12 +90,14 @@ def sync_insight_caching_state(team_id: int, insight_id: Optional[int] = None, d
         logger.warn("Failed to sync InsightCachingState, ignoring", exception=err)
 
 
-def calculate_cache_key(team: Team, target: Union[DashboardTile, Insight]) -> Optional[str]:
+def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
     insight = target if isinstance(target, Insight) else target.insight
+    dashboard = target.dashboard if isinstance(target, DashboardTile) else None
+
     if insight is None:
         return None
 
-    return generate_insight_cache_key(insight, insight.dashboard)
+    return generate_insight_cache_key(insight, dashboard)
 
 
 def calculate_target_age(team: Team, target: Union[DashboardTile, Insight], lazy_loader: LazyLoader) -> TargetCacheAge:
