@@ -4,8 +4,3 @@ set -e
 python manage.py migrate --check
 python manage.py migrate_clickhouse --check
 python manage.py run_async_migrations --check
-
-# We need to handle migration of consumer group offsets such that we don't start
-# from the begining after https://github.com/PostHog/posthog/pull/13049 is
-# merged, otherwise we may end up ingesting duplicate rows into ClickHouse.
-python manage.py migrate_clickhouse_consumer_offsets --check

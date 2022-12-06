@@ -3,7 +3,6 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import kafka.errors
-from kafka import KafkaAdminClient as KA
 from kafka import KafkaConsumer as KC
 from kafka import KafkaProducer as KP
 from kafka.producer.future import FutureProduceResult, FutureRecordMetadata, RecordMetadata
@@ -176,10 +175,15 @@ def build_kafka_consumer(
     topic: Optional[str],
     value_deserializer=lambda v: json.loads(v.decode("utf-8")),
     auto_offset_reset="latest",
+    test=TEST,
     group_id=None,
     consumer_timeout_ms=float("inf"),
 ):
-    if KAFKA_BASE64_KEYS:
+    if test:
+        consumer = KafkaConsumerForTests(
+            topic=topic, auto_offset_reset=auto_offset_reset, max=10, consumer_timeout_ms=consumer_timeout_ms
+        )
+    elif KAFKA_BASE64_KEYS:
         consumer = helper.get_kafka_consumer(
             topic=topic,
             auto_offset_reset=auto_offset_reset,
@@ -216,17 +220,3 @@ class ClickhouseProducer:
             sync_execute(sql, data)
         else:
             async_execute(sql, data)
-
-
-def build_kafka_admin():
-    if KAFKA_BASE64_KEYS:
-        return helper.get_kafka_admin()
-    else:
-        return KA(
-            bootstrap_servers=KAFKA_HOSTS,
-            security_protocol=KAFKA_SECURITY_PROTOCOL or _KafkaSecurityProtocol.PLAINTEXT,
-            **_sasl_params(),
-        )
-
-
-KafkaAdminClient = SingletonDecorator(build_kafka_admin)
