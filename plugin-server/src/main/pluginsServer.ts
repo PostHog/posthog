@@ -7,7 +7,7 @@ import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
 import { defaultConfig } from '../config/config'
-import { KAFKA_INGESTION_WARNINGS } from '../config/kafka-topics'
+import { KAFKA_APP_METRICS } from '../config/kafka-topics'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub } from '../utils/db/hub'
 import { killProcess } from '../utils/kill'
@@ -280,7 +280,7 @@ export async function startPluginsServer(
                     kafka: hub.kafka,
                     producer: hub.kafkaProducer.producer,
                     serverConfig: { ...defaultConfig, ...serverConfig },
-                    topic: KAFKA_INGESTION_WARNINGS,
+                    topic: KAFKA_APP_METRICS,
                     statsd: hub.statsd,
                 }),
             ]
