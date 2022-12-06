@@ -6,20 +6,12 @@ on:
         branches:
             - master
 
-# concurrency:
-#     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-#     cancel-in-progress: true
-
 jobs:
     playwright:
         name: Visual Regression Tests
         runs-on: ubuntu-20.04
-        # container:
-        #     image: mcr.microsoft.com/playwright:v1.28.0-focal
         steps:
             - uses: actions/checkout@v3
-              # with:
-              #     ref: ${{ github.event.pull_request.head.sha }}
 
             - name: Set up Node 16
               uses: actions/setup-node@v3
@@ -50,18 +42,6 @@ jobs:
                   npx concurrently -k -s first -n "SB,TEST" -c "magenta,blue" \
                     "npx http-server storybook-static --port 6006 --silent" \
                     "npx wait-on tcp:6006 && npx playwright test"
-
-            # - name: Install Playwright
-            #   run: npm install -D @playwright/test && npm install -g playwright
-            # - name: Serve Storybook and run tests
-            #   run: |
-            #       npx concurrently -k -s first -n "SB,TEST" -c "magenta,blue" \
-            #         "yarn start-storybook --ci" \
-            #         "npx wait-on tcp:6006 && npx playwright test"
-            # - name: Run Playwright tests
-            #   run: npx playwright test
-            # env:
-            #     STORYBOOK_URL: http://storybook.posthog.net
 
             - name: Upload Playwright report
               uses: actions/upload-artifact@v3
