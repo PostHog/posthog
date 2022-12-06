@@ -60,15 +60,15 @@ def migrate_clickhouse_consumer_group_for_topic(source_group: str, target_group:
 
 def migrate_consumer_group_offsets(database):
     CLICKHOUSE_CONSUMER_GROUP = "group1"
-    APP_METRICS_GROUP = "clickhouse-inserter-app_metrics"
     APP_METRICS_TOPIC = "clickhouse_app_metrics"
+    APP_METRICS_GROUP = "clickhouse-inserter-clickhouse_app_metrics"
     migrate_clickhouse_consumer_group_for_topic(CLICKHOUSE_CONSUMER_GROUP, APP_METRICS_GROUP, APP_METRICS_TOPIC)
 
 
 operations = [
     # First we remove the Materialized View table and the KafkaTable
-    migrations.RunSQL(f"DROP TABLE IF EXISTS app_metrics_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
-    migrations.RunSQL(f"DROP TABLE IF EXISTS kafka_app_metrics ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
+    migrations.RunSQL(f"DROP TABLE IF EXISTS app_metrics_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"),
+    migrations.RunSQL(f"DROP TABLE IF EXISTS kafka_app_metrics ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"),
     # Then we create a new consumer group with the same offsets as the old one
     # used by the KafkaTable we just deleted.
     migrations.RunPython(migrate_consumer_group_offsets),

@@ -8,7 +8,7 @@ from posthog.kafka_client.client import KafkaAdminClient
 migration = importlib.import_module("posthog.clickhouse.migrations.0037_delete_app_metrics_kafka_tables")
 
 CLICKHOUSE_GROUP = "group1"
-APP_METRICS_GROUP = "clickhouse-inserter-app_metrics"
+APP_METRICS_GROUP = "clickhouse-inserter-clickhouse_app_metrics"
 APP_METRICS_TOPIC = "clickhouse_app_metrics"
 
 
