@@ -45,8 +45,10 @@ runtime stack.
 See `bin/ci_functional_tests.sh` for how these tests are run in CI. For local
 testing:
 
-1. start the plugin-server with `yarn start:dev`
-1. run the tests with `yarn functional_tests --watch`
+1. run docker `docker compose -f docker-compose.dev.yml up` (in posthog folder)
+1. setup the test DBs `yarn setup:test`
+1. start the plugin-server with `CLICKHOUSE_DATABASE='default' DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog yarn start:dev`
+1. run the tests with `CLICKHOUSE_DATABASE='default' DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog yarn functional_tests --watch`
 
 ## CLI flags
 

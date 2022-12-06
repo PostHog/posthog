@@ -4245,6 +4245,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="$pageview",
             distinct_id="p0",
+            timestamp="2020-01-03T11:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p0",
             timestamp="2020-01-03T12:00:00Z",
             properties={"key": "val"},
         )
@@ -4254,7 +4261,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             event="$pageview",
             distinct_id="p1",
             timestamp="2020-01-09T12:00:00Z",
-            properties={"key": "val"},
+            properties={"key": "bor"},
         )
         _create_event(
             team=self.team,
@@ -4269,7 +4276,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             event="$pageview",
             distinct_id="p1",
             timestamp="2020-01-10T12:00:00Z",
-            properties={"key": "val"},
+            properties={"key": "bor"},
         )
 
         _create_event(
@@ -4284,7 +4291,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             event="$pageview",
             distinct_id="p2",
             timestamp="2020-01-11T12:00:00Z",
-            properties={"key": "val"},
+            properties={"key": "bor"},
         )
 
         _create_event(
@@ -4294,6 +4301,38 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-12T12:00:00Z",
             properties={"key": "val"},
         )
+
+    @snapshot_clickhouse_queries
+    def test_weekly_active_users_aggregated_range_wider_than_week(self):
+        self._create_active_users_events()
+
+        data = {
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "display": TRENDS_TABLE,
+            "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+        }
+
+        filter = Filter(data=data)
+        result = Trends().run(filter, self.team)
+        # Only p0 was active on 2020-01-08 or in the preceding 6 days
+        self.assertEqual(result[0]["aggregated_value"], 1)
+
+    @snapshot_clickhouse_queries
+    def test_weekly_active_users_aggregated_range_narrower_than_week(self):
+        self._create_active_users_events()
+
+        data = {
+            "date_from": "2020-01-11",
+            "date_to": "2020-01-12",
+            "display": TRENDS_TABLE,
+            "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+        }
+
+        filter = Filter(data=data)
+        result = Trends().run(filter, self.team)
+        # All were active on 2020-01-12 or in the preceding 6 days
+        self.assertEqual(result[0]["aggregated_value"], 3)
 
     @snapshot_clickhouse_queries
     def test_weekly_active_users_monthly(self):
@@ -4481,7 +4520,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["data"], [1.0, 3.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 1.0, 0.0])
 
     @test_with_materialized_columns(["key"])
-    def test_breakdown_weekly_active_users(self):
+    def test_breakdown_weekly_active_users_daily(self):
 
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
         _create_event(
@@ -4534,7 +4573,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
 
     @snapshot_clickhouse_queries
-    def test_breakdown_weekly_active_users_based_on_action(self):
+    def test_breakdown_weekly_active_users_daily_based_on_action(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
         _create_event(
             team=self.team,
@@ -4614,6 +4653,28 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(data=data)
         result = Trends().run(filter, self.team)
         self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
+
+    @test_with_materialized_columns(["key"])
+    @snapshot_clickhouse_queries
+    def test_breakdown_weekly_active_users_aggregated(self):
+        self._create_active_users_events()
+
+        data = {
+            "date_from": "2020-01-11",
+            "date_to": "2020-01-11",
+            "display": TRENDS_TABLE,
+            "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+            "breakdown": "key",
+        }
+
+        filter = Filter(data=data)
+        result = Trends().run(filter, self.team)
+        # All were active on 2020-01-12 or in the preceding 6 days
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["breakdown_value"], "bor")
+        self.assertEqual(result[0]["aggregated_value"], 2)
+        self.assertEqual(result[1]["breakdown_value"], "val")
+        self.assertEqual(result[1]["aggregated_value"], 2)
 
     @test_with_materialized_columns(event_properties=["key"], person_properties=["name"])
     def test_filter_test_accounts(self):

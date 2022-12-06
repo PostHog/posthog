@@ -14,9 +14,10 @@ from posthog.models.event.sql import NULL_SQL
 from posthog.models.filters import Filter
 from posthog.models.team import Team
 from posthog.queries.trends.sql import (
+    ACTIVE_USERS_AGGREGATE_SQL,
     ACTIVE_USERS_SQL,
-    AGGREGATE_SQL,
     CUMULATIVE_SQL,
+    FINAL_TIME_SERIES_SQL,
     SESSION_DURATION_AGGREGATE_SQL,
     SESSION_DURATION_SQL,
     VOLUME_AGGREGATE_SQL,
@@ -67,7 +68,17 @@ class TrendsTotalVolume:
         params = {**params, **math_params, **event_query_params}
 
         if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
-            if entity.math in PROPERTY_MATH_FUNCTIONS and entity.math_property == "$session_duration":
+            if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+                content_sql = ACTIVE_USERS_AGGREGATE_SQL.format(
+                    event_query=event_query,
+                    **content_sql_params,
+                    parsed_date_to=trend_event_query.parsed_date_to,
+                    parsed_date_from=trend_event_query.parsed_date_from,
+                    aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
+                    start_of_week_fix=start_of_week_fix(filter.interval),
+                    **trend_event_query.active_user_params,
+                )
+            elif entity.math in PROPERTY_MATH_FUNCTIONS and entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
                 content_sql = SESSION_DURATION_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
@@ -142,7 +153,7 @@ class TrendsTotalVolume:
             else:
                 smoothing_operation = "SUM(total)"
 
-            final_query = AGGREGATE_SQL.format(
+            final_query = FINAL_TIME_SERIES_SQL.format(
                 null_sql=null_sql,
                 content_sql=content_sql,
                 smoothing_operation=smoothing_operation,
