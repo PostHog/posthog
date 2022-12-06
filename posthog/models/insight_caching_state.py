@@ -1,6 +1,7 @@
 from django.db import models
 from django.db.models.signals import post_save
 
+from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -66,3 +67,15 @@ def sync_dashboard_tile(sender, instance: DashboardTile, **kwargs):
     from posthog.celery import sync_insight_caching_state
 
     sync_insight_caching_state.delay(instance.dashboard.team_id, dashboard_tile_id=instance.pk)
+
+
+@mutable_receiver(post_save, sender=Dashboard)
+def sync_dashboard_updated(sender, instance: Dashboard, **kwargs):
+    from posthog.celery import sync_insight_caching_state
+
+    update_fields = kwargs.get("update_fields")
+    if update_fields in [frozenset({"filters_hash"}), frozenset({"last_refresh"}), frozenset({"last_accessed_at"})]:
+        return
+
+    for tile_id in DashboardTile.objects.filter(dashboard=instance).values_list("pk", flat=True):
+        sync_insight_caching_state.delay(instance.team_id, dashboard_tile_id=tile_id)

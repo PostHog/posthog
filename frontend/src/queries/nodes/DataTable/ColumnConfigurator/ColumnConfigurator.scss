@@ -1,0 +1,78 @@
+.ColumnConfiguratorModal {
+    .Columns {
+        width: 700px;
+        display: flex;
+        column-gap: 1rem;
+        @media (max-width: 960px) {
+            display: block;
+            width: auto;
+        }
+
+        background-color: var(--side);
+        border-radius: 0.25rem;
+        padding: 0.5rem;
+    }
+
+    .HalfColumn {
+        width: 50%;
+        @media (max-width: 960px) {
+            width: 100%;
+        }
+    }
+
+    .SelectedColumn {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 0.5rem;
+        overflow: hidden;
+        border-radius: var(--radius);
+        margin: calc(var(--radius) / 2) 0;
+
+        &:hover {
+            background-color: var(--bg-mid);
+        }
+
+        &.disabled {
+            cursor: not-allowed;
+            color: var(--muted);
+            background-color: var(--bg-mid);
+        }
+
+        &.selected {
+            background-color: var(--primary-bg-hover);
+        }
+    }
+
+    .selected-column-col {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .drag-handle {
+        cursor: move;
+        color: var(--default);
+        font-size: 1.2em;
+        padding-right: 0.25rem;
+
+        svg {
+            transform: rotate(90deg) translateX(2px);
+        }
+    }
+}
+
+.column-configurator-modal-sortable-container {
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 0.5rem;
+    background-color: var(--primary-bg-hover);
+
+    .drag-handle {
+        color: var(--default);
+        font-size: 1.2em;
+        padding-right: 0.25rem;
+        transform: rotate(90deg) translateX(2px);
+    }
+}

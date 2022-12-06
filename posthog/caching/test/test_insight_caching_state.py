@@ -204,18 +204,53 @@ def test_upsert_update_insight(mock_active_teams, team: Team, user: User):
     assert caching_state is not None
 
     caching_state.last_refresh = now()
+    caching_state.last_refresh_queued_at = now()
     caching_state.refresh_attempt = 1
     caching_state.save()
-    insight.deleted = True
-    insight.save()
+
+    with mute_selected_signals():
+        insight.deleted = True
+        insight.save()
 
     updated_caching_state = upsert(team, insight)
 
     assert InsightCachingState.objects.filter(team=team).count() == 1
     assert updated_caching_state is not None
+    assert updated_caching_state.cache_key == caching_state.cache_key
     assert updated_caching_state.target_cache_age_seconds is None
     assert updated_caching_state.last_refresh == caching_state.last_refresh
+    assert updated_caching_state.last_refresh_queued_at == caching_state.last_refresh_queued_at
     assert updated_caching_state.refresh_attempt == 1
+
+
+@pytest.mark.django_db
+@patch("posthog.caching.insight_caching_state.active_teams")
+def test_upsert_update_insight_with_filter_change(mock_active_teams, team: Team, user: User):
+    with mute_selected_signals():
+        insight = create_insight(team=team, user=user, mock_active_teams=mock_active_teams)
+    caching_state = upsert(team, insight)
+    assert caching_state is not None
+
+    caching_state.last_refresh = now()
+    caching_state.refresh_attempt = 1
+    caching_state.save()
+
+    with mute_selected_signals():
+        insight.filters = {
+            **filter_dict,
+            "events": [{"id": "$pageleave"}],
+        }
+        insight.save()
+
+    updated_caching_state = upsert(team, insight)
+
+    assert InsightCachingState.objects.filter(team=team).count() == 1
+    assert updated_caching_state is not None
+    assert updated_caching_state.cache_key != caching_state.cache_key
+    assert updated_caching_state.target_cache_age_seconds is not None
+    assert updated_caching_state.last_refresh is None
+    assert updated_caching_state.last_refresh_queued_at is None
+    assert updated_caching_state.refresh_attempt == 0
 
 
 @pytest.mark.django_db
