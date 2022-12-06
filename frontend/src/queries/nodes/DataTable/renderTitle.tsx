@@ -1,8 +1,9 @@
 import { PropertyFilterType } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { QueryCustom } from '~/queries/schema'
+import { QueryContext } from '~/queries/schema'
 
-export function renderTitle(key: string, custom?: QueryCustom): JSX.Element | string {
+export function renderTitle(key: string, context?: QueryContext): JSX.Element | string {
+    console.log(key)
     if (key === 'timestamp') {
         return 'Time'
     } else if (key === 'event') {
@@ -13,8 +14,8 @@ export function renderTitle(key: string, custom?: QueryCustom): JSX.Element | st
         return 'URL / Screen'
     } else if (key.startsWith('properties.')) {
         return <PropertyKeyInfo value={key.substring(11)} type={PropertyFilterType.Event} disableIcon />
-    } else if (key.startsWith('custom.')) {
-        return custom?.[key.substring(7)]?.title ?? key.substring(7).replace('_', ' ')
+    } else if (key.startsWith('context.columns.')) {
+        return context?.columns?.[key.substring(16)]?.title ?? key.substring(16).replace('_', ' ')
     } else if (key.startsWith('person.properties.')) {
         // NOTE: PropertyFilterType.Event is not a mistake. PropertyKeyInfo only knows events vs elements ¯\_(ツ)_/¯
         return <PropertyKeyInfo value={key.substring(18)} type={PropertyFilterType.Event} disableIcon />

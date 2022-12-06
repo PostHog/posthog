@@ -6,7 +6,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
-import { DataTableNode, QueryCustom } from '~/queries/schema'
+import { DataTableNode, QueryContext } from '~/queries/schema'
 import { isEventsNode } from '~/queries/utils'
 import { combineUrl, router } from 'kea-router'
 
@@ -15,7 +15,7 @@ export function renderColumn(
     record: EventType,
     query: DataTableNode,
     setQuery?: (node: DataTableNode) => void,
-    custom?: QueryCustom
+    context?: QueryContext
 ): JSX.Element | string {
     if (key === 'event') {
         if (record.event === '$autocapture') {
@@ -130,8 +130,8 @@ export function renderColumn(
                 <PersonHeader noLink withIcon person={record.person} />
             </Link>
         )
-    } else if (key.startsWith('custom.')) {
-        const Component = custom?.[key.substring(7)]?.render
+    } else if (key.startsWith('context.columns.')) {
+        const Component = context?.columns?.[key.substring(16)]?.render
         return Component ? <Component record={record} /> : ''
     } else {
         return String(record[key])

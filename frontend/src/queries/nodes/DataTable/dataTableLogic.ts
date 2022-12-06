@@ -32,7 +32,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         topLevelFields.includes(column) ||
                         column.startsWith('person.properties.') ||
                         column.startsWith('properties.') ||
-                        column.startsWith('custom.')
+                        column.startsWith('context.')
                     ) {
                         return column
                     } else {

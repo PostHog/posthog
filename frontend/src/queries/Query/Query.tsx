@@ -1,7 +1,7 @@
 import { isDataNode, isDataTableNode, isLegacyQuery, isInsightQueryNode } from '../utils'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
-import { Node, QueryCustom, QuerySchema } from '~/queries/schema'
+import { Node, QueryContext, QuerySchema } from '~/queries/schema'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyInsightQuery'
 import { InsightQuery } from '~/queries/nodes/InsightQuery/InsightQuery'
@@ -14,12 +14,12 @@ export interface QueryProps<T extends Node = QuerySchema | Node> {
     setQuery?: (node: T) => void
     /** Does not call setQuery, not even locally */
     readOnly?: boolean
-    /** Custom components passed down to query nodes (e.g. custom table columns) */
-    custom?: QueryCustom
+    /** Custom components passed down to a few query nodes (e.g. custom table columns) */
+    context?: QueryContext
 }
 
 export function Query(props: QueryProps): JSX.Element {
-    const { query: globalQuery, setQuery: globalSetQuery, readOnly, custom } = props
+    const { query: globalQuery, setQuery: globalSetQuery, readOnly, context } = props
     const [localQuery, localSetQuery] = useState(globalQuery)
     useEffect(() => {
         if (globalQuery !== localQuery) {
@@ -40,7 +40,7 @@ export function Query(props: QueryProps): JSX.Element {
     if (isLegacyQuery(query)) {
         component = <LegacyInsightQuery query={query} />
     } else if (isDataTableNode(query)) {
-        component = <DataTable query={query} setQuery={setQuery} custom={custom} />
+        component = <DataTable query={query} setQuery={setQuery} context={context} />
     } else if (isDataNode(query)) {
         component = <DataNode query={query} />
     } else if (isInsightQueryNode(query)) {

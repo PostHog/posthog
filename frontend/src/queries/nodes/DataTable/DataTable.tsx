@@ -1,5 +1,5 @@
 import './DataTable.scss'
-import { DataTableNode, EventsNode, Node, QueryCustom } from '~/queries/schema'
+import { DataTableNode, EventsNode, Node, QueryContext } from '~/queries/schema'
 import { useState } from 'react'
 import { useValues, BindLogic } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -29,12 +29,12 @@ interface DataTableProps {
     query: DataTableNode
     setQuery?: (node: DataTableNode) => void
     /** Custom table columns */
-    custom?: QueryCustom
+    context?: QueryContext
 }
 
 let uniqueNode = 0
 
-export function DataTable({ query, setQuery, custom }: DataTableProps): JSX.Element {
+export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Element {
     const [key] = useState(() => `DataTable.${uniqueNode++}`)
 
     const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key }
@@ -68,9 +68,9 @@ export function DataTable({ query, setQuery, custom }: DataTableProps): JSX.Elem
     const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = [
         ...columns.map((key) => ({
             dataIndex: key as any,
-            title: renderTitle(key, custom),
+            title: renderTitle(key, context),
             render: function RenderDataTableColumn(_: any, record: EventType) {
-                return renderColumn(key, record, query, setQuery, custom)
+                return renderColumn(key, record, query, setQuery, context)
             },
         })),
         ...(showActions
