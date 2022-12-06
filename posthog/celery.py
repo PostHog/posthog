@@ -170,7 +170,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         )
 
         sender.add_periodic_task(
-            crontab(hour="*"), check_flags_to_rollback.s(), name="check feature flags that should be rolled back"
+            crontab(minute=0, hour="*"),
+            check_flags_to_rollback.s(),
+            name="check feature flags that should be rolled back",
         )
 
 
