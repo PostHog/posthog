@@ -112,10 +112,10 @@ test.describe('retention insight', () => {
         await storyPage.screenshotMainAppContent()
     })
 
-    test('displays breakdown viz correctly', async ({ storyPage }) => {
-        await storyPage.goto(toId('Scenes-App/Insights', 'Retention Breakdown'))
-        await storyPage.screenshotMainAppContent()
-    })
+    // test('displays breakdown viz correctly', async ({ storyPage }) => {
+    //     await storyPage.goto(toId('Scenes-App/Insights', 'Retention Breakdown'))
+    //     await storyPage.screenshotMainAppContent()
+    // })
 })
 
 test.describe('lifecycle insight', () => {
