@@ -45,8 +45,12 @@ class TestDashboardTileModel(APIBaseTest):
         tiles[0].deleted = True
         tiles[0].save()
 
+        insight = Insight.objects.get(team=self.team, short_id="123456-1")
+        insight.deleted = True
+        insight.save()
+
         tiles = get_tiles_ordered_by_position(dashboard=self.dashboard)
-        assert len(tiles) == 9
+        assert len(tiles) == 8
 
     def test_cannot_add_a_tile_with_insight_and_text_on_validation(self) -> None:
         insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
