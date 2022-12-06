@@ -40,7 +40,7 @@
 .action-edit-container {
     .match-group-add-skeleton {
         background-color: #f0f0f0;
-        border-radius: 2px;
+        border-radius: var(--radius);
         height: 100%;
         min-height: 125px;
         cursor: pointer;
