@@ -1,8 +1,8 @@
 import structlog
+from django.conf import settings
 from infi.clickhouse_orm import migrations
 
 from posthog.kafka_client.client import KafkaAdminClient, build_kafka_consumer
-from posthog.settings import CLICKHOUSE_CLUSTER
 
 logger = structlog.get_logger(__name__)
 
@@ -67,8 +67,12 @@ def migrate_consumer_group_offsets(database):
 
 operations = [
     # First we remove the Materialized View table and the KafkaTable
-    migrations.RunSQL(f"DROP TABLE IF EXISTS app_metrics_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"),
-    migrations.RunSQL(f"DROP TABLE IF EXISTS kafka_app_metrics ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"),
+    migrations.RunSQL(
+        f"DROP TABLE IF EXISTS `{settings.CLICKHOUSE_DATABASE}.app_metrics_mv` ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' SYNC"
+    ),
+    migrations.RunSQL(
+        f"DROP TABLE IF EXISTS `{settings.CLICKHOUSE_CLUSTER}.kafka_app_metrics` ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' SYNC"
+    ),
     # Then we create a new consumer group with the same offsets as the old one
     # used by the KafkaTable we just deleted.
     migrations.RunPython(migrate_consumer_group_offsets),
