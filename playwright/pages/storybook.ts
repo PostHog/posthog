@@ -33,11 +33,11 @@ export class StorybookStoryPage {
         await this.page.goto(storyUrl)
     }
 
-    async screenshotMainAppContent(): Promise<void> {
+    async expectSceneScreenshot(): Promise<void> {
         await expect(this.mainAppContent).toHaveScreenshot()
     }
 
-    async screenshotStoryRoot({ pseudo } = {} as ComponentScreenshotConfig): Promise<void> {
+    async expectComponentScreenshot({ pseudo } = {} as ComponentScreenshotConfig): Promise<void> {
         const pseudoClasses = Object.entries(pseudo || {}).flatMap(([state, enabled]) => {
             return enabled ? `pseudo-${PSEUDO_STATES[state]}` : []
         })

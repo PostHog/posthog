@@ -5,111 +5,111 @@ import { test, expect } from '../../fixtures/storybook'
 test.describe('trends insight', () => {
     test('displays line viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends Line'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('displays line breakdown viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends Line Breakdown'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('displays bar viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends Bar'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('displays bar breakdown viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends Bar Breakdown'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('displays value viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends Value'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('displays value breakdown viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends Value Breakdown'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('displays area viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends Area'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('displays area breakdown viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends Area Breakdown'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('displays number viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends Number'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('displays table viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends Table'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('displays table breakdown viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends Table Breakdown'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('displays pie viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends Pie'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('displays pie breakdown viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends Pie Breakdown'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('displays world map viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends World Map'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 })
 
 test.describe('funnel insight', () => {
     test('displays left to right viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Funnel Left to Right'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('displays left to right breakdown viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Funnel Left to Right Breakdown'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('displays top to bottom viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Funnel Top to Bottom'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('displays top to bottom breakdown viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Funnel Top to Bottom Breakdown'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('displays historical trends viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Funnel Historical Trends'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('displays time to convert viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Funnel Time to Convert'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 })
 
 test.describe('retention insight', () => {
     test('displays viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Retention'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     // test('displays breakdown viz correctly', async ({ storyPage }) => {
@@ -121,43 +121,43 @@ test.describe('retention insight', () => {
 test.describe('lifecycle insight', () => {
     test('displays viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Lifecycle'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 })
 
 test.describe('stickiness insight', () => {
     test('displays viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Stickiness'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 })
 
 test.describe('user paths insights', () => {
     test('displays viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'User Paths'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 })
 
 test.describe('error states', () => {
     test('display the empty state correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights/Error States', 'Empty State'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('display the error state correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights/Error States', 'Error State'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('display the timeout state correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights/Error States', 'Timeout State'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 
     test('display the funnel single step state correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights/Error States', 'Funnel Single Step'))
-        await storyPage.screenshotMainAppContent()
+        await storyPage.expectSceneScreenshot()
     })
 })
 

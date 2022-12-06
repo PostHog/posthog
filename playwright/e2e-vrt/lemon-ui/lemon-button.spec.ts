@@ -5,11 +5,11 @@ import { test } from '../../fixtures/storybook'
 test.describe('Lemon Button', () => {
     test('displays correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Lemon UI/Lemon Button', 'Default'))
-        await storyPage.screenshotStoryRoot()
+        await storyPage.expectComponentScreenshot()
     })
 
     test('displays hover state correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Lemon UI/Lemon Button', 'Default'))
-        await storyPage.screenshotStoryRoot({ pseudo: { hover: true } })
+        await storyPage.expectComponentScreenshot({ pseudo: { hover: true } })
     })
 })
