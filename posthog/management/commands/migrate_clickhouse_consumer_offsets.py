@@ -77,15 +77,12 @@ def migrate_clickhouse_consumer_group_for_topic(
             return
 
         clickhouse_consumer_group = [group for group in groups if group.group == source_group][0]
-        app_metrics_topic_members = [
-            member for member in clickhouse_consumer_group.members if topic in member.member_metadata.subscription
-        ]
 
-        if len(app_metrics_topic_members) == 0:
+        if clickhouse_consumer_group.state == "Stable":
             logger.info("group_stable", group=source_group)
             break
         else:
-            logger.info("group_has_members", group=source_group, members=app_metrics_topic_members)
+            logger.info("group_not_stable", group=source_group, members=clickhouse_consumer_group)
 
         if attempt == 59:
             raise Exception("Consumer group still has members subscribed to app_metrics topic")

@@ -1,6 +1,6 @@
 import pytest
 from django.core.management import call_command
-from kafka import KafkaProducer
+from kafka import KafkaProducer, OffsetAndMetadata, TopicPartition
 
 from posthog.kafka_client.client import KafkaAdminClient, build_kafka_consumer
 
@@ -51,6 +51,8 @@ def test_migrates_group1_offsets_to_new_consumer_group():
     # commit an offset.
     producer.send(APP_METRICS_TOPIC, b"test", key=b"test")
     consumer = build_kafka_consumer(topic=APP_METRICS_TOPIC, group_id="group1")
+    consumer.poll(timeout_ms=1000)
+    consumer.commit({TopicPartition(APP_METRICS_TOPIC, 0): OffsetAndMetadata(1, "")})
     consumer.close()
     group1_group_offsets = kafka.list_consumer_group_offsets(CLICKHOUSE_GROUP)
     assert group1_group_offsets
