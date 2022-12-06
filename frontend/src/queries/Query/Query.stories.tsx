@@ -22,10 +22,12 @@ const BasicTemplate: ComponentStory<typeof Query> = (props: QueryProps) => {
     const [queryString, setQueryString] = useState(JSON.stringify(props.query))
 
     return (
-        <div className="p-2 space-y-2 flex flex-col border">
+        <>
             <QueryEditor query={queryString} setQuery={setQueryString} />
-            <Query key={queryString} query={queryString} />
-        </div>
+            <div className="p-4">
+                <Query key={queryString} query={queryString} />
+            </div>
+        </>
     )
 }
 
