@@ -987,7 +987,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
             // array of functions that reload each item
             const fetchItemFunctions = insights.map((insight) => async () => {
-                const queryId = `dash-${dashboardQueryId}::${uuid()}`
+                const queryId = `${dashboardQueryId}::${uuid()}`
                 const queryStartTime = performance.now()
                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
                     refresh: true,
