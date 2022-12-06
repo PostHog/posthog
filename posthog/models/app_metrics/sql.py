@@ -24,7 +24,7 @@ BASE_APP_METRICS_COLUMNS = """
 
 APP_METRICS_DATA_TABLE_SQL = lambda table_name=None: (
     f"""
-CREATE TABLE {table_name} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
+CREATE TABLE {table_name or "sharded_app_metrics"} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 (
     {BASE_APP_METRICS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
@@ -32,23 +32,19 @@ CREATE TABLE {table_name} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 ENGINE = {SHARDED_APP_METRICS_TABLE_ENGINE()}
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, plugin_config_id, job_id, category, toStartOfHour(timestamp), error_type, error_uuid)
-""".format(
-        table_name=table_name or "sharded_app_metrics"
-    )
+"""
 )
 
 
 DISTRIBUTED_APP_METRICS_TABLE_SQL = lambda table_name=None: (
     f"""
-CREATE TABLE {table_name} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
+CREATE TABLE {table_name or "app_metrics"} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 (
     {BASE_APP_METRICS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE={Distributed(data_table="sharded_app_metrics", sharding_key="rand()")}
-""".format(
-        table_name=table_name or "app_metrics"
-    )
+"""
 )
 
 KAFKA_APP_METRICS_TABLE_SQL = (
