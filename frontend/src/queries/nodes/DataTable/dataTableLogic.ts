@@ -2,6 +2,7 @@ import { actions, kea, key, path, props, propsChanged, reducers, selectors } fro
 import type { dataTableLogicType } from './dataTableLogicType'
 import { DataTableNode, DataTableStringColumn } from '~/queries/schema'
 import { defaultDataTableStringColumns } from './defaults'
+import { sortedKeys } from 'lib/utils'
 
 export interface DataTableLogicProps {
     key: string
@@ -42,19 +43,26 @@ export const dataTableLogic = kea<dataTableLogicType>([
         ],
         queryWithDefaults: [
             (s) => [(_, props) => props.query, s.columns],
-            (query: DataTableNode, columns): Required<DataTableNode> => ({
-                ...query,
-                columns: columns,
-                showPropertyFilter: query.showPropertyFilter ?? false,
-                showEventFilter: query.showEventFilter ?? false,
-                showActions: query.showActions ?? true,
-                showExport: query.showExport ?? false,
-                showReload: query.showReload ?? false,
-                showColumnConfigurator: query.showColumnConfigurator ?? false,
-                showEventsBufferWarning: query.showEventsBufferWarning ?? false,
-                expandable: query.expandable ?? true,
-                propertiesViaUrl: query.propertiesViaUrl ?? false,
-            }),
+            (query: DataTableNode, columns): Required<DataTableNode> => {
+                const { kind, columns: _columns, source, ...rest } = query
+                return {
+                    kind,
+                    columns: columns,
+                    source,
+                    ...sortedKeys({
+                        ...rest,
+                        expandable: query.expandable ?? true,
+                        propertiesViaUrl: query.propertiesViaUrl ?? false,
+                        showPropertyFilter: query.showPropertyFilter ?? false,
+                        showEventFilter: query.showEventFilter ?? false,
+                        showActions: query.showActions ?? true,
+                        showExport: query.showExport ?? false,
+                        showReload: query.showReload ?? false,
+                        showColumnConfigurator: query.showColumnConfigurator ?? false,
+                        showEventsBufferWarning: query.showEventsBufferWarning ?? false,
+                    }),
+                }
+            },
         ],
     }),
     propsChanged(({ actions, props }, oldProps) => {

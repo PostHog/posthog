@@ -5,24 +5,29 @@ import { Node, QueryCustom, QuerySchema } from '~/queries/schema'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyInsightQuery'
 import { InsightQuery } from '~/queries/nodes/InsightQuery/InsightQuery'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 export interface QueryProps<T extends Node = QuerySchema | Node> {
     /** The query to render */
     query: T | string
-    /** Set this if the user can update the query */
+    /** Set this if you're controlling the query parameter */
     setQuery?: (node: T) => void
-    /** Can the query can still be edited locally if there is `setQuery` */
-    setQueryLocally?: boolean
+    /** Does not call setQuery, not even locally */
+    readOnly?: boolean
     /** Custom components passed down to query nodes (e.g. custom table columns) */
     custom?: QueryCustom
 }
 
 export function Query(props: QueryProps): JSX.Element {
-    const { query: globalQuery, setQuery: globalSetQuery, setQueryLocally, custom } = props
+    const { query: globalQuery, setQuery: globalSetQuery, readOnly, custom } = props
     const [localQuery, localSetQuery] = useState(globalQuery)
-    const query = setQueryLocally ? localQuery : globalQuery
-    const setQuery = setQueryLocally ? localSetQuery : globalSetQuery
+    useEffect(() => {
+        if (globalQuery !== localQuery) {
+            localSetQuery(globalQuery)
+        }
+    }, [globalQuery])
+    const query = readOnly ? globalQuery : localQuery
+    const setQuery = readOnly ? undefined : globalSetQuery ?? localSetQuery
 
     if (typeof query === 'string') {
         try {
