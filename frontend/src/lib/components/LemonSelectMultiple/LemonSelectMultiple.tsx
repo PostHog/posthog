@@ -18,7 +18,7 @@ export interface LemonSelectMultipleOptionItem extends LemonSelectMultipleOption
 export type LemonSelectMultipleOptions = Record<string, LemonSelectMultipleOption>
 
 export interface LemonSelectMultipleProps {
-    className?: string
+    selectClassName?: string
     options?: LemonSelectMultipleOptions | LemonSelectMultipleOptionItem[]
     value?: string[] | null
     disabled?: boolean
@@ -45,7 +45,7 @@ export function LemonSelectMultiple({
     onBlur,
     filterOption = true,
     mode = 'single',
-    className,
+    selectClassName,
     ...props
 }: LemonSelectMultipleProps): JSX.Element {
     const optionsAsList: LemonSelectMultipleOptionItem[] = Array.isArray(options)
@@ -65,7 +65,7 @@ export function LemonSelectMultiple({
     return (
         <div className="LemonSelectMultiple" {...props}>
             <Select
-                className={className}
+                className={selectClassName}
                 mode={mode === 'multiple' ? 'multiple' : mode === 'multiple-custom' ? 'tags' : undefined}
                 showSearch
                 disabled={disabled}

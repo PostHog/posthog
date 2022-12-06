@@ -143,7 +143,6 @@ export function PropertyValue({
     )
 
     const commonInputProps = {
-        className,
         onSearch: (newInput: string) => {
             setInput(newInput)
             if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
@@ -191,7 +190,7 @@ export function PropertyValue({
             <LemonSelectMultiple
                 loading={options[propertyKey]?.status === 'loading'}
                 {...commonInputProps}
-                className={clsx(commonInputProps.className, 'property-filters-property-value', 'w-full')}
+                selectClassName={clsx(className, 'property-filters-property-value', 'w-full')}
                 value={formattedValues}
                 mode="multiple-custom"
                 onChange={(nextVal) => {
