@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import React, { ReactElement } from 'react'
+import { ReactElement } from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -16,7 +16,6 @@ import {
     InsightType,
     InsightShortId,
     MultivariateFlagVariant,
-    ChartDisplayType,
     TrendResult,
     FunnelStep,
     SecondaryExperimentMetric,
@@ -27,7 +26,7 @@ import {
 import type { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
-import { FunnelLayout } from 'lib/constants'
+import { FunnelLayout, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -36,6 +35,7 @@ import { InfoCircleOutlined } from '@ant-design/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
 import { lemonToast } from 'lib/components/lemonToast'
+import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
 
 const DEFAULT_DURATION = 14 // days
 
@@ -75,6 +75,9 @@ export const experimentLogic = kea<experimentLogicType>({
         setExperimentInsightType: (insightType: InsightType) => ({ insightType }),
         setEditExperiment: (editing: boolean) => ({ editing }),
         setSecondaryMetrics: (secondaryMetrics: SecondaryExperimentMetric[]) => ({ secondaryMetrics }),
+        setExperimentResultCalculationError: (error: string) => ({ error }),
+        setFlagImplementationWarning: (warning: boolean) => ({ warning }),
+        setFlagAvailabilityWarning: (warning: boolean) => ({ warning }),
         resetNewExperiment: true,
         launchExperiment: true,
         endExperiment: true,
@@ -190,6 +193,24 @@ export const experimentLogic = kea<experimentLogicType>({
                 setEditExperiment: (_, { editing }) => editing,
             },
         ],
+        experimentResultCalculationError: [
+            null as string | null,
+            {
+                setExperimentResultCalculationError: (_, { error }) => error,
+            },
+        ],
+        flagImplementationWarning: [
+            false as boolean,
+            {
+                setFlagImplementationWarning: (_, { warning }) => warning,
+            },
+        ],
+        flagAvailabilityWarning: [
+            false as boolean,
+            {
+                setFlagAvailabilityWarning: (_, { warning }) => warning,
+            },
+        ],
     },
     listeners: ({ values, actions }) => ({
         createExperiment: async ({ draft, runningTime, sampleSize }) => {
@@ -251,7 +272,6 @@ export const experimentLogic = kea<experimentLogicType>({
                 newInsightFilters = cleanFilters({
                     insight: InsightType.FUNNELS,
                     funnel_viz_type: FunnelVizType.Steps,
-                    display: ChartDisplayType.FunnelViz,
                     date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     layout: FunnelLayout.horizontal,
@@ -303,12 +323,12 @@ export const experimentLogic = kea<experimentLogicType>({
         },
         launchExperiment: async () => {
             const startDate = dayjs()
-            actions.updateExperiment({ start_date: startDate.format('YYYY-MM-DDTHH:mm') })
+            actions.updateExperiment({ start_date: startDate.toISOString() })
             values.experimentData && eventUsageLogic.actions.reportExperimentLaunched(values.experimentData, startDate)
         },
         endExperiment: async () => {
             const endDate = dayjs()
-            actions.updateExperiment({ end_date: endDate.format('YYYY-MM-DDTHH:mm') })
+            actions.updateExperiment({ end_date: endDate.toISOString() })
             const duration = endDate.diff(values.experimentData?.start_date, 'second')
             values.experimentData &&
                 eventUsageLogic.actions.reportExperimentCompleted(
@@ -332,8 +352,46 @@ export const experimentLogic = kea<experimentLogicType>({
         updateExperimentSuccess: async ({ experimentData }) => {
             actions.updateExperiments(experimentData)
         },
+        setNewExperimentData: async ({ experimentData }, breakpoint) => {
+            const experimentEntitiesChanged =
+                (experimentData.filters?.events && experimentData.filters.events.length > 0) ||
+                (experimentData.filters?.actions && experimentData.filters.actions.length > 0)
+
+            if (!experimentData.filters || Object.keys(experimentData.filters).length === 0) {
+                return
+            }
+
+            if (experimentEntitiesChanged) {
+                const url = `/api/projects/${values.currentTeamId}/experiments/requires_flag_implementation?${toParams(
+                    experimentData.filters || {}
+                )}`
+                await breakpoint(100)
+
+                try {
+                    const response = await api.get(url)
+                    actions.setFlagImplementationWarning(response.result)
+                } catch (e) {
+                    // default to not showing the warning
+                    actions.setFlagImplementationWarning(false)
+                }
+            }
+
+            if (experimentData.filters?.properties) {
+                const targetProperties = convertPropertyGroupToProperties(experimentData.filters.properties) || []
+
+                if (targetProperties.length > 0) {
+                    const hasNonInstantProperty = !!targetProperties.find(
+                        (property) =>
+                            property.type === 'cohort' || !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || '')
+                    )
+                    actions.setFlagAvailabilityWarning(hasNonInstantProperty)
+                } else {
+                    actions.setFlagAvailabilityWarning(false)
+                }
+            }
+        },
     }),
-    loaders: ({ values }) => ({
+    loaders: ({ actions, values }) => ({
         experimentData: [
             null as Experiment | null,
             {
@@ -374,11 +432,7 @@ export const experimentLogic = kea<experimentLogicType>({
                         )
                         return { ...response, itemID: Math.random().toString(36).substring(2, 15) }
                     } catch (error: any) {
-                        if (error.code === 'no_data') {
-                            return null
-                        }
-
-                        lemonToast.error(error.detail || 'Failed to load experiment results')
+                        actions.setExperimentResultCalculationError(error.detail)
                         return null
                     }
                 },
@@ -554,7 +608,7 @@ export const experimentLogic = kea<experimentLogicType>({
             (s) => [s.experimentResults],
             (experimentResults) =>
                 (variant: string): string => {
-                    const errorResult = "Can't find variant"
+                    const errorResult = '--'
                     if (!experimentResults) {
                         return errorResult
                     }
@@ -604,7 +658,7 @@ export const experimentLogic = kea<experimentLogicType>({
             (s) => [s.experimentResults],
             (experimentResults) =>
                 (variant: string): string => {
-                    const errorResult = "Can't find variant"
+                    const errorResult = '--'
                     if (!experimentResults) {
                         return errorResult
                     }
@@ -648,6 +702,24 @@ export const experimentLogic = kea<experimentLogicType>({
                 }
 
                 return variantResults.breakdown_value !== highestProbabilityVariant
+            },
+        ],
+        sortedExperimentResultVariants: [
+            (s) => [s.experimentResults, s.experimentData],
+            (experimentResults, experimentData): string[] => {
+                if (experimentResults) {
+                    const sortedResults = Object.keys(experimentResults.probability).sort(
+                        (a, b) => experimentResults.probability[b] - experimentResults.probability[a]
+                    )
+
+                    experimentData?.parameters?.feature_flag_variants?.forEach((variant) => {
+                        if (!sortedResults.includes(variant.key)) {
+                            sortedResults.push(variant.key)
+                        }
+                    })
+                    return sortedResults
+                }
+                return []
             },
         ],
     },

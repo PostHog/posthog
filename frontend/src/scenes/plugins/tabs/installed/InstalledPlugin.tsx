@@ -1,4 +1,3 @@
-import React from 'react'
 import { PluginCard } from 'scenes/plugins/plugin/PluginCard'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
 

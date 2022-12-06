@@ -17,13 +17,12 @@ jobs:
         name: Run Django tests and save test durations
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v3
 
             - uses: ./.github/actions/run-backend-tests
               with:
-                  python-version: 3.8.14
-                  ee: true
-                  foss: false
+                  # FIXME: These inputs are incomplete, but this workflow doesn't seem to be used currently,
+                  # so fix this if you want to use this
                   concurrency: 1
                   group: 1
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Duration, SmallTimeUnit } from '~/types'
 import { LemonSelect, LemonInput } from '@posthog/lemon-ui'
 
@@ -52,7 +52,7 @@ export function DurationPicker({ initialValue, onChange, autoFocus }: DurationPi
                 step={1}
                 onChange={(val) => {
                     const newValue = val
-                    setTimeValue(newValue)
+                    setTimeValue(newValue || 0)
                 }}
             />
             <LemonSelect
@@ -60,7 +60,7 @@ export function DurationPicker({ initialValue, onChange, autoFocus }: DurationPi
                 onChange={(newValue) => {
                     setUnit(newValue as SmallTimeUnit)
                 }}
-                options={durationOptions.map((value) => ({ key: value, label: value }))}
+                options={durationOptions.map((value) => ({ value, label: value }))}
             />
         </div>
     )

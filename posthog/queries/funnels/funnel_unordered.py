@@ -1,7 +1,9 @@
-from typing import List, cast
+import uuid
+from typing import Any, Dict, List, Optional, cast
 
 from rest_framework.exceptions import ValidationError
 
+from posthog.models.entity.entity import Entity
 from posthog.queries.funnels.base import ClickhouseFunnelBase
 
 
@@ -31,6 +33,19 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
     See test_advanced_funnel_multiple_exclusions_between_steps for details.
     """
 
+    QUERY_TYPE = "funnel_unordered"
+
+    def _serialize_step(self, step: Entity, count: int, people: Optional[List[uuid.UUID]] = None) -> Dict[str, Any]:
+        return {
+            "action_id": None,
+            "name": f"Completed {step.index+1} step{'s' if step.index != 0 else ''}",
+            "custom_name": None,
+            "order": step.index,
+            "people": people if people else [],
+            "count": count,
+            "type": step.type,
+        }
+
     def get_query(self):
 
         max_steps = len(self._filter.entities)
@@ -44,7 +59,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         return f"""
         SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {self._get_step_time_median(max_steps)} {breakdown_clause} FROM (
             {self.get_step_counts_query()}
-        ) {'GROUP BY prop' if breakdown_clause != '' else ''} SETTINGS allow_experimental_window_functions = 1
+        ) {'GROUP BY prop' if breakdown_clause != '' else ''}
         """
 
     def get_step_counts_query(self):

@@ -9,6 +9,10 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
     actions({
         setSkipInactivitySetting: (skipInactivitySetting: boolean) => ({ skipInactivitySetting }),
         setSpeed: (speed: number) => ({ speed }),
+        setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
+        setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
+        setIsMetadataExpanded: (isMetadataExpanded: boolean) => ({ isMetadataExpanded }),
+        setAutoplayEnabled: (enabled: boolean) => ({ enabled }),
     }),
     reducers({
         speed: [
@@ -23,6 +27,31 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setSkipInactivitySetting: (_, { skipInactivitySetting }) => skipInactivitySetting,
+            },
+        ],
+        showOnlyMatching: [
+            false,
+            {
+                setShowOnlyMatching: (_, { showOnlyMatching }) => showOnlyMatching,
+            },
+        ],
+        isFullScreen: [
+            false,
+            {
+                setIsFullScreen: (_, { isFullScreen }) => isFullScreen,
+            },
+        ],
+        isMetadataExpanded: [
+            false,
+            {
+                setIsMetadataExpanded: (_, { isMetadataExpanded }) => isMetadataExpanded,
+            },
+        ],
+        autoplayEnabled: [
+            true,
+            { persist: true },
+            {
+                setAutoplayEnabled: (_, { enabled }) => enabled,
             },
         ],
     }),

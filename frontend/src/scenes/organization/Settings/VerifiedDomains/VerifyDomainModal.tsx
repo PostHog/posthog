@@ -4,7 +4,6 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { LemonModal } from 'lib/components/LemonModal'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PureField } from 'lib/forms/Field'
-import React from 'react'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 export function VerifyDomainModal(): JSX.Element {
@@ -19,7 +18,7 @@ export function VerifyDomainModal(): JSX.Element {
             title="Verify your domain"
             description={
                 <>
-                    <LemonTag>{domainBeingVerified?.domain || ''}</LemonTag>
+                    <LemonTag className="uppercase">{domainBeingVerified?.domain || ''}</LemonTag>
                     <p>To verify your domain, you need to add a record to your DNS zone.</p>
                 </>
             }

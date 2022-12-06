@@ -1,4 +1,3 @@
-import React from 'react'
 import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
 import {
     RetentionTablePayload,
@@ -15,6 +14,8 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
 import clsx from 'clsx'
+import { MissingPersonsAlert } from 'scenes/trends/persons-modal/PersonsModal'
+import { Noun } from '~/models/groupsModel'
 
 export function RetentionModal({
     results,
@@ -35,7 +36,7 @@ export function RetentionModal({
     actorsLoading: boolean
     loadingMore: boolean
     actors: RetentionTablePeoplePayload
-    aggregationTargetLabel: { singular: string; plural: string }
+    aggregationTargetLabel: Noun
 }): JSX.Element | null {
     return (
         <LemonModal
@@ -65,6 +66,9 @@ export function RetentionModal({
             width={results[selectedRow]?.values[0]?.count === 0 ? undefined : '90%'}
             title={results[selectedRow] ? dayjs(results[selectedRow].date).format('MMMM D, YYYY') : ''}
         >
+            {actors && !!actors.missing_persons && (
+                <MissingPersonsAlert actorLabel={aggregationTargetLabel} missingActorsCount={actors.missing_persons} />
+            )}
             <div className="min-h-20">
                 {actorsLoading ? (
                     <SpinnerOverlay />

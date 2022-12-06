@@ -1,4 +1,3 @@
-import * as React from 'react'
 import '~/styles'
 import './storybook.scss'
 import { worker } from '~/mocks/browser'
@@ -9,7 +8,9 @@ import { useAvailableFeatures } from '~/mocks/features'
 
 const setupMsw = () => {
     // Make sure the msw worker is started
-    worker.start()
+    worker.start({
+        quiet: true,
+    })
     ;(window as any).__mockServiceWorker = worker
     ;(window as any).POSTHOG_APP_CONTEXT = getStorybookAppContext()
 }
@@ -30,6 +31,7 @@ setupPosthogJs()
 
 // Setup storybook global parameters. See https://storybook.js.org/docs/react/writing-stories/parameters#global-parameters
 export const parameters = {
+    chromatic: { disableSnapshot: true },
     actions: { argTypesRegex: '^on[A-Z].*', disabled: true },
     controls: {
         matchers: {

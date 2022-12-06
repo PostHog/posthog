@@ -1,4 +1,3 @@
-import React from 'react'
 import {
     featureFlagsActivityResponseJson,
     insightsActivityResponseJson,
@@ -7,14 +6,14 @@ import {
 import { mswDecorator } from '~/mocks/browser'
 import { ComponentMeta } from '@storybook/react'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
-import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 
 export default {
     title: 'Components/ActivityLog',
     component: ActivityLog,
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
     decorators: [
         mswDecorator({
             get: {
@@ -49,15 +48,15 @@ export default {
 } as ComponentMeta<typeof ActivityLog>
 
 export function FeatureFlagActivity(): JSX.Element {
-    return <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={7} describer={flagActivityDescriber} />
+    return <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={7} />
 }
 
 export function InsightActivity(): JSX.Element {
-    return <ActivityLog scope={ActivityScope.INSIGHT} describer={insightActivityDescriber} />
+    return <ActivityLog scope={ActivityScope.INSIGHT} />
 }
 
 export function PersonsActivity(): JSX.Element {
-    return <ActivityLog scope={ActivityScope.PERSON} id={12} describer={personActivityDescriber} />
+    return <ActivityLog scope={ActivityScope.PERSON} id={12} />
 }
 
 export function WithCaption(): JSX.Element {
@@ -65,7 +64,6 @@ export function WithCaption(): JSX.Element {
         <ActivityLog
             scope={ActivityScope.FEATURE_FLAG}
             id={7}
-            describer={flagActivityDescriber}
             caption={
                 <>
                     This is a list that <strong>needs</strong> some extra description or context. Which can have a very,
@@ -78,9 +76,9 @@ export function WithCaption(): JSX.Element {
 }
 
 export function WithNoData(): JSX.Element {
-    return <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={6} describer={flagActivityDescriber} />
+    return <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={6} />
 }
 
 export function Timeout(): JSX.Element {
-    return <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={5} describer={flagActivityDescriber} />
+    return <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={5} />
 }

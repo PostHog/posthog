@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues, useActions } from 'kea'
 import { MINIMUM_IMPLICIT_ACCESS_LEVEL, teamMembersLogic } from './teamMembersLogic'
 import { CloseCircleOutlined, LogoutOutlined, CrownFilled } from '@ant-design/icons'

@@ -115,13 +115,13 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
                 ...(fallbackPlacements ? [flip({ fallbackPlacements, fallbackStrategy: 'initialPlacement' })] : []),
                 shift(),
                 size({
-                    padding: 5,
-                    apply({ rects, elements: { floating } }) {
-                        if (sameWidth) {
-                            Object.assign(floating.style, {
-                                width: `${rects.reference.width}px`,
-                            })
-                        }
+                    padding: 4,
+                    apply({ availableWidth, availableHeight, rects, elements: { floating } }) {
+                        Object.assign(floating.style, {
+                            maxHeight: `${availableHeight}px`,
+                            maxWidth: `${availableWidth}px`,
+                            width: sameWidth ? rects.reference.width : undefined,
+                        })
                     },
                 }),
                 arrow({ element: arrowRef, padding: 8 }),

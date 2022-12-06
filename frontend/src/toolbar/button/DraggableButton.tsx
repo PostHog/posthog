@@ -1,4 +1,3 @@
-import React from 'react'
 import { ToolbarButton } from '~/toolbar/button/ToolbarButton'
 import Draggable from 'react-draggable'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
@@ -29,7 +28,7 @@ export function DraggableButton(): JSX.Element {
         hideFlags,
         saveFlagsPosition,
     } = useActions(toolbarButtonLogic)
-    const { countFlagsOverridden, shouldSimplifyActions } = useValues(featureFlagsLogic)
+    const { countFlagsOverridden } = useValues(featureFlagsLogic)
 
     return (
         <>
@@ -63,8 +62,8 @@ export function DraggableButton(): JSX.Element {
             </ButtonWindow>
 
             <ButtonWindow
-                name={shouldSimplifyActions ? 'calculated events' : 'actions'}
-                label={shouldSimplifyActions ? 'Calculated Events' : 'Actions'}
+                name={'actions'}
+                label={'Actions'}
                 visible={actionsWindowVisible}
                 close={hideActionsInfo}
                 position={actionsPosition}

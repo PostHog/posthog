@@ -2,26 +2,42 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import type { experimentsLogicType } from './experimentsLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-import { Experiment, ExperimentsTabs, AvailableFeature } from '~/types'
-import { toParams } from 'lib/utils'
+import { Experiment, ExperimentsTabs, AvailableFeature, ExperimentStatus } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { lemonToast } from 'lib/components/lemonToast'
+import Fuse from 'fuse.js'
 
 export const experimentsLogic = kea<experimentsLogicType>({
     path: ['scenes', 'experiments', 'experimentsLogic'],
-    connect: { values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']] },
-    actions: {},
-    loaders: ({ values, actions }) => ({
+    connect: { values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature', 'user']] },
+    actions: {
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setSearchStatus: (status: ExperimentStatus | 'all') => ({ status }),
+        setExperimentsTab: (tabKey: ExperimentsTabs) => ({ tabKey }),
+    },
+    reducers: {
+        searchTerm: {
+            setSearchTerm: (_, { searchTerm }) => searchTerm,
+        },
+        searchStatus: {
+            setSearchStatus: (_, { status }) => status,
+        },
+        tab: [
+            ExperimentsTabs.All as ExperimentsTabs,
+            {
+                setExperimentsTab: (_, { tabKey }) => tabKey,
+            },
+        ],
+    },
+    loaders: ({ values }) => ({
         experiments: [
             [] as Experiment[],
             {
-                loadExperiments: async (filter?: string) => {
+                loadExperiments: async () => {
                     if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
                         return []
                     }
-                    const response = await api.get(
-                        `api/projects/${values.currentTeamId}/experiments?${filter ? filter : ''}`
-                    )
+                    const response = await api.get(`api/projects/${values.currentTeamId}/experiments`)
                     return response.results as Experiment[]
                 },
                 deleteExperiment: async (id: number) => {
@@ -37,25 +53,62 @@ export const experimentsLogic = kea<experimentsLogicType>({
                 },
             },
         ],
-        tab: [
-            ExperimentsTabs.All as ExperimentsTabs,
-            {
-                setExperimentsFilters: async ({ tab }: { tab: ExperimentsTabs }) => {
-                    const tabFilter =
-                        tab === ExperimentsTabs.Yours ? toParams({ user: true }) : toParams({ archived: true })
-                    if (tab === ExperimentsTabs.All) {
-                        actions.loadExperiments(toParams({ all: true }))
-                    } else {
-                        actions.loadExperiments(tabFilter)
+    }),
+    selectors: ({ values }) => ({
+        getExperimentStatus: [
+            (s) => [s.experiments],
+            () =>
+                (experiment: Experiment): ExperimentStatus => {
+                    if (!experiment.start_date) {
+                        return ExperimentStatus.Draft
+                    } else if (!experiment.end_date) {
+                        return ExperimentStatus.Running
                     }
-                    return tab
+                    return ExperimentStatus.Complete
                 },
+        ],
+        filteredExperiments: [
+            (selectors) => [
+                selectors.experiments,
+                selectors.searchTerm,
+                selectors.searchStatus,
+                selectors.tab,
+                selectors.getExperimentStatus,
+            ],
+            (experiments, searchTerm, searchStatus, tab, getExperimentStatus) => {
+                let filteredExperiments: Experiment[] = experiments
+
+                if (tab === ExperimentsTabs.Archived) {
+                    filteredExperiments = filteredExperiments.filter((experiment) => !!experiment.archived)
+                } else if (tab === ExperimentsTabs.Yours) {
+                    filteredExperiments = filteredExperiments.filter(
+                        (experiment) => experiment.created_by?.uuid === values.user?.uuid
+                    )
+                } else {
+                    filteredExperiments = filteredExperiments.filter((experiment) => !experiment.archived)
+                }
+
+                if (searchTerm) {
+                    filteredExperiments = new Fuse(filteredExperiments, {
+                        keys: ['name', 'feature_flag_key', 'description'],
+                        threshold: 0.3,
+                    })
+                        .search(searchTerm)
+                        .map((result) => result.item)
+                }
+
+                if (searchStatus && searchStatus !== 'all') {
+                    filteredExperiments = filteredExperiments.filter(
+                        (experiment) => getExperimentStatus(experiment) === searchStatus
+                    )
+                }
+                return filteredExperiments
             },
         ],
     }),
     events: ({ actions }) => ({
         afterMount: () => {
-            actions.loadExperiments(toParams({ all: true }))
+            actions.loadExperiments()
         },
     }),
 })

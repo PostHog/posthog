@@ -1,13 +1,13 @@
 #
 # This Dockerfile is used for self-hosted production builds.
 #
-# Note: for 'posthog/posthog-cloud' remember to update 'prod.web.Dockerfile' as appropriate
+# Note: for PostHog Cloud remember to update 'Dockerfile.cloud' as appropriate.
 #
 
 #
 # Build the frontend artifacts
 #
-FROM node:18.8-alpine3.16 AS frontend
+FROM node:18.12.1-alpine3.16 AS frontend
 
 WORKDIR /code
 
@@ -24,7 +24,7 @@ RUN yarn build
 # Build the plugin-server artifacts. Note that we still need to install the
 # runtime deps in the main image
 #
-FROM node:18.8-alpine3.16 AS plugin-server
+FROM node:18.12.1-alpine3.16 AS plugin-server
 
 WORKDIR /code/plugin-server
 
@@ -172,6 +172,8 @@ ENV CHROME_BIN=/usr/bin/chromium-browser \
     CHROMEDRIVER_BIN=/usr/bin/chromedriver
 
 COPY gunicorn.config.py ./
+
+ENV NODE_ENV=production
 
 # Expose container port and run entry point script
 EXPOSE 8000

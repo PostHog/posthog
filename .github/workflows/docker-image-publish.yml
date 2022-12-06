@@ -18,7 +18,7 @@ jobs:
             id-token: write
         steps:
             - name: Checkout default branch
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
 
             - name: Update git sha
               run: echo "GIT_SHA = '${GITHUB_SHA}'" >posthog/gitsha.py
@@ -27,7 +27,7 @@ jobs:
               uses: depot/setup-action@v1
 
             - name: Login to DockerHub
-              uses: docker/login-action@v1
+              uses: docker/login-action@v2
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -39,6 +39,7 @@ jobs:
                   context: .
                   push: true
                   tags: posthog/posthog:latest
+                  buildx-fallback: true # if Depot builder is unavailable, fall back to local buildx
 
             - name: Image digests
               run: |

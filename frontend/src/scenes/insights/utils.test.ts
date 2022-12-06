@@ -2,12 +2,20 @@ import { CohortType, Entity, EntityFilter, FilterLogicalOperator, FilterType, In
 import {
     extractObjectDiffKeys,
     formatAggregationValue,
+    formatBreakdownLabel,
     getDisplayNameFromEntityFilter,
     summarizeInsightFilters,
 } from 'scenes/insights/utils'
-import { BASE_MATH_DEFINITIONS, MathDefinition, PROPERTY_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
+import {
+    BASE_MATH_DEFINITIONS,
+    COUNT_PER_ACTOR_MATH_DEFINITIONS,
+    MathCategory,
+    MathDefinition,
+    PROPERTY_MATH_DEFINITIONS,
+} from 'scenes/trends/mathsLogic'
 import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { Noun } from '~/models/groupsModel'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
     return {
@@ -112,7 +120,7 @@ describe('extractObjectDiffKeys()', () => {
 })
 
 describe('summarizeInsightFilters()', () => {
-    const aggregationLabel = (groupTypeIndex: number | null | undefined): { singular: string; plural: string } =>
+    const aggregationLabel = (groupTypeIndex: number | null | undefined): Noun =>
         groupTypeIndex != undefined
             ? {
                   singular: 'organization',
@@ -130,12 +138,16 @@ describe('summarizeInsightFilters()', () => {
     const mathDefinitions: Record<string, MathDefinition> = {
         ...BASE_MATH_DEFINITIONS,
         'unique_group::0': {
+            name: 'Unique organizations',
             shortName: 'unique organizations',
-        } as unknown as MathDefinition,
+            description: 'Foo.',
+            category: MathCategory.ActorCount,
+        },
         ...PROPERTY_MATH_DEFINITIONS,
+        ...COUNT_PER_ACTOR_MATH_DEFINITIONS,
     }
 
-    it('summarizes a Trends insight with five different series', () => {
+    it('summarizes a Trends insight with four event and actor count series', () => {
         expect(
             summarizeInsightFilters(
                 {
@@ -152,13 +164,6 @@ describe('summarizeInsightFilters()', () => {
                             name: '$rageclick',
                             math: 'monthly_active',
                             order: 1,
-                        },
-                        {
-                            id: 'purchase',
-                            name: 'purchase',
-                            math: 'sum',
-                            math_property: 'price',
-                            order: 3,
                         },
                         {
                             id: '$pageview',
@@ -189,8 +194,38 @@ describe('summarizeInsightFilters()', () => {
                 mathDefinitions
             )
         ).toEqual(
-            "Pageview unique users & Rageclick MAUs & Random action count & purchase's price sum & Pageview unique organizations & Autocapture unique groups"
+            'Pageview unique users & Rageclick MAUs & Random action count & Pageview unique organizations & Autocapture unique groups'
         )
+    })
+
+    it('summarizes a Trends insight with two property value and event count per actor series', () => {
+        expect(
+            summarizeInsightFilters(
+                {
+                    insight: InsightType.TRENDS,
+                    events: [
+                        {
+                            id: 'purchase',
+                            name: 'purchase',
+                            math: 'sum',
+                            math_property: 'price',
+                            order: 1,
+                        },
+                    ],
+                    actions: [
+                        {
+                            id: 1,
+                            name: 'Random action',
+                            math: 'avg_count_per_actor',
+                            order: 0,
+                        },
+                    ],
+                },
+                aggregationLabel,
+                cohortIdsMapped,
+                mathDefinitions
+            )
+        ).toEqual("Random action count per user average & purchase's price sum")
     })
 
     it('summarizes a Trends insight with no series', () => {
@@ -502,16 +537,37 @@ describe('formatAggregationValue', () => {
     })
 
     it('uses render count when there is a value and property format is a no-op', () => {
-        const fakeRenderCount = (x: number): string => formatAggregationAxisValue('duration', x)
+        const fakeRenderCount = (x: number): string =>
+            formatAggregationAxisValue({ aggregation_axis_format: 'duration' }, x)
         const noOpFormatProperty = jest.fn((_, y) => y)
         const actual = formatAggregationValue('some name', 500, fakeRenderCount, noOpFormatProperty)
         expect(actual).toEqual('8m 20s')
     })
 
     it('uses render count when there is a value and property format converts number to string', () => {
-        const fakeRenderCount = (x: number): string => formatAggregationAxisValue('duration', x)
+        const fakeRenderCount = (x: number): string =>
+            formatAggregationAxisValue({ aggregation_axis_format: 'duration' }, x)
         const noOpFormatProperty = jest.fn((_, y) => String(y))
         const actual = formatAggregationValue('some name', 500, fakeRenderCount, noOpFormatProperty)
         expect(actual).toEqual('8m 20s')
+    })
+})
+
+describe('formatBreakdownLabel()', () => {
+    const identity = (x: any): any => x
+
+    const cohort = {
+        id: 5,
+        name: 'some cohort',
+    }
+
+    it('handles cohort breakdowns', () => {
+        expect(formatBreakdownLabel([cohort as any], identity, cohort.id, [cohort.id], 'cohort')).toEqual(cohort.name)
+        expect(formatBreakdownLabel([], identity, 3, [3], 'cohort')).toEqual('3')
+    })
+
+    it('handles cohort breakdowns with all users', () => {
+        expect(formatBreakdownLabel([], identity, 'all', ['all'], 'cohort')).toEqual('All Users')
+        expect(formatBreakdownLabel([], identity, 0, [0], 'cohort')).toEqual('All Users')
     })
 })

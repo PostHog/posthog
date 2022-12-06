@@ -1,8 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
-import { BindLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 import {
-    registerables,
     ActiveElement,
     Chart,
     ChartDataset,
@@ -14,35 +13,27 @@ import {
     Color,
     InteractionItem,
     TickOptions,
-    Tooltip,
     TooltipModel,
     TooltipOptions,
+    ScriptableLineSegmentContext,
 } from 'chart.js'
-import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
-import 'chartjs-adapter-dayjs'
-import { areObjectValuesEmpty, lightenDarkenColor } from '~/lib/utils'
+import { CrosshairOptions } from 'chartjs-plugin-crosshair'
+import 'chartjs-adapter-dayjs-3'
+import { areObjectValuesEmpty, lightenDarkenColor, hexToRGBA } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
-import { AnnotationsOverlay, annotationsOverlayLogic } from 'lib/components/AnnotationsOverlay'
-import { GraphDataset, GraphPoint, GraphPointPayload, GraphType, InsightType } from '~/types'
+import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
+import { GraphDataset, GraphPoint, GraphPointPayload, GraphType, InsightType, TrendsFilterType } from '~/types'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { formatAggregationAxisValue, AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 
-if (registerables) {
-    // required for storybook to work, not found in esbuild
-    Chart.register(...registerables)
-}
-Chart.register(CrosshairPlugin)
-Chart.defaults.animation['duration'] = 0
-
-// Create positioner to put tooltip at cursor position
-Tooltip.positioners.cursor = function (_, coordinates) {
-    return coordinates
-}
+import './chartjsSetup'
 
 export interface LineGraphProps {
     datasets: GraphDataset[]
@@ -56,9 +47,11 @@ export interface LineGraphProps {
     showPersonsModal?: boolean
     tooltip?: TooltipConfig
     isCompare?: boolean
+    inCardView?: boolean
+    isArea?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
     labelGroupType: number | 'people' | 'none'
-    aggregationAxisFormat?: AggregationAxisFormat
+    filters?: Partial<TrendsFilterType>
 }
 
 export function ensureTooltipElement(): HTMLElement {
@@ -72,27 +65,157 @@ export function ensureTooltipElement(): HTMLElement {
     return tooltipEl
 }
 
+export function onChartClick(
+    event: ChartEvent,
+    chart: Chart,
+    datasets: GraphDataset[],
+    onClick?: { (payload: GraphPointPayload): void | undefined }
+): void {
+    const nativeEvent = event.native
+    if (!nativeEvent) {
+        return
+    }
+    // Get all points along line
+    const sortDirection = 'y'
+    const sortPoints = (a: InteractionItem, b: InteractionItem): number =>
+        Math.abs(a.element[sortDirection] - (event[sortDirection] ?? 0)) -
+        Math.abs(b.element[sortDirection] - (event[sortDirection] ?? 0))
+    const pointsIntersectingLine = chart
+        .getElementsAtEventForMode(
+            nativeEvent,
+            'index',
+            {
+                intersect: false,
+            },
+            true
+        )
+        .sort(sortPoints)
+    // Get all points intersecting clicked point
+    const pointsIntersectingClick = chart
+        .getElementsAtEventForMode(
+            nativeEvent,
+            'point',
+            {
+                intersect: true,
+            },
+            true
+        )
+        .sort(sortPoints)
+
+    if (!pointsIntersectingClick.length && !pointsIntersectingLine.length) {
+        return
+    }
+
+    const clickedPointNotLine = pointsIntersectingClick.length !== 0
+
+    // Take first point when clicking a specific point.
+    const referencePoint: GraphPoint = clickedPointNotLine
+        ? { ...pointsIntersectingClick[0], dataset: datasets[pointsIntersectingClick[0].datasetIndex] }
+        : { ...pointsIntersectingLine[0], dataset: datasets[pointsIntersectingLine[0].datasetIndex] }
+
+    const crossDataset = datasets
+        .filter((_dt) => !_dt.dotted)
+        .map((_dt) => ({
+            ..._dt,
+            personUrl: _dt.persons_urls?.[referencePoint.index].url,
+            pointValue: _dt.data[referencePoint.index],
+        }))
+
+    onClick?.({
+        points: {
+            pointsIntersectingLine: pointsIntersectingLine.map((p) => ({
+                ...p,
+                dataset: datasets[p.datasetIndex],
+            })),
+            pointsIntersectingClick: pointsIntersectingClick.map((p) => ({
+                ...p,
+                dataset: datasets[p.datasetIndex],
+            })),
+            clickedPointNotLine,
+            referencePoint,
+        },
+        index: referencePoint.index,
+        crossDataset,
+        seriesId: datasets[referencePoint.datasetIndex].id,
+    })
+}
+
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
     return (
         <ErrorBoundary>
-            <LineGraph_ {...props} />
+            {props.type === GraphType.Pie ? <PieChart {...props} /> : <LineGraph_ {...props} />}
         </ErrorBoundary>
     )
 }
 
-let timer: NodeJS.Timeout | null = null
-
-function setTooltipPosition(chart: Chart, tooltipEl: HTMLElement): void {
-    if (timer) {
-        clearTimeout(timer)
+export function onChartHover(
+    event: ChartEvent,
+    chart: Chart,
+    onClick?: ((payload: GraphPointPayload) => void) | undefined
+): void {
+    const nativeEvent = event.native
+    if (!nativeEvent) {
+        return
     }
-    timer = setTimeout(() => {
-        const position = chart.canvas.getBoundingClientRect()
 
-        tooltipEl.style.position = 'absolute'
-        tooltipEl.style.left = position.left + window.pageXOffset + (chart.tooltip?.caretX || 0) + 8 + 'px'
-        tooltipEl.style.top = position.top + window.pageYOffset + (chart.tooltip?.caretY || 0) + 8 + 'px'
-    }, 25)
+    const target = nativeEvent?.target as HTMLDivElement
+    const point = chart.getElementsAtEventForMode(nativeEvent, 'index', { intersect: true }, true)
+
+    if (onClick && point.length) {
+        // FIXME: Whole graph should have cursor: pointer from the get-go if it's persons modal-enabled
+        // This code gives it that style, but only once the user hovers over a data point
+        target.style.cursor = 'pointer'
+    }
+}
+
+export const filterNestedDataset = (
+    hiddenLegendKeys: Record<string | number, boolean | undefined> | undefined,
+    datasets: GraphDataset[]
+): GraphDataset[] => {
+    if (!hiddenLegendKeys) {
+        return datasets
+    }
+    // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
+    const filterFn = (_: any, i: number): boolean => !hiddenLegendKeys?.[i]
+    return datasets.map((_data) => {
+        // Performs a filter transformation on properties that contain arrayed data
+        return Object.fromEntries(
+            Object.entries(_data).map(([key, val]) =>
+                Array.isArray(val) && val.length === datasets?.[0]?.actions?.length
+                    ? [key, val?.filter(filterFn)]
+                    : [key, val]
+            )
+        ) as GraphDataset
+    })
+}
+
+function createPinstripePattern(color: string): CanvasPattern {
+    const stripeWidth = 8 // 0.5rem
+    const stripeAngle = -22.5
+
+    // create the canvas and context
+    const canvas = document.createElement('canvas')
+    canvas.width = 1
+    canvas.height = stripeWidth * 2
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const ctx = canvas.getContext('2d')!
+
+    // fill the canvas with given color
+    ctx.fillStyle = color
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    // overlay half-transparent white stripe
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)'
+    ctx.fillRect(0, stripeWidth, 1, 2 * stripeWidth)
+
+    // create a canvas pattern and rotate it
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const pattern = ctx.createPattern(canvas, 'repeat')!
+    const xAx = Math.cos(stripeAngle)
+    const xAy = Math.sin(stripeAngle)
+    pattern.setTransform(new DOMMatrix([xAx, xAy, -xAy, xAx, 0, 0]))
+
+    return pattern
 }
 
 export function LineGraph_({
@@ -105,10 +228,12 @@ export function LineGraph_({
     ['data-attr']: dataAttr,
     showPersonsModal = true,
     isCompare = false,
+    inCardView,
+    isArea = false,
     incompletenessOffsetFromEnd = -1,
     tooltip: tooltipConfig,
     labelGroupType,
-    aggregationAxisFormat = 'numeric',
+    filters,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -118,15 +243,22 @@ export function LineGraph_({
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
-    const [[chartWidth, chartHeight], setChartDimensions] = useState<[number, number]>([0, 0])
+
+    // Relying on useResizeObserver instead of Chart's onResize because the latter was not reliable
+    const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
 
     const colors = getGraphColors()
     const insightType = insight.filters?.insight
     const isHorizontal = type === GraphType.HorizontalBar
     const isPie = type === GraphType.Pie
+    if (isPie) {
+        throw new Error('Use PieChart not LineGraph for this `GraphType`')
+    }
+
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
-    const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Pie].includes(type)
-    const showAnnotations = (!insightType || insightType === InsightType.TRENDS) && !isHorizontal && !isPie
+    const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar].includes(type)
+    const showAnnotations = (!insightType || insightType === InsightType.TRENDS) && !isHorizontal
+    const shouldAutoResize = isHorizontal && !inCardView
 
     // Remove tooltip element on unmount
     useEffect(() => {
@@ -139,16 +271,48 @@ export function LineGraph_({
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
         const mainColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
-            : getSeriesColor(dataset.id, isCompare)
+            : getSeriesColor(dataset.id, isCompare && !isArea)
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
+        const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
+        const areaIncompletePattern = createPinstripePattern(areaBackgroundColor)
+        let backgroundColor: string | undefined = undefined
+        if (isBackgroundBasedGraphType) {
+            backgroundColor = mainColor
+        } else if (isArea) {
+            backgroundColor = areaBackgroundColor
+        }
 
         // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overridden in spread of `dataset` below
         return {
             borderColor: mainColor,
             hoverBorderColor: isBackgroundBasedGraphType ? lightenDarkenColor(mainColor, -20) : hoverColor,
             hoverBackgroundColor: isBackgroundBasedGraphType ? lightenDarkenColor(mainColor, -20) : undefined,
-            backgroundColor: isBackgroundBasedGraphType ? mainColor : undefined,
-            fill: false,
+            fill: isArea ? 'origin' : false,
+            backgroundColor,
+            segment: {
+                borderDash: (ctx: ScriptableLineSegmentContext) => {
+                    // If chart is line graph, show dotted lines for incomplete data
+                    if (!(type === GraphType.Line && isInProgress)) {
+                        return undefined
+                    }
+
+                    const isIncomplete = ctx.p1DataIndex >= dataset.data.length + incompletenessOffsetFromEnd
+                    const isActive = !dataset.compare || dataset.compare_label != 'previous'
+                    // if last date is still active show dotted line
+                    return isIncomplete && isActive ? [10, 10] : undefined
+                },
+                backgroundColor: (ctx: ScriptableLineSegmentContext) => {
+                    // If chart is area graph, show pinstripe pattern for incomplete data
+                    if (!(type === GraphType.Line && isInProgress && isArea)) {
+                        return undefined
+                    }
+
+                    const isIncomplete = ctx.p1DataIndex >= dataset.data.length + incompletenessOffsetFromEnd
+                    const isActive = !dataset.compare || dataset.compare_label != 'previous'
+                    // if last date is still active show dotted line
+                    return isIncomplete && isActive ? areaIncompletePattern : undefined
+                },
+            },
             borderWidth: isBar ? 0 : 2,
             pointRadius: 0,
             hitRadius: 0,
@@ -165,59 +329,17 @@ export function LineGraph_({
     useEffect(() => {
         // Hide intentionally hidden keys
         if (!areObjectValuesEmpty(hiddenLegendKeys)) {
-            if (isHorizontal || type === GraphType.Pie) {
-                // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
-                const filterFn = (_: any, i: number): boolean => !hiddenLegendKeys?.[i]
-                datasets = datasets.map((_data) => {
-                    // Performs a filter transformation on properties that contain arrayed data
-                    return Object.fromEntries(
-                        Object.entries(_data).map(([key, val]) =>
-                            Array.isArray(val) && val.length === datasets?.[0]?.actions?.length
-                                ? [key, val?.filter(filterFn)]
-                                : [key, val]
-                        )
-                    ) as GraphDataset
-                })
+            if (isHorizontal) {
+                datasets = filterNestedDataset(hiddenLegendKeys, datasets)
             } else {
                 datasets = datasets.filter((data) => !hiddenLegendKeys?.[data.id])
             }
         }
 
-        // If chart is line graph, make duplicate lines and overlay to show dotted lines
-        if (type === GraphType.Line && isInProgress) {
-            datasets = [
-                ...datasets.map((dataset) => {
-                    const sliceTo = incompletenessOffsetFromEnd
-                    const datasetCopy = Object.assign({}, dataset, {
-                        data: [
-                            ...[...(dataset.data || [])].slice(0, sliceTo),
-                            ...(dataset.data?.slice(sliceTo).map(() => null) ?? []),
-                        ],
-                    })
-                    return processDataset(datasetCopy)
-                }),
-                ...datasets.map((dataset) => {
-                    const datasetCopy = Object.assign({}, dataset)
-                    datasetCopy.dotted = true
+        datasets = datasets.map((dataset) => processDataset(dataset))
 
-                    // if last date is still active show dotted line
-                    if (!dataset.compare || dataset.compare_label != 'previous') {
-                        datasetCopy['borderDash'] = [10, 10]
-                    }
-
-                    // Nullify dates that don't have dotted line
-                    const sliceFrom = incompletenessOffsetFromEnd - 1
-                    datasetCopy.data = [
-                        ...(datasetCopy.data?.slice(0, sliceFrom).map(() => null) ?? []),
-                        ...(datasetCopy.data?.slice(sliceFrom) ?? []),
-                    ] as number[]
-                    return processDataset(datasetCopy)
-                }),
-            ]
-        } else {
-            datasets = datasets.map((dataset) => processDataset(dataset))
-        }
-
+        const seriesMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n))
+        const precision = seriesMax < 5 ? 1 : seriesMax < 2 ? 2 : 0
         const tickOptions: Partial<TickOptions> = {
             color: colors.axisLabel as Color,
         }
@@ -232,7 +354,7 @@ export function LineGraph_({
             itemSort: (a, b) => a.label.localeCompare(b.label),
         }
 
-        let options: ChartOptions & { plugins: ChartPluginsOptions } = {
+        const options: ChartOptions & { plugins: ChartPluginsOptions } = {
             responsive: true,
             maintainAspectRatio: false,
             elements: {
@@ -285,8 +407,7 @@ export function LineGraph_({
                                     hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
                                     renderCount={
                                         tooltipConfig?.renderCount ||
-                                        ((value: number): string =>
-                                            formatAggregationAxisValue(aggregationAxisFormat, value))
+                                        ((value: number): string => formatAggregationAxisValue(filters, value))
                                     }
                                     forceEntitiesAsColumns={isHorizontal}
                                     hideInspectActorsSection={!onClick || !showPersonsModal}
@@ -347,90 +468,11 @@ export function LineGraph_({
                 intersect: false,
             },
             onHover(event: ChartEvent, _: ActiveElement[], chart: Chart) {
-                const nativeEvent = event.native
-                if (!nativeEvent) {
-                    return
-                }
-
-                const target = nativeEvent?.target as HTMLDivElement
-                const point = chart.getElementsAtEventForMode(nativeEvent, 'index', { intersect: true }, true)
-
-                if (onClick && point.length) {
-                    // FIXME: Whole graph should have cursor: pointer from the get-go if it's persons modal-enabled
-                    // This code gives it that style, but only once the user hovers over a data point
-                    target.style.cursor = 'pointer'
-                }
+                onChartHover(event, chart, onClick)
             },
             onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {
-                const nativeEvent = event.native
-                if (!nativeEvent) {
-                    return
-                }
-                // Get all points along line
-                const sortDirection = isHorizontal ? 'x' : 'y'
-                const sortPoints = (a: InteractionItem, b: InteractionItem): number =>
-                    Math.abs(a.element[sortDirection] - (event[sortDirection] ?? 0)) -
-                    Math.abs(b.element[sortDirection] - (event[sortDirection] ?? 0))
-                const pointsIntersectingLine = chart
-                    .getElementsAtEventForMode(
-                        nativeEvent,
-                        isHorizontal ? 'y' : 'index',
-                        {
-                            intersect: false,
-                        },
-                        true
-                    )
-                    .sort(sortPoints)
-                // Get all points intersecting clicked point
-                const pointsIntersectingClick = chart
-                    .getElementsAtEventForMode(
-                        nativeEvent,
-                        'point',
-                        {
-                            intersect: true,
-                        },
-                        true
-                    )
-                    .sort(sortPoints)
-
-                if (!pointsIntersectingClick.length && !pointsIntersectingLine.length) {
-                    return
-                }
-
-                const clickedPointNotLine = pointsIntersectingClick.length !== 0
-
-                // Take first point when clicking a specific point.
-                const referencePoint: GraphPoint = clickedPointNotLine
-                    ? { ...pointsIntersectingClick[0], dataset: datasets[pointsIntersectingClick[0].datasetIndex] }
-                    : { ...pointsIntersectingLine[0], dataset: datasets[pointsIntersectingLine[0].datasetIndex] }
-
-                const crossDataset = datasets
-                    .filter((_dt) => !_dt.dotted)
-                    .map((_dt) => ({
-                        ..._dt,
-                        personUrl: _dt.persons_urls?.[referencePoint.index].url,
-                        pointValue: _dt.data[referencePoint.index],
-                    }))
-
-                onClick?.({
-                    points: {
-                        pointsIntersectingLine: pointsIntersectingLine.map((p) => ({
-                            ...p,
-                            dataset: datasets[p.datasetIndex],
-                        })),
-                        pointsIntersectingClick: pointsIntersectingClick.map((p) => ({
-                            ...p,
-                            dataset: datasets[p.datasetIndex],
-                        })),
-                        clickedPointNotLine,
-                        referencePoint,
-                    },
-                    index: referencePoint.index,
-                    crossDataset,
-                    seriesId: datasets[referencePoint.datasetIndex].id,
-                })
+                onChartClick(event, chart, datasets, onClick)
             },
-            onResize: (_, { width, height }) => setChartDimensions([width, height]),
         }
 
         if (type === GraphType.Bar) {
@@ -439,7 +481,7 @@ export function LineGraph_({
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
-                        precision: 0,
+                        precision,
                         color: colors.axisLabel as string,
                     },
                 },
@@ -447,10 +489,10 @@ export function LineGraph_({
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
-                        precision: 0,
+                        precision,
                         color: colors.axisLabel as string,
                         callback: (value) => {
-                            return formatAggregationAxisValue(aggregationAxisFormat, value)
+                            return formatAggregationAxisValue(filters, value)
                         },
                     },
                 },
@@ -471,11 +513,12 @@ export function LineGraph_({
                 y: {
                     beginAtZero: true,
                     display: true,
+                    stacked: isArea,
                     ticks: {
-                        precision: 0,
+                        precision,
                         ...tickOptions,
                         callback: (value) => {
-                            return formatAggregationAxisValue(aggregationAxisFormat, value)
+                            return formatAggregationAxisValue(filters, value)
                         },
                     },
                     grid: {
@@ -490,17 +533,32 @@ export function LineGraph_({
                     display: true,
                     ticks: {
                         ...tickOptions,
-                        precision: 0,
+                        precision,
                         callback: (value) => {
-                            return formatAggregationAxisValue(aggregationAxisFormat, value)
+                            return formatAggregationAxisValue(filters, value)
                         },
                     },
                 },
                 y: {
+                    beforeFit: (scale) => {
+                        if (shouldAutoResize) {
+                            // automatically resize the chart container to fit the number of rows
+                            const MIN_HEIGHT = 575
+                            const ROW_HEIGHT = 16
+                            const dynamicHeight = scale.ticks.length * ROW_HEIGHT
+                            const height = Math.max(dynamicHeight, MIN_HEIGHT)
+                            const parentNode: any = scale.chart?.canvas?.parentNode
+                            parentNode.style.height = `${height}px`
+                        } else {
+                            // display only as many bars, as we can fit labels
+                            scale.max = scale.ticks.length
+                        }
+                    },
                     beginAtZero: true,
                     ticks: {
-                        precision: 0,
+                        precision,
                         color: colors.axisLabel as string,
+                        autoSkip: !shouldAutoResize,
                         callback: function _renderYLabel(_, i) {
                             const labelDescriptors = [
                                 datasets?.[0]?.actions?.[i]?.custom_name ?? datasets?.[0]?.actions?.[i]?.name, // action name
@@ -513,94 +571,6 @@ export function LineGraph_({
                 },
             }
             options.indexAxis = 'y'
-        } else if (type === GraphType.Pie) {
-            options = {
-                responsive: true,
-                maintainAspectRatio: false,
-                hover: {
-                    mode: 'index',
-                },
-                onHover: options.onHover,
-                plugins: {
-                    legend: {
-                        display: false,
-                    },
-                    crosshair: false as CrosshairOptions,
-                    tooltip: {
-                        position: 'cursor',
-                        enabled: false,
-                        intersect: true,
-                        external({ chart, tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
-                            if (!canvasRef.current) {
-                                return
-                            }
-
-                            const tooltipEl = ensureTooltipElement()
-                            if (tooltip.opacity === 0) {
-                                tooltipEl.style.opacity = '0'
-                                return
-                            }
-
-                            // Set caret position
-                            // Reference: https://www.chartjs.org/docs/master/configuration/tooltip.html
-                            tooltipEl.classList.remove('above', 'below', 'no-transform')
-                            tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
-                            tooltipEl.style.opacity = '1'
-
-                            if (tooltip.body) {
-                                const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
-                                const dataset = datasets[referenceDataPoint.datasetIndex]
-                                const seriesData = createTooltipData(tooltip.dataPoints, (dp) => {
-                                    const hasDotted =
-                                        datasets.some((d) => d.dotted) &&
-                                        dp.dataIndex - datasets?.[dp.datasetIndex]?.data?.length >=
-                                            incompletenessOffsetFromEnd
-                                    return (
-                                        dp.datasetIndex >= (hasDotted ? _datasets.length : 0) &&
-                                        dp.datasetIndex < (hasDotted ? _datasets.length * 2 : _datasets.length)
-                                    )
-                                })
-
-                                ReactDOM.render(
-                                    <InsightTooltip
-                                        date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
-                                        timezone={timezone}
-                                        seriesData={seriesData}
-                                        hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
-                                        renderCount={
-                                            tooltipConfig?.renderCount ||
-                                            ((value: number): string => {
-                                                const total = dataset.data.reduce((a: number, b: number) => a + b, 0)
-                                                const percentageLabel: number = parseFloat(
-                                                    ((value / total) * 100).toFixed(1)
-                                                )
-                                                return `${formatAggregationAxisValue(
-                                                    aggregationAxisFormat,
-                                                    value
-                                                )} (${percentageLabel}%)`
-                                            })
-                                        }
-                                        forceEntitiesAsColumns={isHorizontal}
-                                        hideInspectActorsSection={!onClick || !showPersonsModal}
-                                        groupTypeLabel={
-                                            labelGroupType === 'people'
-                                                ? 'people'
-                                                : labelGroupType === 'none'
-                                                ? ''
-                                                : aggregationLabel(labelGroupType).plural
-                                        }
-                                        {...tooltipConfig}
-                                    />,
-                                    tooltipEl
-                                )
-                            }
-
-                            setTooltipPosition(chart, tooltipEl)
-                        },
-                    },
-                },
-                onClick: options.onClick,
-            }
         }
 
         const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
@@ -613,24 +583,21 @@ export function LineGraph_({
     }, [datasets, hiddenLegendKeys])
 
     return (
-        <div className="LineGraph absolute w-full h-full" data-attr={dataAttr}>
+        <div
+            className={`w-full h-full overflow-hidden ${shouldAutoResize ? 'mx-6 mb-6' : 'LineGraph absolute'}`}
+            data-attr={dataAttr}
+        >
             <canvas ref={canvasRef} />
-            {myLineChart && showAnnotations && (
-                <BindLogic
-                    logic={annotationsOverlayLogic}
-                    props={{
-                        dashboardItemId: insightProps.dashboardItemId,
-                        insightNumericId: insight.id || 'new',
-                    }}
-                >
-                    <AnnotationsOverlay
-                        chart={myLineChart}
-                        dates={datasets[0]?.days || []}
-                        chartWidth={chartWidth}
-                        chartHeight={chartHeight}
-                    />
-                </BindLogic>
-            )}
+            {showAnnotations && myLineChart && chartWidth && chartHeight ? (
+                <AnnotationsOverlay
+                    chart={myLineChart}
+                    dates={datasets[0]?.days || []}
+                    chartWidth={chartWidth}
+                    chartHeight={chartHeight}
+                    dashboardItemId={insightProps.dashboardItemId}
+                    insightNumericId={insight.id || 'new'}
+                />
+            ) : null}
         </div>
     )
 }

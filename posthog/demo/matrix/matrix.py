@@ -222,7 +222,7 @@ class Matrix(ABC):
         now: Optional[dt.datetime] = None,
         days_past: int = 180,
         days_future: int = 30,
-        n_clusters: int,
+        n_clusters: int = 500,
     ):
         if now is None:
             now = timezone.now()

@@ -1,4 +1,3 @@
-import React from 'react'
 import { intervalFilterLogic } from './intervalFilterLogic'
 import { useActions, useValues } from 'kea'
 import { intervals } from 'lib/components/IntervalFilter/intervals'

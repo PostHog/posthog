@@ -1,11 +1,10 @@
 import { dayjs } from 'lib/dayjs'
-import React from 'react'
 import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
-import { Space, Tag, Typography } from 'antd'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatBreakdownLabel } from '../utils'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export interface SeriesDatum {
     id: number // determines order that series will be displayed in
@@ -105,7 +104,7 @@ export function invertDataSource(seriesData: SeriesDatum[]): InvertedSeriesDatum
                     s.breakdown_value,
                     s.filter?.breakdown,
                     s.filter?.breakdown_type,
-                    s.filter?.breakdown_histogram_bin_count !== undefined
+                    s.filter && isTrendsFilter(s.filter) && s.filter?.breakdown_histogram_bin_count !== undefined
                 )
             )
         }
@@ -114,15 +113,11 @@ export function invertDataSource(seriesData: SeriesDatum[]): InvertedSeriesDatum
         }
         if (pillValues.length > 0) {
             datumTitle = (
-                <Space direction={'horizontal'} wrap={true} align="center">
+                <>
                     {pillValues.map((pill) => (
-                        <Tag className="tag-pill" key={pill} closable={false}>
-                            <Typography.Text ellipsis={{ tooltip: pill }} style={{ maxWidth: 150 }}>
-                                {midEllipsis(pill, 30)}
-                            </Typography.Text>
-                        </Tag>
+                        <span key={pill}>{midEllipsis(pill, 60)}</span>
                     ))}
-                </Space>
+                </>
             )
         } else {
             // Technically should never reach this point because series data should have at least breakdown or compare values

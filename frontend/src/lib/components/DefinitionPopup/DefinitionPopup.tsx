@@ -1,5 +1,4 @@
 import './DefinitionPopup.scss'
-import React from 'react'
 import clsx from 'clsx'
 import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/DefinitionPopup/definitionPopupLogic'
 import { useActions, useValues } from 'kea'

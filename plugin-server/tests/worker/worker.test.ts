@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { DateTime } from 'luxon'
 
-import { loadPluginSchedule } from '../../src/main/services/schedule'
+import { loadPluginSchedule } from '../../src/main/graphile-worker/schedule'
 import { Hub, PreIngestionEvent } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { KafkaProducerWrapper } from '../../src/utils/db/kafka-producer-wrapper'
@@ -9,8 +9,9 @@ import { delay, UUIDT } from '../../src/utils/utils'
 import { ActionManager } from '../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../src/worker/ingestion/action-matcher'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
+import { loadSchedule } from '../../src/worker/plugins/loadSchedule'
 import { runPluginTask } from '../../src/worker/plugins/run'
-import { loadSchedule, setupPlugins } from '../../src/worker/plugins/setup'
+import { setupPlugins } from '../../src/worker/plugins/setup'
 import { teardownPlugins } from '../../src/worker/plugins/teardown'
 import { createTaskRunner } from '../../src/worker/worker'
 import { resetTestDatabase } from '../helpers/sql'
@@ -23,6 +24,8 @@ jest.mock('../../src/utils/status')
 jest.mock('../../src/worker/plugins/run')
 jest.mock('../../src/worker/plugins/setup')
 jest.mock('../../src/worker/plugins/teardown')
+jest.mock('../../src/worker/plugins/loadPluginsFromDB')
+jest.mock('../../src/worker/plugins/loadSchedule')
 jest.setTimeout(600000) // 600 sec timeout
 
 function createEvent(index = 0): PluginEvent {
@@ -79,7 +82,7 @@ describe('worker', () => {
 
         const ingestResponse2 = await ingestEvent(createEvent())
         expect(ingestResponse2).toEqual({
-            lastStep: 'runAsyncHandlersStep',
+            lastStep: 'createEventStep',
             args: expect.anything(),
             event: expect.anything(),
         })
@@ -161,12 +164,13 @@ describe('worker', () => {
             const spy = jest
                 .spyOn(EventPipelineRunner.prototype, 'runBufferEventPipeline')
                 .mockResolvedValue('runBufferEventPipeline result' as any)
+
             const event: PreIngestionEvent = {
                 eventUuid: 'uuid1',
                 distinctId: 'my_id',
                 ip: '127.0.0.1',
                 teamId: 2,
-                timestamp: DateTime.fromISO('2020-02-23T02:15:00.000Z', { zone: 'utc' }),
+                timestamp: DateTime.fromISO('2020-02-23T02:15:00.000Z', { zone: 'utc' }).toISO() as any,
                 event: '$pageview',
                 properties: {},
                 elementsList: [],

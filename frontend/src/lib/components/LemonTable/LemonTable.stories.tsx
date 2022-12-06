@@ -1,10 +1,10 @@
-import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonTable, LemonTableProps } from './LemonTable'
 
 export default {
     title: 'Lemon UI/Lemon Table',
     component: LemonTable,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof LemonTable>
 
 interface MockPerson {

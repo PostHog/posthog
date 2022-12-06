@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonModal, LemonModalProps } from './LemonModal'
 import { LemonButton } from '../LemonButton'
@@ -6,6 +6,7 @@ import { LemonButton } from '../LemonButton'
 export default {
     title: 'Lemon UI/Lemon Modal',
     component: LemonModal,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof LemonModal>
 
 export const _LemonModal: ComponentStory<typeof LemonModal> = (props: LemonModalProps) => {

@@ -1,8 +1,7 @@
-import React from 'react'
 import './WebPerformance.scss'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PageHeader } from 'lib/components/PageHeader'
-import { AnyPropertyFilter, EventsTableRowItem, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, EventsTableRowItem, PropertyFilterType, PropertyOperator } from '~/types'
 import { webPerformanceLogic, WebPerformancePage } from 'scenes/performance/webPerformanceLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -22,7 +21,7 @@ export const webPerformancePropertyFilters: AnyPropertyFilter[] = [
         key: '$performance_raw',
         value: 'is_set',
         operator: PropertyOperator.IsSet,
-        type: 'event',
+        type: PropertyFilterType.Event,
     },
 ]
 
@@ -88,7 +87,9 @@ export const WebPerformance = (): JSX.Element => {
                 title={
                     <div className="flex items-center gap-2">
                         Web Performance
-                        <LemonTag type="warning">Early Preview</LemonTag>
+                        <LemonTag type="warning" className="uppercase">
+                            Alpha
+                        </LemonTag>
                     </div>
                 }
                 caption={

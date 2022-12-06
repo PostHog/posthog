@@ -1,4 +1,3 @@
-import React from 'react'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { LemonTaxonomicStringPopup, TaxonomicStringPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -6,6 +5,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 interface EventNameInterface {
     value: string
     onChange: (value: string) => void
+    disabled?: boolean
 }
 
 export function EventName({ value, onChange }: EventNameInterface): JSX.Element {
@@ -24,11 +24,12 @@ export function EventName({ value, onChange }: EventNameInterface): JSX.Element 
     )
 }
 
-export function LemonEventName({ value, onChange }: EventNameInterface): JSX.Element {
+export function LemonEventName({ value, onChange, disabled }: EventNameInterface): JSX.Element {
     return (
         <LemonTaxonomicStringPopup
             groupType={TaxonomicFilterGroupType.Events}
             onChange={onChange}
+            disabled={disabled}
             value={value}
             type="secondary"
             status="stealth"

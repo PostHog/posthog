@@ -1,4 +1,5 @@
-import React, { useState } from 'react'
+import React from 'react'
+import { useState } from 'react'
 import { Checkbox, Dropdown, Menu, Radio, Space } from 'antd'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DownOutlined, LoadingOutlined, ReloadOutlined } from '@ant-design/icons'
@@ -12,7 +13,8 @@ export const LastRefreshText = (): JSX.Element => {
     const { lastRefreshed } = useValues(dashboardLogic)
     return (
         <span>
-            Last updated <b>{lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</b>
+            Last updated{' '}
+            <span className="font-medium">{lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</span>
         </span>
     )
 }
@@ -96,10 +98,12 @@ export function DashboardReloadAction(): JSX.Element {
                 <span className="dashboard-items-action-icon">
                     {itemsLoading ? <LoadingOutlined /> : <ReloadOutlined />}
                 </span>
-                <span className={clsx('dashboard-items-action-refresh-text', { hidden: itemsLoading })}>
+                <span className={clsx('dashboard-items-action-refresh-text', itemsLoading && 'invisible')}>
                     <LastRefreshText />
                 </span>
-                <span className={clsx('dashboard-items-action-refresh-text', 'completed', { hidden: !itemsLoading })}>
+                <span
+                    className={clsx('dashboard-items-action-refresh-text', 'completed', !itemsLoading && 'invisible')}
+                >
                     Refreshed {refreshMetrics.completed} out of {refreshMetrics.total}
                 </span>
             </Dropdown.Button>

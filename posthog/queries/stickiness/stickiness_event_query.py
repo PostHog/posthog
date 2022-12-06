@@ -3,9 +3,11 @@ from typing import Any, Dict, Tuple
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.action.util import format_action_filter
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
+from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import get_trunc_func_ch
 
 
@@ -41,10 +43,14 @@ class StickinessEventsQuery(EventQuery):
         groups_query, groups_params = self._get_groups_query()
         self.params.update(groups_params)
 
+        null_person_filter = (
+            f"AND {self.EVENT_TABLE_ALIAS}.person_id != toUUIDOrZero('')" if self._using_person_on_events else ""
+        )
+
         query = f"""
             SELECT
                 {self.aggregation_target()} AS aggregation_target,
-                countDistinct({get_trunc_func_ch(self._filter.interval)}(toDateTime(timestamp, %(timezone)s))) as num_intervals
+                countDistinct({get_trunc_func_ch(self._filter.interval)}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s))) as num_intervals
             FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
             {person_query}
@@ -53,10 +59,21 @@ class StickinessEventsQuery(EventQuery):
             {date_query}
             AND {actions_query}
             {prop_query}
+            {null_person_filter}
             GROUP BY aggregation_target
         """
 
         return query, self.params
+
+    @cached_property
+    def _person_query(self):
+        return PersonQuery(
+            self._filter,
+            self._team_id,
+            self._column_optimizer,
+            extra_fields=self._extra_person_fields,
+            entity=self._entity,
+        )
 
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = True

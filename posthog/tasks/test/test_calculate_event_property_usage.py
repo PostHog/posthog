@@ -200,7 +200,7 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
             self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="$pageview").volume_30_day)
             self.assertEqual(1, PropertyDefinition.objects.get(team=self.team, name="$current_url").query_usage_30_day)
 
-    @patch("posthog.tasks.calculate_event_property_usage.gauge")
+    @patch("posthog.tasks.calculate_event_property_usage.statsd.gauge")
     def test_calculate_usage(self, mock_gauge: MagicMock) -> None:
         EventDefinition.objects.create(team=self.team, name="$pageview")
         EventDefinition.objects.create(team=self.team, name="custom event")

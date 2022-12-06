@@ -53,8 +53,15 @@ export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { editingPlugin, loading, editingSource, editingPluginInitialChanges } = useValues(pluginsLogic)
-    const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource, generateApiKeysIfNeeded, patchPlugin } =
-        useActions(pluginsLogic)
+    const {
+        editPlugin,
+        savePluginConfig,
+        uninstallPlugin,
+        setEditingSource,
+        generateApiKeysIfNeeded,
+        patchPlugin,
+        showPluginLogs,
+    } = useActions(pluginsLogic)
 
     const [form] = Form.useForm()
 
@@ -227,6 +234,7 @@ export function PluginDrawer(): JSX.Element {
                                 <PluginImage
                                     pluginType={editingPlugin.plugin_type}
                                     url={editingPlugin.url}
+                                    icon={editingPlugin.icon}
                                     size="large"
                                 />
                                 <div style={{ flexGrow: 1, paddingLeft: 16 }}>
@@ -308,6 +316,7 @@ export function PluginDrawer(): JSX.Element {
                                     pluginConfigId={editingPlugin.pluginConfig.id}
                                     capabilities={editingPlugin.capabilities}
                                     publicJobs={editingPlugin.public_jobs}
+                                    onSubmit={() => showPluginLogs(editingPlugin.id)}
                                 />
                             )}
 

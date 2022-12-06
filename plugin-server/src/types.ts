@@ -9,12 +9,10 @@ import {
     Properties,
 } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
-import { TaskList } from 'graphile-worker'
 import { StatsD } from 'hot-shots'
 import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { JobQueueManager } from 'main/job-queues/job-queue-manager'
 import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
@@ -22,10 +20,10 @@ import { VM } from 'vm2'
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
-import { InternalMetrics } from './utils/internal-metrics'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
+import { AppMetrics } from './worker/ingestion/app-metrics'
 import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { PersonManager } from './worker/ingestion/person-manager'
@@ -77,7 +75,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     WORKER_CONCURRENCY: number
     TASKS_PER_WORKER: number
     TASK_TIMEOUT: number
-    DATABASE_URL: string | null
+    DATABASE_URL: string
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
     POSTHOG_DB_PASSWORD: string
@@ -101,6 +99,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
+    APP_METRICS_FLUSH_FREQUENCY_MS: number
     REDIS_URL: string
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
@@ -132,7 +131,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean
     STALENESS_RESTART_SECONDS: number
     HEALTHCHECK_MAX_STALE_SECONDS: number
-    CAPTURE_INTERNAL_METRICS: boolean
     PISCINA_USE_ATOMICS: boolean
     PISCINA_ATOMICS_TIMEOUT: number
     SITE_URL: string | null
@@ -143,8 +141,8 @@ export interface PluginsServerConfig extends Record<string, any> {
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CONVERSION_BUFFER_ENABLED: boolean
     CONVERSION_BUFFER_ENABLED_TEAMS: string
+    CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: string
     BUFFER_CONVERSION_SECONDS: number
-    PERSON_INFO_TO_REDIS_TEAMS: string
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     OBJECT_STORAGE_ENABLED: boolean
@@ -153,12 +151,15 @@ export interface PluginsServerConfig extends Record<string, any> {
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
     OBJECT_STORAGE_BUCKET: string
-    PLUGIN_SERVER_MODE: 'ingestion' | 'async' | null
+    PLUGIN_SERVER_MODE: 'ingestion' | 'async' | 'exports' | 'jobs' | 'scheduler' | null
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     HISTORICAL_EXPORTS_ENABLED: boolean
     HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
     HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: number
     HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: number
+    APP_METRICS_GATHERED_FOR_ALL: boolean
+    MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
+    USE_KAFKA_FOR_SCHEDULED_TASKS: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -175,14 +176,12 @@ export interface Hub extends PluginsServerConfig {
     objectStorage: ObjectStorage
     // metrics
     statsd?: StatsD
-    internalMetrics?: InternalMetrics
     pluginMetricsJob: Job | undefined
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
     pluginConfigs: Map<PluginConfigId, PluginConfig>
     pluginConfigsPerTeam: Map<TeamId, PluginConfig[]>
     pluginSchedule: Record<string, PluginConfigId[]> | null
-    pluginSchedulePromises: Record<string, Record<PluginConfigId, Promise<any> | null>>
     // unique hash for each plugin config; used to verify IDs caught on stack traces for unhandled promise rejections
     pluginConfigSecrets: Map<PluginConfigId, string>
     pluginConfigSecretLookup: Map<string, PluginConfigId>
@@ -197,8 +196,8 @@ export interface Hub extends PluginsServerConfig {
     hookCannon: HookCommander
     eventsProcessor: EventsProcessor
     personManager: PersonManager
-    jobQueueManager: JobQueueManager
     siteUrlManager: SiteUrlManager
+    appMetrics: AppMetrics
     // diagnostics
     lastActivity: number
     lastActivityType: string
@@ -214,54 +213,24 @@ export interface PluginServerCapabilities {
     http?: boolean
 }
 
-export type EnqueuedJob = EnqueuedPluginJob | EnqueuedBufferJob
+export type EnqueuedJob = EnqueuedPluginJob | GraphileWorkerCronScheduleJob
 export interface EnqueuedPluginJob {
     type: string
     payload: Record<string, any>
     timestamp: number
     pluginConfigId: number
     pluginConfigTeam: number
+    jobKey?: string
 }
 
-export interface EnqueuedBufferJob {
-    eventPayload: PluginEvent
-    timestamp: number
+export interface GraphileWorkerCronScheduleJob {
+    timestamp?: number
+    jobKey?: string
 }
 
 export enum JobName {
     PLUGIN_JOB = 'pluginJob',
     BUFFER_JOB = 'bufferJob',
-}
-
-export interface JobQueue {
-    startConsumer: (jobHandlers: TaskList) => Promise<void> | void
-    stopConsumer: () => Promise<void> | void
-    pauseConsumer: () => Promise<void> | void
-    resumeConsumer: () => Promise<void> | void
-    isConsumerPaused: () => boolean
-
-    connectProducer: () => Promise<void> | void
-    enqueue: (jobName: string, job: EnqueuedJob) => Promise<void> | void
-    disconnectProducer: () => Promise<void> | void
-}
-
-export enum JobQueueType {
-    FS = 'fs',
-    Graphile = 'graphile',
-    GraphileBackup = 'graphile-backup',
-}
-
-export enum JobQueuePersistence {
-    /** Job queues that store jobs on the local server */
-    Local = 'local',
-    /** Remote persistent job queues that can be read from concurrently */
-    Concurrent = 'concurrent',
-}
-
-export type JobQueueExport = {
-    type: JobQueueType
-    persistence: JobQueuePersistence
-    getQueue: (serverConfig: PluginsServerConfig) => JobQueue
 }
 
 export type PluginId = Plugin['id']
@@ -279,7 +248,7 @@ export type StoredPluginMetrics = Record<string, StoredMetricMathOperations> | n
 export type PluginMetricsVmResponse = Record<string, string> | null
 
 export interface JobPayloadFieldOptions {
-    type: 'string' | 'boolean' | 'json' | 'number' | 'date'
+    type: 'string' | 'boolean' | 'json' | 'number' | 'date' | 'daterange'
     title?: string
     required?: boolean
     default?: any
@@ -307,6 +276,8 @@ export interface Plugin {
     source__index_ts?: string
     /** Cached source for frontend.tsx from a joined PluginSourceFile query */
     source__frontend_tsx?: string
+    /** Cached source for site.ts from a joined PluginSourceFile query */
+    source__site_ts?: string
     error?: PluginError
     from_json?: boolean
     from_web?: boolean
@@ -416,11 +387,14 @@ export interface PluginTask {
     name: string
     type: PluginTaskType
     exec: (payload?: Record<string, any>) => Promise<any>
+
+    __ignoreForAppMetrics?: boolean
 }
 
 export type WorkerMethods = {
     runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
     runEventPipeline: (event: PluginEvent) => Promise<void>
+    runLightweightCaptureEndpointEventPipeline: (event: PipelineEvent) => Promise<void>
 }
 
 export type VMMethods = {
@@ -542,6 +516,7 @@ interface BaseEvent {
 
 export type ISOTimestamp = Brand<string, 'ISOTimestamp'>
 export type ClickHouseTimestamp = Brand<string, 'ClickHouseTimestamp'>
+export type ClickHouseTimestampSecondPrecision = Brand<string, 'ClickHouseTimestamp'>
 
 /** Raw event row from ClickHouse. */
 export interface RawClickHouseEvent extends BaseEvent {
@@ -556,6 +531,11 @@ export interface RawClickHouseEvent extends BaseEvent {
     group2_properties?: string
     group3_properties?: string
     group4_properties?: string
+    group0_created_at?: ClickHouseTimestamp
+    group1_created_at?: ClickHouseTimestamp
+    group2_created_at?: ClickHouseTimestamp
+    group3_created_at?: ClickHouseTimestamp
+    group4_created_at?: ClickHouseTimestamp
 }
 
 /** Parsed event row from ClickHouse. */
@@ -571,6 +551,11 @@ export interface ClickHouseEvent extends BaseEvent {
     group2_properties: Record<string, any>
     group3_properties: Record<string, any>
     group4_properties: Record<string, any>
+    group0_created_at?: DateTime | null
+    group1_created_at?: DateTime | null
+    group2_created_at?: DateTime | null
+    group3_created_at?: DateTime | null
+    group4_created_at?: DateTime | null
 }
 
 /** Event in a database-agnostic shape, AKA an ingestion event.
@@ -678,10 +663,11 @@ export interface Group extends BaseGroup {
     version: number
 }
 
+export type GroupKey = string
 /** Clickhouse Group model */
 export interface ClickhouseGroup {
     group_type_index: GroupTypeIndex
-    group_key: string
+    group_key: GroupKey
     created_at: string
     team_id: number
     group_properties: string
@@ -694,14 +680,6 @@ export interface PersonDistinctId {
     person_id: number
     distinct_id: string
     version: string | null
-}
-
-/** ClickHouse PersonDistinctId model. (person_distinct_id table) */
-export interface ClickHousePersonDistinctId {
-    team_id: number
-    person_id: string
-    distinct_id: string
-    is_deleted: 0 | 1
 }
 
 /** ClickHouse PersonDistinctId model. (person_distinct_id2 table) */
@@ -876,9 +854,9 @@ export interface PluginScheduleControl {
     reloadSchedule: () => Promise<void>
 }
 
-export interface JobQueueConsumerControl {
+export interface JobsConsumerControl {
     stop: () => Promise<void>
-    resume: () => Promise<void> | void
+    resume: () => Promise<void>
 }
 
 export type IngestEventResponse =
@@ -956,4 +934,9 @@ export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
     Owner = 15,
+}
+
+export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
+    team_id?: number | null
+    token?: string
 }

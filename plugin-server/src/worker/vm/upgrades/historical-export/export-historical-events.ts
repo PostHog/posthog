@@ -3,6 +3,7 @@ import * as Sentry from '@sentry/node'
 
 import {
     Hub,
+    JobSpec,
     PluginConfig,
     PluginConfigVMInternalResponse,
     PluginLogEntrySource,
@@ -31,6 +32,21 @@ const OLD_TIMESTAMP_CURSOR_KEY = 'old_timestamp_cursor'
 
 const INTERFACE_JOB_NAME = 'Export historical events'
 
+const JOB_SPEC: JobSpec = {
+    payload: {
+        dateFrom: {
+            title: 'Export start date',
+            type: 'date',
+            required: true,
+        },
+        dateTo: {
+            title: 'Export end date',
+            type: 'date',
+            required: true,
+        },
+    },
+}
+
 export function addHistoricalEventsExportCapability(
     hub: Hub,
     pluginConfig: PluginConfig,
@@ -39,15 +55,20 @@ export function addHistoricalEventsExportCapability(
     const { methods, tasks, meta } = response
 
     const currentPublicJobs = pluginConfig.plugin?.public_jobs || {}
-    // we can void this as the job appearing on the interface is not time-sensitive
 
-    if (!(INTERFACE_JOB_NAME in currentPublicJobs)) {
-        hub.promiseManager.trackPromise(hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, {}))
+    // If public job hasn't been registered or has changed, update it!
+    if (
+        Object.keys(currentPublicJobs[INTERFACE_JOB_NAME]?.payload || {}).length !==
+        Object.keys(JOB_SPEC.payload!).length
+    ) {
+        hub.promiseManager.trackPromise(
+            hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, JOB_SPEC)
+        )
     }
 
     const oldSetupPlugin = methods.setupPlugin
 
-    const oldRunEveryMinute = tasks.schedule.runEveryMinute?.exec
+    const oldRunEveryMinute = tasks.schedule.runEveryMinute
 
     methods.setupPlugin = async () => {
         await meta.utils.cursor.init(BATCH_ID_CURSOR_KEY)
@@ -63,7 +84,7 @@ export function addHistoricalEventsExportCapability(
         name: 'runEveryMinute',
         type: PluginTaskType.Schedule,
         exec: async () => {
-            await oldRunEveryMinute?.()
+            await oldRunEveryMinute?.exec?.()
 
             const lastRun = await meta.storage.get(RUN_EVERY_MINUTE_LAST_RUN_KEY, 0)
             const exportShouldBeRunning = await meta.storage.get(EXPORT_RUNNING_KEY, false)
@@ -94,6 +115,9 @@ export function addHistoricalEventsExportCapability(
 
             await meta.storage.set(RUN_EVERY_MINUTE_LAST_RUN_KEY, Date.now())
         },
+
+        // :TRICKY: We don't want to track app metrics for runEveryMinute for historical exports _unless_ plugin also has `runEveryMinute`
+        __ignoreForAppMetrics: !oldRunEveryMinute || !!oldRunEveryMinute.__ignoreForAppMetrics,
     }
 
     tasks.job['exportHistoricalEvents'] = {

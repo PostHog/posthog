@@ -16,10 +16,13 @@ Cypress.on('window:before:load', (win) => {
 })
 
 beforeEach(() => {
+    cy.intercept('api/prompts/my_prompts/', { sequences: [], state: {} })
+
     cy.intercept('https://app.posthog.com/decide/*', (req) =>
         req.reply(
             decideResponse({
-                'toolbar-launch-side-action': true,
+                // set feature flags here e.g.
+                // 'toolbar-launch-side-action': true,
             })
         )
     )
@@ -33,12 +36,16 @@ beforeEach(() => {
         })
         cy.visit('/?no-preloaded-app-context=true')
     } else {
+        cy.intercept('GET', /\/api\/projects\/\d+\/insights\/?\?/).as('getInsights')
+
         cy.request('POST', '/api/login/', {
             email: 'test@posthog.com',
             password: '12345678',
         })
         cy.visit('/insights')
-        cy.get('.saved-insights').should('exist')
+        cy.wait('@getInsights').then(() => {
+            cy.get('.saved-insights tr').should('exist')
+        })
     }
 })
 

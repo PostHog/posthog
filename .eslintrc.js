@@ -34,6 +34,7 @@ module.exports = {
     rules: {
         'no-only-tests/no-only-tests': 'error',
         'react/prop-types': [0],
+        'react/react-in-jsx-scope': [0],
         'react/no-unescaped-entities': [0],
         'react/jsx-no-target-blank': [0],
         'react/self-closing-comp': [

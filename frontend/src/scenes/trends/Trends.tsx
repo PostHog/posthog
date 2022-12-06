@@ -1,18 +1,14 @@
-import React from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar } from './viz'
-import { SaveCohortModal } from './persons-modal/SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
 import { ChartDisplayType, InsightType, ItemMode } from '~/types'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable'
-import { personsModalLogic } from './persons-modal/personsModalLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { LemonButton } from '@posthog/lemon-ui'
-import { PersonsModal } from './persons-modal/PersonsModal'
+import { isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 interface Props {
     view: InsightType
@@ -21,38 +17,28 @@ interface Props {
 export function TrendInsight({ view }: Props): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
     const { insightProps } = useValues(insightLogic)
-    const { cohortModalVisible } = useValues(personsModalLogic)
-    const { setCohortModalVisible } = useActions(personsModalLogic)
-    const {
-        filters: _filters,
-        loadMoreBreakdownUrl,
-        breakdownValuesLoading,
-        showModalActions,
-        aggregationTargetLabel,
-    } = useValues(trendsLogic(insightProps))
+    const { filters: _filters, loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(trendsLogic(insightProps))
     const { loadMoreBreakdownValues } = useActions(trendsLogic(insightProps))
-    const { showingPeople } = useValues(personsModalLogic)
-    const { saveCohortWithUrl } = useActions(personsModalLogic)
-    const { reportCohortCreatedFromPersonsModal } = useActions(eventUsageLogic)
+    const display = isTrendsFilter(_filters) || isStickinessFilter(_filters) ? _filters.display : null
 
     const renderViz = (): JSX.Element | undefined => {
         if (
-            !_filters.display ||
-            _filters.display === ChartDisplayType.ActionsLineGraph ||
-            _filters.display === ChartDisplayType.ActionsLineGraphCumulative ||
-            _filters.display === ChartDisplayType.ActionsBar
+            !display ||
+            display === ChartDisplayType.ActionsLineGraph ||
+            display === ChartDisplayType.ActionsLineGraphCumulative ||
+            display === ChartDisplayType.ActionsAreaGraph ||
+            display === ChartDisplayType.ActionsBar
         ) {
             return <ActionsLineGraph />
         }
-        if (_filters.display === ChartDisplayType.BoldNumber) {
+        if (display === ChartDisplayType.BoldNumber) {
             return <BoldNumber />
         }
-        if (_filters.display === ChartDisplayType.ActionsTable) {
+        if (display === ChartDisplayType.ActionsTable) {
             return (
                 <BindLogic logic={trendsLogic} props={{ dashboardItemId: null, view, filters: null }}>
                     <InsightsTable
                         embedded
-                        showTotalCount
                         filterKey={`trends_${view}`}
                         canEditSeriesNameInline={insightMode === ItemMode.Edit}
                         isMainInsightView={true}
@@ -60,13 +46,13 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 </BindLogic>
             )
         }
-        if (_filters.display === ChartDisplayType.ActionsPie) {
+        if (display === ChartDisplayType.ActionsPie) {
             return <ActionsPie />
         }
-        if (_filters.display === ChartDisplayType.ActionsBarValue) {
+        if (display === ChartDisplayType.ActionsBarValue) {
             return <ActionsHorizontalBar />
         }
-        if (_filters.display === ChartDisplayType.WorldMap) {
+        if (display === ChartDisplayType.WorldMap) {
             return <WorldMap />
         }
     }
@@ -76,9 +62,9 @@ export function TrendInsight({ view }: Props): JSX.Element {
             {(_filters.actions || _filters.events) && (
                 <div
                     className={
-                        _filters.display !== ChartDisplayType.ActionsTable &&
-                        _filters.display !== ChartDisplayType.WorldMap &&
-                        _filters.display !== ChartDisplayType.BoldNumber
+                        display !== ChartDisplayType.ActionsTable &&
+                        display !== ChartDisplayType.WorldMap &&
+                        display !== ChartDisplayType.BoldNumber
                             ? 'trends-insights-container'
                             : undefined /* Tables, numbers, and world map don't need this padding, but graphs do */
                     }
@@ -101,25 +87,6 @@ export function TrendInsight({ view }: Props): JSX.Element {
                     </LemonButton>
                 </div>
             )}
-            <PersonsModal
-                isOpen={showingPeople && !cohortModalVisible}
-                view={view}
-                filters={_filters}
-                onSaveCohort={() => {
-                    setCohortModalVisible(true)
-                }}
-                showModalActions={showModalActions}
-                aggregationTargetLabel={aggregationTargetLabel}
-            />
-            <SaveCohortModal
-                isOpen={cohortModalVisible}
-                onSave={(title: string) => {
-                    saveCohortWithUrl(title)
-                    setCohortModalVisible(false)
-                    reportCohortCreatedFromPersonsModal(_filters)
-                }}
-                onCancel={() => setCohortModalVisible(false)}
-            />
         </>
     )
 }

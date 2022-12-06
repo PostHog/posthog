@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues, useActions } from 'kea'
 import {
     annotationScopeToLevel,
@@ -65,7 +64,7 @@ export function Annotations(): JSX.Element {
                         : `This annotation applies to all insights in the ${currentOrganization?.name} organization`
                 return (
                     <Tooltip title={tooltip} placement="right">
-                        <LemonTag>
+                        <LemonTag className="uppercase">
                             {annotation.scope === AnnotationScope.Insight ? (
                                 <Link
                                     to={urls.insightView(annotation.insight_short_id as InsightShortId)}

@@ -37,7 +37,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         cls.user = create_user("user", "pass", cls.organization)
 
         for event_definition in cls.EXPECTED_EVENT_DEFINITIONS:
-            create_event_definitions(event_definition["name"], team_id=cls.demo_team.pk)
+            create_event_definitions(event_definition, team_id=cls.demo_team.pk)
             for _ in range(event_definition["volume_30_day"]):
                 capture_event(
                     event=EventData(
@@ -159,24 +159,6 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 2)
         self.assertNotEqual(response.json()["results"][0]["name"], action.name)
 
-    def test_event_type_action_event(self):
-        action = Action.objects.create(team=self.demo_team, name="action1_app")
-
-        response = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=action_event")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["action_id"], action.id)
-        self.assertEqual(response.json()["results"][0]["name"], action.name)
-
-    def test_event_type_all(self):
-        action = Action.objects.create(team=self.demo_team, name="action1_app")
-
-        response = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=all")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 3)
-        self.assertEqual(response.json()["results"][0]["action_id"], action.id)
-        self.assertEqual(response.json()["results"][0]["name"], action.name)
-
     def test_event_type_event_custom(self):
         response = self.client.get("/api/projects/@current/event_definitions/?event_type=event_custom")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -222,8 +204,10 @@ def capture_event(event: EventData):
     )
 
 
-def create_event_definitions(name: str, team_id: int) -> EventDefinition:
+def create_event_definitions(event_definition: Dict, team_id: int) -> EventDefinition:
     """
     Create event definition for a team.
     """
-    return EventDefinition.objects.create(name=name, team_id=team_id)
+    created_definition = EventDefinition.objects.create(name=event_definition["name"], team_id=team_id)
+
+    return created_definition

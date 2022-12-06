@@ -96,6 +96,7 @@
                     "excluded_person_property_names": []
                 },
                 "session_recording_opt_in": false,
+                "capture_console_log_opt_in": false,
                 "effective_membership_level": 15,
                 "access_control": false
             },
@@ -303,7 +304,6 @@
                             "key": "123",
                             "plan": "enterprise",
                             "valid_until": "2022-11-19T05:33:55.999116Z",
-                            "max_users": null,
                             "created_at": "2021-11-19T05:33:56.018147Z"
                         }
                     ],

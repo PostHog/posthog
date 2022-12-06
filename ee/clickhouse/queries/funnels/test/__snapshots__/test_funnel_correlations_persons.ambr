@@ -100,18 +100,18 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['$pageview', 'insight analyzed']
-                         AND timestamp >= toDateTime('2021-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2021-01-08 23:59:59') AS date_to,
-       toDateTime('2021-01-01 00:00:00') AS date_from,
+     ORDER BY aggregation_target),
+       toDateTime('2021-01-08 23:59:59', 'UTC') AS date_to,
+       toDateTime('2021-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['$pageview', 'insight analyzed'] as funnel_step_names
   SELECT actors.actor_id AS actor_id ,
@@ -125,11 +125,11 @@
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON pdi.distinct_id = events.distinct_id
   JOIN funnel_actors AS actors ON pdi.person_id = actors.actor_id
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event = 'insight loaded'
     AND actors.steps = target_step
@@ -322,19 +322,19 @@
                                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                              WHERE team_id = 2
                                AND event IN ['$pageview', 'insight analyzed', 'insight updated']
-                               AND timestamp >= toDateTime('2021-01-01 00:00:00')
-                               AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
+                               AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                               AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2, 3]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
-       toDateTime('2021-01-08 23:59:59') AS date_to,
-       toDateTime('2021-01-01 00:00:00') AS date_from,
+     ORDER BY aggregation_target),
+       toDateTime('2021-01-08 23:59:59', 'UTC') AS date_to,
+       toDateTime('2021-01-01 00:00:00', 'UTC') AS date_from,
        3 AS target_step,
        ['$pageview', 'insight analyzed', 'insight updated'] as funnel_step_names
   SELECT actors.actor_id AS actor_id ,
@@ -348,11 +348,11 @@
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON pdi.distinct_id = events.distinct_id
   JOIN funnel_actors AS actors ON pdi.person_id = actors.actor_id
-  WHERE event.timestamp >= date_from
-    AND event.timestamp < date_to
+  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
     AND event.team_id = 2
-    AND event.timestamp > actors.first_timestamp
-    AND event.timestamp < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
     AND event.event NOT IN funnel_step_names
     AND event.event = 'insight loaded'
     AND actors.steps <> target_step
@@ -483,19 +483,19 @@
                                  AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(person.properties, 'foo'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                          AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['$pageview', 'insight analyzed']
-                         AND timestamp >= toDateTime('2021-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
-              WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+              WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
-        HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+        HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id ,
          any(funnel_actors.matching_events) AS matching_events
@@ -628,17 +628,17 @@
                                  AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(person.properties, 'foo'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                          AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
-                         AND timestamp >= toDateTime('2021-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
                     WHERE (1=1) ))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id ,
          any(funnel_actors.matching_events) AS matching_events
@@ -771,17 +771,17 @@
                                  AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(person.properties, 'foo'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                          AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
-                         AND timestamp >= toDateTime('2021-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
                     WHERE (1=1) ))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target SETTINGS allow_experimental_window_functions = 1),
+     ORDER BY aggregation_target),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id ,
          any(funnel_actors.matching_events) AS matching_events

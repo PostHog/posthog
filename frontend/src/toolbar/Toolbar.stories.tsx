@@ -1,14 +1,14 @@
 import '~/styles'
 import '~/toolbar/styles.scss'
 
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
 
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
-import { EditorProps } from '~/types'
+import { ToolbarParams } from '~/types'
 import { useStorybookMocks } from '~/mocks/browser'
 
-const editorParams: EditorProps = {
+const toolbarParams: ToolbarParams = {
     temporaryToken: 'UExb1dCsoqBtrhrZYxzmxXQ7XdjVH5Ea_zbQjTFuJqk',
     actionId: undefined,
     userIntent: undefined,
@@ -46,9 +46,9 @@ export const Authenticated = (): JSX.Element => {
                 config: {
                     enable_collect_everything: true,
                 },
-                editorParams: {
+                toolbarParams: {
                     toolbarVersion: 'toolbar',
-                    jsURL: editorParams.jsURL,
+                    jsURL: toolbarParams.jsURL,
                 },
                 isAuthenticated: true,
                 supportedCompression: ['gzip', 'gzip-js', 'lz64'],
@@ -67,7 +67,7 @@ export const Authenticated = (): JSX.Element => {
         <div>
             <div>The toolbar should show up now! Click it to open.</div>
             <button>Click Me</button>
-            <ToolbarApp {...editorParams} disableExternalStyles />
+            <ToolbarApp {...toolbarParams} disableExternalStyles />
         </div>
     )
 }
@@ -79,7 +79,7 @@ export const UnAuthenticated = (): JSX.Element => {
         <div>
             <div>The toolbar should show up now!</div>
             <button>Click Me</button>
-            <ToolbarApp {...editorParams} disableExternalStyles />
+            <ToolbarApp {...toolbarParams} disableExternalStyles />
         </div>
     )
 }

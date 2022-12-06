@@ -1,10 +1,11 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { Action, EnqueuedPluginJob, Hub, PluginTaskType, PostIngestionEvent, Team } from '../types'
+import { Action, EnqueuedPluginJob, Hub, PipelineEvent, PluginTaskType, PostIngestionEvent, Team } from '../types'
 import { convertToProcessedPluginEvent } from '../utils/event'
 import { EventPipelineRunner } from './ingestion/event-pipeline/runner'
+import { loadSchedule } from './plugins/loadSchedule'
 import { runPluginTask, runProcessEvent } from './plugins/run'
-import { loadSchedule, setupPlugins } from './plugins/setup'
+import { setupPlugins } from './plugins/setup'
 import { teardownPlugins } from './plugins/teardown'
 
 type TaskRunner = (hub: Hub, args: any) => Promise<any> | any
@@ -13,7 +14,7 @@ export const workerTasks: Record<string, TaskRunner> = {
     runPluginJob: (hub, { job }: { job: EnqueuedPluginJob }) => {
         return runPluginTask(hub, job.type, PluginTaskType.Job, job.pluginConfigId, job.payload)
     },
-    runEveryMinute: (hub, args: { pluginConfigId: number }) => {
+    runEveryMinute: async (hub, args: { pluginConfigId: number }) => {
         return runPluginTask(hub, 'runEveryMinute', PluginTaskType.Schedule, args.pluginConfigId)
     },
     runEveryHour: (hub, args: { pluginConfigId: number }) => {
@@ -27,6 +28,10 @@ export const workerTasks: Record<string, TaskRunner> = {
     },
     pluginScheduleReady: (hub) => {
         return hub.pluginSchedule !== null
+    },
+    runLightweightCaptureEndpointEventPipeline: async (hub, args: { event: PipelineEvent }) => {
+        const runner = new EventPipelineRunner(hub, args.event)
+        return await runner.runLightweightCaptureEndpointEventPipeline(args.event)
     },
     runEventPipeline: async (hub, args: { event: PluginEvent }) => {
         const runner = new EventPipelineRunner(hub, args.event)
@@ -60,6 +65,9 @@ export const workerTasks: Record<string, TaskRunner> = {
     },
     flushKafkaMessages: async (hub) => {
         await hub.kafkaProducer.flush()
+    },
+    resetAvailableFeaturesCache: (hub, args: { organization_id: string }) => {
+        hub.organizationManager.resetAvailableFeatureCache(args.organization_id)
     },
     // Exported only for tests
     _testsRunProcessEvent: async (hub, args: { event: PluginEvent }) => {

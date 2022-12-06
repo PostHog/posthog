@@ -11,8 +11,9 @@ from posthog.models.async_migration import AsyncMigration
 from posthog.test.base import BaseTest
 from posthog.version_requirement import ServiceVersionRequirement
 
+pytestmark = pytest.mark.async_migrations
 
-@pytest.mark.ee
+
 class TestAsyncMigrationDefinition(BaseTest):
     def test_get_async_migration_definition(self):
         from posthog.async_migrations.examples.example import example_fn, example_rollback_fn
@@ -32,7 +33,7 @@ class TestAsyncMigrationDefinition(BaseTest):
     def test_get_migration_instance_and_parameters(self):
         setup_async_migrations(ignore_posthog_version=True)
 
-        MIGRATION_NAME = "0006_persons_and_groups_on_events_backfill"
+        MIGRATION_NAME = "0007_persons_and_groups_on_events_backfill"
 
         definition = get_async_migration_definition(MIGRATION_NAME)
         instance = AsyncMigration.objects.get(name=MIGRATION_NAME)

@@ -7,13 +7,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.funnels.base import ClickhouseFunnelBase
 from posthog.queries.funnels.utils import get_funnel_order_class
-from posthog.queries.util import (
-    format_ch_timestamp,
-    get_earliest_timestamp,
-    get_interval_func_ch,
-    get_trunc_func_ch,
-    start_of_week_fix,
-)
+from posthog.queries.util import get_earliest_timestamp, get_interval_func_ch, get_trunc_func_ch, start_of_week_fix
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
@@ -53,6 +47,8 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     If no people have reached step {from_step} in the period, {conversion_rate} is zero.
     """
 
+    QUERY_TYPE = "funnel_trends"
+
     def __init__(self, filter: Filter, team: Team) -> None:
 
         super().__init__(filter, team)
@@ -83,7 +79,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         return f"""
             SELECT
                 aggregation_target,
-                {trunc_func}(toDateTime(timestamp, %(timezone)s)) AS entrance_period_start,
+                {trunc_func}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix(self._filter.interval)}) AS entrance_period_start,
                 max(steps) AS steps_completed
                 {event_select_clause}
                 {breakdown_clause}
@@ -108,13 +104,11 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             _date_from = self._filter.date_from
 
         breakdown_clause = self._get_breakdown_prop()
-        formatted_date_from = format_ch_timestamp(_date_from, convert_to_timezone=self._team.timezone)
-        formatted_date_to = format_ch_timestamp(self._filter.date_to, convert_to_timezone=self._team.timezone)
 
         self.params.update(
             {
-                "formatted_date_from": formatted_date_from,
-                "formatted_date_to": formatted_date_to,
+                "formatted_date_from": _date_from.strftime("%Y-%m-%d %H:%M:%S"),
+                "formatted_date_to": self._filter.date_to.strftime("%Y-%m-%d %H:%M:%S"),
                 "interval": self._filter.interval,
             }
         )
@@ -138,14 +132,14 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             ) data
             RIGHT OUTER JOIN (
                 SELECT
-                    {trunc_func}(toDateTime(%(formatted_date_from)s) + {interval_func}(number), {start_of_week_fix(self._filter)} %(timezone)s) AS entrance_period_start
+                    {trunc_func}(toDateTime(%(formatted_date_from)s, %(timezone)s) + {interval_func}(number) {start_of_week_fix(self._filter.interval)}) AS entrance_period_start
                     {', breakdown_value as prop' if breakdown_clause else ''}
-                FROM numbers(dateDiff(%(interval)s, toDateTime(%(formatted_date_from)s), toDateTime(%(formatted_date_to)s)) + 1) AS period_offsets
+                FROM numbers(dateDiff(%(interval)s, toDateTime(%(formatted_date_from)s, %(timezone)s), toDateTime(%(formatted_date_to)s, %(timezone)s)) + 1) AS period_offsets
                 {'ARRAY JOIN (%(breakdown_values)s) AS breakdown_value' if breakdown_clause else ''}
             ) fill
             USING (entrance_period_start {breakdown_clause})
             ORDER BY entrance_period_start ASC
-            SETTINGS allow_experimental_window_functions = 1"""
+        """
 
         return query
 

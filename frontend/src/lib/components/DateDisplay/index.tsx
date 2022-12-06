@@ -1,5 +1,4 @@
 import { dayjs } from 'lib/dayjs'
-import React from 'react'
 import { IntervalType } from '~/types'
 import './DateDisplay.scss'
 

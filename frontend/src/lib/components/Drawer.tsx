@@ -1,4 +1,4 @@
-import React, { PropsWithChildren } from 'react'
+import { PropsWithChildren } from 'react'
 import { Drawer as AntDrawer } from 'antd'
 import { DrawerProps } from 'antd/lib/drawer'
 import { styles } from '~/styles/vars'

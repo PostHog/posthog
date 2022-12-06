@@ -1,4 +1,3 @@
-import React from 'react'
 import { mswDecorator } from '~/mocks/browser'
 import { PropertyNamesSelect } from './PropertyNamesSelect'
 import { useValues } from 'kea'
@@ -6,6 +5,7 @@ import { personPropertiesModel } from '~/models/personPropertiesModel'
 
 export default {
     title: 'Filters',
+    parameters: { chromatic: { disableSnapshot: false } },
     decorators: [
         mswDecorator({
             get: {

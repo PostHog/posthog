@@ -119,7 +119,7 @@
 ---
 # name: test_parse_prop_clauses_defaults.2
   <class 'tuple'> (
-    'AND (   has(%(vglobal_0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kglobal_0)s), \'^"|"$\', \'\'))  AND argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_global_1)s)',
+    'AND (   has(%(vglobal_0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kglobal_0)s), \'^"|"$\', \'\'))  AND argMax(person."pmat_email", version) ILIKE %(vpersonquery_global_1)s)',
     <class 'dict'> {
       'kglobal_0': 'event_prop',
       'kpersonquery_global_1': 'email',

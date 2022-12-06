@@ -24,21 +24,53 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 ) ENGINE = {engine}
 """
 
-SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS = """
-    , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'
-"""
+MATERIALIZED_COLUMNS = {
+    "has_full_snapshot": {
+        "schema": "Int8",
+        "materializer": "MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot')",
+    },
+    "events_summary": {
+        "schema": "Array(String)",
+        "materializer": "MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)')",
+    },
+    "click_count": {
+        "schema": "Int8",
+        "materializer": "MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary))",
+    },
+    "keypress_count": {
+        "schema": "Int8",
+        "materializer": "MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary))",
+    },
+    "timestamps_summary": {
+        "schema": "Array(DateTime64(6, 'UTC'))",
+        "materializer": "MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary))",
+    },
+    "first_event_timestamp": {
+        "schema": "Nullable(DateTime64(6, 'UTC'))",
+        "materializer": "MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary))",
+    },
+    "last_event_timestamp": {
+        "schema": "Nullable(DateTime64(6, 'UTC'))",
+        "materializer": "MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary))",
+    },
+    "urls": {
+        "schema": "Array(String)",
+        "materializer": "MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))",
+    },
+}
 
-SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS = """
-    , has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot'
-"""
 
-SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL = lambda: """
-    ALTER TABLE session_recording_events
-    ON CLUSTER '{cluster}'
-    COMMENT COLUMN has_full_snapshot 'column_materializer::has_full_snapshot'
-""".format(
-    cluster=settings.CLICKHOUSE_CLUSTER
+# Like "has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'"
+SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS = ", " + ", ".join(
+    f"{column_name} {column['schema']} {column['materializer']}" for column_name, column in MATERIALIZED_COLUMNS.items()
 )
+
+# Like "has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot'"
+SESSION_RECORDING_EVENTS_PROXY_MATERIALIZED_COLUMNS = ", " + ", ".join(
+    f"{column_name} {column['schema']} COMMENT 'column_materializer::{column_name}'"
+    for column_name, column in MATERIALIZED_COLUMNS.items()
+)
+
 
 SESSION_RECORDING_EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
     "session_recording_events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED

@@ -9,11 +9,12 @@ import { userLogic } from './userLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { teamLogic } from './teamLogic'
 import { urls } from 'scenes/urls'
-import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } from 'scenes/sceneTypes'
+import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { UPGRADE_LINK } from 'lib/constants'
+import { appContextLogic } from './appContextLogic'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
@@ -23,6 +24,7 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.EventPropertyDefinitions]: Scene.DataManagement,
     [Scene.EventDefinition]: Scene.DataManagement,
     [Scene.EventPropertyDefinition]: Scene.DataManagement,
+    [Scene.IngestionWarnings]: Scene.DataManagement,
     [Scene.Person]: Scene.Persons,
     [Scene.Cohort]: Scene.Cohorts,
     [Scene.Groups]: Scene.Persons,
@@ -30,6 +32,9 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.Group]: Scene.Persons,
     [Scene.Dashboard]: Scene.Dashboards,
     [Scene.FeatureFlag]: Scene.FeatureFlags,
+    [Scene.AppMetrics]: Scene.Plugins,
+    [Scene.SessionRecording]: Scene.SessionRecordings,
+    [Scene.SessionRecordingPlaylist]: Scene.SessionRecordingPlaylist,
 }
 
 export const sceneLogic = kea<sceneLogicType>({
@@ -37,7 +42,7 @@ export const sceneLogic = kea<sceneLogicType>({
         scenes?: Record<Scene, () => any>
     },
     connect: () => ({
-        logic: [router, userLogic, preflightLogic],
+        logic: [router, userLogic, preflightLogic, appContextLogic],
         values: [featureFlagLogic, ['featureFlags']],
         actions: [router, ['locationChanged']],
     }),
@@ -268,6 +273,7 @@ export const sceneLogic = kea<sceneLogicType>({
                         }
                     } else if (
                         teamLogic.values.currentTeam &&
+                        !teamLogic.values.currentTeam.is_demo &&
                         !teamLogic.values.currentTeam.completed_snippet_onboarding &&
                         !location.pathname.startsWith('/ingestion')
                     ) {

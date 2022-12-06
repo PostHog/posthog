@@ -1,9 +1,10 @@
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from posthog.demo import ORGANIZATION_NAME, TEAM_NAME, create_demo_data
+from posthog.demo.legacy import ORGANIZATION_NAME, TEAM_NAME, create_demo_data
 from posthog.models import EventProperty, PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile, Team, User
 from posthog.models.event_definition import EventDefinition
+from posthog.models.personal_api_key import hash_key_value
 from posthog.models.property_definition import PropertyDefinition
 
 
@@ -15,6 +16,7 @@ class Command(BaseCommand):
         parser.add_argument("--create-e2e-test-plugin", action="store_true", help="Create plugin for charts E2E test")
 
     def handle(self, *args, **options):
+        print("\n⚠️ setup_dev is deprecated. Use the more robust generate_demo_data command instead.\n")  # noqa T201
         with transaction.atomic():
             _, team, user = User.objects.bootstrap(
                 organization_name=ORGANIZATION_NAME,
@@ -38,7 +40,9 @@ class Command(BaseCommand):
             self.add_property_definition(team, "volume")
             self.add_property_definition(team, "is_first_movie")
 
-            PersonalAPIKey.objects.create(user=user, label="e2e_demo_api_key key", value="e2e_demo_api_key")
+            PersonalAPIKey.objects.create(
+                user=user, label="e2e_demo_api_key key", secure_value=hash_key_value("e2e_demo_api_key")
+            )
             if not options["no_data"]:
                 create_demo_data(team)
 

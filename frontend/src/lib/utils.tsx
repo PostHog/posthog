@@ -1,4 +1,4 @@
-import React, { CSSProperties, PropsWithChildren } from 'react'
+import { CSSProperties } from 'react'
 import api from './api'
 import {
     ActionFilter,
@@ -32,7 +32,7 @@ import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from './utils/getAppContext'
-import { isValidPropertyFilter } from './components/PropertyFilters/utils'
+import { isPropertyFilterWithOperator, isValidPropertyFilter } from './components/PropertyFilters/utils'
 import { IconCopy } from './components/icons'
 import { lemonToast } from './components/lemonToast'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -176,9 +176,10 @@ export async function deleteWithUndo<T extends Record<string, any>>({
     undo?: boolean
     endpoint: string
     object: T
+    idField?: keyof T
     callback?: (undo: boolean, object: T) => void
 }): Promise<void> {
-    await api.update(`api/${props.endpoint}/${props.object.id}`, {
+    await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {
         ...props.object,
         deleted: !undo,
     })
@@ -197,35 +198,6 @@ export async function deleteWithUndo<T extends Record<string, any>>({
                       action: () => deleteWithUndo({ undo: true, ...props }),
                   },
         }
-    )
-}
-
-export function DeleteWithUndo(
-    props: PropsWithChildren<{
-        endpoint: string
-        object: {
-            name?: string
-            id: number
-        }
-        className: string
-        style: CSSProperties
-        callback: () => void
-    }>
-): JSX.Element {
-    const { className, style, children } = props
-    return (
-        <a
-            href="#"
-            onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                deleteWithUndo(props)
-            }}
-            className={className}
-            style={style}
-        >
-            {children}
-        </a>
     )
 }
 
@@ -409,7 +381,9 @@ export function formatLabel(label: string, action: ActionFilter): string {
             .map(
                 (property) =>
                     `${property.key ? `${property.key} ` : ''}${
-                        allOperatorsMapping[property.operator || 'exact'].split(' ')[0]
+                        allOperatorsMapping[
+                            (isPropertyFilterWithOperator(property) && property.operator) || 'exact'
+                        ].split(' ')[0]
                     } ${property.value}`
             )
             .join(', ')})`
@@ -419,6 +393,17 @@ export function formatLabel(label: string, action: ActionFilter): string {
 
 export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
+}
+
+// https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object
+export function objectClean(obj: Record<string, any>): Record<string, any> {
+    const response = { ...obj }
+    Object.keys(response).forEach((key) => {
+        if (response[key] === undefined) {
+            delete response[key]
+        }
+    })
+    return response
 }
 
 /** Returns "response" from: obj2 = { ...obj1, ...response }  */
@@ -474,7 +459,7 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
-/** Format number with space as the thousands separator. */
+/** Format number with comma as the thousands separator. */
 export function humanFriendlyNumber(d: number, precision: number = 2): string {
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
@@ -538,7 +523,7 @@ export function humanFriendlyDetailedTime(
 // Pad numbers with leading zeros
 export const zeroPad = (num: number, places: number): string => String(num).padStart(places, '0')
 
-export function colonDelimitedDuration(d: string | number | null | undefined, numUnits: number = 3): string {
+export function colonDelimitedDuration(d: string | number | null | undefined, fixedUnits: number | null = 3): string {
     // Convert `d` (seconds) to a colon delimited duration. includes `numUnits` no. of units starting from right
     // Example: `01:10:09:08 = 1d 10hrs 9mins 8s`
     if (d === '' || d === null || d === undefined) {
@@ -552,39 +537,79 @@ export function colonDelimitedDuration(d: string | number | null | undefined, nu
         h = 0,
         m = 0
 
-    if (numUnits >= 5) {
-        weeks = Math.floor(s / 604800)
-        s -= weeks * 604800
-    }
-    if (numUnits >= 4) {
-        days = Math.floor(s / 86400)
-        s -= days * 86400
-    }
-    if (numUnits >= 3) {
-        h = Math.floor(s / 3600)
-        s -= h * 3600
-    }
-    if (numUnits >= 2) {
-        m = Math.floor(s / 60)
-        s -= m * 60
-    }
+    weeks = !fixedUnits || fixedUnits > 4 ? Math.floor(s / 604800) : 0
+    s -= weeks * 604800
+
+    days = !fixedUnits || fixedUnits > 3 ? Math.floor(s / 86400) : 0
+    s -= days * 86400
+
+    h = !fixedUnits || fixedUnits > 2 ? Math.floor(s / 3600) : 0
+    s -= h * 3600
+
+    m = !fixedUnits || fixedUnits > 1 ? Math.floor(s / 60) : 0
+    s -= m * 60
+
     s = Math.floor(s)
 
-    const units = [zeroPad(weeks, 2), zeroPad(days, 2), zeroPad(h, 2), zeroPad(m, 2), zeroPad(s, 2)]
+    let stopTrimming = false
+    const units: string[] = []
 
-    // get the last `numUnits` elements
-    return units.slice(0).slice(-Math.min(numUnits, 5)).join(':')
+    ;[weeks, days, h, m, s].forEach((unit, i) => {
+        if (!fixedUnits && !unit && !stopTrimming && i < 3) {
+            return
+        } else {
+            units.push(zeroPad(unit, 2))
+            stopTrimming = true
+        }
+    })
+
+    if (fixedUnits) {
+        return units.slice(-fixedUnits).join(':')
+    }
+
+    return units.join(':')
 }
 
-export function colonDelimitedDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | string, maxUnits?: number): string {
-    const diff = dayjs(to).diff(dayjs(from), 'seconds')
-    return colonDelimitedDuration(diff, maxUnits)
+export function reverseColonDelimitedDuration(duration?: string | null): number | null {
+    if (!duration) {
+        return null
+    }
+
+    if (!/^(\d\d?:)*(\d\d?)$/.test(duration)) {
+        return null
+    }
+
+    let seconds = 0
+    const units = duration
+        .split(':')
+        .map((unit) => Number(unit))
+        .reverse()
+
+    ;[1, 60, 3600, 86400, 604800].forEach((unit, index) => {
+        if (units[index]) {
+            seconds += units[index] * unit
+        }
+    })
+
+    return seconds
 }
 
 export function stripHTTP(url: string): string {
     url = url.replace(/(^[0-9]+_)/, '')
     url = url.replace(/(^\w+:|^)\/\//, '')
     return url
+}
+
+export function isDomain(url: string): boolean {
+    try {
+        const parsedUrl = new URL(url)
+        if (!parsedUrl.pathname || parsedUrl.pathname === '/') {
+            return true
+        }
+    } catch {
+        return false
+    }
+    return false
 }
 
 export function isURL(input: any): boolean {
@@ -726,7 +751,7 @@ export const dateMapping: DateMappingOption[] = [
     },
     {
         key: 'Yesterday',
-        values: ['-1d'],
+        values: ['-1dStart', 'dStart'],
         getFormattedDate: (date: dayjs.Dayjs): string => date.subtract(1, 'd').format(DATE_FORMAT),
         defaultInterval: 'hour',
     },
@@ -777,7 +802,6 @@ export const dateMapping: DateMappingOption[] = [
         key: 'This month',
         values: ['mStart'],
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('m'), date.endOf('d')),
-        inactive: true,
         defaultInterval: 'day',
     },
     {
@@ -818,11 +842,11 @@ const dateOptionsMap = {
 export function dateFilterToText(
     dateFrom: string | dayjs.Dayjs | null | undefined,
     dateTo: string | dayjs.Dayjs | null | undefined,
-    defaultValue: string,
+    defaultValue: string | null,
     dateOptions: DateMappingOption[] = dateMapping,
     isDateFormatted: boolean = false,
     dateFormat: string = DATE_FORMAT
-): string {
+): string | null {
     if (dayjs.isDayjs(dateFrom) && dayjs.isDayjs(dateTo)) {
         return formatDateRange(dateFrom, dateTo, dateFormat)
     }
@@ -839,7 +863,7 @@ export function dateFilterToText(
     if (isDate.test(dateFrom || '') && !isDate.test(dateTo || '')) {
         const days = dayjs().diff(dayjs(dateFrom), 'days')
         if (days > 366) {
-            return isDateFormatted ? `${dateFrom} - Today` : formatDateRange(dayjs(dateFrom), dayjs())
+            return isDateFormatted ? `${dateFrom} - today` : formatDateRange(dayjs(dateFrom), dayjs())
         } else if (days > 0) {
             return isDateFormatted ? formatDateRange(dayjs(dateFrom), dayjs()) : `Last ${days} days`
         } else if (days === 0) {
@@ -1047,12 +1071,16 @@ export function identifierToHuman(identifier: string | number, caseType: 'senten
 }
 
 export function parseGithubRepoURL(url: string): Record<string, string> {
-    const match = url.match(/^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/?$/)
+    const match = url.match(
+        /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.\-]+)\/([A-Za-z0-9_.\-]+)(\/(commit|tree|releases\/tag)\/([A-Za-z0-9_.\-\/]+))?/
+    )
+
     if (!match) {
-        throw new Error('Must be in the format: https://github.com/user/repo')
+        throw new Error(`${url} is not a valid GitHub URL`)
     }
-    const [, user, repo] = match
-    return { user, repo }
+
+    const [, user, repo, , type, path] = match
+    return { user, repo, type, path }
 }
 
 export function someParentMatchesSelector(element: HTMLElement, selector: string): boolean {
@@ -1137,6 +1165,8 @@ export function pluralize(count: number, singular: string, plural?: string, incl
     return includeNumber ? `${humanFriendlyNumber(count)} ${form}` : form
 }
 
+const COMPACT_NUMBER_MAGNITUDES = ['', 'K', 'M', 'B', 'T', 'P', 'E', 'Z', 'Y']
+
 /** Return a number in a compact format, with a SI suffix if applicable.
  *  Server-side equivalent: utils.py#compact_number.
  */
@@ -1151,7 +1181,7 @@ export function compactNumber(value: number | null): string {
         magnitude++
         value /= 1000
     }
-    return value.toString() + ['', 'K', 'M', 'B', 'T', 'P', 'E', 'Z', 'Y'][magnitude]
+    return magnitude > 0 ? `${value} ${COMPACT_NUMBER_MAGNITUDES[magnitude]}` : value.toString()
 }
 
 export function roundToDecimal(value: number | null, places: number = 2): string {
@@ -1397,6 +1427,7 @@ export function convertPropertiesToPropertyGroup(
     return { type: FilterLogicalOperator.And, values: [] }
 }
 
+/** Flatten a filter group into an array of filters. NB: Logical operators (AND/OR) are lost in the process. */
 export function convertPropertyGroupToProperties(
     properties?: PropertyGroupFilter | AnyPropertyFilter[]
 ): PropertyFilter[] | undefined {
@@ -1491,4 +1522,23 @@ export function interleave(arr: any[], delimiter: any): any[] {
             ? [item, delimiter]
             : item
     )
+}
+
+export function downloadFile(file: File): void {
+    // Create a link and set the URL using `createObjectURL`
+    const link = document.createElement('a')
+    link.style.display = 'none'
+    link.href = URL.createObjectURL(file)
+    link.download = file.name
+
+    // It needs to be added to the DOM so it can be clicked
+    document.body.appendChild(link)
+    link.click()
+
+    // To make this work on Firefox we need to wait
+    // a little while before removing it.
+    setTimeout(() => {
+        URL.revokeObjectURL(link.href)
+        link?.parentNode?.removeChild(link)
+    }, 0)
 }

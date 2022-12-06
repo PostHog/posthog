@@ -1,11 +1,11 @@
-import { LemonSelectOptions } from 'lib/components/LemonSelect'
+import { LemonSelectOptionLeaf } from 'lib/components/LemonSelect'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, TrendsFilterType } from '~/types'
 
 const formats = ['numeric', 'duration', 'duration_ms', 'percentage', 'percentage_scaled'] as const
 export type AggregationAxisFormat = typeof formats[number]
 
-export const aggregationAxisFormatSelectOptions: LemonSelectOptions<AggregationAxisFormat> = [
+export const INSIGHT_UNIT_OPTIONS: LemonSelectOptionLeaf<AggregationAxisFormat>[] = [
     { value: 'numeric', label: 'None' },
     { value: 'duration', label: 'Duration (s)' },
     { value: 'duration_ms', label: 'Duration (ms)' },
@@ -14,23 +14,31 @@ export const aggregationAxisFormatSelectOptions: LemonSelectOptions<AggregationA
 ]
 
 export const formatAggregationAxisValue = (
-    axisFormat: AggregationAxisFormat | undefined,
+    filters: Partial<TrendsFilterType> | undefined,
     value: number | string
 ): string => {
     value = Number(value)
-    switch (axisFormat) {
-        case 'duration':
-            return humanFriendlyDuration(value)
-        case 'duration_ms':
-            return humanFriendlyDuration(value / 1000)
-        case 'percentage':
-            return percentage(value / 100)
-        case 'percentage_scaled':
-            return percentage(value)
-        case 'numeric': // numeric is default
-        default:
-            return humanFriendlyNumber(value)
+    let formattedValue = humanFriendlyNumber(value)
+    if (filters?.aggregation_axis_format) {
+        switch (filters?.aggregation_axis_format) {
+            case 'duration':
+                formattedValue = humanFriendlyDuration(value)
+                break
+            case 'duration_ms':
+                formattedValue = humanFriendlyDuration(value / 1000)
+                break
+            case 'percentage':
+                formattedValue = percentage(value / 100)
+                break
+            case 'percentage_scaled':
+                formattedValue = percentage(value)
+                break
+            case 'numeric': // numeric is default
+            default:
+                break
+        }
     }
+    return `${filters?.aggregation_axis_prefix || ''}${formattedValue}${filters?.aggregation_axis_postfix || ''}`
 }
 
 export const axisLabel = (chartDisplayType: ChartDisplayType | undefined): string => {

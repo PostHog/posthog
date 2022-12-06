@@ -1,5 +1,5 @@
 import './PluginSource.scss'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Skeleton } from 'antd'
 import MonacoEditor, { useMonaco } from '@monaco-editor/react'

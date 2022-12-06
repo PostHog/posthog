@@ -1,3 +1,5 @@
+process.env.TZ = process.env.TZ || 'UTC'
+
 /*
  * For a detailed explanation regarding each configuration property and type check, visit:
  * https://jestjs.io/docs/en/configuration.html
@@ -138,7 +140,7 @@ export default {
     setupFiles: ['../../jest.setup.ts'],
 
     // A list of paths to modules that run some code to configure or set up the testing framework before each test
-    setupFilesAfterEnv: ['givens/setup', './mocks/jest.ts'],
+    setupFilesAfterEnv: ['../../jest.setupAfterEnv.ts', 'givens/setup', './mocks/jest.ts'],
 
     // The number of seconds after which a test is considered as slow and reported as such in the results.
     // slowTestThreshold: 5,
@@ -147,10 +149,10 @@ export default {
     // snapshotSerializers: [],
 
     // The test environment that will be used for testing
-    // testEnvironment: "jest-environment-jsdom",
+    testEnvironment: 'jsdom',
 
     // Options that will be passed to the testEnvironment
-    // testEnvironmentOptions: {},
+    testEnvironmentOptions: {},
 
     // Adds a location field to test results
     // testLocationInResults: false,
@@ -182,10 +184,12 @@ export default {
     // timers: "real",
 
     // A map from regular expressions to paths to transformers
-    // transform: undefined,
+    transform: {
+        '\\.[jt]sx?$': 'esbuild-jest',
+    },
 
     // An array of regexp pattern strings that are matched against all source file paths, matched files will skip transformation
-    transformIgnorePatterns: ['node_modules/(?!(query-selector-shadow-dom|react-syntax-highlighter)/)'],
+    transformIgnorePatterns: ['node_modules/(?!(query-selector-shadow-dom|react-syntax-highlighter|@react-hook)/)'],
 
     // An array of regexp pattern strings that are matched against all modules before the module loader will automatically return a mock for them
     // unmockedModulePathPatterns: undefined,

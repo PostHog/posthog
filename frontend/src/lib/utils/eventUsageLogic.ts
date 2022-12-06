@@ -13,7 +13,6 @@ import {
     InsightModel,
     InsightType,
     HelpType,
-    SessionPlayerData,
     AvailableFeature,
     SessionRecordingUsageType,
     FunnelCorrelation,
@@ -25,16 +24,26 @@ import {
     PropertyFilterValue,
     InsightShortId,
     YesOrNoResponse,
+    SessionPlayerData,
+    AnyPartialFilterType,
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import type { PersonsModalParams } from 'scenes/trends/persons-modal/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
 import { convertPropertyGroupToProperties } from 'lib/utils'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { PlatformType, Framework } from 'scenes/ingestion/types'
+import { PlatformType, Framework } from 'scenes/ingestion/v1/types'
 import { now } from 'lib/dayjs'
+import {
+    isFilterWithDisplay,
+    isFunnelsFilter,
+    isPathsFilter,
+    isRetentionFilter,
+    isStickinessFilter,
+    isTrendsFilter,
+} from 'scenes/insights/sharedUtils'
+import { isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
 export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
@@ -107,7 +116,12 @@ function flattenProperties(properties: AnyPropertyFilter[]): string[] {
 
 function hasGroupProperties(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): boolean {
     const flattenedProperties = convertPropertyGroupToProperties(properties)
-    return !!flattenedProperties && flattenedProperties.some((property) => property.group_type_index != undefined)
+    return (
+        !!flattenedProperties &&
+        flattenedProperties.some(
+            (property) => isGroupPropertyFilter(property) && property.group_type_index !== undefined
+        )
+    )
 }
 
 function usedCohortFilterIds(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): PropertyFilterValue[] {
@@ -120,19 +134,8 @@ function usedCohortFilterIds(properties: AnyPropertyFilter[] | PropertyGroupFilt
 /*
     Takes a full list of filters for an insight and sanitizes any potentially sensitive info to report usage
 */
-function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any> {
-    const {
-        display,
-        interval,
-        date_from,
-        date_to,
-        filter_test_accounts,
-        formula,
-        funnel_viz_type,
-        funnel_from_step,
-        funnel_to_step,
-        insight,
-    } = filters
+function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any> {
+    const { interval, date_from, date_to, filter_test_accounts, insight } = filters
 
     let properties_local: string[] = []
 
@@ -178,18 +181,18 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
     const properties_global = flattenProperties(properties)
 
     return {
-        display,
+        display: isFilterWithDisplay(filters) ? filters.display : undefined,
         interval,
         date_from,
         date_to,
         filter_test_accounts,
-        formula,
+        formula: isTrendsFilter(filters) ? filters.formula : undefined,
         filters_count: properties?.length || 0,
         events_count: events?.length || 0,
         actions_count: actions?.length || 0,
-        funnel_viz_type,
-        funnel_from_step,
-        funnel_to_step,
+        funnel_viz_type: isFunnelsFilter(filters) ? filters.funnel_viz_type : undefined,
+        funnel_from_step: isFunnelsFilter(filters) ? filters.funnel_from_step : undefined,
+        funnel_to_step: isFunnelsFilter(filters) ? filters.funnel_to_step : undefined,
         properties_global,
         properties_global_custom_count: properties_global.filter((item) => item === 'custom').length,
         properties_local,
@@ -212,7 +215,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportEventsTablePollingReactedToPageVisibility: (pageIsVisible: boolean) => ({ pageIsVisible }),
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
-        reportInsightCreated: (insight: InsightType | null) => ({ insight }),
+        reportInsightCreated: (insightType: InsightType | null) => ({ insightType }),
+        reportInsightSaved: (filters: Partial<FilterType>, isNewInsight: boolean) => ({ filters, isNewInsight }),
         reportInsightViewed: (
             insightModel: Partial<InsightModel>,
             filters: Partial<FilterType>,
@@ -232,10 +236,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             changedFilters,
             isUsingSessionAnalysis,
         }),
-        reportPersonsModalViewed: (params: PersonsModalParams, count: number, hasNext: boolean) => ({
+        reportPersonsModalViewed: (params: any) => ({
             params,
-            count,
-            hasNext,
         }),
         reportCohortCreatedFromPersonsModal: (filters: Partial<FilterType>) => ({ filters }),
         reportBookmarkletDragged: true,
@@ -284,7 +286,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             lastRefreshed,
         }),
         reportDashboardItemRefreshed: (dashboardItem: InsightModel) => ({ dashboardItem }),
-        reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs, dateTo?: string | Dayjs | null) => ({
+        reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs | null, dateTo?: string | Dayjs | null) => ({
             dateFrom,
             dateTo,
         }),
@@ -348,11 +350,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportPersonMerged: (merge_count: number) => ({ merge_count }),
         reportPersonSplit: (merge_count: number) => ({ merge_count }),
         reportRecording: (
-            recordingData: SessionPlayerData,
+            playerData: SessionPlayerData,
             loadTime: number,
             type: SessionRecordingUsageType,
             delay?: number
-        ) => ({ recordingData, loadTime, type, delay }),
+        ) => ({ playerData, loadTime, type, delay }),
         reportRecordingScrollTo: (rowIndex: number) => ({ rowIndex }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
@@ -370,6 +372,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
         reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
         reportRecordingsListFetched: (loadTime: number) => ({ loadTime }),
+        reportRecordingsListPropertiesFetched: (loadTime: number) => ({ loadTime }),
         reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => ({ filterType }),
         reportRecordingPlayerSeekbarEventHovered: true,
         reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
@@ -383,6 +386,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingViewedSummary: (recordingViewedSummary: RecordingViewedSummaryAnalytics) => ({
             recordingViewedSummary,
         }),
+        reportNextRecordingTriggered: (automatic: boolean) => ({
+            automatic,
+        }),
+        reportRecordingExportedToFile: true,
+        reportRecordingLoadedFromFile: (data: { success: boolean; error?: string }) => data,
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
@@ -458,6 +466,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionSelectFrameworkType: (framework: Framework) => ({ framework }),
         reportIngestionHelpClicked: (type: string) => ({ type }),
         reportIngestionTryWithBookmarkletClicked: true,
+        reportIngestionTryWithDemoDataClicked: true,
         reportIngestionContinueWithoutVerifying: true,
         reportIngestionContinueWithoutBilling: true,
         reportIngestionBillingCancelled: true,
@@ -472,8 +481,20 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             dashboardId,
         }),
         reportInstanceSettingChange: (name: string, value: string | boolean | number) => ({ name, value }),
+        reportAxisUnitsChanged: (properties: Record<string, any>) => ({ ...properties }),
+        reportTeamSettingChange: (name: string, value: any) => ({ name, value }),
+        reportActivationSideBarShown: (
+            activeTasksCount: number,
+            completedTasksCount: number,
+            completionPercent: number
+        ) => ({ activeTasksCount, completedTasksCount, completionPercent }),
+        reportActivationSideBarTaskClicked: (key: string) => ({ key }),
+        reportBillingUpgradeClicked: (plan: string) => ({ plan }),
     },
     listeners: ({ values }) => ({
+        reportAxisUnitsChanged: (properties) => {
+            posthog.capture('axis units changed', properties)
+        },
         reportInstanceSettingChange: ({ name, value }) => {
             posthog.capture('instance setting change', { name, value })
         },
@@ -538,9 +559,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             }
             posthog.capture('person viewed', properties)
         },
-        reportInsightCreated: async ({ insight }, breakpoint) => {
+        reportInsightCreated: async ({ insightType }, breakpoint) => {
+            // "insight created" essentially means that the user clicked "New insight"
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
-            posthog.capture('insight created', { insight })
+            posthog.capture('insight created', { insight: insightType })
+        },
+        reportInsightSaved: async ({ filters, isNewInsight }) => {
+            // "insight saved" is a proxy for the new insight's results being valuable to the user
+            posthog.capture('insight saved', { ...filters, is_new_insight: isNewInsight })
         },
         reportInsightViewed: ({
             insightModel,
@@ -552,8 +578,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             changedFilters,
             isUsingSessionAnalysis,
         }) => {
-            const { insight } = filters
-
             const properties: Record<string, any> = {
                 ...sanitizeFilterParams(filters),
                 report_delay: delay,
@@ -575,11 +599,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             properties.total_event_action_filters_count = totalEventActionFilters
 
             // Custom properties for each insight
-            if (insight === 'TRENDS') {
+            if (isTrendsFilter(filters)) {
                 properties.breakdown_type = filters.breakdown_type
                 properties.breakdown = filters.breakdown
                 properties.using_session_analysis = isUsingSessionAnalysis
-            } else if (insight === 'RETENTION') {
+                properties.compare = filters.compare // "Compare previous" option
+                properties.show_legend = filters.show_legend
+            } else if (isRetentionFilter(filters)) {
                 properties.period = filters.period
                 properties.date_to = filters.date_to
                 properties.retention_type = filters.retention_type
@@ -587,7 +613,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 const retainingEvent = filters.returning_entity
                 properties.same_retention_and_cohortizing_event =
                     cohortizingEvent?.id == retainingEvent?.id && cohortizingEvent?.type == retainingEvent?.type
-            } else if (insight === 'PATHS') {
+            } else if (isPathsFilter(filters)) {
                 properties.path_type = filters.path_type
                 properties.has_start_point = !!filters.start_point
                 properties.has_end_point = !!filters.end_point
@@ -610,12 +636,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                     properties.has_end_point ||
                     properties.has_funnel_filter ||
                     properties.has_wildcards
-            } else if (insight === 'STICKINESS') {
+            } else if (isStickinessFilter(filters)) {
                 properties.stickiness_days = filters.stickiness_days
             }
-            properties.compare = filters.compare // "Compare previous" option
             properties.mode = insightMode // View or edit
-
             properties.viewer_is_creator = insightModel.created_by?.uuid === values.user?.uuid ?? null // `null` means we couldn't determine this
             properties.is_saved = insightModel.saved
             properties.description_length = insightModel.description?.length ?? 0
@@ -624,20 +648,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
             posthog.capture(eventName, { ...properties, ...(changedFilters ? changedFilters : {}) })
         },
-        reportPersonsModalViewed: async ({ params, count, hasNext }) => {
-            const { funnelStep, filters, breakdown_value, saveOriginal, searchTerm, date_from, date_to } = params
-            const properties = {
-                ...sanitizeFilterParams(filters),
-                date_from,
-                date_to,
-                funnel_step: funnelStep,
-                has_breakdown_value: Boolean(breakdown_value),
-                save_original: saveOriginal,
-                has_search_term: Boolean(searchTerm),
-                count,
-                has_next: hasNext,
-            }
-            posthog.capture('insight person modal viewed', properties)
+        reportPersonsModalViewed: async ({ params }) => {
+            posthog.capture('insight person modal viewed', params)
         },
         reportCohortCreatedFromPersonsModal: async ({ filters }) => {
             posthog.capture('person modal cohort created', sanitizeFilterParams(filters))
@@ -653,21 +665,29 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 pinned,
                 creation_mode,
                 sample_items_count: 0,
-                item_count: dashboard.items?.length || 0,
+                item_count: dashboard.tiles?.length || 0,
                 created_by_system: !dashboard.created_by,
                 dashboard_id: id,
                 lastRefreshed: lastRefreshed?.toISOString(),
                 refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
             }
 
-            for (const item of dashboard.items || []) {
-                const key = `${item.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
-                if (!properties[key]) {
-                    properties[key] = 1
+            for (const item of dashboard.tiles || []) {
+                if (!!item.insight) {
+                    const key = `${item.insight.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
+                    if (!properties[key]) {
+                        properties[key] = 1
+                    } else {
+                        properties[key] += 1
+                    }
+                    properties.sample_items_count += item.insight.is_sample ? 1 : 0
                 } else {
-                    properties[key] += 1
+                    if (!properties['text_tiles_count']) {
+                        properties['text_tiles_count'] = 1
+                    } else {
+                        properties['text_tiles_count'] += 1
+                    }
                 }
-                properties.sample_items_count += item.is_sample ? 1 : 0
             }
 
             const eventName = delay ? 'dashboard analyzed' : 'viewed dashboard' // `viewed dashboard` name is kept for backwards compatibility
@@ -711,8 +731,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         }) => {
             // namesCount -> Number of invitees for which a name was provided
             posthog.capture('bulk invite attempted', { invitees_count: inviteesCount, name_count: namesCount })
+            for (let i = 0; i < inviteesCount; i++) {
+                posthog.capture('team member invited')
+            }
         },
         reportInviteAttempted: async ({ nameProvided, instanceEmailAvailable }) => {
+            posthog.capture('team member invited')
             posthog.capture('team invite attempted', {
                 name_provided: nameProvided,
                 instance_email_available: instanceEmailAvailable,
@@ -751,7 +775,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportDashboardDateRangeChanged: async ({ dateFrom, dateTo }) => {
             posthog.capture(`dashboard date range changed`, {
-                date_from: dateFrom?.toString(),
+                date_from: dateFrom?.toString() || 'Custom',
                 date_to: dateTo?.toString(),
             })
         },
@@ -871,14 +895,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportSavedInsightNewInsightClicked: ({ insightType }) => {
             posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
-        reportRecording: ({ recordingData, loadTime, type }) => {
+        reportRecording: ({ playerData, loadTime, type }) => {
             // @ts-expect-error
-            const eventIndex = new EventIndex(recordingData?.snapshots || [])
+            const eventIndex = new EventIndex(playerData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
                 load_time: loadTime,
                 duration: eventIndex.getDuration(),
-                start_time: recordingData.metadata.segments[0]?.startTimeEpochMs,
-                end_time: recordingData.metadata.segments.slice(-1)[0]?.endTimeEpochMs,
+                start_time: playerData.metadata.segments[0]?.startTimeEpochMs,
+                end_time: playerData.metadata.segments.slice(-1)[0]?.endTimeEpochMs,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
             }
@@ -933,6 +957,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingsListFetched: ({ loadTime }) => {
             posthog.capture('recording list fetched', { load_time: loadTime })
         },
+        reportRecordingsListPropertiesFetched: ({ loadTime }) => {
+            posthog.capture('recording list properties fetched', { load_time: loadTime })
+        },
         reportRecordingPlayerSeekbarEventHovered: () => {
             posthog.capture('recording player seekbar event hovered')
         },
@@ -950,6 +977,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportRecordingViewedSummary: ({ recordingViewedSummary }) => {
             posthog.capture('recording viewed summary', { ...recordingViewedSummary })
+        },
+        reportNextRecordingTriggered: ({ automatic }) => {
+            posthog.capture('recording next recording triggered', { automatic })
+        },
+        reportRecordingExportedToFile: () => {
+            posthog.capture('recording exported to file')
+        },
+        reportRecordingLoadedFromFile: (properties) => {
+            posthog.capture('recording loaded from file', properties)
         },
         reportExperimentArchived: ({ experiment }) => {
             posthog.capture('experiment archived', {
@@ -1089,6 +1125,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionTryWithBookmarkletClicked: () => {
             posthog.capture('ingestion try posthog with bookmarklet clicked')
         },
+        reportIngestionTryWithDemoDataClicked: () => {
+            posthog.capture('ingestion try posthog with demo data clicked')
+        },
         reportIngestionContinueWithoutVerifying: () => {
             posthog.capture('ingestion continue without verifying')
         },
@@ -1122,6 +1161,29 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionSidebarButtonClicked: ({ name }) => {
             posthog.capture('ingestion sidebar button clicked', {
                 name: name,
+            })
+        },
+        reportTeamSettingChange: ({ name, value }) => {
+            posthog.capture(`${name} team setting updated`, {
+                setting: name,
+                value,
+            })
+        },
+        reportActivationSideBarShown: ({ activeTasksCount, completedTasksCount, completionPercent }) => {
+            posthog.capture('activation sidebar shown', {
+                active_tasks_count: activeTasksCount,
+                completed_tasks_count: completedTasksCount,
+                completion_percent_count: completionPercent,
+            })
+        },
+        reportActivationSideBarTaskClicked: ({ key }) => {
+            posthog.capture('activation sidebar task clicked', {
+                key,
+            })
+        },
+        reportBillingUpgradeClicked: ({ plan }) => {
+            posthog.capture('billing upgrade button clicked', {
+                plan,
             })
         },
     }),

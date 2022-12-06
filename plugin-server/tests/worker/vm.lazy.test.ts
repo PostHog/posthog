@@ -83,7 +83,7 @@ describe('LazyPluginVM', () => {
                     message: expect.stringContaining('Plugin loaded'),
                     pluginConfig: expect.anything(),
                     source: PluginLogEntrySource.System,
-                    type: PluginLogEntryType.Info,
+                    type: PluginLogEntryType.Debug,
                 })
             )
         })

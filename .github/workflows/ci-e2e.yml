@@ -18,9 +18,13 @@ jobs:
         outputs:
             docker_image_id: ${{ steps.docker_build.outputs.imageid }}
 
+        permissions:
+            contents: read
+            id-token: write
+
         steps:
             - name: Checkout PR branch
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
 
             # As ghcr.io complains if the image has upper case letters, we use
             # this action to ensure we get a lower case version. See
@@ -28,7 +32,7 @@ jobs:
             # for more details
             - name: Docker image metadata
               id: meta
-              uses: docker/metadata-action@v3
+              uses: docker/metadata-action@v4
               with:
                   images: ghcr.io/posthog/posthog/posthog
                   tags: |
@@ -36,26 +40,17 @@ jobs:
                       type=sha,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
                       type=raw,value=master,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
 
-            # We also want to use cache-from when building, but we want to also
-            # include the master tag so we get the master branch image as well.
-            # This creates a scope similar to the github cache action scoping
-            - name: Docker cache-from/cache-to metadata
-              id: meta-for-cache
-              uses: docker/metadata-action@v3
-              with:
-                  images: ghcr.io/posthog/posthog/posthog
-                  tags: |
-                      type=raw,value=master
-                      type=ref,event=pr
-
             - name: Set up QEMU
-              uses: docker/setup-qemu-action@v1
+              uses: docker/setup-qemu-action@v2
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@v1
 
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v1
+              uses: docker/setup-buildx-action@v2
 
             - name: Login to GitHub Container Registry
-              uses: docker/login-action@v1
+              uses: docker/login-action@v2
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -63,22 +58,19 @@ jobs:
 
             - name: Build
               id: docker_build
-              uses: docker/build-push-action@v2
+              uses: depot/build-push-action@v1
               with:
-                  cache-from: ${{ steps.meta-for-cache.outputs.tags }}
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
-                  # load: true # NOTE: this option is not compatible with `push: true`
-                  # NOTE: we use inline as suggested here:
-                  # https://github.com/docker/build-push-action/blob/master/docs/advanced/cache.md#inline-cache
-                  # It notes that it doesn't support mode=max, but we're not
-                  # removing any layers, soooo, maybe it's fine.
-                  cache-to: type=inline
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
                   outputs: |
                       type=docker,dest=/tmp/posthog-image.tar
+                  project: 1stsk4xt19 # posthog-cloud project
+                  buildx-fallback: true # if Depot builder is unavailable, fall back to local buildx
 
             - name: Upload docker image
-              uses: actions/upload-artifact@v2
+              uses: actions/upload-artifact@v3
               with:
                   name: docker-image
                   path: /tmp/posthog-image.tar
@@ -92,35 +84,14 @@ jobs:
                   echo "### Build info" >> $GITHUB_STEP_SUMMARY
                   echo "Image size: $(numfmt --to=iec --suffix=B --format="%.2f" $image_size_bytes)" >> $GITHUB_STEP_SUMMARY
                   echo "Image name: $image_name" >> $GITHUB_STEP_SUMMARY
-
-    push:
-        # We use artifacts to pass the docker image between steps, so we do
-        # the push separately such that we can do this in parallel with other
-        # jobs.
-        name: Docker image push
-        if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
-        runs-on: ubuntu-latest
-        needs: build
-
-        steps:
-            - name: Login to GitHub Container Registry
-              uses: docker/login-action@v1
+                  echo "image_size=$image_size_bytes" >> $GITHUB_ENV
+                  echo "image_name=$image_name" >> $GITHUB_ENV
+            - name: Report image size to PostHog
+              uses: PostHog/posthog-github-action@v0.1
               with:
-                  registry: ghcr.io
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
-
-            - uses: actions/download-artifact@v3
-              with:
-                  name: docker-image
-                  path: /tmp/
-
-            - name: Push (if PostHog/posthog)
-              # Only push to GHCR if running on PostHog/posthog, as there's no read-write token on forks
-              run: |
-                  docker load < /tmp/posthog-image.tar
-                  docker image push --all-tags ghcr.io/posthog/posthog/posthog
-
+                  posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
+                  event: 'posthog-ci-docker-image-built'
+                  properties: '{"imageSize": "${{ env.image_size }}", "imageName": "${{ env.image_name }}"}'
     posthog_cloud:
         name: PostHog Cloud image build
         # Only run on non-external PRs. We could make this work on external PR's
@@ -133,7 +104,7 @@ jobs:
 
         steps:
             - name: Checkout PR branch
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
 
             - uses: actions/download-artifact@v3
               with:
@@ -144,7 +115,7 @@ jobs:
               id: load
               run: |
                   docker load < /tmp/posthog-image.tar
-                  echo "::set-output name=docker_image_digest::$(docker image inspect ${{ needs.build.outputs.docker_image_id }}  -f '{{ index .RepoTags 0 }}')"
+                  echo "docker_image_digest=$(docker image inspect ${{ needs.build.outputs.docker_image_id }}  -f '{{ index .RepoTags 0 }}')" >> $GITHUB_OUTPUT
 
             - name: Configure AWS credentials
               uses: aws-actions/configure-aws-credentials@v1
@@ -158,7 +129,7 @@ jobs:
               uses: aws-actions/amazon-ecr-login@v1
 
             - name: Login to GitHub Container Registry
-              uses: docker/login-action@v1
+              uses: docker/login-action@v2
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -172,20 +143,21 @@ jobs:
 
             - name: Docker image metadata
               id: meta
-              uses: docker/metadata-action@v3
+              uses: docker/metadata-action@v4
               with:
                   images: ${{ steps.login-ecr.outputs.registry }}/posthog-cloud
                   tags: |
                       type=ref,event=pr
                       type=sha,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
                       type=raw,value=master,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
+                      type=raw,value=${{ github.sha }},enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
 
             # We also want to use cache-from when building, but we want to also
             # include the master tag so we get the master branch image as well.
             # This creates a scope similar to the github cache action scoping
             - name: Docker cache-from/cache-to metadata
               id: meta-for-cache
-              uses: docker/metadata-action@v3
+              uses: docker/metadata-action@v4
               with:
                   images: ${{ steps.login-ecr.outputs.registry }}/posthog-cloud
                   tags: |
@@ -213,6 +185,23 @@ jobs:
                   build-args: |
                       BASE_IMAGE=${{ steps.load.outputs.docker_image_digest }}
 
+            - name: Trigger PostHog Cloud deployment
+              if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+              uses: mvasigh/dispatch-action@main
+              with:
+                  # TODO: find a way to avoid using a personal access token. An
+                  # option: push something to SQS (using WebIdentity) -> lambda
+                  # function to trigger the workflow via webhook
+                  token: ${{ secrets.POSTHOG_CLOUD_ACCESS_TOKEN }}
+                  repo: posthog-cloud-infra
+                  owner: PostHog
+                  event_type: posthog_cloud_build
+                  message: |
+                      {
+                        "image_tag": "${{ github.sha }}",
+                        "context": ${{ toJson(github) }}
+                      }
+
     # Job that lists and chunks spec file names and caches node modules
     cypress_prep:
         name: Cypress preparation
@@ -222,10 +211,10 @@ jobs:
             specs: ${{ steps.set-specs.outputs.specs }}
 
         steps:
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v3
             - id: set-specs
               # List cypress/e2e and produce a JSON array of the files, in chunks
-              run: echo "::set-output name=specs::$(ls cypress/e2e/* | jq --slurp --raw-input -c 'split("\n")[:-1] | _nwise(3) | join("\n")' | jq --slurp -c .)"
+              run: echo "specs=$(ls cypress/e2e/* | jq --slurp --raw-input -c 'split("\n")[:-1] | _nwise(3) | join("\n")' | jq --slurp -c .)" >> $GITHUB_OUTPUT
 
     cypress:
         name: Cypress E2E tests (${{ strategy.job-index }})
@@ -244,12 +233,12 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
 
             - name: Stop/Start stack with Docker Compose
               run: |
-                  docker-compose -f docker-compose.dev.yml down
-                  docker-compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml down
+                  docker compose -f docker-compose.dev.yml up -d
 
             - name: Wait for ClickHouse
               run: ./bin/check_kafka_clickhouse_up

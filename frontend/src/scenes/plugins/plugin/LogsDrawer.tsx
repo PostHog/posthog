@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from '../pluginsLogic'
 import { PluginLogs } from './PluginLogs'

@@ -22,30 +22,3 @@ describe('Person Visualization Check', () => {
         cy.get('table').should('not.contain', 'Person')
     })
 })
-
-describe('Merge person', () => {
-    beforeEach(() => {
-        cy.clickNavMenu('persons')
-        cy.get('[data-attr=persons-search]').type('deb').should('have.value', 'deb')
-        cy.contains('deborah.fernandez@gmail.com').should('not.exist')
-        cy.contains('deborah.fernandez@gmail.com').click()
-        cy.wait(1000)
-    })
-
-    it('Should merge person', () => {
-        cy.get('[role="tab"]').contains('Events').click()
-        cy.get('.extra-ids').should('not.exist') // No extra IDs
-        cy.contains('$create_alias').should('not.exist')
-        cy.get('.PropertyKeyInfo:contains(Pageview)').should('have.length', 1)
-        cy.get('.PropertyKeyInfo:contains(clicked)').should('have.length', 1)
-
-        // Merge people
-        cy.get('[data-attr=merge-person-button]').click()
-        cy.get('.ant-select-multiple').type('merritt')
-        cy.contains('merritt.humphrey@gmail.com').click()
-        cy.contains('Merge persons').click()
-
-        cy.contains('Automatically load new events').click()
-        cy.get('.extra-ids').should('contain', '+1')
-    })
-})

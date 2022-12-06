@@ -3,14 +3,16 @@ from typing import TYPE_CHECKING, Any, List, Optional
 
 import posthoganalytics
 import pytz
-from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
 
+from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.models.dashboard import Dashboard
+from posthog.models.filters.filter import Filter
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team.util import person_on_events_ready
 from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
@@ -41,6 +43,7 @@ class TeamManager(models.Manager):
                 "key": "$host",
                 "operator": "is_not",
                 "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000", "localhost:3000"],
+                "type": "event",
             }
         ]
         if organization:
@@ -106,9 +109,12 @@ class Team(UUIDClassicModel):
     completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
+    capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
     access_control: models.BooleanField = models.BooleanField(default=False)
+    # This is not a manual setting. It's updated automatically to reflect if the team uses site apps or not.
+    inject_web_apps: models.BooleanField = models.BooleanField(null=True)
 
     test_account_filters: models.JSONField = models.JSONField(default=list)
     test_account_filters_default_checked: models.BooleanField = models.BooleanField(null=True, blank=True)
@@ -204,16 +210,13 @@ class Team(UUIDClassicModel):
     @property
     def actor_on_events_querying_enabled(self) -> bool:
         # on PostHog Cloud, use the feature flag
-        if settings.MULTI_TENANCY:
+        if is_cloud():
             return posthoganalytics.feature_enabled(
                 "person-on-events-enabled",
                 str(self.uuid),
-                groups={"organization": str(self.organization.id)},
+                groups={"organization": str(self.organization_id)},
                 group_properties={
-                    "organization": {
-                        "id": str(self.organization.id),
-                        "created_at": self.organization.created_at,
-                    }
+                    "organization": {"id": str(self.organization_id), "created_at": self.organization.created_at}
                 },
                 only_evaluate_locally=True,
             )
@@ -230,6 +233,26 @@ class Team(UUIDClassicModel):
         enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
 
+    @cached_property
+    def persons_seen_so_far(self) -> int:
+
+        from posthog.client import sync_execute
+        from posthog.queries.person_query import PersonQuery
+
+        filter = Filter(data={"full": "true"})
+        person_query, person_query_params = PersonQuery(filter, self.id).get_query()
+
+        total_count = sync_execute(
+            f"""
+            SELECT count(1) FROM (
+                {person_query}
+            )
+        """,
+            person_query_params,
+        )[0][0]
+
+        return total_count
+
     def __str__(self):
         if self.name:
             return self.name
@@ -238,3 +261,22 @@ class Team(UUIDClassicModel):
         return str(self.pk)
 
     __repr__ = sane_repr("uuid", "name", "api_token")
+
+
+def groups_on_events_querying_enabled():
+    """
+    Returns whether to allow querying groups columns on events.
+
+    Remove all usages of this when the feature is released to everyone.
+    """
+    return person_on_events_ready() and get_instance_setting("GROUPS_ON_EVENTS_ENABLED")
+
+
+def get_available_features_for_team(team_id: int):
+    available_features: Optional[List[str]] = (
+        Team.objects.select_related("organization")
+        .values_list("organization__available_features", flat=True)
+        .get(id=team_id)
+    )
+
+    return available_features

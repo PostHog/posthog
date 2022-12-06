@@ -1,11 +1,14 @@
 import { kea } from 'kea'
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
-import { AnyPropertyFilter, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
+import { AnyPropertyFilter, CohortPropertyFilter, PropertyOperator, PropertyType } from '~/types'
 import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
 import { cohortsModel } from '~/models/cohortsModel'
 import { TaxonomicFilterGroup, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import {
+    isGroupPropertyFilter,
+    isPropertyFilterWithOperator,
     propertyFilterTypeToTaxonomicFilterType,
+    sanitizePropertyFilter,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -54,7 +57,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     selectors: {
         filter: [
             (s) => [s.filters, (_, props) => props.filterIndex],
-            (filters, filterIndex): AnyPropertyFilter | null => filters[filterIndex] || null,
+            (filters, filterIndex): AnyPropertyFilter | null =>
+                filters[filterIndex] ? sanitizePropertyFilter(filters[filterIndex]) : null,
         ],
         selectedCohortName: [
             (s) => [s.filter, cohortsModel.selectors.cohorts],
@@ -63,7 +67,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         activeTaxonomicGroup: [
             (s) => [s.filter, s.taxonomicGroups],
             (filter, groups): TaxonomicFilterGroup | undefined => {
-                if (filter) {
+                if (isGroupPropertyFilter(filter)) {
                     const taxonomicGroupType = propertyFilterTypeToTaxonomicFilterType(
                         filter.type,
                         filter.group_type_index
@@ -79,13 +83,12 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
             const propertyType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
                 if (propertyType === 'cohort') {
-                    props.propertyFilterLogic.actions.setFilter(
-                        props.filterIndex,
-                        'id',
-                        propertyKey as PropertyFilterValue,
-                        null,
-                        propertyType
-                    )
+                    const cohortProperty: CohortPropertyFilter = {
+                        key: 'id',
+                        value: parseInt(String(propertyKey)),
+                        type: propertyType,
+                    }
+                    props.propertyFilterLogic.actions.setFilter(props.filterIndex, cohortProperty)
                 } else {
                     const propertyValueType = values.describeProperty(propertyKey)
                     const property_name_to_default_operator_override = {
@@ -98,18 +101,18 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     }
                     const operator =
                         property_name_to_default_operator_override[propertyKey] ||
-                        values.filter?.operator ||
+                        (isPropertyFilterWithOperator(values.filter) ? values.filter.operator : null) ||
                         property_value_type_to_default_operator_override[propertyValueType ?? ''] ||
                         PropertyOperator.Exact
 
-                    props.propertyFilterLogic.actions.setFilter(
-                        props.filterIndex,
-                        propertyKey.toString(),
-                        null, // Reset value field
+                    const property: AnyPropertyFilter = {
+                        key: propertyKey.toString(),
+                        value: null,
                         operator,
-                        propertyType,
-                        taxonomicGroup.groupTypeIndex
-                    )
+                        type: propertyType as AnyPropertyFilter['type'] as any, // bad | pipe chain :(
+                        group_type_index: taxonomicGroup.groupTypeIndex,
+                    }
+                    props.propertyFilterLogic.actions.setFilter(props.filterIndex, property)
                 }
                 actions.closeDropdown()
             }

@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { ActionStep } from '~/toolbar/elements/ActionStep'
 import { CalendarOutlined, PlusOutlined } from '@ant-design/icons'
@@ -6,14 +5,12 @@ import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { Button, Statistic, Row, Col } from 'antd'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ActionsListView } from '~/toolbar/actions/ActionsListView'
-import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 
 export function ElementInfo(): JSX.Element | null {
     const { clickCount } = useValues(heatmapLogic)
 
     const { hoverElementMeta, selectedElementMeta } = useValues(elementsLogic)
     const { createAction } = useActions(elementsLogic)
-    const { shouldSimplifyActions } = useValues(featureFlagsLogic)
 
     const activeMeta = hoverElementMeta || selectedElementMeta
 
@@ -54,18 +51,16 @@ export function ElementInfo(): JSX.Element | null {
             ) : null}
 
             <div style={{ padding: 15, borderLeft: '5px solid #94D674', background: 'hsla(100, 74%, 98%, 1)' }}>
-                <h1 className="section-title">
-                    {shouldSimplifyActions ? 'Calculated Events' : 'Actions'} ({activeMeta.actions.length})
-                </h1>
+                <h1 className="section-title">Actions ({activeMeta.actions.length})</h1>
 
                 {activeMeta.actions.length === 0 ? (
-                    <p>No {shouldSimplifyActions ? 'calculated events' : 'actions'} include this element</p>
+                    <p>No actions include this element</p>
                 ) : (
                     <ActionsListView actions={activeMeta.actions.map((a) => a.action)} />
                 )}
 
                 <Button size="small" onClick={() => createAction(element)}>
-                    <PlusOutlined /> Create a new {shouldSimplifyActions ? 'calculated event' : 'action'}
+                    <PlusOutlined /> Create a new action
                 </Button>
             </div>
         </>

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import './Login.scss'
 import { useActions, useValues } from 'kea'
 import { loginLogic } from './loginLogic'
@@ -15,6 +15,7 @@ import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import RegionSelect from './RegionSelect'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -73,8 +74,7 @@ function SSOLoginButton({
 
 export function Login(): JSX.Element {
     const { precheck } = useActions(loginLogic)
-    const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, loginManualErrors } =
-        useValues(loginLogic)
+    const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
@@ -90,14 +90,15 @@ export function Login(): JSX.Element {
         <BridgePage view="login" noHedgehog>
             <div className="space-y-2">
                 <h2>Get started</h2>
-                {loginManualErrors.generic && (
+                {generalError && (
                     <AlertMessage type="error">
-                        {loginManualErrors.generic.detail ||
-                            ERROR_MESSAGES[loginManualErrors.generic.code] ||
+                        {generalError.detail ||
+                            ERROR_MESSAGES[generalError.code] ||
                             'Could not complete your login. Please try again.'}
                     </AlertMessage>
                 )}
                 <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="space-y-4">
+                    <RegionSelect />
                     <Field name="email" label="Email">
                         <LemonInput
                             className="ph-ignore-input"
@@ -111,8 +112,18 @@ export function Login(): JSX.Element {
                             }}
                         />
                     </Field>
-                    <div className={clsx('PasswordWrapper', isPasswordHidden && 'hidden')}>
-                        <Field name="password" label="Password">
+                    <div className={clsx('PasswordWrapper', isPasswordHidden && 'zero-height')}>
+                        <Field
+                            name="password"
+                            label={
+                                <div className="flex flex-1 items-center justify-between gap-2">
+                                    <span>Password</span>
+                                    <Link to="/reset" data-attr="forgot-password">
+                                        Forgot your password?
+                                    </Link>
+                                </div>
+                            }
+                        >
                             <LemonInput
                                 type="password"
                                 ref={passwordInputRef}
@@ -141,16 +152,14 @@ export function Login(): JSX.Element {
                         <SSOLoginButton provider="saml" email={login.email} status="primary" />
                     )}
                 </Form>
-                <div className="flex items-center justify-center flex-wrap gap-4 mt-4 font-semibold">
-                    {preflight?.cloud && (
-                        <Link to="/signup" data-attr="signup">
+                {preflight?.cloud && (
+                    <div className="text-center mt-4">
+                        Don't have an account?{' '}
+                        <Link to="/signup" data-attr="signup" className="font-bold">
                             Create an account
                         </Link>
-                    )}
-                    <Link to="/reset" data-attr="forgot-password">
-                        Forgot your password?
-                    </Link>
-                </div>
+                    </div>
+                )}
                 <SocialLoginButtons caption="Or log in with" topDivider />
             </div>
         </BridgePage>

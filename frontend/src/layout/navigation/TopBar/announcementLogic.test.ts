@@ -27,7 +27,6 @@ describe('announcementLogic', () => {
 
     afterEach(() => logic.unmount())
     it('shows a cloud announcement', async () => {
-        console.log(logic.values.featureFlags)
         await expectLogic(logic).toMatchValues({
             cloudAnnouncement: MOCK_CLOUD_ANNOUNCEMENT,
             shownAnnouncementType: AnnouncementType.CloudFlag,

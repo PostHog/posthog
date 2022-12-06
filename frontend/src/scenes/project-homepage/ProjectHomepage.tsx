@@ -1,4 +1,4 @@
-import React, { useRef } from 'react'
+import { useRef } from 'react'
 import './ProjectHomepage.scss'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -19,11 +19,16 @@ import { NewlySeenPersons } from './NewlySeenPersons'
 import useSize from '@react-hook/size'
 import { NewInsightButton } from 'scenes/saved-insights/SavedInsights'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { Link } from '@posthog/lemon-ui'
+import { urls } from 'scenes/urls'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 export function ProjectHomepage(): JSX.Element {
-    const { dashboardLogic } = useValues(projectHomepageLogic)
+    const { dashboardLogicProps } = useValues(projectHomepageLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { dashboard } = useValues(dashboardLogic)
+    const {
+        allItems: dashboard, // dashboard but directly on dashboardLogic not via dashboardsModel
+    } = useValues(dashboardLogic(dashboardLogicProps))
     const { showInviteModal } = useActions(inviteLogic)
     const { showPrimaryDashboardModal } = useActions(primaryDashboardModalLogic)
     const topListContainerRef = useRef<HTMLDivElement | null>(null)
@@ -76,7 +81,12 @@ export function ProjectHomepage(): JSX.Element {
                             {dashboard?.name && (
                                 <>
                                     <IconCottage className="mr-2 text-warning text-2xl" />
-                                    <div className="dashboard-name">{dashboard?.name}</div>
+                                    <Link
+                                        className="font-semibold text-xl text-default"
+                                        to={urls.dashboard(dashboard.id)}
+                                    >
+                                        {dashboard?.name}
+                                    </Link>
                                 </>
                             )}
                         </div>

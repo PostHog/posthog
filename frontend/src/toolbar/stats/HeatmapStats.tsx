@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { List, Space } from 'antd'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
@@ -32,7 +31,7 @@ export function HeatmapStats(): JSX.Element {
                             getPopupContainer={getShadowRootPopupContainer}
                         />
 
-                        {!heatmapLoading ? <Spinner /> : null}
+                        {heatmapLoading ? <Spinner /> : null}
                     </div>
                     <div>
                         Found: {countedElements.length} elements / {clickCount} clicks!

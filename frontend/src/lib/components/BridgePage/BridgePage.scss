@@ -21,6 +21,16 @@
         max-width: 100%;
     }
 
+    .BridgePage__art-wrapper {
+        margin-right: 60px;
+        display: none;
+
+        @include screen($md) {
+            display: block;
+            visibility: visible;
+        }
+    }
+
     .BridgePage__content {
         position: relative;
         box-shadow: var(--shadow-elevation);
@@ -47,7 +57,6 @@
 
     .BridgePage__art {
         position: relative;
-        margin-right: 60px;
         margin-top: 160px;
         visibility: none;
         display: none;
@@ -104,9 +113,19 @@
         }
     }
 
+    .BridgePage__cta {
+        max-width: 400px;
+    }
+
     .BridgePage__header-logo {
+        &.mobile {
+            display: block;
+            @include screen($md) {
+                display: none;
+            }
+        }
         .header-logo {
-            padding-bottom: 2rem;
+            padding-bottom: 3rem;
             text-align: center;
             img {
                 height: 24px;

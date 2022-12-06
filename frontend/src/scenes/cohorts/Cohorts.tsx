@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
@@ -19,9 +19,7 @@ import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { combineUrl, router } from 'kea-router'
-import { LemonInput, LemonTag } from '@posthog/lemon-ui'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonInput } from '@posthog/lemon-ui'
 
 const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
     return new Fuse(sources, {
@@ -38,9 +36,6 @@ export function Cohorts(): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
     const { searchParams } = useValues(router)
     const [searchTerm, setSearchTerm] = useState<string>('')
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const allowColumnChoice = featureFlags[FEATURE_FLAGS.ALLOW_CSV_EXPORT_COLUMN_CHOICE]
 
     const columns: LemonTableColumns<CohortType> = [
         {
@@ -125,30 +120,28 @@ export function Cohorts(): JSX.Element {
                                 >
                                     View session recordings
                                 </LemonButton>
-                                {allowColumnChoice && (
-                                    <LemonButton
-                                        status="stealth"
-                                        onClick={() =>
-                                            exportCohortPersons(cohort.id, [
-                                                'distinct_ids.0',
-                                                'id',
-                                                'name',
-                                                'properties.email',
-                                            ])
-                                        }
-                                        tooltip="Export specific columns for users belonging to this cohort in CSV format. Includes distinct id, internal id, email, and name"
-                                        fullWidth
-                                    >
-                                        Export important columns for users&nbsp;<LemonTag type="warning">Beta</LemonTag>
-                                    </LemonButton>
-                                )}
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={() =>
+                                        exportCohortPersons(cohort.id, [
+                                            'distinct_ids.0',
+                                            'id',
+                                            'name',
+                                            'properties.email',
+                                        ])
+                                    }
+                                    tooltip="Export specific columns for users belonging to this cohort in CSV format. Includes distinct id, internal id, email, and name"
+                                    fullWidth
+                                >
+                                    Export important columns for users
+                                </LemonButton>
                                 <LemonButton
                                     status="stealth"
                                     onClick={() => exportCohortPersons(cohort.id)}
                                     tooltip="Export all users belonging to this cohort in CSV format."
                                     fullWidth
                                 >
-                                    Export {allowColumnChoice ? ' all columns for ' : ''}users
+                                    Export all columns for users
                                 </LemonButton>
                                 <LemonDivider />
                                 <LemonButton status="danger" onClick={() => deleteCohort(cohort)} fullWidth>

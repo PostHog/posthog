@@ -1,7 +1,7 @@
 import './PlayerList.scss'
-import React, { ReactElement, useEffect, useRef } from 'react'
+import { ReactElement, useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
+import { SessionRecordingPlayerTab } from '~/types'
 import {
     DEFAULT_EXPANDED_ROW_HEIGHT,
     DEFAULT_ROW_HEIGHT,
@@ -19,6 +19,10 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { ExpandableConfig } from 'lib/components/LemonTable'
 import { ListRowOptions, PlayerListRow } from 'scenes/session-recordings/player/list/PlayerListRow'
 import { getRowExpandedState } from 'scenes/session-recordings/player/playerUtils'
+import { teamLogic } from 'scenes/teamLogic'
+import { LemonButton } from 'lib/components/LemonButton'
+import { openSessionRecordingSettingsDialog } from 'scenes/session-recordings/settings/SessionRecordingSettings'
+import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 
 interface RowConfig<T extends Record<string, any>> {
     /** Class to append to each row. */
@@ -38,8 +42,8 @@ export interface PlayerListExpandableConfig<T extends Record<string, any>> exten
     expandedPreviewContentRender?: (record: T, recordIndex: number) => any
 }
 
-export interface PlayerListProps<T> extends SessionRecordingPlayerProps {
-    tab: SessionRecordingTab
+export interface PlayerListProps<T> extends SessionRecordingPlayerLogicProps {
+    tab: SessionRecordingPlayerTab
     expandable?: PlayerListExpandableConfig<T>
     row?: RowConfig<T>
 }
@@ -56,7 +60,11 @@ export function PlayerList<T extends Record<string, any>>({
     const { data, showPositionFinder, isCurrent, isDirectionUp, expandedRows } = useValues(logic)
     const { setRenderedRows, setList, scrollTo, disablePositionFinder, handleRowClick, expandRow, collapseRow } =
         useActions(logic)
-    const { sessionEventsDataLoading } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
+    const { sessionEventsDataLoading, sessionPlayerMetaDataLoading, windowIds } = useValues(
+        sessionRecordingDataLogic({ sessionRecordingId, playerKey })
+    )
+    const { currentTeam } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
 
     useEffect(() => {
         if (listRef?.current) {
@@ -66,7 +74,7 @@ export function PlayerList<T extends Record<string, any>>({
 
     return (
         <div className="PlayerList">
-            {sessionEventsDataLoading ? (
+            {!data.length && (sessionEventsDataLoading || sessionPlayerMetaDataLoading) ? (
                 <SpinnerOverlay />
             ) : (
                 <>
@@ -96,18 +104,47 @@ export function PlayerList<T extends Record<string, any>>({
                             return (
                                 <List
                                     ref={listRef}
-                                    className="event-list-virtual"
+                                    className="player-list-virtual"
                                     height={height}
                                     width={width}
                                     onRowsRendered={setRenderedRows}
-                                    noRowsRenderer={() => (
-                                        <div className="event-list-empty-container">
-                                            <Empty
-                                                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                                                description="No events fired in this recording."
-                                            />
-                                        </div>
-                                    )}
+                                    noRowsRenderer={() =>
+                                        tab === SessionRecordingPlayerTab.CONSOLE &&
+                                        !currentTeam?.capture_console_log_opt_in ? (
+                                            <div className="flex flex-col items-center h-full w-full pt-16 px-4 bg-white">
+                                                <h4 className="text-xl font-medium">Introducing Console Logs</h4>
+                                                <p className="text-muted">
+                                                    Capture all console logs that are fired as part of a recording.
+                                                </p>
+                                                <LemonButton
+                                                    className="mb-2"
+                                                    onClick={() => {
+                                                        updateCurrentTeam({ capture_console_log_opt_in: true })
+                                                    }}
+                                                    type="primary"
+                                                >
+                                                    Turn on console log capture for future recordings
+                                                </LemonButton>
+                                                <LemonButton
+                                                    onClick={() => openSessionRecordingSettingsDialog()}
+                                                    targetBlank
+                                                >
+                                                    Configure in settings
+                                                </LemonButton>
+                                            </div>
+                                        ) : (
+                                            <div className="flex justify-center h-full pt-20">
+                                                <Empty
+                                                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                                    description={`No ${
+                                                        tab === SessionRecordingPlayerTab.EVENTS
+                                                            ? 'events'
+                                                            : 'console logs'
+                                                    } captured in this recording.`}
+                                                />
+                                            </div>
+                                        )
+                                    }
                                     overscanRowCount={OVERSCANNED_ROW_COUNT} // in case autoscrolling scrolls faster than we render.
                                     overscanIndicesGetter={({
                                         cellCount,
@@ -187,6 +224,12 @@ export function PlayerList<T extends Record<string, any>>({
                                                 optionsDetermined={optionsDetermined ?? []}
                                                 expandedDetermined={expandedDetermined}
                                                 loading={sessionEventsDataLoading}
+                                                windowNumber={
+                                                    windowIds.length > 1
+                                                        ? windowIds.indexOf(record.playerPosition.windowId) + 1 ||
+                                                          undefined
+                                                        : undefined
+                                                }
                                             />
                                         )
                                     }}

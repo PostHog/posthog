@@ -22,11 +22,13 @@ class TestChangesBetweenInsights(BaseTest):
                 action="changed",
                 field="dashboards",
                 before=[],
-                after=[{"id": dashboard.id, "name": dashboard.name}],
+                after=[
+                    {"dashboard": {"id": dashboard.id, "name": dashboard.name}, "insight": {"id": insight_after.id}}
+                ],
             )
         ]
 
-        self.assertCountEqual(actual, expected)
+        assert actual == expected
 
     def test_insight_change_of_name_can_be_logged(self) -> None:
         actual = changes_between(

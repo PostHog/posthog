@@ -1,6 +1,17 @@
+import json
 import sys
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    TypedDict,
+    Union,
+)
 
+import structlog
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
@@ -10,21 +21,25 @@ from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
 
+from posthog.cloud_utils import is_cloud
 from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
 from posthog.models.utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
-from posthog.utils import absolute_uri, mask_email_address
+from posthog.redis import get_client
+from posthog.utils import absolute_uri
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
-try:
-    from ee.models.license import License
-except ImportError:
-    License = None  # type: ignore
 
+logger = structlog.get_logger(__name__)
 
 INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
+
+
+class OrganizationUsageInfo(TypedDict):
+    usage: Optional[int]
+    limit: Optional[int]
 
 
 class OrganizationManager(models.Manager):
@@ -48,6 +63,7 @@ class OrganizationManager(models.Manager):
                 user.current_organization = organization
                 user.current_team = team
                 user.save()
+
         return organization, organization_membership, team
 
 
@@ -85,12 +101,22 @@ class Organization(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        default=PluginsAccessLevel.CONFIG if settings.MULTI_TENANCY else PluginsAccessLevel.ROOT,
+        default=PluginsAccessLevel.CONFIG,
         choices=PluginsAccessLevel.choices,
     )
-    available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
     for_internal_metrics: models.BooleanField = models.BooleanField(default=False)
     is_member_join_email_enabled: models.BooleanField = models.BooleanField(default=True)
+
+    # Managed by Billing
+    customer_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
+    # Managed by Billing, cached here for usage controls
+    # Like {
+    #   'events': { 'usage': 10000, 'limit': 20000 },
+    #   'recordings': { 'usage': 10000, 'limit': 20000 }
+    # }
+    # Also currently indicates if the organization is on billing V2 or not
+    usage: models.JSONField = models.JSONField(null=True, blank=True)
 
     # DEPRECATED attributes (should be removed on next major version)
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)
@@ -112,6 +138,10 @@ class Organization(UUIDModel):
         Obtains details on the billing plan for the organization.
         Returns a tuple with (billing_plan_key, billing_realm)
         """
+        try:
+            from ee.models.license import License
+        except ImportError:
+            License = None  # type: ignore
         # Demo gets all features
         if settings.DEMO or "generate_demo_data" in sys.argv[1:2]:
             return (License.ENTERPRISE_PLAN, "demo")
@@ -133,10 +163,21 @@ class Organization(UUIDModel):
 
     def update_available_features(self) -> List[Union[AvailableFeature, str]]:
         """Updates field `available_features`. Does not `save()`."""
+        # TODO BW: Get available features from billing service
+
+        if self.has_billing_v2_setup:
+            # Usage indicates billing V2 - we don't update billing as that is done
+            # whenever the billing service is called
+            return self.available_features
+
         plan, realm = self._billing_plan_details
         if not plan:
             self.available_features = []
         elif realm in ("ee", "demo"):
+            try:
+                from ee.models.license import License
+            except ImportError:
+                License = None  # type: ignore
             self.available_features = License.PLANS.get(plan, [])
         else:
             self.available_features = self.billing.available_features  # type: ignore
@@ -144,6 +185,23 @@ class Organization(UUIDModel):
 
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
         return feature in self.available_features
+
+    def get_usage_for_feature(self, feature: str) -> Optional[int]:
+        if not self.usage:
+            return None
+        return self.usage.get(feature, {}).get("usage", None)
+
+    def get_limit_for_feature(self, feature: str) -> Optional[int]:
+        if not self.usage:
+            return None
+        return self.usage.get(feature, {}).get("limit", None)
+
+    @property
+    def has_billing_v2_setup(self):
+        if hasattr(self, "billing") and self.billing.stripe_subscription_id:  # type: ignore
+            return False
+
+        return self.usage is not None
 
     @property
     def active_invites(self) -> QuerySet:
@@ -162,6 +220,16 @@ class Organization(UUIDModel):
 def organization_about_to_be_created(sender, instance: Organization, raw, using, **kwargs):
     if instance._state.adding:
         instance.update_available_features()
+        if not is_cloud():
+            instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
+
+
+@receiver(models.signals.post_save, sender=Organization)
+def ensure_available_features_sync(sender, instance: Organization, **kwargs):
+    updated_fields = kwargs.get("update_fields") or []
+    if "available_features" in updated_fields:
+        logger.info("Notifying plugin-server to reset available features cache.", {"organization_id": instance.id})
+        get_client().publish("reset-available-features-cache", json.dumps({"organization_id": str(instance.id)}))
 
 
 class OrganizationMembership(UUIDModel):
@@ -249,8 +317,7 @@ class OrganizationInvite(UUIDModel):
 
         if _email and _email != self.target_email:
             raise exceptions.ValidationError(
-                f"This invite is intended for another email address: {mask_email_address(self.target_email)}"
-                f". You tried to sign up with {_email}.",
+                "This invite is intended for another email address.",
                 code="invalid_recipient",
             )
 
