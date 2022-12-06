@@ -9,7 +9,6 @@ import { urls } from 'scenes/urls'
 import { kea, path } from 'kea'
 
 import type { logicType } from './sceneLogic.testType'
-import { insightsModel } from '~/models/insightsModel'
 
 export const Component = (): JSX.Element => <div />
 export const logic = kea<logicType>([path(['scenes', 'sceneLogic', 'test'])])
@@ -18,7 +17,6 @@ const sceneImport = (): any => ({ scene: { component: Component, logic: logic } 
 const testScenes: Record<string, () => any> = {
     [Scene.Annotations]: sceneImport,
     [Scene.MySettings]: sceneImport,
-    [Scene.Dashboard]: sceneImport,
 }
 
 describe('sceneLogic', () => {
@@ -28,7 +26,6 @@ describe('sceneLogic', () => {
         initKeaTests()
         await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
         featureFlagLogic.mount()
-        insightsModel.mount()
         router.actions.push(urls.annotations())
         logic = sceneLogic({ scenes: testScenes })
         logic.mount()
@@ -52,21 +49,6 @@ describe('sceneLogic', () => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             scene: Scene.MySettings,
         })
-    })
-
-    it('exposes the last transition', async () => {
-        await expectLogic(logic).toMatchValues({ lastTransition: { from: null, to: null } })
-
-        await expectLogic(logic, () => {
-            logic.actions.setScene(Scene.Dashboard, { params: { dashboardId: 1 }, searchParams: {}, hashParams: {} })
-        }).toMatchValues({ lastTransition: { from: null, to: Scene.Dashboard } })
-
-        await expectLogic(logic, () => {
-            logic.actions.setScene(Scene.Dashboard, { params: { dashboardId: 1 }, searchParams: {}, hashParams: {} })
-            router.actions.push(urls.mySettings())
-        })
-            .toFinishAllListeners()
-            .toMatchValues({ lastTransition: { from: Scene.Dashboard, to: Scene.MySettings } })
     })
 
     it('persists the loaded scenes', async () => {
