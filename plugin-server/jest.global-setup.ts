@@ -6,6 +6,7 @@ import { CompressionCodecs, CompressionTypes, logLevel } from 'kafkajs'
 import SnappyCodec from 'kafkajs-snappy'
 
 import { defaultConfig } from './src/config/config'
+import { KAFKA_APP_METRICS } from './src/config/kafka-topics'
 import { startClickHouseConsumer } from './src/main/ingestion-queues/clickhouse-consumer'
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
@@ -21,6 +22,8 @@ export default async function () {
     globalThis.clickHouseConsumer = await startClickHouseConsumer({
         kafka: kafka,
         producer: producer,
+        // TODO: add other topics here as we move await from KafkaTable
+        topic: KAFKA_APP_METRICS,
         serverConfig: { ...defaultConfig },
     })
 }

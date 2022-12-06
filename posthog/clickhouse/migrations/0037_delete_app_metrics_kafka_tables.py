@@ -7,7 +7,7 @@ from posthog.settings import CLICKHOUSE_CLUSTER
 logger = structlog.get_logger(__name__)
 
 
-def create_new_consumer_group():
+def create_new_consumer_group(database):
     # This is the consumer group ClickHouse KafkaTables currently use.
     CLICKHOUSE_CONSUMER_GROUP = "group1"
     APP_METRICS_GROUP = "clickhouse-inserter-app_metrics"
