@@ -15,3 +15,8 @@ python manage.py run_async_migrations --complete-noop-migrations
 python manage.py run_async_migrations --check
 
 python manage.py sync_replicated_schema
+
+# We need to handle migration of consumer group offsets such that we don't start
+# from the begining after https://github.com/PostHog/posthog/pull/13049 is
+# merged, otherwise we may end up ingesting duplicate rows into ClickHouse.
+python manage.py migrate_clickhouse_consumer_offsets

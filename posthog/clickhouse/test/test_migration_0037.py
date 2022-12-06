@@ -6,6 +6,8 @@ from kafka import KafkaProducer, OffsetAndMetadata
 
 from posthog.kafka_client.client import KafkaAdminClient, TopicPartition, build_kafka_consumer
 
+# TODO: migrate these tests to test the management command `migrate_clickhouse_consumer_offsets`
+
 migration = importlib.import_module("posthog.clickhouse.migrations.0037_delete_app_metrics_kafka_tables")
 
 CLICKHOUSE_GROUP = "group1"
