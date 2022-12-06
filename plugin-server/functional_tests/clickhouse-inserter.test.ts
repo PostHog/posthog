@@ -25,7 +25,7 @@ let dlqConsumer: Consumer
 
 const topics = [
     // NOTE: for introducing the ClickHouse inserter consumer, we are initially
-    // only enabling for App Metrics and Ingestion Warnings. We will enable for
+    // only enabling for App Metrics. We will enable for
     // the rest assuming performance is good enough.
     'clickhouse_app_metrics',
 
