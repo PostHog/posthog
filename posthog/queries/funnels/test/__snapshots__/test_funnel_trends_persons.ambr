@@ -144,14 +144,14 @@
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) ))))
-        WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 )
+        WHERE step_0 = 1 )
      WHERE toDateTime(entrance_period_start) = '2021-05-01 00:00:00'
      GROUP BY aggregation_target,
               entrance_period_start)
   WHERE steps_completed >= 2
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_returns_recordings.1
@@ -310,7 +310,7 @@
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) ))))
-        WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 )
+        WHERE step_0 = 1 )
      WHERE toDateTime(entrance_period_start) = '2021-05-01 00:00:00'
      GROUP BY aggregation_target,
               entrance_period_start)
@@ -318,7 +318,7 @@
     AND steps_completed < 3
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_drop_off.1
@@ -477,14 +477,14 @@
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) ))))
-        WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 )
+        WHERE step_0 = 1 )
      WHERE toDateTime(entrance_period_start) = '2021-05-01 00:00:00'
      GROUP BY aggregation_target,
               entrance_period_start)
   WHERE steps_completed >= 3
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_no_to_step.1

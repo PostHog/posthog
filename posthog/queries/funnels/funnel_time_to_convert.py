@@ -107,6 +107,6 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
             ) fill
             USING (bin_from_seconds)
             ORDER BY bin_from_seconds
-            SETTINGS allow_experimental_window_functions = 1"""
+        """
 
         return query

@@ -75,7 +75,6 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         {q}
         WHERE 1 = 1
         {conditions}
-        SETTINGS allow_experimental_window_functions = 1
         """
 
         return final_query, self.params

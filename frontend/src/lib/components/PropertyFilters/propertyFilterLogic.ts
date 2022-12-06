@@ -44,7 +44,11 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
     listeners: ({ actions, props, values }) => ({
         // Only send update if value is set to something
         setFilter: ({ property }) => {
-            property?.value && actions.update()
+            if (props.sendAllKeyUpdates) {
+                actions.update()
+            } else {
+                property?.value && actions.update()
+            }
         },
         remove: () => actions.update(),
         update: () => {

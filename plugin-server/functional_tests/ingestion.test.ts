@@ -148,6 +148,7 @@ test.concurrent(`event ingestion: can $set and update person properties`, async 
     expect(firstEvent).toEqual(
         expect.objectContaining({
             person_properties: {
+                $creator_event_uuid: personEventUuid,
                 prop: 'value',
             },
         })
@@ -171,6 +172,7 @@ test.concurrent(`event ingestion: can $set and update person properties`, async 
     expect(secondEvent).toEqual(
         expect.objectContaining({
             person_properties: {
+                $creator_event_uuid: personEventUuid,
                 prop: 'updated value',
             },
         })
@@ -199,6 +201,7 @@ test.concurrent(`event ingestion: can $set_once person properties but not update
     expect(firstEvent).toEqual(
         expect.objectContaining({
             person_properties: {
+                $creator_event_uuid: personEventUuid,
                 prop: 'value',
             },
         })
@@ -221,6 +224,7 @@ test.concurrent(`event ingestion: can $set_once person properties but not update
     expect(secondEvent).toEqual(
         expect.objectContaining({
             person_properties: {
+                $creator_event_uuid: personEventUuid,
                 prop: 'value',
             },
         })
