@@ -199,7 +199,7 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> Optiona
 def _update_cache_for_queryset(
     cache_type: CacheType, filter: Filter, key: str, team: Team
 ) -> Optional[List[Dict[str, Any]]]:
-    result = calculate_result_by_cache_type(cache_type, filter, key, team)
+    result = calculate_result_by_cache_type(cache_type, filter, team)
 
     cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, settings.CACHED_RESULTS_TTL)
 

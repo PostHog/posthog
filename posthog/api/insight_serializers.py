@@ -101,7 +101,7 @@ class BreakdownMixin(serializers.Serializer):
             if (
                 data.get("breakdown")
                 and not isinstance(data["breakdown"], list)
-                or any([not isinstance(item, int) for item in data["breakdown"]])
+                or any(not isinstance(item, int) for item in data["breakdown"])
             ):
                 raise serializers.ValidationError("If breakdown_type is cohort, breakdown must be a list of numbers")
 
