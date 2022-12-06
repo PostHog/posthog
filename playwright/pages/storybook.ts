@@ -23,6 +23,19 @@ export class StorybookStoryPage {
     }
 
     async screenshotStoryRoot(): Promise<void> {
-        await expect(this.storyRoot).toHaveScreenshot()
+        await this.page.evaluate(() => {
+            // don't expand the container element to limit the screenshot
+            // to the component's size
+            const element = document.getElementById('root')
+            if (element) {
+                element.style.display = 'inline-block'
+            }
+
+            // make the body transparent to take the screenshot
+            // without background
+            document.body.style.background = 'transparent'
+        })
+
+        await expect(this.storyRoot).toHaveScreenshot({ omitBackground: true })
     }
 }
