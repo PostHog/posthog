@@ -3,7 +3,7 @@ import { Message } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { configure } from 'safe-stable-stringify'
 
-import { KAFKA_APP_METRICS } from '../../config/kafka-topics'
+import { KAFKA_APP_METRICS, KAFKA_APP_METRICS_INSERTER } from '../../config/kafka-topics'
 import { Hub, TeamId, TimestampFormat } from '../../types'
 import { cleanErrorStackTrace } from '../../utils/db/error'
 import { status } from '../../utils/status'
@@ -178,8 +178,15 @@ export class AppMetrics {
             }),
         }))
 
+        // NOTE: we double write here as part of
+        // https://github.com/PostHog/posthog/pull/13049 to remove KafkaTables
+        // from ClickHouse schema
         await this.hub.kafkaProducer.queueMessage({
             topic: KAFKA_APP_METRICS,
+            messages: kafkaMessages,
+        })
+        await this.hub.kafkaProducer.queueMessage({
+            topic: KAFKA_APP_METRICS_INSERTER,
             messages: kafkaMessages,
         })
     }

@@ -233,7 +233,12 @@ const topicToTable: { [key: string]: { tableName: string; dlq?: boolean; maxChun
     },
     [KAFKA_SESSION_RECORDING_EVENTS]: { tableName: 'writable_session_recording_events' },
     [KAFKA_INGESTION_WARNINGS]: { tableName: 'sharded_ingestion_warnings' },
-    [KAFKA_APP_METRICS]: { tableName: 'sharded_app_metrics' },
+    [KAFKA_APP_METRICS]: {
+        // NOTE: we are writing to a "non-live" table here to validate the
+        // approach highlighted on https://github.com/PostHog/posthog/pull/13049
+        // to not use KafkaTables in ClickHouse.
+        tableName: 'sharded_app_metrics_inserter',
+    },
 } as const
 
 const retriableErrorCodes = {
