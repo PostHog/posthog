@@ -66,16 +66,30 @@ def upsert(
 
     target_age = calculate_target_age(team, target, lazy_loader)
     target_age_seconds = target_age.value.total_seconds() if target_age.value is not None else None
-    caching_state, _ = InsightCachingState.objects.update_or_create(
-        team_id=team.pk,
-        insight=target if isinstance(target, Insight) else target.insight,
-        dashboard_tile=target if isinstance(target, DashboardTile) else None,
-        defaults={
-            "cache_key": cache_key,
-            "target_cache_age_seconds": target_age_seconds,
-        },
-    )
-    return caching_state
+
+    filters = {
+        "team_id": team.pk,
+        "insight": target if isinstance(target, Insight) else target.insight,
+        "dashboard_tile": target if isinstance(target, DashboardTile) else None,
+    }
+
+    if existing_state := InsightCachingState.objects.filter(**filters).first():
+        if existing_state.cache_key != cache_key:
+            existing_state.last_refresh = None
+            existing_state.last_refresh_queued_at = None
+            existing_state.refresh_attempt = 0
+
+        existing_state.cache_key = cache_key
+        existing_state.target_cache_age_seconds = target_age_seconds
+        existing_state.save()
+
+        return existing_state
+    else:
+        return InsightCachingState.objects.create(
+            **filters,
+            cache_key=cache_key,
+            target_cache_age_seconds=target_age_seconds,
+        )
 
 
 def sync_insight_caching_state(team_id: int, insight_id: Optional[int] = None, dashboard_tile_id: Optional[int] = None):
