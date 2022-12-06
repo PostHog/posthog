@@ -1,7 +1,8 @@
 import os
 import time
 from random import randrange
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from celery import Celery
 from celery.schedules import crontab
@@ -170,7 +171,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         )
 
         sender.add_periodic_task(
-            crontab(hour="*"), check_flags_to_rollback.s(), name="check feature flags that should be rolled back"
+            crontab(minute=0, hour="*"),
+            check_flags_to_rollback.s(),
+            name="check feature flags that should be rolled back",
         )
 
 
@@ -485,6 +488,34 @@ def update_cache_item_task(key: str, cache_type, payload: dict) -> List[Dict[str
     from posthog.caching.update_cache import update_cache_item
 
     return update_cache_item(key, cache_type, payload)
+
+
+@app.task(ignore_result=True)
+def sync_insight_cache_states_task():
+    from posthog.caching.insight_caching_state import sync_insight_cache_states
+
+    sync_insight_cache_states()
+
+
+@app.task(ignore_result=True)
+def schedule_cache_updates_task():
+    from posthog.caching.insight_cache import schedule_cache_updates
+
+    schedule_cache_updates()
+
+
+@app.task(ignore_result=True)
+def update_cache_task(caching_state_id: UUID):
+    from posthog.caching.insight_cache import update_cache
+
+    update_cache(caching_state_id)
+
+
+@app.task(ignore_result=True)
+def sync_insight_caching_state(team_id: int, insight_id: Optional[int] = None, dashboard_tile_id: Optional[int] = None):
+    from posthog.caching.insight_caching_state import sync_insight_caching_state
+
+    sync_insight_caching_state(team_id, insight_id, dashboard_tile_id)
 
 
 @app.task(ignore_result=True)

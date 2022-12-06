@@ -78,7 +78,7 @@ export function PythonSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (
         <>
             <CodeSnippet language={Language.Python} wrap>
-                {`if posthog.feature_enabled("${flagKey}", "user_distinct_id"):
+                {`if posthog.feature_enabled("${flagKey}", "user_distinct_id"):
     runAwesomeFeature()
 `}
             </CodeSnippet>

@@ -1,8 +1,11 @@
+import pytest
+
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 from posthog.client import sync_execute
 from posthog.models.person.sql import COMMENT_DISTINCT_ID_COLUMN_SQL
 
+pytestmark = pytest.mark.async_migrations
 
 # Async migrations are data migrations aimed at getting users from an old schema to a new schema
 # Fresh installs should have the new schema, however. So check that async migrations are being

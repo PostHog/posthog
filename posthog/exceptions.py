@@ -1,4 +1,4 @@
-from typing import Optional, TypedDict
+from typing import Any, Optional, TypedDict
 
 import structlog
 from django.http.request import HttpRequest
@@ -55,7 +55,7 @@ def exception_reporting(exception: Exception, context: ExceptionContext) -> Opti
 
 def generate_exception_response(
     endpoint: str,
-    detail: str,
+    detail: Any,
     code: str = "invalid",
     type: str = "validation_error",
     attr: Optional[str] = None,
@@ -65,6 +65,8 @@ def generate_exception_response(
     Generates a friendly JSON error response in line with drf-exceptions-hog for endpoints not under DRF.
     """
 
+    # Importing here because this module is loaded before Django settings are configured,
+    # and statshog relies on those being ready
     from statshog.defaults.django import statsd
 
     statsd.incr(

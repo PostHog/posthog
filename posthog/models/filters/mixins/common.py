@@ -1,6 +1,7 @@
 import datetime
 import json
 import re
+from math import ceil
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import pytz
@@ -407,7 +408,8 @@ class DateMixin(BaseParamMixin):
     def query_tags_dates(self):
         if self.date_from and self.date_to:
             delta = self.date_to - self.date_from
-            return {"query_time_range_days": delta.days}
+            delta_days = ceil(delta.total_seconds() / datetime.timedelta(days=1).total_seconds())
+            return {"query_time_range_days": delta_days}
         return {}
 
 

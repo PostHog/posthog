@@ -31,6 +31,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         ],
         showOnlyMatching: [
             false,
+            { persist: true },
             {
                 setShowOnlyMatching: (_, { showOnlyMatching }) => showOnlyMatching,
             },

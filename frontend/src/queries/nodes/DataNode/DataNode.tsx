@@ -3,18 +3,18 @@ import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { DataNode as DataNodeType } from '~/queries/schema'
 import { useValues } from 'kea'
-import { dataNodeLogic } from '~/queries/nodes/dataNodeLogic'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 
 interface DataNodeProps {
     query: DataNodeType
 }
 
-let i = 0
+let uniqueNode = 0
 
 /** Default renderer for data nodes. Display the JSON in a Monaco editor.  */
 export function DataNode(props: DataNodeProps): JSX.Element {
-    const [key] = useState(() => String(i++))
+    const [key] = useState(() => `DataNode.${uniqueNode++}`)
     const logic = dataNodeLogic({ ...props, key })
     const { response, responseLoading } = useValues(logic)
 
