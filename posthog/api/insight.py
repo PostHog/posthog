@@ -787,10 +787,12 @@ Using the correct cache and enriching the response with dashboard specific confi
     def cancel(self, request: request.Request, **kwargs):
         if "client_query_id" not in request.data:
             raise serializers.ValidationError({"client_query_id": "Field is required."})
+
         sync_execute(
             f"KILL QUERY ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE query_id LIKE %(client_query_id)s",
             {"client_query_id": f"{self.team.pk}_{request.data['client_query_id']}%"},
         )
+        statsd.incr("clickhouse.insight.query.cancellation_requested", tags={"team_id": self.team.pk})
         return Response(status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=False)
