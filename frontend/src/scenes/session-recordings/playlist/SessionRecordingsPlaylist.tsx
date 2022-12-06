@@ -10,7 +10,7 @@ import {
 import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import {
     IconChevronLeft,
     IconChevronRight,
@@ -212,17 +212,16 @@ export function SessionRecordingsPlaylist({
                         (pinnedRecordingsResponse?.results?.length ? (
                             <>
                                 <div className="w-full overflow-hidden border rounded">
-                                    <div className="relative flex justify-between items-center bg-mid py-3 px-4 border-b">
-                                        <span className="flex items-center gap-2">
-                                            {playlistShortId ? (
-                                                <LemonButton status="stealth" icon={<IconUnfoldLess />} size="small" />
-                                            ) : null}
-                                            <span className="font-bold uppercase text-xs my-1 tracking-wide">
-                                                {'Pinned Recordings'}
-                                            </span>
+                                    <div className="relative flex justify-between items-center p-2 border-b gap-1">
+                                        {playlistShortId ? (
+                                            <LemonButton status="stealth" icon={<IconUnfoldLess />} size="small" />
+                                        ) : null}
+                                        <span className="font-bold uppercase text-xs my-1 tracking-wide flex-1">
+                                            Pinned Recordings
                                         </span>
+                                        <span className="rounded p-1 px-2 text-xs bg-border-light">5 of 100</span>
                                     </div>
-                                    <ul>
+                                    <ul className="overflow-y-auto">
                                         {pinnedRecordingsResponse?.results.map((rec, i) => (
                                             <Fragment key={rec.id}>
                                                 {i > 0 && <div className="border-t" />}
@@ -274,7 +273,7 @@ export function SessionRecordingsPlaylist({
                     <LemonDivider dashed />
 
                     <div className="w-full overflow-hidden border rounded">
-                        <div className="relative flex justify-between items-center bg-mid py-3 px-4 border-b">
+                        <div className="relative flex justify-between items-center p-2 border-b">
                             <span className="flex items-center gap-2">
                                 {playlistShortId ? (
                                     <LemonButton status="stealth" icon={<IconUnfoldLess />} size="small" />
