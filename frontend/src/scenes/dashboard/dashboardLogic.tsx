@@ -15,7 +15,7 @@ import {
 import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { router, urlToAction } from 'kea-router'
-import { clearDOMTextSelection, isUserLoggedIn, toParams, uuid } from 'lib/utils'
+import { clearDOMTextSelection, toParams, uuid } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
 import {
     AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS,
@@ -56,6 +56,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { subscriptions } from 'kea-subscriptions'
 import { loaders } from 'kea-loaders'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -127,15 +128,15 @@ function updateExistingInsightState({ cachedInsight, dashboardId, refreshedInsig
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags'], sceneLogic, ['scene']],
         logic: [dashboardsModel, insightsModel, eventUsageLogic],
     })),
     props({} as DashboardLogicProps),
-    key((props) => {
+    key((props: DashboardLogicProps) => {
         if (typeof props.id === 'string') {
             throw Error('Must init dashboardLogic with a numeric key')
         }
-        return props.id ?? 'new'
+        return props.id?.toString() || 'new'
     }),
     actions({
         loadExportedDashboard: (dashboard: DashboardType | null) => ({ dashboard }),
@@ -890,23 +891,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.saveLayouts()
         },
         saveLayouts: async (_, breakpoint) => {
-            await breakpoint(300)
-            if (!isUserLoggedIn()) {
-                // If user is anonymous (i.e. viewing a shared dashboard logged out), we don't save any layout changes.
-                return
-            }
-            if (!props.id) {
-                // what are we saving layouts against?!
-                return
-            }
-
             try {
+                await breakpoint(300)
+
+                if (!props.id) {
+                    // what are we saving layouts against?!
+                    return
+                }
+
+                breakpoint()
+
                 const layoutsToUpdate = (values.allItems?.tiles || []).map((tile) => ({
                     id: tile.id,
                     layouts: tile.layouts,
                 }))
-
-                breakpoint()
 
                 await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                     tiles: layoutsToUpdate,

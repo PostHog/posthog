@@ -13,12 +13,10 @@ import {
     InsightModel,
     InsightShortId,
     InsightType,
-    ItemMode,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyOperator,
 } from '~/types'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { combineUrl, router } from 'kea-router'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -111,6 +109,7 @@ describe('insightLogic', () => {
         useAvailableFeatures([AvailableFeature.DASHBOARD_COLLABORATION])
         useMocks({
             get: {
+                '/api/projects/:team/tags/': { results: ['good', 'bad'] },
                 '/api/projects/:team/insights/trend/': (req) => {
                     if (JSON.parse(req.url.searchParams.get('events') || '[]')?.[0]?.throw) {
                         return [500, { status: 0, detail: 'error from the API' }]
@@ -297,20 +296,7 @@ describe('insightLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ insight: InsightType.FUNNELS })
-            }).toDispatchActions([
-                eventUsageLogic.actionCreators.reportInsightViewed(
-                    insight,
-                    { insight: InsightType.FUNNELS },
-                    ItemMode.View,
-                    true,
-                    false,
-                    0,
-                    {
-                        changed_insight: InsightType.TRENDS,
-                    },
-                    false
-                ),
-            ])
+            }).toDispatchActions(['reportInsightViewed'])
         })
     })
 

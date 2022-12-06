@@ -23,6 +23,7 @@ import { dayjs, now } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import api from 'lib/api'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 const dashboardJson = _dashboardJson as any as DashboardType
 
@@ -273,6 +274,7 @@ describe('dashboardLogic', () => {
         initKeaTests()
         dashboardsModel.mount()
         insightsModel.mount()
+        sceneLogic.mount()
     })
 
     describe('tile layouts', () => {
@@ -820,18 +822,15 @@ describe('dashboardLogic', () => {
         beforeEach(async () => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
         })
 
         it('can remove text tiles', async () => {
             await expectLogic(logic, () => {
                 logic.actions.removeTile(TEXT_TILE)
-            })
-                .toFinishAllListeners()
-                .toDispatchActions([
-                    dashboardsModel.actionTypes.tileRemovedFromDashboard,
-                    logic.actionTypes.removeTileSuccess,
-                ])
+            }).toDispatchActions([
+                dashboardsModel.actionTypes.tileRemovedFromDashboard,
+                logic.actionTypes.removeTileSuccess,
+            ])
 
             expect(logic.values.textTiles).toEqual([])
         })
