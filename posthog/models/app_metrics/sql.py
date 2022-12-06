@@ -22,8 +22,8 @@ BASE_APP_METRICS_COLUMNS = """
     error_details String CODEC(ZSTD(3))
 """.strip()
 
-APP_METRICS_DATA_TABLE_SQL = lambda table_name=None, **kwargs: (
-    lambda: f"""
+APP_METRICS_DATA_TABLE_SQL = lambda table_name=None: (
+    f"""
 CREATE TABLE {table_name} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 (
     {BASE_APP_METRICS_COLUMNS}
@@ -33,13 +33,13 @@ ENGINE = {SHARDED_APP_METRICS_TABLE_ENGINE()}
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, plugin_config_id, job_id, category, toStartOfHour(timestamp), error_type, error_uuid)
 """.format(
-        table_name=table_name or "sharded_app_metrics", **kwargs
+        table_name=table_name or "sharded_app_metrics"
     )
 )
 
 
-DISTRIBUTED_APP_METRICS_TABLE_SQL = lambda table_name=None, **kwargs: (
-    lambda: f"""
+DISTRIBUTED_APP_METRICS_TABLE_SQL = lambda table_name=None: (
+    f"""
 CREATE TABLE {table_name} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 (
     {BASE_APP_METRICS_COLUMNS}
@@ -47,7 +47,7 @@ CREATE TABLE {table_name} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 )
 ENGINE={Distributed(data_table="sharded_app_metrics", sharding_key="rand()")}
 """.format(
-        table_name=table_name or "app_metrics", **kwargs
+        table_name=table_name or "app_metrics"
     )
 )
 
