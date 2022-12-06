@@ -214,12 +214,6 @@ export const startClickHouseConsumer = async ({
 }
 
 const topicToTable: { [key: string]: { tableName: string; dlq?: boolean; maxChunkSize?: number } } = {
-    /*
-     * NOTE: we only enable for ingestion warnings and app metrics initially, to
-     * see how it works out in production. These should be reasonable low risk
-     * topics.
-     */
-
     [KAFKA_EVENTS_JSON]: { tableName: 'writable_events' },
     [KAFKA_EVENTS_DEAD_LETTER_QUEUE]: {
         tableName: 'events_dead_letter_queue',

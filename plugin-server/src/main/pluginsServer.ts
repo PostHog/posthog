@@ -275,6 +275,9 @@ export async function startPluginsServer(
             // TODO: allow for these consumers to run separately from the
             // ingestion related workloads, so allow for better handling of
             // failure cases.
+            // NOTE: we only enable for app metrics initially, to
+            // see how it works out in production. These should be reasonable low risk
+            // topics.
             clickHouseConsumers = [
                 await startClickHouseConsumer({
                     kafka: hub.kafka,
