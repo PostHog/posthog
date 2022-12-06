@@ -1,7 +1,7 @@
 # Queries
 
 - `nodes/` 
-  - The folders in this directory (e.g. `DataNode/`, `DataTable/`, ...) come from `NodeKind` 
+  - The folders in this directory (e.g. `EventsNode/`, `DataTable/`, ...) contain components for rendering each `NodeKind`, and its related components (e.g. the reload button). 
   - The top level component always has the structure `DataTable({ query, setQuery })`
   - There are various sub-components for each node kind (e.g. `<AutoLoad />`, `<ColumnConfigurator />`) that can be used. Some of them depend on a logic, likely `dataNodeLogic`, being in a `BindLogic` context, so read the source.
 - `Query/`
