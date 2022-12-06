@@ -49,10 +49,16 @@ def migrate_clickhouse_consumer_group_for_topic(
     """
     logger.info("migrating_consumer_group", source_group=source_group, target_group=target_group, topic=topic)
 
-    target_group_offsets = admin.list_consumer_group_offsets(target_group)
-    if len(target_group_offsets) > 0:
-        logger.info("consumer_group_exists", group=target_group)
-        return
+    consumer_groups = admin.list_consumer_groups()
+    target_consumer_groups = [group for group, _ in consumer_groups if group == target_group]
+    if len(target_consumer_groups) > 0:
+        target_group_offsets = admin.list_consumer_group_offsets(target_group)
+        if len(target_group_offsets) > 0:
+            logger.info("consumer_group_exists", group=target_group)
+            return
+        elif check:
+            logger.info("consumer_group_missing", group=target_group)
+            sys.exit(1)
     elif check:
         logger.info("consumer_group_missing", group=target_group)
         sys.exit(1)

@@ -1,7 +1,6 @@
 import pytest
 from django.core.management import call_command
 from kafka import KafkaProducer
-from kafka.errors import GroupCoordinatorNotAvailableError
 
 from posthog.kafka_client.client import KafkaAdminClient, build_kafka_consumer
 
@@ -35,12 +34,11 @@ def test_migrates_group1_offsets_to_new_consumer_group():
     # NOTE: the kafka-python library appears to get an error that it can't find
     # the group ID. However, it does appear to clear the offsets, so we
     # purposefully ignore the error.
-    # NOTE: I'm assuming that if we get GroupCoordinatorNotAvailableError then
-    # the group doesn't exist.
-    try:
+    consumer_groups = kafka.list_consumer_groups()
+    target_consumer_groups = [group for group, _ in consumer_groups if group == APP_METRICS_GROUP]
+    if len(target_consumer_groups) > 0:
         app_metrics_offsets = kafka.list_consumer_group_offsets(APP_METRICS_GROUP)
-        assert len(app_metrics_offsets) == 0
-    except GroupCoordinatorNotAvailableError:
+    else:
         app_metrics_offsets = {}
 
     # Make sure the check command errors before the migration has run
