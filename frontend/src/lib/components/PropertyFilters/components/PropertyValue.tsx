@@ -10,6 +10,7 @@ import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/compone
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import './PropertyValue.scss'
 import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
+import clsx from 'clsx'
 
 type PropValue = {
     id?: number
@@ -28,6 +29,7 @@ export interface PropertyValueProps {
     type: string
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
+    className?: string
     bordered?: boolean
     onSet: CallableFunction
     value?: string | number | Array<string | number> | null
@@ -49,6 +51,7 @@ export function PropertyValue({
     type,
     endpoint = undefined,
     placeholder = undefined,
+    className,
     bordered = true,
     onSet,
     value,
@@ -187,6 +190,7 @@ export function PropertyValue({
             <LemonSelectMultiple
                 loading={options[propertyKey]?.status === 'loading'}
                 {...commonInputProps}
+                selectClassName={clsx(className, 'property-filters-property-value', 'w-full')}
                 value={formattedValues}
                 mode="multiple-custom"
                 onChange={(nextVal) => {
