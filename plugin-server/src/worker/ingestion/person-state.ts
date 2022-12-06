@@ -128,6 +128,7 @@ export class PersonState {
                     // :NOTE: This should never be set in this branch, but adding this for logical consistency
                     this.updateIsIdentified,
                     this.newUuid,
+                    this.event.uuid,
                     [this.distinctId]
                 )
                 // :TRICKY: Avoid subsequent queries re-fetching person
@@ -161,9 +162,10 @@ export class PersonState {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
+        creatorEventUuid: string,
         distinctIds?: string[]
     ): Promise<Person> {
-        const props = { ...propertiesOnce, ...properties }
+        const props = { ...propertiesOnce, ...properties, ...{ $creator_event_uuid: creatorEventUuid } }
         const propertiesLastOperation: Record<string, any> = {}
         const propertiesLastUpdatedAt: Record<string, any> = {}
         Object.keys(propertiesOnce).forEach((key) => {
@@ -380,6 +382,7 @@ export class PersonState {
                     null,
                     true,
                     this.newUuid,
+                    this.event.uuid,
                     [distinctId, previousDistinctId]
                 )
                 // :KLUDGE: Avoid unneeded fetches in updateProperties()

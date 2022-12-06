@@ -2,7 +2,7 @@ import { isBreakpoint, kea } from 'kea'
 import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { router } from 'kea-router'
-import { clearDOMTextSelection, isUserLoggedIn, toParams, uuid } from 'lib/utils'
+import { areObjectValuesEmpty, clearDOMTextSelection, isUserLoggedIn, toParams, uuid } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
 import {
     AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS,
@@ -25,6 +25,7 @@ import {
     InsightModel,
     InsightShortId,
     TextModel,
+    TileLayout,
 } from '~/types'
 import type { dashboardLogicType } from './dashboardLogicType'
 import { Layout, Layouts } from 'react-grid-layout'
@@ -66,6 +67,23 @@ export interface RefreshStatus {
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
 export type LoadDashboardItemsProps = { refresh?: boolean; action: string }
+
+// to stop kea typegen getting confused
+export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layouts'>
+
+const layoutsByTile = (layouts: Layouts): Record<number, Record<DashboardLayoutSize, TileLayout>> => {
+    const itemLayouts: Record<number, Record<DashboardLayoutSize, TileLayout>> = {}
+
+    Object.entries(layouts).forEach(([col, layout]) => {
+        layout.forEach((layoutItem) => {
+            if (!itemLayouts[layoutItem.i]) {
+                itemLayouts[layoutItem.i] = {}
+            }
+            itemLayouts[layoutItem.i][col] = layoutItem
+        })
+    })
+    return itemLayouts
+}
 
 interface InsightCacheReloadProps {
     cachedInsight: InsightModel
@@ -112,7 +130,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         triggerDashboardUpdate: (payload) => ({ payload }),
         /** The current state in which the dashboard is being viewed, see DashboardMode. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
-        saveLayouts: true,
+        saveLayouts: (tilesToSave: DashboardTileLayoutUpdatePayload[] = []) => ({ tilesToSave }),
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
@@ -294,16 +312,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
             {
                 loadExportedDashboard: (_, { dashboard }) => dashboard,
                 updateLayouts: (state, { layouts }) => {
-                    const itemLayouts: Record<number, Partial<Record<string, Layout>>> = {}
-
-                    Object.entries(layouts).forEach(([col, layout]) => {
-                        layout.forEach((layoutItem) => {
-                            if (!itemLayouts[layoutItem.i]) {
-                                itemLayouts[layoutItem.i] = {}
-                            }
-                            itemLayouts[layoutItem.i][col] = layoutItem
-                        })
-                    })
+                    const itemLayouts = layoutsByTile(layouts)
 
                     return {
                         ...state,
@@ -559,7 +568,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
             },
         ],
     }),
-    selectors: () => ({
+    selectors: ({ actions }) => ({
         asDashboardTemplate: [
             (s) => [s.allItems],
             (dashboard: DashboardType): string => {
@@ -669,6 +678,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
         layouts: [
             (s) => [s.tiles],
             (tiles) => {
+                const tilesWithNoLayout = tiles.filter((t) => !t.layouts || areObjectValuesEmpty(t.layouts))
+
                 const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout[]>> = {}
 
                 for (const col of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
@@ -748,6 +759,16 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         })
 
                     allLayouts[col] = cleanLayouts
+                }
+
+                if (tilesWithNoLayout.length > 0) {
+                    const layoutsByTileId = layoutsByTile(allLayouts)
+                    actions.saveLayouts(
+                        tilesWithNoLayout.map((t) => ({
+                            id: t.id,
+                            layouts: layoutsByTileId[t.id],
+                        }))
+                    )
                 }
                 return allLayouts
             },
@@ -870,7 +891,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         updateLayouts: () => {
             actions.saveLayouts()
         },
-        saveLayouts: async (_, breakpoint) => {
+        saveLayouts: async ({ tilesToSave }, breakpoint) => {
             await breakpoint(300)
             if (!isUserLoggedIn()) {
                 // If user is anonymous (i.e. viewing a shared dashboard logged out), we don't save any layout changes.
@@ -881,8 +902,14 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 return
             }
 
+            const layoutsToUpdate = tilesToSave.length
+                ? tilesToSave
+                : (values.allItems?.tiles || []).map((tile) => ({ id: tile.id, layouts: tile.layouts }))
+
+            breakpoint()
+
             return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
-                tiles: values.allItems?.tiles || [],
+                tiles: layoutsToUpdate,
                 no_items_field: true,
             })
         },

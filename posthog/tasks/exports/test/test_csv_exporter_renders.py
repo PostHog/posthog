@@ -29,8 +29,8 @@ def test_csv_rendering(mock_settings, mock_request, filename):
     org = Organization.objects.create(name="org")
     team = Team.objects.create(organization=org, name="team")
 
-    with open(os.path.join(directory, filename)) as f:
-        fixture = json.loads(f.read())
+    with open(os.path.join(directory, filename), encoding="utf_8") as f:
+        fixture = json.load(f)
 
     asset = ExportedAsset(
         team=team, export_format=ExportedAsset.ExportFormat.CSV, export_context={"path": "/api/literally/anything"}

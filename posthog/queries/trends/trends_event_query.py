@@ -144,7 +144,7 @@ class TrendsEventQuery(EventQuery):
             )
 
     def _determine_should_join_distinct_ids(self) -> None:
-        is_entity_per_user = self._entity.math == UNIQUE_USERS
+        is_entity_per_user = self._entity.math in (UNIQUE_USERS, WEEKLY_ACTIVE, MONTHLY_ACTIVE)
         if (
             is_entity_per_user and not self._aggregate_users_by_distinct_id
         ) or self._column_optimizer.is_using_cohort_propertes:

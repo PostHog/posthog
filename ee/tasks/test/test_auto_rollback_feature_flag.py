@@ -2,12 +2,59 @@ from unittest.mock import patch
 
 from freezegun import freeze_time
 
-from ee.tasks.auto_rollback_feature_flag import check_condition, check_feature_flag_rollback_conditions
+from ee.tasks.auto_rollback_feature_flag import (
+    calculate_rolling_average,
+    check_condition,
+    check_feature_flag_rollback_conditions,
+)
 from posthog.models.feature_flag import FeatureFlag
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 
 
 class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
+    def test_calculate_rolling_average(self):
+        threshold_metric = {
+            "insight": "trends",
+            "events": [{"order": 0, "id": "$pageview"}],
+        }
+
+        with freeze_time("2021-08-21T20:00:00.000Z"):
+            for _ in range(70):
+                _create_event(
+                    event="$pageview",
+                    distinct_id="1",
+                    team=self.team,
+                    timestamp="2021-08-21 05:00:00",
+                    properties={"prop": 1},
+                )
+
+                _create_event(
+                    event="$pageview",
+                    distinct_id="1",
+                    team=self.team,
+                    timestamp="2021-08-22 05:00:00",
+                    properties={"prop": 1},
+                )
+        with freeze_time("2021-08-21T21:00:00.000Z"):
+            self.assertEqual(
+                calculate_rolling_average(
+                    threshold_metric=threshold_metric,
+                    team=self.team,
+                    timezone="UTC",
+                ),
+                10,  # because we have 70 events in the last 7 days
+            )
+
+        with freeze_time("2021-08-22T21:00:00.000Z"):
+            self.assertEqual(
+                calculate_rolling_average(
+                    threshold_metric=threshold_metric,
+                    team=self.team,
+                    timezone="UTC",
+                ),
+                20,  # because we have 140 events in the last 7 days
+            )
+
     def test_check_condition(self):
         rollback_condition = {
             "threshold": 10,
@@ -31,16 +78,16 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
 
     def test_check_condition_valid(self):
         rollback_condition = {
-            "threshold": 3,
+            "threshold": 15,
             "threshold_metric": {
                 "insight": "trends",
                 "events": [{"order": 0, "id": "$pageview"}],
             },
-            "operator": "lt",
+            "operator": "gt",
             "threshold_type": "insight",
         }
 
-        for _ in range(10):
+        for _ in range(70):
             _create_event(
                 event="$pageview",
                 distinct_id="1",
@@ -53,15 +100,6 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="1",
                 team=self.team,
                 timestamp="2021-08-22 00:00:00",
-                properties={"prop": 1},
-            )
-
-        for _ in range(20):
-            _create_event(
-                event="$pageview",
-                distinct_id="1",
-                team=self.team,
-                timestamp="2021-08-23 00:00:00",
                 properties={"prop": 1},
             )
 
@@ -74,25 +112,25 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
                 rollback_conditions=[rollback_condition],
             )
 
-        with freeze_time("2021-08-23T20:00:00.000Z"):
-            self.assertEqual(check_condition(rollback_condition, flag), True)
+        with freeze_time("2021-08-21T20:00:00.000Z"):
+            self.assertEqual(check_condition(rollback_condition, flag), False)
 
         # Go another day with 0 events
-        with freeze_time("2021-08-26T20:00:00.000Z"):
-            self.assertEqual(check_condition(rollback_condition, flag), False)
+        with freeze_time("2021-08-22T20:00:00.000Z"):
+            self.assertEqual(check_condition(rollback_condition, flag), True)
 
     def test_feature_flag_rolledback(self):
         rollback_condition = {
-            "threshold": 3,
+            "threshold": 15,
             "threshold_metric": {
                 "insight": "trends",
                 "events": [{"order": 0, "id": "$pageview"}],
             },
-            "operator": "lt",
+            "operator": "gt",
             "threshold_type": "insight",
         }
 
-        for _ in range(10):
+        for _ in range(70):
             _create_event(
                 event="$pageview",
                 distinct_id="1",
@@ -108,16 +146,7 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
                 properties={"prop": 1},
             )
 
-        for _ in range(20):
-            _create_event(
-                event="$pageview",
-                distinct_id="1",
-                team=self.team,
-                timestamp="2021-08-23 00:00:00",
-                properties={"prop": 1},
-            )
-
-        with freeze_time("2021-08-21T20:00:00.000Z"):
+        with freeze_time("2021-08-21T00:00:00.000Z"):
             flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,

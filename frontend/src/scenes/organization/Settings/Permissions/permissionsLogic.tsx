@@ -1,8 +1,10 @@
-import { afterMount, kea, selectors, path } from 'kea'
+import { afterMount, kea, selectors, path, connect } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { OrganizationResourcePermissionType, Resource, AccessLevel } from '~/types'
 import type { permissionsLogicType } from './permissionsLogicType'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const ResourceDisplayMapping: Record<Resource, string> = {
     [Resource.FEATURE_FLAGS]: 'Feature Flags',
@@ -22,6 +24,7 @@ export interface FormattedResourceLevel {
 
 export const permissionsLogic = kea<permissionsLogicType>([
     path(['scenes', 'organization', 'Settings', 'Permissions', 'permissionsLogic']),
+    connect({ values: [featureFlagLogic, ['featureFlags']] }),
     loaders(({ values }) => ({
         organizationResourcePermissions: [
             [] as OrganizationResourcePermissionType[],
@@ -75,6 +78,10 @@ export const permissionsLogic = kea<permissionsLogicType>([
                         } as FormattedResourceLevel)
                 )
             },
+        ],
+        shouldShowPermissionsTable: [
+            (s) => [s.featureFlags],
+            (featureFlags) => featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] === 'control',
         ],
     }),
     afterMount(({ actions }) => {
