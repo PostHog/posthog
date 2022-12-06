@@ -1,14 +1,7 @@
-import importlib
-
-from django.conf import settings
-from infi.clickhouse_orm import Database
+from django.core.management import call_command
 from kafka import KafkaProducer, OffsetAndMetadata
 
 from posthog.kafka_client.client import KafkaAdminClient, TopicPartition, build_kafka_consumer
-
-# TODO: migrate these tests to test the management command `migrate_clickhouse_consumer_offsets`
-
-migration = importlib.import_module("posthog.clickhouse.migrations.0037_delete_app_metrics_kafka_tables")
 
 CLICKHOUSE_GROUP = "group1"
 APP_METRICS_GROUP = "clickhouse-inserter-clickhouse_app_metrics"
@@ -30,14 +23,6 @@ def test_migrates_group1_offsets_to_new_consumer_group():
 
     kafka = KafkaAdminClient()
     producer = KafkaProducer()
-    database = Database(
-        settings.CLICKHOUSE_DATABASE,
-        db_url=settings.CLICKHOUSE_HTTP_URL,
-        username=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        cluster=settings.CLICKHOUSE_CLUSTER,
-        verify_ssl_cert=False,
-    )
 
     # First let's make sure that the consumer group offsets are not set.
     kafka.delete_consumer_groups(group_ids=[APP_METRICS_GROUP])
@@ -62,7 +47,7 @@ def test_migrates_group1_offsets_to_new_consumer_group():
 
     # Now that we have clarified that the offsets aren't set, let's run the
     # offset migration.
-    migration.migrate_consumer_group_offsets(database)
+    call_command("migrate_clickhouse_consumer_offsets")
 
     app_metrics_offsets = kafka.list_consumer_group_offsets(APP_METRICS_GROUP)
     group1_group_offsets = kafka.list_consumer_group_offsets(CLICKHOUSE_GROUP)
@@ -74,7 +59,7 @@ def test_migrates_group1_offsets_to_new_consumer_group():
         assert app_metrics_offsets[topic_partition] == group1_group_offsets[topic_partition]
 
     # Also check that running the method again doesn't change anything.
-    migration.migrate_consumer_group_offsets(database)
+    call_command("migrate_clickhouse_consumer_offsets")
 
     new_app_metrics_offsets = kafka.list_consumer_group_offsets(APP_METRICS_GROUP)
     assert new_app_metrics_offsets == app_metrics_offsets
