@@ -15,10 +15,18 @@ import {
 import { toParams } from 'lib/utils'
 
 // Return data for a given query
-export async function query<N extends DataNode>(query: N, methodOptions?: ApiMethodOptions): Promise<N['response']> {
+export async function query<N extends DataNode = DataNode>(
+    query: N,
+    methodOptions?: ApiMethodOptions
+): Promise<N['response']> {
     if (isEventsNode(query)) {
         return await api.events.list(
-            { properties: query.properties, ...(query.event ? { event: query.event } : {}) },
+            {
+                properties: query.properties,
+                ...(query.event ? { event: query.event } : {}),
+                before: query.before,
+                after: query.after,
+            },
             query.limit
         )
     } else if (isLegacyQuery(query)) {

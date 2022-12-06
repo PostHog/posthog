@@ -79,6 +79,14 @@ EVENT_PROPERTY_USAGE_INTERVAL_CRON = get_from_env(
     "0 */6 * * *",
 )
 
+# Schedule to syncronize insight cache states on. Follows crontab syntax.
+SYNC_INSIGHT_CACHE_STATES_SCHEDULE = get_from_env(
+    "CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON",
+    # Defaults to 5AM UTC on Saturday
+    "0 5 * * SAT",
+)
+
+
 UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = get_from_env(
     "UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS", 90, type_cast=int
 )
