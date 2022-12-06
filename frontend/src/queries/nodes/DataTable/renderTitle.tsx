@@ -13,7 +13,7 @@ export function renderTitle(key: string): JSX.Element | string {
     } else if (key.startsWith('properties.')) {
         return <PropertyKeyInfo value={key.substring(11)} type={PropertyFilterType.Event} disableIcon />
     } else if (key.startsWith('person.properties.')) {
-        // NOTE: type=Event is not a mistake, even if it's a person property. Don't ask, won't fix.
+        // NOTE: PropertyFilterType.Event is not a mistake. PropertyKeyInfo only knows events vs elements ¯\_(ツ)_/¯
         return <PropertyKeyInfo value={key.substring(18)} type={PropertyFilterType.Event} disableIcon />
     } else {
         return String(key)

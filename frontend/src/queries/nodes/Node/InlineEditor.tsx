@@ -16,7 +16,7 @@ export function InlineEditor({ query, setQuery }: InlineEditorProps): JSX.Elemen
 
     return (
         <>
-            <LemonButton tooltip="Edit Code" type="secondary" onClick={() => setOpen(true)}>
+            <LemonButton tooltip="Edit code" type="secondary" onClick={() => setOpen(true)}>
                 <IconEvent />
             </LemonButton>
             <Drawer

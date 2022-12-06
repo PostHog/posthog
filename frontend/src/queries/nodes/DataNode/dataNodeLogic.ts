@@ -5,6 +5,7 @@ import { DataNode, EventsNode } from '~/queries/schema'
 import { query } from '~/queries/query'
 import { isEventsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
+import { objectsEqual } from 'lib/utils'
 
 export interface DataNodeLogicProps {
     key: string
@@ -18,7 +19,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     props({} as DataNodeLogicProps),
     key((props) => props.key),
     propsChanged(({ actions, props }, oldProps) => {
-        if (JSON.stringify(props.query) !== JSON.stringify(oldProps.query)) {
+        if (!objectsEqual(props.query, oldProps.query)) {
             actions.loadData()
         }
     }),
@@ -86,7 +87,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         autoLoadToggled: [
             false,
             // store the autoload toggle's state in localstorage, separately for each data node kind
-            { persist: true, storageKey: `queries.nodes.dataNodeLogic..autoLoadToggled.${props.query.kind}` },
+            { persist: true, storageKey: `queries.nodes.dataNodeLogic.autoLoadToggled.${props.query.kind}` },
             { toggleAutoLoad: (state) => !state },
         ],
         autoLoadStarted: [false, { startAutoLoad: () => true, stopAutoLoad: () => false }],
