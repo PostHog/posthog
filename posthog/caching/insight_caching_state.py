@@ -87,7 +87,13 @@ def sync_insight_caching_state(team_id: int, insight_id: Optional[int] = None, d
             upsert(team, Insight.objects.get(pk=insight_id))
     except Exception as err:
         # This is a best-effort kind synchronization, safe to ignore errors
-        logger.warn("Failed to sync InsightCachingState, ignoring", exception=err)
+        logger.warn(
+            "Failed to sync InsightCachingState, ignoring",
+            exception=err,
+            team_id=team_id,
+            insight_id=insight_id,
+            dashboard_tile_id=dashboard_tile_id,
+        )
 
 
 def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
