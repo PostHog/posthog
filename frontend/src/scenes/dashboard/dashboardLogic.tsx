@@ -826,9 +826,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     const ay = layoutForItem[a.id]?.y ?? 0
                     const bx = layoutForItem[b.id]?.x ?? 0
                     const by = layoutForItem[b.id]?.y ?? 0
-                    if (ax < bx || (ax == bx && ay < by)) {
+                    if (ay < by || (ay == by && ax < bx)) {
                         return -1
-                    } else if (ax > bx || (ax == bx && by > by)) {
+                    } else if (ay > by || (ay == by && ax > bx)) {
                         return 1
                     } else {
                         return 0
