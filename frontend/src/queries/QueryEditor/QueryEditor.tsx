@@ -58,7 +58,7 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
                 </div>
             ) : null}
             <LemonButton
-                onClick={() => saveQuery()}
+                onClick={saveQuery}
                 type="primary"
                 status={error ? 'danger' : 'muted-alt'}
                 disabled={!props.setQuery || !!error || !inputChanged}
