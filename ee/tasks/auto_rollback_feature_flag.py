@@ -7,6 +7,7 @@ from celery import shared_task
 from ee.api.sentry_stats import get_stats_for_timerange
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
+from posthog.models.team import Team
 from posthog.queries.trends.trends import Trends
 
 
@@ -29,6 +30,30 @@ def check_feature_flag_rollback_conditions(feature_flag_id: int) -> None:
         flag.save()
 
 
+def calculate_rolling_average(threshold_metric: Dict, team: Team, timezone: str) -> float:
+    curr = datetime.now(tz=pytz.timezone(timezone))
+
+    rolling_average_days = 7
+
+    filter = Filter(
+        data={
+            **threshold_metric,
+            "date_from": (curr - timedelta(days=rolling_average_days)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "date_to": curr.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        },
+        team=team,
+    )
+    trends_query = Trends()
+    result = trends_query.run(filter, team)
+
+    if not len(result):
+        return False
+
+    data = result[0]["data"]
+
+    return sum(data) / rolling_average_days
+
+
 def check_condition(rollback_condition: Dict, feature_flag: FeatureFlag) -> bool:
     if rollback_condition["threshold_type"] == "sentry":
         created_date = feature_flag.created_at
@@ -47,29 +72,13 @@ def check_condition(rollback_condition: Dict, feature_flag: FeatureFlag) -> bool
             return target > float(rollback_condition["threshold"]) * base
 
     elif rollback_condition["threshold_type"] == "insight":
-        curr = datetime.now(tz=pytz.timezone(feature_flag.team.timezone))
-
-        # rolling average last 7 days
-        filter = Filter(
-            data={
-                **rollback_condition["threshold_metric"],
-                "date_from": (curr - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S.%f"),
-                "date_to": curr.strftime("%Y-%m-%d %H:%M:%S.%f"),
-            },
-            team=feature_flag.team,
+        rolling_average = calculate_rolling_average(
+            rollback_condition["threshold_metric"], feature_flag.team, feature_flag.team.timezone
         )
-        trends_query = Trends()
-        result = trends_query.run(filter, feature_flag.team)
-
-        if not len(result):
-            return False
-
-        data = result[0]["data"]
-        data = data[0:7]
 
         if rollback_condition["operator"] == "lt":
-            return sum(data) / len(data) < rollback_condition["threshold"]
+            return rolling_average < rollback_condition["threshold"]
         else:
-            return sum(data) / len(data) > rollback_condition["threshold"]
+            return rolling_average > rollback_condition["threshold"]
 
     return False

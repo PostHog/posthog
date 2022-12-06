@@ -196,6 +196,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         TeamMemberAccessPermission,
     ]
     premium_feature = AvailableFeature.EXPERIMENTATION
+    ordering = "-created_at"
 
     def get_queryset(self):
         return super().get_queryset().prefetch_related("feature_flag", "created_by")

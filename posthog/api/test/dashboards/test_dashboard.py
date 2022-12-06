@@ -14,6 +14,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.signals import mute_selected_signals
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from posthog.utils import generate_cache_key
 
@@ -161,27 +162,28 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_adding_insights_is_not_nplus1_for_gets(self):
-        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-            "properties": [{"key": "$browser", "value": "Mac OS X"}],
-            "insight": "TRENDS",
-        }
+        with mute_selected_signals():
+            dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+            filter_dict = {
+                "events": [{"id": "$pageview"}],
+                "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                "insight": "TRENDS",
+            }
 
-        with self.assertNumQueries(11):
-            self._get_dashboard(dashboard_id)
+            with self.assertNumQueries(10):
+                self._get_dashboard(dashboard_id)
 
-        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(15):
-            self._get_dashboard(dashboard_id)
+            self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+            with self.assertNumQueries(13):
+                self._get_dashboard(dashboard_id)
 
-        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(16):
-            self._get_dashboard(dashboard_id)
+            self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+            with self.assertNumQueries(13):
+                self._get_dashboard(dashboard_id)
 
-        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(17):
-            self._get_dashboard(dashboard_id)
+            self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+            with self.assertNumQueries(13):
+                self._get_dashboard(dashboard_id)
 
     @snapshot_postgres_queries
     def test_listing_dashboards_is_not_nplus1(self) -> None:
