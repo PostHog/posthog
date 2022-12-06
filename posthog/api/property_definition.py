@@ -11,7 +11,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.exceptions import EnterpriseFeatureException
-from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
+from posthog.filters import term_search_filter_sql
 from posthog.models import PropertyDefinition, TaggedItem
 from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
 
@@ -265,7 +265,6 @@ class PropertyDefinitionViewSet(
     serializer_class = PropertyDefinitionSerializer
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions, TeamMemberAccessPermission]
     lookup_field = "id"
-    filter_backends = [TermSearchFilterBackend]
     ordering = "name"
     search_fields = ["name"]
     pagination_class = NotCountingLimitOffsetPaginator

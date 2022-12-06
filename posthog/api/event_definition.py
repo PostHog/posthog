@@ -9,7 +9,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import create_event_definitions_sql
 from posthog.constants import AvailableFeature, EventDefinitionType
 from posthog.exceptions import EnterpriseFeatureException
-from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
+from posthog.filters import term_search_filter_sql
 from posthog.models import EventDefinition, TaggedItem
 from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
 from posthog.settings import EE_AVAILABLE
@@ -64,7 +64,6 @@ class EventDefinitionViewSet(
     serializer_class = EventDefinitionSerializer
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions, TeamMemberAccessPermission]
     lookup_field = "id"
-    filter_backends = [TermSearchFilterBackend]
     search_fields = ["name"]
 
     def get_queryset(self):
