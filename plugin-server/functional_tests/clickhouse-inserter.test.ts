@@ -27,7 +27,7 @@ const topics = [
     // NOTE: for introducing the ClickHouse inserter consumer, we are initially
     // only enabling for App Metrics. We will enable for
     // the rest assuming performance is good enough.
-    'clickhouse_app_metrics',
+    'app_metrics',
 
     // TODO: enable these other topics assuming the above topics work well.
     // 'clickhouse_ingestion_warnings',
