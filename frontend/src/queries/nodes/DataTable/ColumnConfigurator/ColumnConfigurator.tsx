@@ -24,8 +24,8 @@ import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnC
 import { defaultDataTableStringColumns } from '../defaults'
 import { DataTableNode } from '~/queries/schema'
 import { LemonModal } from 'lib/components/LemonModal'
-import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { PropertyFilterType } from '~/types'
+import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 
 let uniqueNode = 0
 
