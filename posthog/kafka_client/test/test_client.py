@@ -1,4 +1,5 @@
 from unittest.mock import patch
+from uuid import uuid4
 
 import kafka
 from django.test import TestCase
@@ -11,26 +12,24 @@ class KafkaClientTestCase(TestCase):
         self.topic = "test_topic"
         self.payload = {"foo": "bar"}
 
-    def test_kafka_interface(self):
-        producer = _KafkaProducer(test=True)
-        consumer = build_kafka_consumer(topic=self.topic, test=True)
-
-        producer.produce(topic=self.topic, data="any")
-        producer.close()
-        msg = next(consumer)
-        self.assertEqual(msg, "message 1 from test_topic topic")
-
     def test_kafka_produce(self):
         producer = _KafkaProducer(test=False)
         producer.produce(topic=self.topic, data=self.payload)
         producer.close()
 
     def test_kafka_produce_and_consume(self):
+        key = str(uuid4())
         producer = _KafkaProducer(test=False)
-        consumer = build_kafka_consumer(topic=self.topic, auto_offset_reset="earliest", test=False)
-        producer.produce(topic=self.topic, data=self.payload)
-        payload = next(consumer)
-        self.assertEqual(payload.value, self.payload)
+        consumer = build_kafka_consumer(topic=self.topic, auto_offset_reset="earliest")
+        producer.produce(topic=self.topic, key=key, data=self.payload)
+        producer.close()
+        topicToMessages = consumer.poll(timeout_ms=1000)
+        payloads = {
+            record.key.decode() if record.key else record.key: record.value
+            for records in topicToMessages.values()
+            for record in records
+        }
+        self.assertEqual(payloads[key], self.payload)
 
     def test_kafka_default_security_protocol(self):
         producer = _KafkaProducer(test=False)
