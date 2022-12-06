@@ -58,7 +58,7 @@ def migrate_clickhouse_consumer_group_for_topic(source_group: str, target_group:
     consumer.commit(offsets=app_metrics_offsets)
 
 
-def migrate_consumer_group_offsets():
+def migrate_consumer_group_offsets(database):
     CLICKHOUSE_CONSUMER_GROUP = "group1"
     APP_METRICS_GROUP = "clickhouse-inserter-app_metrics"
     APP_METRICS_TOPIC = "clickhouse_app_metrics"
