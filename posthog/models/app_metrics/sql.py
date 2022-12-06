@@ -43,7 +43,7 @@ CREATE TABLE {table_name or "app_metrics"} ON CLUSTER '{settings.CLICKHOUSE_CLUS
     {BASE_APP_METRICS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
-ENGINE={Distributed(data_table="sharded_app_metrics", sharding_key="rand()")}
+ENGINE={Distributed(data_table=f"sharded_{table_name or 'app_metrics'}", sharding_key="rand()")}
 """
 )
 
