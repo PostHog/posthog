@@ -2,17 +2,9 @@
 Django settings for PostHog Enterprise Edition.
 """
 import os
-from typing import Dict, List
+from typing import List
 
 from posthog.settings import AUTHENTICATION_BACKENDS, DEMO, SITE_URL, get_from_env
-
-# Zapier REST hooks
-HOOK_EVENTS: Dict[str, str] = {
-    # "event_name": "App.Model.Action" (created/updated/deleted)
-    "action_performed": "posthog.Action.performed",
-}
-HOOK_FINDER = "ee.models.hook.find_and_fire_hook"
-HOOK_DELIVERER = "ee.models.hook.deliver_hook_wrapper"
 
 # SSO
 AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + [

@@ -13,7 +13,6 @@ from .api import (
     debug_ch_queries,
     explicit_team_member,
     feature_flag_role_access,
-    hooks,
     license,
     organization_resource_access,
     role,
@@ -59,7 +58,6 @@ def extend_api_router(
         "organization_resource_access",
         ["organization_id"],
     )
-    projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
     projects_router.register(
         r"explicit_members", explicit_team_member.ExplicitTeamMemberViewSet, "project_explicit_members", ["team_id"]
     )

@@ -77,7 +77,6 @@ try:
 except ImportError:
     pass
 else:
-    INSTALLED_APPS.append("rest_hooks")
     INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
 
 # Use django-extensions if it exists
