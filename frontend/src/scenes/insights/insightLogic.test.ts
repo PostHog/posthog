@@ -32,6 +32,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
@@ -205,6 +206,7 @@ describe('insightLogic', () => {
             },
         })
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
+        sceneLogic.mount()
         teamLogic.mount()
         await expectLogic(teamLogic)
             .toFinishAllListeners()

@@ -104,6 +104,8 @@ export const insightLogic = kea<insightLogicType>([
             ['cohortsById'],
             mathsLogic,
             ['mathDefinitions'],
+            sceneLogic,
+            ['scene'],
         ],
         actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel, prompt({ key: `save-as-insight` })],
