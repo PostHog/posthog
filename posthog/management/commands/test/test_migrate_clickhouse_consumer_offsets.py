@@ -72,3 +72,7 @@ def test_migrates_group1_offsets_to_new_consumer_group():
 
     new_app_metrics_offsets = kafka.list_consumer_group_offsets(APP_METRICS_GROUP)
     assert new_app_metrics_offsets == app_metrics_offsets
+
+    # Finally, make sure that the check command passes after the migration has
+    # run.
+    call_command("migrate_clickhouse_consumer_offsets", "--check")
