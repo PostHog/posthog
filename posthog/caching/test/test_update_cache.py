@@ -967,27 +967,6 @@ class TestUpdateCache(APIBaseTest):
             assert insight_one.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
             assert insight_two.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
 
-    @patch("posthog.caching.update_cache.cache.set")
-    @patch("posthog.caching.calculate_results._calculate_by_filter")
-    @patch("posthog.caching.update_cache.group.apply_async")
-    @patch("posthog.celery.update_cache_item_task.s")
-    @patch("posthog.caching.update_cache.statsd.incr")
-    def test_update_insight_cache_reports_zero_filters_hashes_updated_when_tile_has_correct_filters_hash(
-        self,
-        statsd_incr: MagicMock,
-        patch_update_cache_item: MagicMock,
-        _patch_apply_async: MagicMock,
-        _patch_generate_results: MagicMock,
-        _patched_cache_set: MagicMock,
-    ) -> None:
-        # a tile with the correct filters hash
-        _a_dashboard_tile_with_known_last_refresh(self.team, last_refresh_date=None, filters={"date_from": "-90d"})
-
-        run_cache_update(patch_update_cache_item)
-
-        # received update_cache_item_success and did not receive update_cache_item_set_new_cache_key_on_tile
-        assert [mock_call.args[0] for mock_call in statsd_incr.mock_calls] == ["update_cache_item_success"]
-
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("posthog.caching.calculate_results._calculate_by_filter", return_value={"not", "an empty result"})
     @patch("posthog.caching.update_cache.group.apply_async")
@@ -1207,7 +1186,7 @@ class TestCacheEventsLastSeenUsedToSkipQueries(APIBaseTest):
         run_cache_update(patch_update_cache_item)
         shared_insight.refresh_from_db()
 
-        patch_calculate_by_filter.assert_any_call(ANY, shared_insight.filters_hash, self.team, "Trends")
+        patch_calculate_by_filter.assert_any_call(ANY, self.team, "Trends")
 
     @patch("posthog.caching.update_cache.cache.set")
     @patch("posthog.caching.calculate_results._calculate_by_filter", return_value={"not": "empty result"})
@@ -1248,7 +1227,7 @@ class TestCacheEventsLastSeenUsedToSkipQueries(APIBaseTest):
         run_cache_update(patch_update_cache_item)
         shared_insight.refresh_from_db()
 
-        patch_calculate_by_filter.assert_any_call(ANY, shared_insight.filters_hash, self.team, "Retention")
+        patch_calculate_by_filter.assert_any_call(ANY, self.team, "Retention")
 
     @patch("posthog.caching.update_cache.cache.set")
     @patch("posthog.caching.calculate_results._calculate_by_filter", return_value={"not": "empty result"})
@@ -1288,7 +1267,7 @@ class TestCacheEventsLastSeenUsedToSkipQueries(APIBaseTest):
         run_cache_update(patch_update_cache_item)
         shared_insight.refresh_from_db()
 
-        patch_calculate_by_filter.assert_any_call(ANY, shared_insight.filters_hash, self.team, "Path")
+        patch_calculate_by_filter.assert_any_call(ANY, self.team, "Path")
 
     @patch("posthog.caching.update_cache.cache.set")
     @patch("posthog.caching.calculate_results._calculate_by_filter", return_value={"not": "empty result"})
@@ -1326,7 +1305,7 @@ class TestCacheEventsLastSeenUsedToSkipQueries(APIBaseTest):
         run_cache_update(patch_update_cache_item)
         shared_insight.refresh_from_db()
 
-        patch_calculate_by_filter.assert_any_call(ANY, shared_insight.filters_hash, self.team, "Trends")
+        patch_calculate_by_filter.assert_any_call(ANY, self.team, "Trends")
 
 
 class TestCacheTeamRecency(APIBaseTest):

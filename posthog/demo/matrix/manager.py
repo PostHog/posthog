@@ -207,7 +207,10 @@ class MatrixManager:
         list_params = {"source_team_id": source_team_id}
         # Persons
         clickhouse_persons = query_with_columns(
-            SELECT_PERSONS_OF_TEAM, list_params, ["team_id", "is_deleted", "_timestamp", "_offset"], {"id": "uuid"}
+            SELECT_PERSONS_OF_TEAM,
+            list_params,
+            ["team_id", "is_deleted", "_timestamp", "_offset", "_partition"],
+            {"id": "uuid"},
         )
         bulk_persons: Dict[str, Person] = {}
         for i, row in enumerate(clickhouse_persons):

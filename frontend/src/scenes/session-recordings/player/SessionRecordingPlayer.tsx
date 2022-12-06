@@ -53,6 +53,7 @@ export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysIn
 
 export function SessionRecordingPlayer({
     sessionRecordingId,
+    sessionRecordingData,
     playerKey,
     includeMeta = true,
     recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
@@ -60,12 +61,19 @@ export function SessionRecordingPlayer({
     noBorder = false,
     nextSessionRecording,
 }: SessionRecordingPlayerProps): JSX.Element {
+    const logicProps = {
+        sessionRecordingId,
+        playerKey,
+        matching,
+        sessionRecordingData,
+        recordingStartTime,
+    }
     const { setIsFullScreen, setPause, togglePlayPause, seekBackward, seekForward, setSpeed } = useActions(
-        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey, recordingStartTime, matching })
+        sessionRecordingPlayerLogic(logicProps)
     )
-    const { isNotFound } = useValues(sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime }))
-    const { isFullScreen } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
-    const frame = useFrameRef({ sessionRecordingId, playerKey })
+    const { isNotFound } = useValues(sessionRecordingDataLogic(logicProps))
+    const { isFullScreen } = useValues(sessionRecordingPlayerLogic(logicProps))
+    const frame = useFrameRef(logicProps)
 
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
 

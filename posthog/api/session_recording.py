@@ -1,5 +1,5 @@
 import json
-from typing import Any, Union
+from typing import Any, Optional
 
 from dateutil import parser
 from rest_framework import exceptions, request, response, serializers, viewsets
@@ -147,7 +147,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         session_recording_serializer.is_valid(raise_exception=True)
 
         try:
-            person: Union[Person, None] = Person.objects.get(
+            person: Optional[Person] = Person.objects.get(
                 persondistinctid__distinct_id=session_recording_meta_data["distinct_id"],
                 persondistinctid__team_id=self.team,
                 team=self.team,

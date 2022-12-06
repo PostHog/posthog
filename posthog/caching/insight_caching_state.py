@@ -3,6 +3,8 @@ from enum import Enum
 from functools import cached_property
 from typing import Optional, Union
 
+import structlog
+from django.core.paginator import Paginator
 from django.utils.timezone import now
 
 from posthog.caching.utils import active_teams
@@ -13,8 +15,8 @@ from posthog.models.team import Team
 
 VERY_RECENTLY_VIEWED_THRESHOLD = timedelta(hours=48)
 GENERALLY_VIEWED_THRESHOLD = timedelta(weeks=2)
-MAX_ATTEMPTS = 3
 
+logger = structlog.get_logger(__name__)
 
 # :TODO: Make these configurable
 class TargetCacheAge(Enum):
@@ -38,11 +40,27 @@ class LazyLoader:
         return set(recently_viewed_insights.values_list("insight_id", flat=True))
 
 
+def sync_insight_cache_states():
+    lazy_loader = LazyLoader()
+
+    insights = Insight.objects.all().prefetch_related("team", "sharingconfiguration_set").order_by("pk")
+    for insight in _iterate_large_queryset(insights, 1000):
+        upsert(insight.team, insight, lazy_loader)
+
+    tiles = (
+        DashboardTile.objects.all()
+        .prefetch_related("dashboard", "dashboard__team", "dashboard__sharingconfiguration_set", "insight")
+        .order_by("pk")
+    )
+    for tile in _iterate_large_queryset(tiles, 1000):
+        upsert(tile.dashboard.team, tile, lazy_loader)
+
+
 def upsert(
     team: Team, target: Union[DashboardTile, Insight], lazy_loader: Optional[LazyLoader] = None
 ) -> Optional[InsightCachingState]:
     lazy_loader = lazy_loader or LazyLoader()
-    cache_key = calculate_cache_key(team, target)
+    cache_key = calculate_cache_key(target)
     if cache_key is None:  # Non-cachable model
         return None
 
@@ -60,28 +78,26 @@ def upsert(
     return caching_state
 
 
-def fetch_states_in_need_of_updating():
-    return InsightCachingState.objects.raw(
-        """
-        SELECT *
-        FROM posthog_insightcachingstate
-        WHERE target_cache_age_seconds IS NOT NULL
-          AND refresh_attempt < %(max_attempts)s
-          AND (
-            last_refresh IS NULL OR
-            last_refresh < %(timestamp)s - target_cache_age_seconds * interval '1' second
-          )
-        """,
-        {"max_attempts": MAX_ATTEMPTS, "timestamp": now()},
-    )
+def sync_insight_caching_state(team_id: int, insight_id: Optional[int] = None, dashboard_tile_id: Optional[int] = None):
+    try:
+        team = Team.objects.get(pk=team_id)
+        if dashboard_tile_id is not None:
+            upsert(team, DashboardTile.objects.get(pk=dashboard_tile_id))
+        elif insight_id is not None:
+            upsert(team, Insight.objects.get(pk=insight_id))
+    except Exception as err:
+        # This is a best-effort kind synchronization, safe to ignore errors
+        logger.warn("Failed to sync InsightCachingState, ignoring", exception=err)
 
 
-def calculate_cache_key(team: Team, target: Union[DashboardTile, Insight]) -> Optional[str]:
+def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
     insight = target if isinstance(target, Insight) else target.insight
+    dashboard = target.dashboard if isinstance(target, DashboardTile) else None
+
     if insight is None:
         return None
 
-    return generate_insight_cache_key(insight, insight.dashboard)
+    return generate_insight_cache_key(insight, dashboard)
 
 
 def calculate_target_age(team: Team, target: Union[DashboardTile, Insight], lazy_loader: LazyLoader) -> TargetCacheAge:
@@ -98,11 +114,13 @@ def calculate_target_age_insight(team: Team, insight: Insight, lazy_loader: Lazy
     if insight.deleted or len(insight.filters) == 0:
         return TargetCacheAge.NO_CACHING
 
-    # :TODO: Only cache insights that are shared
     if insight.pk not in lazy_loader.recently_viewed_insights:
         return TargetCacheAge.NO_CACHING
 
-    return TargetCacheAge.MID_PRIORITY
+    if insight.is_sharing_enabled:
+        return TargetCacheAge.MID_PRIORITY
+
+    return TargetCacheAge.NO_CACHING
 
 
 def calculate_target_age_dashboard_tile(
@@ -120,8 +138,6 @@ def calculate_target_age_dashboard_tile(
     if dashboard_tile.dashboard_id == team.primary_dashboard_id:
         return TargetCacheAge.HIGH_PRIORITY
 
-    # :TODO: If shared, MID_PRIORITY
-
     since_last_viewed = (
         now() - dashboard_tile.dashboard.last_accessed_at
         if dashboard_tile.dashboard.last_accessed_at
@@ -133,4 +149,16 @@ def calculate_target_age_dashboard_tile(
     if since_last_viewed < GENERALLY_VIEWED_THRESHOLD:
         return TargetCacheAge.MID_PRIORITY
 
-    return TargetCacheAge.LOW_PRIORITY
+    if dashboard_tile.dashboard.is_sharing_enabled:
+        return TargetCacheAge.LOW_PRIORITY
+
+    return TargetCacheAge.NO_CACHING
+
+
+def _iterate_large_queryset(queryset, page_size):
+    paginator = Paginator(queryset, page_size)
+    for page_number in paginator.page_range:
+        page = paginator.page(page_number)
+
+        for item in page.object_list:
+            yield item

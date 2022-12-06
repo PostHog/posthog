@@ -15,11 +15,22 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { IconSettings } from 'lib/components/icons'
 import { router } from 'kea-router'
 import { openSessionRecordingSettingsDialog } from './settings/SessionRecordingSettings'
+import { openPlayerNewPlaylistDialog } from 'scenes/session-recordings/player/new-playlist/PlayerNewPlaylist'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { SessionRecordingFilePlayback } from './file-playback/SessionRecodingFilePlayback'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { tab, newPlaylistLoading } = useValues(sessionRecordingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const visibleTabs = [SessionRecordingsTabs.Recent, SessionRecordingsTabs.Playlists]
+
+    if (!featureFlags[FEATURE_FLAGS.RECORDINGS_EXPORT]) {
+        visibleTabs.push(SessionRecordingsTabs.FilePlayback)
+    }
 
     return (
         <div>
@@ -86,9 +97,11 @@ export function SessionsRecordings(): JSX.Element {
                 <Spinner />
             ) : tab === SessionRecordingsTabs.Recent ? (
                 <SessionRecordingsPlaylist updateSearchParams />
-            ) : (
+            ) : tab === SessionRecordingsTabs.Playlists ? (
                 <SavedSessionRecordingPlaylists tab={SessionRecordingsTabs.Playlists} />
-            )}
+            ) : tab === SessionRecordingsTabs.FilePlayback ? (
+                <SessionRecordingFilePlayback />
+            ) : null}
         </div>
     )
 }

@@ -97,6 +97,7 @@ describe('Event Pipeline integration test', () => {
         expect(persons.length).toEqual(1)
         expect(persons[0].version).toEqual(0)
         expect(persons[0].properties).toEqual({
+            $creator_event_uuid: event.uuid,
             $initial_browser: 'Chrome',
             personProp: 'value',
             anotherValue: 2,
@@ -187,7 +188,9 @@ describe('Event Pipeline integration test', () => {
                     id: expect.any(Number),
                     created_at: expect.any(String),
                     team_id: 2,
-                    properties: {},
+                    properties: {
+                        $creator_event_uuid: event.uuid,
+                    },
                     uuid: expect.any(String),
                 },
             },
