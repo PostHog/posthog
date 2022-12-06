@@ -26,6 +26,8 @@ export interface LemonSelectMultipleProps {
     placeholder?: string
     onChange?: (newValue: string[]) => void
     onSearch?: (value: string) => void
+    onFocus?: () => void
+    onBlur?: () => void
     filterOption?: boolean
     mode?: 'single' | 'multiple' | 'multiple-custom'
     'data-attr'?: string
@@ -39,6 +41,8 @@ export function LemonSelectMultiple({
     placeholder,
     onChange,
     onSearch,
+    onFocus,
+    onBlur,
     filterOption = true,
     mode = 'single',
     className,
@@ -67,6 +71,9 @@ export function LemonSelectMultiple({
                 disabled={disabled}
                 loading={loading}
                 onSearch={onSearch}
+                onFocus={onFocus}
+                onBlur={onBlur}
+                showAction={['focus']}
                 onChange={(v) => onChange?.(v)}
                 tokenSeparators={[',']}
                 value={value ? value : []}

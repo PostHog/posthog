@@ -183,53 +183,51 @@ export function PropertyValue({
         },
     }
 
-    return isMultiSelect ? (
-        <LemonSelectMultiple
-            loading={options[propertyKey]?.status === 'loading'}
-            {...commonInputProps}
-            className={clsx(commonInputProps.className, 'property-filters-property-value', 'w-full')}
-            value={value === null || value === undefined ? [] : [String(value)]}
-            mode="multiple"
-            onChange={(nextVal) => {
-                setValue(nextVal)
-            }}
-            options={Object.fromEntries([
-                ...(input && !displayOptions.some(({ name }) => input.toLowerCase() === toString(name).toLowerCase())
-                    ? [
-                          [
-                              input,
-                              {
-                                  label: input,
-                                  labelComponent: (
-                                      <span key="specify-value" className="ph-no-capture">
-                                          Specify: {formatPropertyValueForDisplay(propertyKey, input)}
-                                      </span>
-                                  ),
-                              },
-                          ],
-                      ]
-                    : []),
-                ...displayOptions.map(({ name: _name }, index) => {
-                    const name = toString(_name)
-                    return [
-                        name,
-                        {
-                            label: name,
-                            labelComponent: (
-                                <span key={name} data-attr={'prop-val-' + index} className="ph-no-capture" title={name}>
-                                    {name === '' ? (
-                                        <i>(empty string)</i>
-                                    ) : (
-                                        formatPropertyValueForDisplay(propertyKey, name)
-                                    )}
-                                </span>
-                            ),
-                        },
-                    ]
-                }),
-            ])}
-        />
-    ) : isDateTimeProperty ? (
+    if (isMultiSelect) {
+        const formattedValues = (
+            value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]
+        ).map((label) => String(formatPropertyValueForDisplay(propertyKey, label)))
+        return (
+            <LemonSelectMultiple
+                loading={options[propertyKey]?.status === 'loading'}
+                {...commonInputProps}
+                className={clsx(commonInputProps.className, 'property-filters-property-value', 'w-full')}
+                value={formattedValues}
+                mode="multiple-custom"
+                onChange={(nextVal) => {
+                    setValue(nextVal)
+                }}
+                onBlur={commonInputProps.handleBlur}
+                options={Object.fromEntries([
+                    ...displayOptions.map(({ name: _name }, index) => {
+                        const name = toString(_name)
+                        return [
+                            name,
+                            {
+                                label: name,
+                                labelComponent: (
+                                    <span
+                                        key={name}
+                                        data-attr={'prop-val-' + index}
+                                        className="ph-no-capture"
+                                        title={name}
+                                    >
+                                        {name === '' ? (
+                                            <i>(empty string)</i>
+                                        ) : (
+                                            formatPropertyValueForDisplay(propertyKey, name)
+                                        )}
+                                    </span>
+                                ),
+                            },
+                        ]
+                    }),
+                ])}
+            />
+        )
+    }
+
+    return isDateTimeProperty ? (
         <PropertyFilterDatePicker autoFocus={autoFocus} operator={operator} value={value} setValue={setValue} />
     ) : isDurationProperty ? (
         <DurationPicker autoFocus={autoFocus} initialValue={value as number} onChange={setValue} />
