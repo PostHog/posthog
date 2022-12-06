@@ -1,3 +1,5 @@
+import time
+
 import structlog
 from django.conf import settings
 from infi.clickhouse_orm import migrations
@@ -47,6 +49,8 @@ def migrate_clickhouse_consumer_group_for_topic(source_group: str, target_group:
 
         if attempt == 59:
             raise Exception("Consumer group still has members subscribed to app_metrics topic")
+
+        time.sleep(1)
 
     all_offsets = kafka.list_consumer_group_offsets(source_group)
     app_metrics_offsets = {

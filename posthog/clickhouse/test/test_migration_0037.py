@@ -2,8 +2,9 @@ import importlib
 
 from django.conf import settings
 from infi.clickhouse_orm import Database
+from kafka import KafkaProducer, OffsetAndMetadata
 
-from posthog.kafka_client.client import KafkaAdminClient
+from posthog.kafka_client.client import KafkaAdminClient, TopicPartition, build_kafka_consumer
 
 migration = importlib.import_module("posthog.clickhouse.migrations.0037_delete_app_metrics_kafka_tables")
 
@@ -26,6 +27,7 @@ def test_migrates_group1_offsets_to_new_consumer_group():
     """
 
     kafka = KafkaAdminClient()
+    producer = KafkaProducer()
     database = Database(
         settings.CLICKHOUSE_DATABASE,
         db_url=settings.CLICKHOUSE_HTTP_URL,
@@ -43,6 +45,13 @@ def test_migrates_group1_offsets_to_new_consumer_group():
     app_metrics_offsets = kafka.list_consumer_group_offsets(APP_METRICS_GROUP)
     assert len(app_metrics_offsets) == 0
 
+    # As nothing has been pulled from via group1 yet, we need to add in some
+    # offsets artificially to make sure we can actually test they are copied
+    # over. We need to make sure there is one message in there such that we can
+    # commit an offset.
+    producer.send(APP_METRICS_TOPIC, b"test", key=b"test")
+    consumer = build_kafka_consumer(topic=None, group_id="group1")
+    consumer.commit(offsets={TopicPartition(APP_METRICS_TOPIC, 0): OffsetAndMetadata(offset=0, metadata={})})
     group1_group_offsets = kafka.list_consumer_group_offsets(CLICKHOUSE_GROUP)
     assert group1_group_offsets
 
