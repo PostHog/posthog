@@ -1,5 +1,11 @@
 from django.db import models
+from django.db.models.signals import post_save
 
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.insight import Insight
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.models.utils import UUIDModel
 
@@ -36,3 +42,40 @@ class InsightCachingState(UUIDModel):
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+
+
+@mutable_receiver(post_save, sender=SharingConfiguration)
+def sync_sharing_configuration(sender, instance: SharingConfiguration, **kwargs):
+    from posthog.celery import sync_insight_caching_state
+
+    if instance.insight_id is not None:
+        sync_insight_caching_state.delay(instance.team_id, insight_id=instance.insight_id)
+    elif instance.dashboard is not None:
+        for tile in instance.dashboard.tiles.all():
+            sync_insight_caching_state.delay(instance.team_id, dashboard_tile_id=tile.pk)
+
+
+@mutable_receiver(post_save, sender=Insight)
+def sync_insight(sender, instance: Insight, **kwargs):
+    from posthog.celery import sync_insight_caching_state
+
+    sync_insight_caching_state.delay(instance.team_id, insight_id=instance.pk)
+
+
+@mutable_receiver(post_save, sender=DashboardTile)
+def sync_dashboard_tile(sender, instance: DashboardTile, **kwargs):
+    from posthog.celery import sync_insight_caching_state
+
+    sync_insight_caching_state.delay(instance.dashboard.team_id, dashboard_tile_id=instance.pk)
+
+
+@mutable_receiver(post_save, sender=Dashboard)
+def sync_dashboard_updated(sender, instance: Dashboard, **kwargs):
+    from posthog.celery import sync_insight_caching_state
+
+    update_fields = kwargs.get("update_fields")
+    if update_fields in [frozenset({"filters_hash"}), frozenset({"last_refresh"}), frozenset({"last_accessed_at"})]:
+        return
+
+    for tile_id in DashboardTile.objects.filter(dashboard=instance).values_list("pk", flat=True):
+        sync_insight_caching_state.delay(instance.team_id, dashboard_tile_id=tile_id)

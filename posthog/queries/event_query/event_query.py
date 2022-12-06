@@ -214,3 +214,7 @@ class EventQuery(metaclass=ABCMeta):
             person_properties_mode=person_properties_mode,
             person_id_joined_alias=person_id_joined_alias,
         )
+
+    def _get_not_null_actor_condition(self) -> str:
+        """Return WHERE conditions for ensuring the actor isn't null"""
+        raise NotImplementedError()

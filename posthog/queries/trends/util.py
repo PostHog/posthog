@@ -7,7 +7,7 @@ import structlog
 from rest_framework.exceptions import ValidationError
 from sentry_sdk import capture_exception, push_scope
 
-from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, UNIQUE_USERS, WEEKLY_ACTIVE
+from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, UNIQUE_GROUPS, UNIQUE_USERS, WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
 from posthog.models.filters import Filter
@@ -148,3 +148,16 @@ def ensure_value_is_json_serializable(value: Any) -> Optional[float]:
             capture_exception(exception)
         return None
     return value
+
+
+def determine_aggregator(entity: Entity, team: Team) -> str:
+    """Return the relevant actor column."""
+    if entity.math_group_type_index is not None:
+        return f'"$group_{entity.math_group_type_index}"'
+    return "distinct_id" if team.aggregate_users_by_distinct_id else "person_id"
+
+
+def is_series_group_based(entity: Entity) -> bool:
+    return entity.math == UNIQUE_GROUPS or (
+        entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS and entity.math_group_type_index is not None
+    )

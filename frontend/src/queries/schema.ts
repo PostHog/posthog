@@ -6,7 +6,6 @@ import {
     BreakdownType,
     PropertyGroupFilter,
     EventType,
-    PropertyFilterType,
     IntervalType,
     BaseMathType,
     PropertyMathType,
@@ -80,6 +79,10 @@ export interface EventsNode extends EntityNode {
     kind: NodeKind.EventsNode
     event?: string
     limit?: number
+    /** Only fetch events that happened before this timestamp */
+    before?: string
+    /** Only fetch events that happened after this timestamp */
+    after?: string
     response?: {
         results: EventType[]
         next?: string
@@ -98,22 +101,25 @@ export interface DataTableNode extends Node {
     /** Source of the events */
     source: EventsNode
     /** Columns shown in the table  */
-    columns?: DataTableColumn[] | DataTableStringColumn[]
+    columns?: DataTableStringColumn[]
     /** Include an event filter above the table (default: true) */
     showEventFilter?: boolean
     /** Include a property filter above the table (default: true) */
     showPropertyFilter?: boolean
-    /** Show the "..." menu at the end of the row */
-    showMore?: boolean
+    /** Show the kebab menu at the end of the row */
+    showActions?: boolean
     /** Show the export button */
     showExport?: boolean
+    /** Show a reload button */
+    showReload?: boolean
+    /** Show a button to configure the table's columns */
+    showColumnConfigurator?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
-}
-
-export interface DataTableColumn {
-    type: PropertyFilterType
-    key: string
+    /** Link properties via the URL (default: false) */
+    propertiesViaUrl?: boolean
+    /** Show warning about live events being buffered max 60 sec (default: false) */
+    showEventsBufferWarning?: boolean
 }
 
 // Base class should not be used directly
@@ -188,10 +194,7 @@ export type InsightQueryNode =
     | LifecycleQuery
 export type InsightNodeKind = InsightQueryNode['kind']
 
-// TODO: not supported by "ts-json-schema-generator" nor "typescript-json-schema" :(
-// export type PropertyColumnString = `${PropertyFilterType}.${string}`
-export type PropertyColumnString = string
-export type DataTableStringColumn = PropertyColumnString | 'person'
+export type DataTableStringColumn = string
 
 // Legacy queries
 
