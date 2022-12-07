@@ -63,7 +63,13 @@ def calculate_result_by_insight(
     cache_key = generate_insight_cache_key(insight, dashboard)
     cache_type = get_cache_type(filter)
 
-    tag_queries(team_id=team.pk, insight_id=insight.pk, cache_type=cache_type, cache_key=cache_key)
+    tag_queries(
+        team_id=team.pk,
+        insight_id=insight.pk,
+        cache_type=cache_type,
+        cache_key=cache_key,
+        person_on_events_enabled=team.actor_on_events_querying_enabled,
+    )
     return cache_key, cache_type, calculate_result_by_cache_type(cache_type, filter, team)
 
 
