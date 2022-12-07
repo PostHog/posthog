@@ -31,7 +31,9 @@ from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.logging.timing import timed
 from posthog.models.feature_flag import get_active_feature_flags
+from posthog.models.team import Team
 from posthog.models.utils import UUIDT
+from posthog.redis import get_client
 from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.utils import cors_response, get_ip_address
 
@@ -186,6 +188,31 @@ def _ensure_web_feature_flags_in_properties(
                 event["properties"][f"$feature/{k}"] = v
 
 
+def _update_event_seen_cache(team_id: int, ttl=60 * 60 * 24):
+    # Defaults to expiring this key in Redis after 24 hours
+    r = get_client()
+    r.setex(f"posthog_event_seen_for_team:{team_id}", ttl, time.time())
+
+
+def _has_team_seen_events(team_id: int):
+    r = get_client()
+    exists = bool(r.get(f"posthog_event_seen_for_team:{team_id}"))
+    return exists
+
+
+def mark_events_seen_for_team(team_id: int):
+    # If this is the first time we've seen an event for this team in 24 hours
+    # we update the db to make sure that we have marked the team as ingesting events
+    try:
+        if not _has_team_seen_events(team_id):
+            Team.objects.filter(pk=team_id).update(ingested_event=True)
+        _update_event_seen_cache(team_id)
+    except Exception as e:
+        capture_exception(e)
+        # if something goes wrong here we want things to continue as normal
+        # this is all for just keeping track of new events for onboarding flow
+
+
 @csrf_exempt
 @timed("posthog_cloud_event_endpoint")
 def get_event(request):
@@ -233,6 +260,8 @@ def get_event(request):
 
         if db_error:
             send_events_to_dead_letter_queue = True
+
+    mark_events_seen_for_team(ingestion_context.team_id)
 
     if isinstance(data, dict):
         if data.get("batch"):  # posthog-python and posthog-ruby

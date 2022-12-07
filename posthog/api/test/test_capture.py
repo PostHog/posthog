@@ -24,11 +24,13 @@ from kafka.producer.future import FutureProduceResult, FutureRecordMetadata
 from kafka.structs import TopicPartition
 from rest_framework import status
 
+import posthog.api.capture as capture
 from posthog.api.capture import get_distinct_id
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
+from posthog.redis import get_client
 from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.test.base import BaseTest
 
@@ -127,7 +129,7 @@ class TestCapture(BaseTest):
                 ],
             },
         }
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):
             response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         self.assertDictContainsSubset(
@@ -306,7 +308,7 @@ class TestCapture(BaseTest):
         }
         now = timezone.now()
         with freeze_time(now):
-            with self.assertNumQueries(5):
+            with self.assertNumQueries(6):
                 response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         arguments = self._to_arguments(kafka_produce)
@@ -1227,3 +1229,21 @@ class TestCapture(BaseTest):
                 # refactor best suited for another PR, hence accessing the call_args
                 # directly here
                 self.assertEqual(kafka_produce.call_args[1]["data"]["token"], "token123")
+
+    def test__update_event_seen_cache(self) -> None:
+        with freeze_time("2022-01-01"):
+            capture._update_event_seen_cache(self.team.pk)
+            self.assertEqual(get_client().get(f"posthog_event_seen_for_team:{self.team.pk}"), b"1640995200.0")
+
+    def test__has_team_seen_events(self) -> None:
+        team_id_no_events = 0
+        get_client().set(f"posthog_event_seen_for_team:{self.team.pk}", 1640995200.0)
+        self.assertTrue(capture._has_team_seen_events(self.team.pk))
+        self.assertFalse(capture._has_team_seen_events(team_id_no_events))
+
+    def test_mark_events_seen_for_team(self) -> None:
+        self.assertFalse(self.team.ingested_event)
+        with freeze_time("2022-01-01"):
+            capture.mark_events_seen_for_team(self.team.pk)
+            self.assertEqual(get_client().get(f"posthog_event_seen_for_team:{self.team.pk}"), b"1640995200.0")
+        self.assertTrue(self.team.ingested_event)
