@@ -22,11 +22,13 @@ from rest_framework.response import Response
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.cloud_utils import is_cloud
 from posthog.models import Organization
 from posthog.models.event.util import get_event_count_for_team_and_period
 from posthog.models.organization import OrganizationUsageInfo
 from posthog.models.session_recording_event.util import get_recording_count_for_team_and_period
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -180,6 +182,23 @@ class BillingViewset(viewsets.GenericViewSet):
         # Before responding ensure the org is updated with the latest info
         if org:
             self._update_org_details(org, response)
+
+        # check if the distinct_ids are in sync, if not patch the billing service
+        if response.get("distinct_ids"):
+            received_distinct_ids = response["distinct_ids"]
+            local_distinct_ids = []
+            if is_cloud() and org:
+                local_distinct_ids = list(org.members.values_list("distinct_id", flat=True))
+            else:
+                local_distinct_ids = list(User.objects.values_list("distinct_id", flat=True))
+
+            if set(received_distinct_ids) != set(local_distinct_ids):
+                billing_service_token = build_billing_token(license, org)
+                requests.patch(
+                    f"{BILLING_SERVICE_URL}/api/billing/",
+                    headers={"Authorization": f"Bearer {billing_service_token}"},
+                    json={"distinct_ids": local_distinct_ids},
+                )
 
         return Response(response)
 
