@@ -84,6 +84,9 @@ class TestCapture(BaseTest):
             "sent_at": args["sent_at"],
         }
 
+    def _get_message_headers(self, patch_process_event_with_plugins: Any) -> dict:
+        return patch_process_event_with_plugins.call_args[1]["headers"]
+
     def _send_session_recording_event(
         self,
         number_of_events=1,
@@ -115,6 +118,7 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    @freeze_time("2021-01-01T12:00:00Z")
     def test_capture_event(self, kafka_produce):
         data = {
             "event": "$autocapture",
@@ -129,6 +133,7 @@ class TestCapture(BaseTest):
         }
         with self.assertNumQueries(1):
             response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
+
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         self.assertDictContainsSubset(
             {
@@ -139,6 +144,14 @@ class TestCapture(BaseTest):
                 "team_id": self.team.pk,
             },
             self._to_arguments(kafka_produce),
+        )
+        self.assertDictContainsSubset(
+            {
+                "team_id": self.team.pk,
+                "api_token": self.team.api_token,
+                "captured_at": "2021-01-01T12:00:00",
+            },
+            self._get_message_headers(kafka_produce),
         )
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")

@@ -24,7 +24,8 @@ export const capture = async (
     uuid: string,
     event: string,
     properties: object = {},
-    token: string | null = null
+    token: string | null = null,
+    capturedAt: Date = new Date()
 ) => {
     await producer.send({
         topic: 'events_plugin_ingestion',
@@ -48,6 +49,11 @@ export const capture = async (
                         timestamp: new Date(),
                     }),
                 }),
+                headers: {
+                    team_id: teamId ? teamId.toString() : '',
+                    captured_at: capturedAt.toISOString(),
+                    api_token: token || '',
+                },
             },
         ],
     })
@@ -133,6 +139,20 @@ export const fetchPluginLogEntries = async (clickHouseClient: ClickHouse, plugin
     return logEntries.map((entry) => ({ ...entry, message: JSON.parse(entry.message) }))
 }
 
+export const fetchIngestionWarnings = async (clickHouseClient: ClickHouse, teamId: number) => {
+    const { data: warnings } = (await clickHouseClient.querying(`
+        SELECT * FROM ingestion_warnings
+        WHERE team_id = ${teamId}
+    `)) as unknown as ClickHouse.ObjectQueryResult<{
+        team_id: number
+        type: string
+        source: string
+        details: any
+        timestamp: Date
+    }>
+    return warnings
+}
+
 export const createOrganization = async (pgClient: Pool) => {
     const organizationId = new UUIDT().toString()
     await insertRow(pgClient, 'posthog_organization', {
@@ -186,6 +206,13 @@ export const createTeam = async (
         slack_incoming_webhook,
     })
     return team.id
+}
+
+export const fetchTeam = async (pgClient: Pool, teamId: number) => {
+    const {
+        rows: [team],
+    } = await pgClient.query('SELECT * FROM posthog_team WHERE id = $1', [teamId])
+    return team
 }
 
 export const createAction = async (

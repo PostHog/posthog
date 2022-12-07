@@ -68,7 +68,16 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
 
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
-        future = KafkaProducer().produce(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=data, key=partition_key)
+        future = KafkaProducer().produce(
+            topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
+            data=data,
+            key=partition_key,
+            headers={
+                "team_id": data.get("team_id"),
+                "api_token": data.get("token"),
+                "captured_at": datetime.now().isoformat(),
+            },
+        )
         statsd.incr("posthog_cloud_plugin_server_ingestion")
         return future
     except Exception as e:

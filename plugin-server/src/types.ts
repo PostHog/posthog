@@ -160,6 +160,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     APP_METRICS_GATHERED_FOR_ALL: boolean
     MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
     USE_KAFKA_FOR_SCHEDULED_TASKS: boolean
+    UPDATE_LATEST_EVENT_CAPTURED_AT: boolean
 }
 
 export interface Hub extends PluginsServerConfig {

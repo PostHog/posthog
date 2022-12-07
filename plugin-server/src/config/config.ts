@@ -104,6 +104,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         APP_METRICS_GATHERED_FOR_ALL: isDevEnv() ? true : false,
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
+        UPDATE_LATEST_EVENT_CAPTURED_AT: true,
     }
 }
 
@@ -186,6 +187,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         HISTORICAL_EXPORTS_ENABLED: 'enables historical exports for export apps',
         APP_METRICS_GATHERED_FOR_ALL: 'whether to gather app metrics for all teams',
         USE_KAFKA_FOR_SCHEDULED_TASKS: 'distribute scheduled tasks across the scheduler workers',
+        UPDATE_LATEST_EVENT_CAPTURED_AT: 'whether to update latest_event_captured_at on teams',
     }
 }
 

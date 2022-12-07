@@ -6,7 +6,7 @@ import { Pool } from 'pg'
 import { defaultConfig } from '../src/config/config'
 import { UUIDT } from '../src/utils/utils'
 import { delayUntilEventIngested } from '../tests/helpers/clickhouse'
-import { capture, createOrganization, createTeam, fetchEvents, fetchPersons } from './api'
+import { capture, createOrganization, createTeam, fetchEvents, fetchPersons, fetchTeam } from './api'
 
 let producer: Producer
 let clickHouseClient: ClickHouse
@@ -301,4 +301,76 @@ test.concurrent(`event ingestion: events without a team_id get processed correct
     const events = await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
     expect(events.length).toBe(1)
     expect(events[0].team_id).toBe(teamId)
+})
+
+test.concurrent(`latest ingested event sent_at is recorded on team`, async () => {
+    // This is addressing the issue that some events are buffered, which results
+    // in events taking a while to come through to the Live Events page. This
+    // is particularly annoying for the onboarding experience, where we wait
+    // until an event has been processed.
+    const token = new UUIDT().toString()
+    const teamId = await createTeam(postgres, organizationId, '', token)
+    const personIdentifier = 'test@posthog.com'
+
+    const capturedAt = new Date()
+
+    await capture(
+        producer,
+        teamId,
+        personIdentifier,
+        new UUIDT().toString(),
+        'test event',
+        {
+            distinct_id: personIdentifier,
+        },
+        token,
+        capturedAt
+    )
+
+    await delayUntilEventIngested(async () => {
+        const team = await fetchTeam(postgres, teamId)
+        return team.latest_event_captured_at?.getTime() === capturedAt.getTime() ? [team] : []
+    })
+
+    // It should also update latest_event_captured_at even if there is no teamId set
+    const newerCapturedAt = new Date()
+
+    await capture(
+        producer,
+        null, // team_id should be added by the plugin server from the token
+        personIdentifier,
+        new UUIDT().toString(),
+        'test event',
+        {
+            distinct_id: personIdentifier,
+        },
+        token,
+        newerCapturedAt
+    )
+
+    await delayUntilEventIngested(async () => {
+        const team = await fetchTeam(postgres, teamId)
+        return team.latest_event_captured_at?.getTime() === newerCapturedAt.getTime() ? [team] : []
+    })
+
+    // It should not update latest_event_captured_at if the event is older than the current value
+    const olderCapturedAt = new Date(new Date().getTime() - 3600)
+
+    await capture(
+        producer,
+        null, // team_id should be added by the plugin server from the token
+        personIdentifier,
+        new UUIDT().toString(),
+        'test event',
+        {
+            distinct_id: personIdentifier,
+        },
+        token,
+        olderCapturedAt
+    )
+
+    await delayUntilEventIngested(async () => {
+        const team = await fetchTeam(postgres, teamId)
+        return team.latest_event_captured_at?.getTime() === newerCapturedAt.getTime() ? [team] : []
+    })
 })

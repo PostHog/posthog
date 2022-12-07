@@ -34,7 +34,54 @@ export async function eachBatchIngestion(payload: EachBatchPayload, queue: Inges
         return batches
     }
 
+    if (queue.pluginsServer.UPDATE_LATEST_EVENT_CAPTURED_AT) {
+        await updateLatestEventSentAt(payload, queue)
+    }
+
     await eachBatch(payload, queue, eachMessageIngestion, groupIntoBatchesIngestion, 'ingestion')
+}
+
+async function updateLatestEventSentAt(payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> {
+    // Get the latest sent_at for each token within the batch. We want to
+    // minimise the number of PostgreSQL queries we're adding to the pipeline.
+    const latestSentAtPerTeam: Record<number, string> = {}
+    const teamManager = queue.pluginsServer.teamManager
+
+    for (const message of payload.batch.messages) {
+        const token = message.headers?.['api_token']?.toString()
+        const teamIdString = message.headers?.['team_id']?.toString()
+        const teamId = teamIdString
+            ? Number.parseInt(teamIdString)
+            : null ?? (token ? (await teamManager.getTeamByToken(token))?.id : null)
+        const capturedAt = message.headers?.['captured_at']?.toString()
+
+        if (teamId && capturedAt) {
+            latestSentAtPerTeam[teamId] = capturedAt
+        }
+    }
+
+    // Now update the latest sent_at for each teamId in the batch.
+    // TODO: collapse update query into one query?
+    status.debug('🔍', `updating_latest_event_captured_at`, { teamIds: Object.keys(latestSentAtPerTeam) })
+    for (const [teamId, capturedAt] of Object.entries(latestSentAtPerTeam)) {
+        const { rowCount } = await queue.pluginsServer.db.postgresQuery(
+            `
+            UPDATE posthog_team 
+            SET latest_event_captured_at = $1 
+            WHERE id = $2 AND (latest_event_captured_at < $1 OR latest_event_captured_at IS NULL)
+            `,
+            [capturedAt, teamId],
+            'setTeamLatestEventSentAt'
+        )
+
+        if (rowCount) {
+            status.debug('🔍', `updated_latest_event_captured_at`, {
+                teamId,
+                capturedAt,
+                updatedRows: rowCount,
+            })
+        }
+    }
 }
 
 export async function ingestEvent(

@@ -89,6 +89,11 @@ def get_default_data_attributes() -> List[str]:
 
 
 class Team(UUIDClassicModel):
+    class Meta:
+        indexes = [
+            models.Index(fields=["latest_event_captured_at"]),
+        ]
+
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
     )
@@ -108,6 +113,7 @@ class Team(UUIDClassicModel):
     anonymize_ips: models.BooleanField = models.BooleanField(default=False)
     completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
+    latest_event_captured_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
     capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
