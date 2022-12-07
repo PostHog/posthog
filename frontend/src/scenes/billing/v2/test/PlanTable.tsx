@@ -1,6 +1,9 @@
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconArrowRight, IconCheckmark, IconClose, IconWarning } from 'lib/components/icons'
+import { LemonSnack } from 'lib/components/LemonSnack/LemonSnack'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingTestLogic } from './billingTestLogic'
 import './PlanTable.scss'
@@ -364,6 +367,7 @@ export function PlanIcon({
 export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Element {
     const { billing } = useValues(billingTestLogic)
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const upgradeButtons = billingPlans.map((plan) => (
         <td key={`${plan.name}-cta`}>
@@ -395,6 +399,10 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                             <td key={plan.name}>
                                 <h3 className="font-bold">{plan.name}</h3>
                                 <p className="ml-0 text-xs">{plan.description}</p>
+                                {featureFlags[FEATURE_FLAGS.BILLING_PLAN_MOST_POPULAR_EXPERIMENT] === 'test' &&
+                                plan.name === 'PostHog Cloud' ? (
+                                    <LemonSnack className="text-xs mt-1">Most popular</LemonSnack>
+                                ) : null}
                             </td>
                         ))}
                     </tr>
