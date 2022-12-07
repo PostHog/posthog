@@ -58,7 +58,6 @@
         "@posthog/simmerjs": "^0.7.7",
         "@react-hook/size": "^2.1.2",
         "@sentry/react": "^7.22.0",
-        "@sentry/tracing": "^7.22.0",
         "antd": "^4.17.1",
         "antd-dayjs-webpack-plugin": "^1.0.6",
         "babel-preset-nano-react-app": "^0.1.0",
