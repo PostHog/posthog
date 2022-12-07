@@ -12,7 +12,7 @@ import type { personsSceneLogicType } from './personsSceneLogicType'
 const getDefaultQuery = (): DataTableNode => ({
     kind: NodeKind.DataTableNode,
     source: { kind: NodeKind.PersonsNode },
-    columns: ['person', 'id', 'created_at', 'properties.$geoip_country_name', 'properties.$browser'],
+    columns: ['person', 'id', 'created_at', 'properties.$geoip_country_name', 'properties.$browser', 'person.$delete'],
     propertiesViaUrl: true,
     showSearch: true,
     showPropertyFilter: true,

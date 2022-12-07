@@ -27,6 +27,7 @@ import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
 import { isEventsNode, isPersonsNode } from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
+import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 
 interface DataTableProps {
     query: DataTableNode
@@ -172,7 +173,9 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         }
                     />
                     {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && <LoadNext />}
+                    {/* TODO: this doesn't seem like the right solution... */}
                     <SessionPlayerModal />
+                    <PersonDeleteModal />
                 </div>
             </BindLogic>
         </BindLogic>

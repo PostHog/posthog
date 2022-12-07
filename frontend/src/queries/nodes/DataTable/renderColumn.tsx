@@ -10,6 +10,7 @@ import { DataTableNode, QueryContext } from '~/queries/schema'
 import { isEventsNode, isPersonsNode } from '~/queries/utils'
 import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
 
 export function renderColumn(
     key: string,
@@ -141,6 +142,9 @@ export function renderColumn(
                 <PersonHeader noLink withIcon person={personRecord} />
             </Link>
         )
+    } else if (key === 'person.$delete' && isPersonsNode(query.source)) {
+        const personRecord = record as PersonType
+        return <DeletePersonButton person={personRecord} />
     } else if (key.startsWith('context.columns.')) {
         const Component = context?.columns?.[key.substring(16)]?.render
         return Component ? <Component record={record} /> : ''

@@ -16,7 +16,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
     path(['queries', 'nodes', 'DataTable', 'dataTableLogic']),
     actions({ setColumns: (columns: DataTableStringColumn[]) => ({ columns }) }),
     reducers(({ props }) => ({
-        storedColumns: [
+        columns: [
             (props.query.columns ??
                 props.defaultColumns ??
                 defaultDataTableColumns(props.query.source)) as DataTableStringColumn[],
@@ -24,27 +24,6 @@ export const dataTableLogic = kea<dataTableLogicType>([
         ],
     })),
     selectors({
-        columns: [
-            (s) => [s.storedColumns],
-            (storedColumns) => {
-                // This makes old stored columns (e.g. on the Team model) compatible with the new view that prepends 'properties.'
-                const topLevelFieldsEvents = ['event', 'timestamp', 'id', 'distinct_id', 'person', 'url']
-                const topLevelFieldsPersons = ['id', 'distinct_ids', 'created_at', 'is_identified', 'name', 'person']
-                return storedColumns.map((column) => {
-                    if (
-                        topLevelFieldsEvents.includes(column) ||
-                        topLevelFieldsPersons.includes(column) ||
-                        column.startsWith('person.properties.') ||
-                        column.startsWith('properties.') ||
-                        column.startsWith('context.')
-                    ) {
-                        return column
-                    } else {
-                        return `properties.${column}`
-                    }
-                })
-            },
-        ],
         queryWithDefaults: [
             (s) => [(_, props) => props.query, s.columns],
             (query: DataTableNode, columns): Required<DataTableNode> => {
