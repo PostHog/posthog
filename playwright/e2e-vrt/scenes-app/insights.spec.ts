@@ -132,12 +132,12 @@ test.describe('stickiness insight', () => {
     })
 })
 
-test.describe('user paths insights', () => {
-    test('displays viz correctly', async ({ storyPage }) => {
-        await storyPage.goto(toId('Scenes-App/Insights', 'User Paths'))
-        await storyPage.expectSceneScreenshot()
-    })
-})
+// test.describe('user paths insights', () => {
+//     test('displays viz correctly', async ({ storyPage }) => {
+//         await storyPage.goto(toId('Scenes-App/Insights', 'User Paths'))
+//         await storyPage.expectSceneScreenshot()
+//     })
+// })
 
 test.describe('error states', () => {
     test('display the empty state correctly', async ({ storyPage }) => {
