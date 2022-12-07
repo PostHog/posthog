@@ -45,7 +45,12 @@ const EventsWithPerformanceTable = (): JSX.Element => {
                             kind: NodeKind.EventsNode,
                             fixedProperties: webPerformancePropertyFilters,
                         },
-                        columns: ['properties.$current_url', 'properties.$lib', 'timestamp', 'custom.waterfallButton'],
+                        columns: [
+                            'properties.$current_url',
+                            'properties.$lib',
+                            'timestamp',
+                            'context.columns.waterfallButton',
+                        ],
                         showReload: true,
                         showColumnConfigurator: false,
                         showExport: true,
@@ -54,28 +59,29 @@ const EventsWithPerformanceTable = (): JSX.Element => {
                         showActions: false,
                         expandable: false,
                     }}
-                    setQueryLocally
-                    custom={{
-                        waterfallButton: {
-                            title: '',
-                            render: function RenderWaterfallButton({
-                                record: event,
-                            }: {
-                                record: Required<EventsNode>['response']['results'][0]
-                            }) {
-                                return (
-                                    <div>
-                                        <LemonButton
-                                            data-attr={`view-waterfall-button-${event?.id}`}
-                                            icon={<IconPlay />}
-                                            type="secondary"
-                                            size="small"
-                                            onClick={() => setEventToDisplay(event)}
-                                        >
-                                            View waterfall chart
-                                        </LemonButton>
-                                    </div>
-                                )
+                    context={{
+                        columns: {
+                            waterfallButton: {
+                                title: '',
+                                render: function RenderWaterfallButton({
+                                    record: event,
+                                }: {
+                                    record: Required<EventsNode>['response']['results'][0]
+                                }) {
+                                    return (
+                                        <div>
+                                            <LemonButton
+                                                data-attr={`view-waterfall-button-${event?.id}`}
+                                                icon={<IconPlay />}
+                                                type="secondary"
+                                                size="small"
+                                                onClick={() => setEventToDisplay(event)}
+                                            >
+                                                View waterfall chart
+                                            </LemonButton>
+                                        </div>
+                                    )
+                                },
                             },
                         },
                     }}

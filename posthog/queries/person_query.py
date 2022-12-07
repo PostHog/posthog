@@ -140,7 +140,7 @@ class PersonQuery:
         if any(self._uses_person_id(prop) for prop in self._filter.property_groups.flat):
             return True
         for entity in self._filter.entities:
-            if entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS or any(
+            if (entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS and entity.math_group_type_index is None) or any(
                 self._uses_person_id(prop) for prop in entity.property_groups.flat
             ):
                 return True

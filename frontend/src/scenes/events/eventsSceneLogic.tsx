@@ -1,73 +1,60 @@
 import { actions, kea, path, reducers } from 'kea'
 
 import type { eventsSceneLogicType } from './eventsSceneLogicType'
-import { AnyPropertyFilter, PropertyFilter } from '~/types'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, urlToAction } from 'kea-router'
 import equal from 'fast-deep-equal'
+import { DataTableNode, Node, NodeKind } from '~/queries/schema'
+import { urls } from 'scenes/urls'
+import { objectsEqual } from 'lib/utils'
+import { lemonToast } from 'lib/components/lemonToast'
+
+const getDefaultQuery = (): DataTableNode => ({
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: NodeKind.EventsNode,
+        limit: 100,
+    },
+    propertiesViaUrl: true,
+    showEventsBufferWarning: true,
+    showColumnConfigurator: true,
+    showEventFilter: true,
+    showExport: true,
+    showPropertyFilter: true,
+    showReload: true,
+})
 
 export const eventsSceneLogic = kea<eventsSceneLogicType>([
     path(['scenes', 'events', 'eventsSceneLogic']),
 
-    actions({
-        setProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
-        setEventFilter: (event: string) => ({ event }),
-        setColumns: (columns: string[] | null) => ({ columns }),
-    }),
-    reducers({
-        properties: [
-            [] as PropertyFilter[],
-            {
-                setProperties: (_, { properties }) => properties as PropertyFilter[],
-            },
-        ],
-        eventFilter: [
-            '',
-            {
-                setEventFilter: (_, { event }) => event,
-            },
-        ],
-        columns: [
-            null as null | string[],
-            {
-                setColumns: (_, { columns }) => columns,
-            },
-        ],
-    }),
+    actions({ setQuery: (query: Node) => ({ query }) }),
+    reducers({ query: [getDefaultQuery() as Node, { setQuery: (_, { query }) => query }] }),
+
     actionToUrl(({ values }) => ({
-        setProperties: () => {
-            return [
-                router.values.location.pathname,
-                {
-                    ...router.values.searchParams,
-                    properties: values.properties.length === 0 ? undefined : values.properties,
-                },
-                router.values.hashParams,
-                { replace: true },
-            ]
-        },
-        setEventFilter: () => {
-            return [
-                router.values.location.pathname,
-                {
-                    ...router.values.searchParams,
-                    eventFilter: values.eventFilter || undefined,
-                },
-                router.values.hashParams,
-                { replace: true },
-            ]
-        },
+        setQuery: () => [
+            urls.events(),
+            {},
+            objectsEqual(values.query, getDefaultQuery()) ? {} : { q: values.query },
+            { replace: true },
+        ],
     })),
 
     urlToAction(({ actions, values }) => ({
-        '*': (_: Record<string, any>, searchParams: Record<string, any>): void => {
-            const nextProperties = searchParams.properties || values.properties || {}
-            if (!equal(nextProperties, values.properties)) {
-                actions.setProperties(nextProperties)
-            }
-
-            const nextEventFilter = searchParams.eventFilter || ''
-            if (!equal(nextEventFilter, values.eventFilter)) {
-                actions.setEventFilter(nextEventFilter)
+        [urls.events()]: (_, __, { q: queryParam }): void => {
+            if (!equal(queryParam, values.query)) {
+                // nothing in the URL
+                if (!queryParam) {
+                    // set the default unless it's already there
+                    if (!objectsEqual(values.query, getDefaultQuery())) {
+                        actions.setQuery(getDefaultQuery())
+                    }
+                } else {
+                    if (typeof queryParam === 'object') {
+                        actions.setQuery(queryParam)
+                    } else {
+                        lemonToast.error('Invalid query in URL')
+                        console.error({ queryParam })
+                    }
+                }
             }
         },
     })),

@@ -62,3 +62,6 @@ ShowAllTheThings.args = { query: examples['ShowAllTheThings'] }
 
 export const Persons = BasicTemplate.bind({})
 Persons.args = { query: examples['Persons'] }
+
+export const PersonsTable = BasicTemplate.bind({})
+PersonsTable.args = { query: examples['PersonsTable'] }

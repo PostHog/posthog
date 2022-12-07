@@ -6,7 +6,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
-import { DataTableNode, QueryCustom } from '~/queries/schema'
+import { DataTableNode, QueryContext } from '~/queries/schema'
 import { isEventsNode, isPersonsNode } from '~/queries/utils'
 import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -16,7 +16,7 @@ export function renderColumn(
     record: EventType | PersonType,
     query: DataTableNode,
     setQuery?: (node: DataTableNode) => void,
-    custom?: QueryCustom
+    context?: QueryContext
 ): JSX.Element | string {
     if (key === 'event' && isEventsNode(query.source)) {
         const eventRecord = record as EventType
@@ -141,17 +141,17 @@ export function renderColumn(
                 <PersonHeader noLink withIcon person={personRecord} />
             </Link>
         )
-    } else if (key.startsWith('custom.')) {
-        const Component = custom?.[key.substring(7)]?.render
+    } else if (key.startsWith('context.columns.')) {
+        const Component = context?.columns?.[key.substring(16)]?.render
         return Component ? <Component record={record} /> : ''
     } else if (key === 'id' && isPersonsNode(query.source)) {
         return (
             <CopyToClipboardInline
-                explicitValue={record[key]}
+                explicitValue={String(record[key])}
                 iconStyle={{ color: 'var(--primary)' }}
                 description="person distinct ID"
             >
-                {record[key]}
+                {String(record[key])}
             </CopyToClipboardInline>
         )
     } else {

@@ -29,6 +29,7 @@ module.exports = {
             default: '#2d2d2d',
             'default-dark': '#050505',
             muted: '#5f5f5f',
+            'muted-light': '#fafaf9',
             'muted-dark': '#403939',
             'muted-alt': '#747ea1',
             'muted-alt-dark': '#515871',

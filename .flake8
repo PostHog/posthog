@@ -16,9 +16,7 @@ ignore=
     B017, # assertRaises(Exception): should be considered evil
     B019, # Use of `functools.lru_cache` or `functools.cache` on methods can lead to memory leaks.
     B024, # ClickhouseFunnelBase is an abstract base class, but it has no abstract methods. Remember to use @abstractmethod, @abstractclassmethod and/or @abstractproperty decorators.
-    C400, # Unnecessary generator - rewrite as a list comprehension
     C401, # Unnecessary generator - rewrite as a set comprehension.
-    C407, # Unnecessary list comprehension - 'any' can take a generator.
     C408, # Unnecessary dict call - rewrite as a literal.
     C413, # Unnecessary list call around sorted()
     C414, # Unnecessary list call within sorted().
@@ -27,7 +25,6 @@ ignore=
     C901, # function complexity
     E203, # whitespace before ‘:’. -- Do not enable. We've disabled all formatting-related errors as 'black' takes care of them for us
     E231, # missing whitespace after ‘,’, ‘;’, or ‘:’. -- Do not enable. We've disabled all formatting-related errors as 'black' takes care of them for us
-    E262, # inline comment should start with '# '
     E302, # expected 2 blank lines, found 0. -- Do not enable. we've disabled all formatting-related errors as 'black' takes care of them for us
     E501, # line too long. -- Do not enable. We've disabled all formatting-related errors as 'black' takes care of them for us
     E722, # do not use bare except, specify exception instead

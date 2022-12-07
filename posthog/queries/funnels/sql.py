@@ -7,7 +7,6 @@ WHERE {persons_steps}
 ORDER BY aggregation_target
 {limit}
 {offset}
-SETTINGS allow_experimental_window_functions = 1
 """
 
 FUNNEL_INNER_EVENT_STEPS_QUERY = """

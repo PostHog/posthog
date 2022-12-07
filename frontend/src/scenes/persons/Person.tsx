@@ -177,7 +177,6 @@ export function Person(): JSX.Element | null {
                                 showEventFilter: true,
                                 showPropertyFilter: true,
                             }}
-                            setQueryLocally
                         />
                     ) : (
                         <EventsTable

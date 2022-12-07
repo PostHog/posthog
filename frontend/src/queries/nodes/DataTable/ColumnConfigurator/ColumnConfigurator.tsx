@@ -2,13 +2,12 @@ import './ColumnConfigurator.scss'
 import { BindLogic, useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
-import { IconTuning, SortableDragIcon } from 'lib/components/icons'
+import { IconClose, IconTuning, SortableDragIcon } from 'lib/components/icons'
 import { RestrictedArea, RestrictedComponentProps, RestrictionScope } from 'lib/components/RestrictedArea'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import clsx from 'clsx'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Tooltip } from 'lib/components/Tooltip'
-import { CloseOutlined, LockOutlined } from '@ant-design/icons'
 import {
     SortableContainer as sortableContainer,
     SortableElement as sortableElement,
@@ -24,8 +23,8 @@ import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnC
 import { defaultDataTableColumns } from '../defaults'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { LemonModal } from 'lib/components/LemonModal'
-import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { PropertyFilterType } from '~/types'
+import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 
 let uniqueNode = 0
 
@@ -92,7 +91,7 @@ function ColumnConfiguratorModal(): JSX.Element {
             <SortableDragIcon />
         </span>
     ))
-    const SelectedColumn = ({ column, disabled }: { column: string; disabled?: boolean }): JSX.Element => {
+    const SelectedColumn = ({ column }: { column: string }): JSX.Element => {
         let columnType: PropertyFilterType | null = null
         let columnKey = column
         if (column.startsWith('person.properties.')) {
@@ -105,24 +104,20 @@ function ColumnConfiguratorModal(): JSX.Element {
         }
 
         return (
-            <div
-                className={clsx(['SelectedColumn', { selected: !disabled, disabled: disabled }])}
-                style={{ height: `${rowItemHeight}px` }}
-            >
-                {!disabled && <DragHandle />}
+            <div className={clsx(['SelectedColumn', 'selected'])} style={{ height: rowItemHeight }}>
+                <DragHandle />
                 {columnType && <PropertyFilterIcon type={columnType} />}
                 <PropertyKeyInfo className="ml-1" value={columnKey} />
                 <div className="text-right flex-1">
-                    <Tooltip title={disabled ? 'Reserved' : 'Remove'}>
-                        {disabled ? (
-                            <LockOutlined />
-                        ) : (
-                            <CloseOutlined
-                                data-attr="column-display-item-remove-icon"
-                                style={{ color: 'var(--danger)' }}
-                                onClick={() => unselectColumn(column)}
-                            />
-                        )}
+                    <Tooltip title={'Remove'}>
+                        <LemonButton
+                            onClick={() => unselectColumn(column)}
+                            status="stealth"
+                            size="small"
+                            className="ml-auto"
+                        >
+                            <IconClose data-attr="column-display-item-remove-icon" style={{ color: 'var(--danger)' }} />
+                        </LemonButton>
                     </Tooltip>
                 </div>
             </div>

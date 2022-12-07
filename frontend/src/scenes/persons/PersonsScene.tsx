@@ -35,7 +35,6 @@ export function PersonsScene(): JSX.Element {
                         showExport: true,
                         showReload: true,
                     }}
-                    setQueryLocally
                 />
             ) : (
                 <Persons />

@@ -229,7 +229,6 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         showExport: true,
                                         showReload: true,
                                     }}
-                                    setQueryLocally
                                 />
                             ) : (
                                 <Persons cohort={cohort.id} />
