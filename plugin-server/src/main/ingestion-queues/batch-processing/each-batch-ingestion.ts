@@ -4,6 +4,7 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
+import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { IngestionConsumer } from '../kafka-queue'
 import { eachBatch } from './each-batch'
 
@@ -41,38 +42,42 @@ export async function eachBatchIngestion(payload: EachBatchPayload, queue: Inges
 async function updateLatestEventSentAt(payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> {
     // Get the latest sent_at for each token within the batch. We want to
     // minimise the number of PostgreSQL queries we're adding to the pipeline.
-    const latestSentAtPerToken: Record<number, string> = {}
+    const latestSentAtPerTeam: Record<number, string> = {}
+    const teamManager = queue.pluginsServer.teamManager
+
     for (const message of payload.batch.messages) {
         if (message.value) {
             const event = JSON.parse(message.value.toString())
 
-            if (event.token) {
+            const teamId = event.team_id ?? (await teamManager.getTeamByToken(event.token))?.id
+
+            if (teamId) {
                 if (Date.parse(event.sent_at) > new Date().getTime()) {
                     // If the sent_at is in the future, we set latest_event_sent_at
                     // to now, but we leave the event sent_at as is.
                     // TODO: add ingestion warnings for future events.
-                    latestSentAtPerToken[event.token] = new Date().toISOString()
+                    latestSentAtPerTeam[teamId] = new Date().toISOString()
+                    captureIngestionWarning(queue.pluginsServer.db, teamId, 'event_sent_at_in_future', {
+                        timeOfProcessing: new Date().toISOString(),
+                        eventSentAt: event.sent_at,
+                    })
                 } else {
-                    latestSentAtPerToken[event.token] = event.sent_at
+                    latestSentAtPerTeam[teamId] = event.sent_at
                 }
             }
         }
     }
 
-    // Now update the latest sent_at for each token in the batch.
+    // Now update the latest sent_at for each teamId in the batch.
     // TODO: collapse update query into one query?
-    for (const [token, sentAt] of Object.entries(latestSentAtPerToken)) {
-        const {
-            rowCount,
-            rows: [teamId],
-        } = await queue.pluginsServer.db.postgresQuery(
+    for (const [teamId, sentAt] of Object.entries(latestSentAtPerTeam)) {
+        const { rowCount } = await queue.pluginsServer.db.postgresQuery(
             `
             UPDATE posthog_team 
             SET latest_event_sent_at = $1 
-            WHERE api_token = $2 AND (latest_event_sent_at < $1 OR latest_event_sent_at IS NULL)
-            RETURNING id
+            WHERE id = $2 AND (latest_event_sent_at < $1 OR latest_event_sent_at IS NULL)
             `,
-            [sentAt, token],
+            [sentAt, teamId],
             'setTeamLatestEventSentAt'
         )
 

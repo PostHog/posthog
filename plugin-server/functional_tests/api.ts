@@ -134,6 +134,20 @@ export const fetchPluginLogEntries = async (clickHouseClient: ClickHouse, plugin
     return logEntries.map((entry) => ({ ...entry, message: JSON.parse(entry.message) }))
 }
 
+export const fetchIngestionWarnings = async (clickHouseClient: ClickHouse, teamId: number) => {
+    const { data: warnings } = (await clickHouseClient.querying(`
+        SELECT * FROM ingestion_warnings
+        WHERE team_id = ${teamId}
+    `)) as unknown as ClickHouse.ObjectQueryResult<{
+        team_id: number
+        type: string
+        source: string
+        details: any
+        timestamp: Date
+    }>
+    return warnings
+}
+
 export const createOrganization = async (pgClient: Pool) => {
     const organizationId = new UUIDT().toString()
     await insertRow(pgClient, 'posthog_organization', {

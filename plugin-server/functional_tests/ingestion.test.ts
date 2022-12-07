@@ -6,7 +6,15 @@ import { Pool } from 'pg'
 import { defaultConfig } from '../src/config/config'
 import { UUIDT } from '../src/utils/utils'
 import { delayUntilEventIngested } from '../tests/helpers/clickhouse'
-import { capture, createOrganization, createTeam, fetchEvents, fetchPersons, fetchTeam } from './api'
+import {
+    capture,
+    createOrganization,
+    createTeam,
+    fetchEvents,
+    fetchIngestionWarnings,
+    fetchPersons,
+    fetchTeam,
+} from './api'
 
 let producer: Producer
 let clickHouseClient: ClickHouse
@@ -327,11 +335,10 @@ test.concurrent(`latest ingested event sent_at is recorded on team`, async () =>
         sentAt
     )
 
-    const [team] = await delayUntilEventIngested(async () => {
+    await delayUntilEventIngested(async () => {
         const team = await fetchTeam(postgres, teamId)
         return team.latest_event_sent_at?.getTime() === sentAt.getTime() ? [team] : []
     })
-    expect(team).toBeTruthy()
 
     // It should also update latest_event_sent_at even if there is no teamId set
     const newerSentAt = new Date()
@@ -349,11 +356,10 @@ test.concurrent(`latest ingested event sent_at is recorded on team`, async () =>
         newerSentAt
     )
 
-    const [teamFromNullEvent] = await delayUntilEventIngested(async () => {
+    await delayUntilEventIngested(async () => {
         const team = await fetchTeam(postgres, teamId)
         return team.latest_event_sent_at?.getTime() === newerSentAt.getTime() ? [team] : []
     })
-    expect(teamFromNullEvent).toBeTruthy()
 
     // If the date is in the future, we should set latest_event_sent_at to now.
     const sentAtInFuture = new Date(new Date().getTime() + 3600)
@@ -378,5 +384,18 @@ test.concurrent(`latest ingested event sent_at is recorded on team`, async () =>
             ? [team]
             : []
     })
-    expect(teamFromFutureEvent).toBeTruthy()
+
+    // We should also recieve an ingestion warning that the event is in the
+    // future.
+    await delayUntilEventIngested(async () => {
+        const [warning] = await fetchIngestionWarnings(clickHouseClient, teamId)
+        return warning?.type === 'event_sent_at_in_future' &&
+            warning?.details ===
+                JSON.stringify({
+                    timeOfProcessing: teamFromFutureEvent.latest_event_sent_at,
+                    eventSentAt: sentAtInFuture,
+                })
+            ? [warning]
+            : []
+    })
 })
