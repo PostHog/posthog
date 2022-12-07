@@ -129,8 +129,19 @@ class TestCapture(BaseTest):
                 ],
             },
         }
+
+        # NOTE: at the time of writing, there are two queries for the endpoint,
+        # one to authenticate the request, and the other to cache if a specific
+        # team has received events before. We hence run this test twice to
+        # verify that the cached value prevents the second query on the second request.
         with self.assertNumQueries(2):
+            self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
+
+        # NOTE: here the second query seen in the above test is no longer made,
+        # due to the value being cached.
+        with self.assertNumQueries(1):
             response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
+
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         self.assertDictContainsSubset(
             {
