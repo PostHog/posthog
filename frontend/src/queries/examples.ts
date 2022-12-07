@@ -39,6 +39,7 @@ const EventsTable: DataTableNode = {
     columns: defaultDataTableColumns({ kind: NodeKind.EventsNode }),
     source: Events,
 }
+
 const EventsTableFull: DataTableNode = {
     ...EventsTable,
     showPropertyFilter: true,
@@ -48,6 +49,60 @@ const EventsTableFull: DataTableNode = {
     showColumnConfigurator: true,
     showEventsBufferWarning: true,
 }
+
+const TotalEvents: EventsNode = {
+    kind: NodeKind.EventsNode,
+    properties: [
+        { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
+    ],
+    select: ['total()'],
+}
+
+const DataPerCountry: EventsNode = {
+    kind: NodeKind.EventsNode,
+    properties: [
+        { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
+    ],
+    select: [
+        'properties.$country_name',
+        'total()',
+        'dau()',
+        'weekly_active()',
+        'avg(properties.$screen_width)',
+        'avg_count_per_actor(person)',
+        'p95_count_per_actor(group_1)',
+        'avg(properties.$screen_width) * avg(properties.$screen_height)',
+    ],
+}
+
+// export enum BaseMathType {
+//     TotalCount = 'total',
+//     UniqueUsers = 'dau',
+//     WeeklyActiveUsers = 'weekly_active',
+//     MonthlyActiveUsers = 'monthly_active',
+//     UniqueSessions = 'unique_session',
+// }
+//
+// export enum PropertyMathType {
+//     Average = 'avg',
+//     Sum = 'sum',
+//     Minimum = 'min',
+//     Maximum = 'max',
+//     Median = 'median',
+//     P90 = 'p90',
+//     P95 = 'p95',
+//     P99 = 'p99',
+// }
+//
+// export enum CountPerActorMathType {
+//     Average = 'avg_count_per_actor',
+//     Minimum = 'min_count_per_actor',
+//     Maximum = 'max_count_per_actor',
+//     Median = 'median_count_per_actor',
+//     P90 = 'p90_count_per_actor',
+//     P95 = 'p95_count_per_actor',
+//     P99 = 'p99_count_per_actor',
+// }
 
 const Persons: PersonsNode = {
     kind: NodeKind.PersonsNode,
@@ -227,6 +282,8 @@ export const examples: Record<string, Node> = {
     Events,
     EventsTable,
     EventsTableFull,
+    TotalEvents,
+    DataPerCountry,
     Persons,
     PersonsTable,
     PersonsTableFull,

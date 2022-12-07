@@ -92,6 +92,8 @@ export interface EventsNode extends EntityNode {
     before?: string
     /** Only fetch events that happened after this timestamp */
     after?: string
+    /** Return a limited set of data */
+    select?: DataTableColumn[]
     response?: {
         results: EventType[]
         next?: string

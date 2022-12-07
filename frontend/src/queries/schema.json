@@ -1522,6 +1522,13 @@
                     },
                     "required": ["results"],
                     "type": "object"
+                },
+                "select": {
+                    "description": "Return a limited set of data",
+                    "items": {
+                        "$ref": "#/definitions/DataTableColumn"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["kind"],
