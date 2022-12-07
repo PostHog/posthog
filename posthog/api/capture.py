@@ -196,7 +196,7 @@ def _update_event_seen_cache(team_id: int, ttl=60 * 60 * 24):
 
 def _has_team_seen_events(team_id: int):
     r = get_client()
-    exists = bool(r.get(f"posthog_event_seen_for_team:{team_id}"))
+    exists = bool(r.exists(f"posthog_event_seen_for_team:{team_id}"))
     return exists
 
 
@@ -261,7 +261,8 @@ def get_event(request):
         if db_error:
             send_events_to_dead_letter_queue = True
 
-    mark_events_seen_for_team(ingestion_context.team_id)
+    if ingestion_context:
+        mark_events_seen_for_team(ingestion_context.team_id)
 
     if isinstance(data, dict):
         if data.get("batch"):  # posthog-python and posthog-ruby

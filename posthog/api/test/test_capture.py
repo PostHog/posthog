@@ -1246,4 +1246,18 @@ class TestCapture(BaseTest):
         with freeze_time("2022-01-01"):
             capture.mark_events_seen_for_team(self.team.pk)
             self.assertEqual(get_client().get(f"posthog_event_seen_for_team:{self.team.pk}"), b"1640995200.0")
+        self.team.refresh_from_db()
         self.assertTrue(self.team.ingested_event)
+
+    def test_mark_events_seen_for_team_hits_db_once_per_day_per_team(self) -> None:
+        with self.assertNumQueries(1):
+            with freeze_time("2022-01-01"):
+                capture.mark_events_seen_for_team(self.team.pk)
+                capture.mark_events_seen_for_team(self.team.pk)
+
+    def test_mark_events_seen_for_team_hits_db_when_cache_expires(self) -> None:
+        with self.assertNumQueries(2):
+            with freeze_time("2022-01-01"):
+                capture.mark_events_seen_for_team(self.team.pk)
+                get_client().delete(f"posthog_event_seen_for_team:{self.team.pk}")
+                capture.mark_events_seen_for_team(self.team.pk)
