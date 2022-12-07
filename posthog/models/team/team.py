@@ -7,6 +7,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
 
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
@@ -209,6 +210,12 @@ class Team(UUIDClassicModel):
 
     @property
     def actor_on_events_querying_enabled(self) -> bool:
+        result = self._actor_on_events_querying_enabled
+        tag_queries(person_on_events_enabled=result)
+        return result
+
+    @cached_property
+    def _actor_on_events_querying_enabled(self) -> bool:
         # on PostHog Cloud, use the feature flag
         if is_cloud():
             return posthoganalytics.feature_enabled(
