@@ -10,8 +10,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { router } from 'kea-router'
 import { Region } from '~/types'
 import { CLOUD_HOSTNAMES } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCheckCircleOutline } from '../icons'
 
 export type BridgePageProps = {
@@ -24,7 +22,6 @@ export type BridgePageProps = {
     noLogo?: boolean
     sideLogo?: boolean
     message?: React.ReactNode
-    showSignupCta?: boolean
     fixedWidth?: boolean
 }
 
@@ -39,11 +36,9 @@ export function BridgePage({
     noLogo = false,
     sideLogo = false,
     fixedWidth = true,
-    showSignupCta = false,
 }: BridgePageProps): JSX.Element {
     const [messageShowing, setMessageShowing] = useState(false)
     const { preflight } = useValues(preflightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     useEffect(() => {
         const t = setTimeout(() => {
@@ -78,16 +73,15 @@ export function BridgePage({
     return (
         <div className={clsx('BridgePage', fixedWidth && 'BridgePage--fixed-width', className)}>
             <div className="BridgePage__main">
-                {!noHedgehog ? (
-                    <div className="BridgePage__art-wrapper">
-                        <div className="BridgePage__art">
+                {!noHedgehog || view === 'signup' ? (
+                    <div className="BridgePage__left-wrapper">
+                        <div className="BridgePage__left">
                             {!noLogo && sideLogo && (
                                 <div className="BridgePage__header-logo mb-4">
                                     <WelcomeLogo view={view} />
                                 </div>
                             )}
-                            {featureFlags[FEATURE_FLAGS.SIGNUP_PRODUCT_BENEFITS_EXPERIMENT] === 'test' &&
-                            showSignupCta ? (
+                            {view === 'signup' ? (
                                 <div className="mb-16 max-w-100">
                                     {productBenefits.map((benefit, i) => (
                                         <div className="flex flex-row gap-4 mb-4" key={i}>
@@ -102,21 +96,21 @@ export function BridgePage({
                                     ))}
                                 </div>
                             ) : (
-                                <>
+                                <div className="BridgePage__left__art">
                                     <LaptopHog3 alt="" draggable="false" />
                                     {message ? (
                                         <CSSTransition
                                             in={messageShowing}
                                             timeout={200}
-                                            classNames="BridgePage__art__message-"
+                                            classNames="BridgePage__left__message-"
                                         >
-                                            <div className="BridgePage__art__message">{message}</div>
+                                            <div className="BridgePage__left__message">{message}</div>
                                         </CSSTransition>
                                     ) : null}
-                                </>
+                                </div>
                             )}
                         </div>
-                        {showSignupCta && (
+                        {view === 'signup' && (
                             <div className="BridgePage__cta border rounded p-4 mt-8 text-center">
                                 Did you know?
                                 {preflight?.cloud ? (

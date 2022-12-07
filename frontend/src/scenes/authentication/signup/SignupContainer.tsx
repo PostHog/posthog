@@ -25,12 +25,6 @@ export function SignupContainer(): JSX.Element | null {
     return !user ? (
         <BridgePage
             view="signup"
-            message={
-                <>
-                    Welcome to
-                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
-                </>
-            }
             footer={
                 <>
                     {footerHighlights[preflight?.cloud ? 'cloud' : 'selfHosted'].map((val, idx) => (
@@ -40,7 +34,8 @@ export function SignupContainer(): JSX.Element | null {
                     ))}
                 </>
             }
-            showSignupCta={preflight?.cloud}
+            noHedgehog
+            sideLogo
         >
             <SignupForm />
         </BridgePage>

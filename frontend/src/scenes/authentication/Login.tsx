@@ -87,9 +87,17 @@ export function Login(): JSX.Element {
     }, [isPasswordHidden])
 
     return (
-        <BridgePage view="login" noHedgehog>
+        <BridgePage
+            view="login"
+            message={
+                <>
+                    Welcome to
+                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
+                </>
+            }
+        >
             <div className="space-y-2">
-                <h2>Get started</h2>
+                <h2>Log in</h2>
                 {generalError && (
                     <AlertMessage type="error">
                         {generalError.detail ||
