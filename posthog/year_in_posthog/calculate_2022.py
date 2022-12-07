@@ -1,13 +1,10 @@
 from datetime import timedelta
 from typing import Dict, Optional
 
-import structlog
 from django.db import connection
 
 from posthog.cache_utils import cache_for
 from posthog.logging.timing import timed
-
-logger = structlog.get_logger(__name__)
 
 query = """
 with insight_stats AS (

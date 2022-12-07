@@ -69,7 +69,9 @@ def count_from(data: Dict, badge: str) -> List[Dict[str, Union[int, str]]]:
         else:
             raise Exception("A user has to have one badge!")
     except Exception as e:
-        logger.error("Error getting stats", exc_info=True, exc=e, data=data or "no data", badge=badge)
+        logger.error(
+            "year_in_posthog_2022_error_getting_stats", exc_info=True, exc=e, data=data or "no data", badge=badge
+        )
         return []
 
 
@@ -106,5 +108,5 @@ def render_2022(request, user_token: str) -> HttpResponse:
         return HttpResponse(html)
     except Exception as e:
         capture_exception(e)
-        logger.error("Error rendering 2022 page", exc_info=True, exc=e, data=data or "no data")
+        logger.error("year_in_posthog_2022_error_rendering_2022_page", exc_info=True, exc=e, data=data or "no data")
         return HttpResponse("Error rendering 2022 page", status=500)
