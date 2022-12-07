@@ -147,7 +147,7 @@ class TeamSerializer(serializers.ModelSerializer):
                     if validated_data.get("is_demo", False):
                         MatrixManager(HedgeboxMatrix(), use_pre_save=True).run_on_team(team, request.user)
             except DatabaseError as db_err:
-                capture_exception()
+                capture_exception(db_err)
                 raise db_err
             except Exception as e:  # TODO: Remove this after 2022-12-07, the except is just temporary for debugging
                 capture_exception()
