@@ -1255,13 +1255,16 @@
             ],
             "type": "string"
         },
+        "DataTableColumn": {
+            "type": "string"
+        },
         "DataTableNode": {
             "additionalProperties": false,
             "properties": {
                 "columns": {
                     "description": "Columns shown in the table",
                     "items": {
-                        "$ref": "#/definitions/DataTableStringColumn"
+                        "$ref": "#/definitions/DataTableColumn"
                     },
                     "type": "array"
                 },
@@ -1282,11 +1285,11 @@
                     "type": "boolean"
                 },
                 "showColumnConfigurator": {
-                    "description": "Show a button to configure the table's columns",
+                    "description": "Show a button to configure the table's columns if possible",
                     "type": "boolean"
                 },
                 "showEventFilter": {
-                    "description": "Include an event filter above the table",
+                    "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
                 },
                 "showEventsBufferWarning": {
@@ -1306,7 +1309,7 @@
                     "type": "boolean"
                 },
                 "showSearch": {
-                    "description": "Include a free text search field",
+                    "description": "Include a free text search field (PersonsNode only)",
                     "type": "boolean"
                 },
                 "source": {
@@ -1323,9 +1326,6 @@
             },
             "required": ["kind", "source"],
             "type": "object"
-        },
-        "DataTableStringColumn": {
-            "type": "string"
         },
         "DateRange": {
             "additionalProperties": false,

@@ -1,25 +1,25 @@
 import { actions, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 import type { dataTableLogicType } from './dataTableLogicType'
-import { DataTableNode, DataTableStringColumn } from '~/queries/schema'
+import { DataTableNode, DataTableColumn } from '~/queries/schema'
 import { defaultDataTableColumns } from './defaults'
 import { sortedKeys } from 'lib/utils'
 
 export interface DataTableLogicProps {
     key: string
     query: DataTableNode
-    defaultColumns?: DataTableStringColumn[]
+    defaultColumns?: DataTableColumn[]
 }
 
 export const dataTableLogic = kea<dataTableLogicType>([
     props({} as DataTableLogicProps),
     key((props) => props.key),
     path(['queries', 'nodes', 'DataTable', 'dataTableLogic']),
-    actions({ setColumns: (columns: DataTableStringColumn[]) => ({ columns }) }),
+    actions({ setColumns: (columns: DataTableColumn[]) => ({ columns }) }),
     reducers(({ props }) => ({
         columns: [
             (props.query.columns ??
                 props.defaultColumns ??
-                defaultDataTableColumns(props.query.source)) as DataTableStringColumn[],
+                defaultDataTableColumns(props.query.source)) as DataTableColumn[],
             { setColumns: (_, { columns }) => columns },
         ],
     })),

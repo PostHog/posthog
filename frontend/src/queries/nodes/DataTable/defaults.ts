@@ -1,6 +1,6 @@
-import { DataNode, DataTableStringColumn, NodeKind } from '~/queries/schema'
+import { DataNode, DataTableColumn, NodeKind } from '~/queries/schema'
 
-export const defaultDataTableEventColumns: DataTableStringColumn[] = [
+export const defaultDataTableEventColumns: DataTableColumn[] = [
     'event',
     'person',
     'url',
@@ -8,7 +8,7 @@ export const defaultDataTableEventColumns: DataTableStringColumn[] = [
     'timestamp',
 ]
 
-export const defaultDataTablePersonColumns: DataTableStringColumn[] = [
+export const defaultDataTablePersonColumns: DataTableColumn[] = [
     'person',
     'id',
     'created_at',
@@ -16,6 +16,6 @@ export const defaultDataTablePersonColumns: DataTableStringColumn[] = [
     'properties.$browser',
 ]
 
-export function defaultDataTableColumns(query: DataNode): DataTableStringColumn[] {
+export function defaultDataTableColumns(query: DataNode): DataTableColumn[] {
     return query.kind === NodeKind.PersonsNode ? defaultDataTablePersonColumns : defaultDataTableEventColumns
 }
