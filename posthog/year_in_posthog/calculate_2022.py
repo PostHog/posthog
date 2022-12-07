@@ -13,7 +13,7 @@ with insight_stats AS (
         user_id,
         insight_created_count,
         CASE
-            WHEN insight_created_count >= 10 THEN 'Deep diver'
+            WHEN insight_created_count >= 10 THEN 'deep_diver'
         END AS badge,
         PERCENT_RANK() OVER (
             ORDER BY
@@ -42,7 +42,7 @@ flag_stats AS (
         user_id,
         flag_created_count,
         CASE
-            WHEN flag_created_count >= 10 THEN 'Flag raiser'
+            WHEN flag_created_count >= 10 THEN 'flag_raiser'
         END AS badge,
         PERCENT_RANK() OVER (
             ORDER BY
@@ -66,7 +66,7 @@ recording_viewed_stats AS (
         user_id,
         viewed_recording_count,
         CASE
-            WHEN viewed_recording_count >= 10 THEN 'Popcorn muncher'
+            WHEN viewed_recording_count >= 10 THEN 'popcorn_muncher'
         END AS badge,
         PERCENT_RANK() OVER (
             ORDER BY
@@ -90,7 +90,7 @@ experiments_stats AS (
         user_id,
         experiments_created_count,
         CASE
-            WHEN experiments_created_count >= 4 THEN 'Scientist'
+            WHEN experiments_created_count >= 4 THEN 'scientist'
         END AS badge,
         PERCENT_RANK() OVER (
             ORDER BY
@@ -114,7 +114,7 @@ dashboards_created_stats AS (
         user_id,
         dashboards_created_count,
         CASE
-            WHEN dashboards_created_count >= 10 THEN 'Curator'
+            WHEN dashboards_created_count >= 10 THEN 'curator'
         END AS badge,
         PERCENT_RANK() OVER (
             ORDER BY
@@ -136,7 +136,19 @@ dashboards_created_stats AS (
 )
 SELECT
     id,
-    array_remove(ARRAY [case when posthog_user.last_login >= '1-Jan-2022' then 'Hedgehog' end, insight_stats.badge, flag_stats.badge, recording_viewed_stats.badge, experiments_stats.badge, dashboards_created_stats.badge], NULL) AS badges,
+    array_remove(ARRAY [
+        case when posthog_user.last_login >= '1-Jan-2022' then 'astronaut' end,
+        insight_stats.badge,
+        flag_stats.badge,
+        recording_viewed_stats.badge,
+        experiments_stats.badge,
+        dashboards_created_stats.badge,
+        case when
+            recording_viewed_stats.badge is not null
+                and flag_stats.badge is not null
+                and insight_stats.badge is not null
+            then 'champion' end
+    ], NULL) AS badges,
     insight_stats.insight_created_count, insight_stats.insight_rank,
     flag_stats.flag_created_count, flag_stats.flag_rank,
     recording_viewed_stats.viewed_recording_count, recording_viewed_stats.viewed_recording_rank,

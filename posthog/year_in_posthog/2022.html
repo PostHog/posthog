@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Year in PostHog</title>
+    <title>My year in PostHog</title>
     <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png?v=2021-04-29">
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png?v=2021-04-29">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png?v=2021-04-29">
@@ -12,13 +12,207 @@
         <link rel="shortcut icon" href="/static/icons/favicon-dev.ico?v=2021-04-29">
     {% endif %}
     <script>
-        !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
-        posthog.init('{{api_token}}',{api_host:window.location.origin, loaded: function(posthog) { posthog.register({'yearInPostHog': 2022}); }})
+        !function (t, e) {
+            var o, n, p, r;
+            e.__SV || (window.posthog = e, e._i = [], e.init = function (i, s, a) {
+                function g(t, e) {
+                    var o = e.split(".");
+                    2 == o.length && (t = t[o[0]], e = o[1]), t[e] = function () {
+                        t.push([e].concat(Array.prototype.slice.call(arguments, 0)))
+                    }
+                }
+
+                (p = t.createElement("script")).type = "text/javascript", p.async = !0, p.src = s.api_host + "/static/array.js", (r = t.getElementsByTagName("script")[0]).parentNode.insertBefore(p, r);
+                var u = e;
+                for (void 0 !== a ? u = e[a] = [] : a = "posthog", u.people = u.people || [], u.toString = function (t) {
+                    var e = "posthog";
+                    return "posthog" !== a && (e += "." + a), t || (e += " (stub)"), e
+                }, u.people.toString = function () {
+                    return u.toString(1) + ".people (stub)"
+                }, o = "capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags".split(" "), n = 0; n < o.length; n++) g(u, o[n]);
+                e._i.push([i, s, a])
+            }, e.__SV = 1)
+        }(document, window.posthog || []);
+        posthog.init('{{api_token}}', {
+            api_host: window.location.origin, loaded: function (posthog) {
+                posthog.register({'yearInPostHog': 2022});
+            }
+        })
     </script>
+    {% load static %}
+    <style>
+        body {
+            background-color: #2D2D2D;
+            color: #fff;
+            height: 100vh;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            font-weight: 400;
+            font-size: 1rem;
+            line-height: 1.25rem;
+            align-items: center;
+        }
+
+        .content {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            max-width: 1280px;
+        }
+
+        @media only screen and (min-width: 480px) {
+            .content {
+                flex-direction: row;
+            }
+        }
+
+        .column {
+            width: 100vw;
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+
+        .column.left {
+            min-width: 326px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+
+        }
+
+        @media only screen and (min-width: 480px) {
+            .column.left {
+                width: 45%;
+                padding-left: 15%;
+            }
+
+            .column.right {
+                width: 55%;
+                padding-right: 15%;
+            }
+        }
+
+        .footer {
+            flex-shrink: 0;
+            height: 4rem;
+            background-color: #EEEFE9;
+            color: #000;
+            width: 100vw;
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+        }
+
+        .footer .logo {
+            width: 3rem;
+        }
+
+        .footer-content {
+            max-width: 1280px;
+            display: flex;
+            align-items: center;
+        }
+
+        .highlight {
+            color: {{ highlight_color }};
+        }
+
+        .muted {
+            color: #969696;
+        }
+
+        .text-xl {
+            font-weight: 600;
+            font-size: 1.5rem;
+            line-height: 2rem;
+        }
+
+        .text-2xl {
+            font-weight: 600;
+            font-size: 3rem;
+            line-height: 1;
+        }
+
+        .my-8 {
+            margin-top: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .pt-16 {
+            padding-top: 4rem;
+        }
+
+        .pl-8 {
+            padding-left: 2rem;
+        }
+
+        .badge {
+            width: 326px;
+            height: 326px;
+        }
+
+        .stats {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            width: 100%;
+        }
+
+        .stat {
+            display: flex;
+            flex-direction: column;
+        }
+    </style>
+    <meta name="description" content="{{ explanation }}">
+    <meta name="image" content="{{ request.scheme }}://{{ request.META.HTTP_HOST }}{% static opengraph_image %}">
+    <meta property="og:url" content="{{ request.scheme }}://{{ request.META.HTTP_HOST }}{{ request.get_full_path }}">
+    <meta property="og:title" content="My year in PostHog">
+    <meta property="og:description"
+          content="{{ explanation }}">
+    <meta property="og:image" content="{{ request.scheme }}://{{ request.META.HTTP_HOST }}{% static opengraph_image %}">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:creator" content="@PostHog">
+    <meta name="twitter:title" content="My year in PostHog">
+    <meta name="twitter:description"
+          content="{{ explanation }}">
+    <meta name="twitter:image"
+          content="{{ request.scheme }}://{{ request.META.HTTP_HOST }}{% static opengraph_image %}">
+    <meta name="twitter:site" content="@PostHog">
+    {% for stat in stats %}
+        <meta name="twitter:label{{ forloop.counter }}" content="{{ stat.description }}"/>
+        <meta name="twitter:data{{ forloop.counter }}" content="{{ stat.count }}"/>
+    {% endfor %}
 </head>
 <body>
-posthog year in review 98% done
-
-data: <pre>{{ data }}</pre>
+<div class="content pt-16">
+    <div class="left column">
+        <div>This year, I'm a</div>
+        <img class="badge my-8" src="{% static image %}"
+             alt="image for this badge {{ badge }}. An illustration of a hedgehog who is a {{ human_badge }}"/>
+        <div class="highlight text-2xl">{{ human_badge }}</div>
+    </div>
+    <div class="right column">
+        <div class="muted">You earned this badge because...</div>
+        <div class="highlight text-xl my-8">{{ explanation }}</div>
+        <div class="stats">
+            {% for stat in stats %}
+                <div class="stat">
+                    <div class="highlight text-2xl">{{ stat.count }}</div>
+                    <div>{{ stat.description }}</div>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+<footer class="footer">
+    <div class="footer-content pl-8 text-xl">
+        <span>My year in&nbsp;&nbsp;</span>
+        <img class="logo" src="{% static "logomark.png" %}"
+             alt="PostHog logo"/>
+        <span>&nbsp;PostHog</span>
+    </div>
+</footer>
 </body>
 </html>
