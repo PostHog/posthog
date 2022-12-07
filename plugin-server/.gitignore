@@ -2,7 +2,6 @@
 .clinic
 node_modules/
 pnpm-error.log
-yarn-error.log
 dist/
 yalc.lock
 .yalc/
