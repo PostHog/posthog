@@ -122,9 +122,9 @@ export interface DataTableNode extends Node {
     source: EventsNode | PersonsNode
     /** Columns shown in the table  */
     columns?: DataTableStringColumn[]
-    /** Include an event filter above the table */
+    /** Include an event filter above the table (EventsNode only) */
     showEventFilter?: boolean
-    /** Include a free text search field */
+    /** Include a free text search field (PersonsNode only) */
     showSearch?: boolean
     /** Include a property filter above the table */
     showPropertyFilter?: boolean
@@ -134,7 +134,7 @@ export interface DataTableNode extends Node {
     showExport?: boolean
     /** Show a reload button */
     showReload?: boolean
-    /** Show a button to configure the table's columns */
+    /** Show a button to configure the table's columns if possible */
     showColumnConfigurator?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
