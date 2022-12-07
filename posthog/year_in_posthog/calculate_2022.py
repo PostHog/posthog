@@ -1,8 +1,10 @@
+from datetime import timedelta
 from typing import Dict, Optional
 
 import structlog
 from django.db import connection
 
+from posthog.cache_utils import cache_for
 from posthog.logging.timing import timed
 
 logger = structlog.get_logger(__name__)
@@ -156,6 +158,7 @@ def dictfetchall(cursor):
 
 
 @timed("year_in_posthog_2022")
+@cache_for(timedelta(seconds=30))
 def calculate_year_in_posthog_2022(user_id: int) -> Optional[Dict]:
     with connection.cursor() as cursor:
         cursor.execute(query, [user_id] * 6)

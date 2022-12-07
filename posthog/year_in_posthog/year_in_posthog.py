@@ -4,6 +4,7 @@ from typing import Dict, List, Union
 import structlog
 from django.http import HttpResponse
 from django.template.loader import get_template
+from django.views.decorators.cache import cache_control
 from sentry_sdk import capture_exception
 
 from posthog import settings
@@ -78,6 +79,7 @@ def sort_list_based_on_preference(badges: List[str]) -> str:
     return badges_by_preference[-1]
 
 
+@cache_control(public=True, max_age=300)  # cache for 5 minutes
 def render_2022(request, user_token: str) -> HttpResponse:
     data = None
     try:
