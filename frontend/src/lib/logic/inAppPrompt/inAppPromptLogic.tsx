@@ -44,7 +44,7 @@ export type Prompt = {
     type: PromptType
     text: string
     placement: Placement
-    reference: string
+    reference: string | null
     title?: string
     buttons?: PromptButton[]
     icon?: string
@@ -52,19 +52,13 @@ export type Prompt = {
 
 export type Tooltip = Prompt & { type: 'tooltip' }
 
-export type PromptRule = {
-    path: {
-        must_match: string[]
-        exclude?: string[]
-    }
-    must_be_completed?: string[]
-    requires_opt_in?: boolean
-}
-
 export type PromptSequence = {
     key: string
     prompts: Prompt[]
-    rule: PromptRule
+    path_match: string[]
+    path_exclude: string[]
+    must_be_completed?: string[]
+    requires_opt_in?: boolean
     type: string
 }
 
@@ -75,14 +69,14 @@ export type PromptConfig = {
 export type PromptState = {
     key: string
     last_updated_at: string
-    step: number
+    step: number | null
     completed?: boolean
     dismissed?: boolean
 }
 
 export type ValidSequenceWithState = {
     sequence: PromptSequence
-    state: { step: number; completed?: boolean; canRun?: boolean }
+    state: { step: number; completed?: boolean }
 }
 
 export type PromptUserState = {
@@ -100,7 +94,7 @@ export enum DefaultAction {
 const NEW_SEQUENCE_DELAY = 1000
 // make sure to change this prefix in case the schema of cached values is changed
 // otherwise the code will try to run with cached deprecated values
-const CACHE_PREFIX = 'v4'
+const CACHE_PREFIX = 'v5'
 
 const iconMap = {
     home: <Lettermark name="PostHog" />,
@@ -399,43 +393,38 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
             const valid = []
             for (const sequence of values.sequences) {
                 // for now the only valid rule is related to the pathname, can be extended
-                const isMatchingPath = sequence.rule.path.must_match.some((value) => wcmatch(value)(pathname))
-                if (isMatchingPath) {
-                    if (sequence.rule.path.exclude) {
-                        const isMatchingExclusion = sequence.rule.path.exclude.some((value) => wcmatch(value)(pathname))
-                        if (isMatchingExclusion) {
-                            continue
-                        }
-                    }
-                    const hasOptedInToSequence = sequence.rule.requires_opt_in ? values.canShowProductTour : true
-                    if (values.userState[sequence.key]) {
-                        const sequenceState = values.userState[sequence.key]
-                        const completed = !!sequenceState.completed || sequenceState.step === sequence.prompts.length
-                        const canRun = !sequenceState.dismissed && hasOptedInToSequence
-                        if (
-                            sequence.type !== 'product-tour' &&
-                            (completed || !canRun || sequenceState.step === sequence.prompts.length)
-                        ) {
-                            continue
-                        }
-                        valid.push({
-                            sequence,
-                            state: {
-                                step: sequenceState.step + 1,
-                                completed,
-                                canRun,
-                            },
-                        })
-                    } else {
-                        valid.push({
-                            sequence,
-                            state: {
-                                step: 0,
-                                canRun: hasOptedInToSequence,
-                            },
-                        })
-                    }
+                const must_match = [...sequence.path_match]
+                if (must_match.includes('/*')) {
+                    must_match.push('/**')
                 }
+                const isMatchingPath = must_match.some((value) => wcmatch(value)(pathname))
+                if (!isMatchingPath) {
+                    continue
+                }
+                const isMatchingExclusion = sequence.path_exclude.some((value) => wcmatch(value)(pathname))
+                if (isMatchingExclusion) {
+                    continue
+                }
+                const hasOptedInToSequence = sequence.requires_opt_in ? values.canShowProductTour : true
+                if (!values.userState[sequence.key]) {
+                    continue
+                }
+                const sequenceState = values.userState[sequence.key]
+                const completed = !!sequenceState.completed || sequenceState.step === sequence.prompts.length
+                const canRun = !sequenceState.dismissed && hasOptedInToSequence
+                if (!canRun) {
+                    continue
+                }
+                if (sequence.type !== 'product-tour' && (completed || sequenceState.step === sequence.prompts.length)) {
+                    continue
+                }
+                valid.push({
+                    sequence,
+                    state: {
+                        step: sequenceState.step ? sequenceState.step + 1 : 0,
+                        completed,
+                    },
+                })
             }
             actions.setValidSequences(valid)
         },
@@ -453,7 +442,7 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                 } else {
                     // to make it less greedy, we don't allow half-run sequences to be started automatically
                     firstValid = values.validSequences.filter(
-                        (sequence) => !sequence.state.completed && sequence.state.canRun && sequence.state.step === 0
+                        (sequence) => !sequence.state.completed && sequence.state.step === 0
                     )?.[0]
                 }
                 if (firstValid) {
@@ -512,7 +501,9 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
     urlToAction(({ actions }) => ({
         '*': () => {
             actions.closePrompts()
-            actions.findValidSequences()
+            if (!['login', 'signup', 'ingestion'].find((path) => router.values.location.pathname.includes(path))) {
+                actions.findValidSequences()
+            }
         },
     })),
     afterMount(({ actions }) => {

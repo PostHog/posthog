@@ -13,6 +13,7 @@
 !yarn.lock
 !webpack.config.js
 !postcss.config.js
+!playwright.config.ts
 !.kearc
 !tsconfig.json
 !frontend/@posthog

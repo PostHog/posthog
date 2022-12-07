@@ -22,6 +22,7 @@ module.exports = {
             },
         },
         '@storybook/addon-a11y',
+        'storybook-addon-pseudo-states',
     ],
     staticDirs: ['public'],
     babel: async () => {

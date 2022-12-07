@@ -10,6 +10,7 @@ from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property import PropertyIdentifier
 from posthog.models.property.util import box_value, extract_tables_and_properties
 from posthog.queries.column_optimizer.foss_column_optimizer import FOSSColumnOptimizer
+from posthog.queries.trends.util import is_series_group_based
 
 
 class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
@@ -69,14 +70,14 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
 
             # Math properties are also implicitly used.
             #
-            # See ee/clickhouse/queries/trends/util.py#process_math
+            # See posthog/queries/trends/util.py#process_math
             if entity.math_property:
                 counter[(entity.math_property, "event", None)] += 1
 
             # If groups are involved, they're also used
             #
-            # See ee/clickhouse/queries/trends/util.py#process_math
-            if entity.math == "unique_group":
+            # See posthog/queries/trends/util.py#process_math
+            if is_series_group_based(entity):
                 counter[(f"$group_{entity.math_group_type_index}", "event", None)] += 1
 
             if entity.math == "unique_session":
