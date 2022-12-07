@@ -135,19 +135,19 @@ class TeamSerializer(serializers.ModelSerializer):
         return super().validate(attrs)
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
-        try:
-            serializers.raise_errors_on_nested_writes("create", self, validated_data)
-            request = self.context["request"]
-            organization = self.context["view"].organization  # Use the org we used to validate permissions
-            with transaction.atomic():
+        serializers.raise_errors_on_nested_writes("create", self, validated_data)
+        request = self.context["request"]
+        organization = self.context["view"].organization  # Use the org we used to validate permissions
+        with transaction.atomic():
+            try:
                 team = Team.objects.create_with_data(**validated_data, organization=organization)
                 request.user.current_team = team
                 request.user.save()
                 if validated_data.get("is_demo", False):
                     MatrixManager(HedgeboxMatrix(), use_pre_save=True).run_on_team(team, request.user)
-        except Exception as e:  # TODO: Remove this after 2022-12-07, the except is just temporary for debugging
-            capture_exception()
-            raise e
+            except Exception as e:  # TODO: Remove this after 2022-12-07, the except is just temporary for debugging
+                capture_exception()
+                raise e
         return team
 
     def _handle_timezone_update(self, team: Team, new_timezone: str) -> None:
