@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any, List, Optional
 
 import posthoganalytics
 import pytz
+from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
@@ -216,6 +217,9 @@ class Team(UUIDClassicModel):
 
     @cached_property
     def _actor_on_events_querying_enabled(self) -> bool:
+        if settings.PERSON_ON_EVENTS_OVERRIDE is not None:
+            return settings.PERSON_ON_EVENTS_OVERRIDE
+
         # on PostHog Cloud, use the feature flag
         if is_cloud():
             return posthoganalytics.feature_enabled(
