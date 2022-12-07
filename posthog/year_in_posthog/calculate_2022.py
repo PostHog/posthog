@@ -157,7 +157,7 @@ def dictfetchall(cursor):
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-@timed("year_in_posthog_2022")
+@timed("year_in_posthog_2022_calculation")
 @cache_for(timedelta(seconds=30))
 def calculate_year_in_posthog_2022(user_id: int) -> Optional[Dict]:
     with connection.cursor() as cursor:
