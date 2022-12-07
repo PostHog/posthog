@@ -8,6 +8,7 @@ from sentry_sdk import capture_exception
 
 from posthog import settings
 from posthog.year_in_posthog.calculate_2022 import calculate_year_in_posthog_2022
+from posthog.year_in_posthog.crypto import user_id_decrypt
 
 logger = structlog.get_logger(__name__)
 
@@ -64,6 +65,8 @@ def count_from(data: Dict, badge: str) -> List[Dict[str, Union[int, str]]]:
                 {"count": stats["viewed_recording_count"], "description": "Session recordings viewed"},
                 {"count": stats["flag_created_count"], "description": "Feature flags created"},
             ]
+        else:
+            raise Exception("A user has to have one badge!")
     except Exception as e:
         logger.error("Error getting stats", exc_info=True, exc=e, data=data or "no data", badge=badge)
         return []
@@ -75,10 +78,12 @@ def sort_list_based_on_preference(badges: List[str]) -> str:
     return badges_by_preference[-1]
 
 
-def render_2022(request) -> HttpResponse:
+def render_2022(request, user_token: str) -> HttpResponse:
     data = None
     try:
-        data = calculate_year_in_posthog_2022(1)
+        user_id = user_id_decrypt(user_token)
+
+        data = calculate_year_in_posthog_2022(user_id)
 
         badge = sort_list_based_on_preference(data["badges"])
 
