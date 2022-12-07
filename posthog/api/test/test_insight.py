@@ -12,7 +12,7 @@ from rest_framework import status
 from ee.api.test.base import LicensedTestMixin
 from ee.models import DashboardPrivilege
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from posthog.caching.insight_cache import synchronously_update_cache
+from posthog.caching.fetch_from_cache import synchronously_update_cache
 from posthog.models import (
     Cohort,
     Dashboard,
