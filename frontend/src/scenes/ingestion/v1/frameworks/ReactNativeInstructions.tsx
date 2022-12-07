@@ -34,7 +34,7 @@ pod install`}
             </p>
             <CodeSnippet language={Language.JSX}>
                 {`// App.(js|ts)
-import PostHog, { PostHogProvider } from 'posthog-react-native'
+import { PostHogProvider } from 'posthog-react-native'
 ...
 
 export function MyApp() {
@@ -49,7 +49,7 @@ export function MyApp() {
             </CodeSnippet>
             <h3 className="mt-4">Send an Event</h3>
             <CodeSnippet language={Language.JSX}>{`// With hooks
-import PostHog, { usePostHog } from 'posthog-react-native'
+import { usePostHog } from 'posthog-react-native'
 
 const MyComponent = () => {
     const posthog = usePostHog()
