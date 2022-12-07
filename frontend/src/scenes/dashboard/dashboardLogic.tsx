@@ -188,7 +188,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         duplicateTile: (tile: DashboardTile) => ({ tile }),
         loadingDashboardItemsStarted: (action: string, dashboardQueryId: string) => ({ action, dashboardQueryId }),
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
-        abortQuery: (payload: { queryId: string; exception?: Record<string, any> }) => payload,
+        abortQuery: (payload: { dashboardQueryId: string; queryId: string; queryStartTime: number }) => payload,
     }),
 
     loaders(({ actions, props, values }) => ({
@@ -1050,7 +1050,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } else if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
                         if (!cancelled) {
                             // cancel all insight requests for this query in one go
-                            actions.abortQuery({ queryId: dashboardQueryId })
+                            actions.abortQuery({ dashboardQueryId: dashboardQueryId, queryId: queryId, queryStartTime })
                         }
                         cancelled = true
                     } else {
@@ -1242,10 +1242,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.setShouldReportOnAPILoad(true)
             }
         },
-        abortQuery: ({ queryId }) => {
+        abortQuery: async ({ dashboardQueryId, queryId, queryStartTime }) => {
             const { currentTeamId } = values
             if (values.featureFlags[FEATURE_FLAGS.CANCEL_RUNNING_QUERIES]) {
-                api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId })
+                await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: dashboardQueryId })
+
+                // TRICKY: we cancel just once using the dashboard query id.
+                // we can record the queryId that happened to capture the AbortError exception
+                // and request the cancellation, but it is probably not particularly relevant
+                await captureTimeToSeeData(values.currentTeamId, {
+                    type: 'insight_load',
+                    context: 'dashboard',
+                    dashboard_query_id: dashboardQueryId,
+                    query_id: queryId,
+                    status: 'cancelled',
+                    time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),
+                    insights_fetched: 0,
+                    insights_fetched_cached: 0,
+                })
             }
         },
     })),
