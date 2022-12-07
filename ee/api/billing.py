@@ -184,21 +184,20 @@ class BillingViewset(viewsets.GenericViewSet):
             self._update_org_details(org, response)
 
         # check if the distinct_ids are in sync, if not patch the billing service
-        if response.get("distinct_ids"):
-            received_distinct_ids = response["distinct_ids"]
-            local_distinct_ids = []
-            if is_cloud() and org:
-                local_distinct_ids = list(org.members.values_list("distinct_id", flat=True))
-            else:
-                local_distinct_ids = list(User.objects.values_list("distinct_id", flat=True))
+        received_distinct_ids = response.get("distinct_ids") or []
+        local_distinct_ids = []
+        if is_cloud() and org:
+            local_distinct_ids = list(org.members.values_list("distinct_id", flat=True))
+        else:
+            local_distinct_ids = list(User.objects.values_list("distinct_id", flat=True))
 
-            if set(received_distinct_ids) != set(local_distinct_ids):
-                billing_service_token = build_billing_token(license, org)
-                requests.patch(
-                    f"{BILLING_SERVICE_URL}/api/billing/",
-                    headers={"Authorization": f"Bearer {billing_service_token}"},
-                    json={"distinct_ids": local_distinct_ids},
-                )
+        if set(received_distinct_ids) != set(local_distinct_ids):
+            billing_service_token = build_billing_token(license, org)
+            requests.patch(
+                f"{BILLING_SERVICE_URL}/api/billing/",
+                headers={"Authorization": f"Bearer {billing_service_token}"},
+                json={"distinct_ids": local_distinct_ids},
+            )
 
         return Response(response)
 

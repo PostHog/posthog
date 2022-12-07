@@ -60,6 +60,7 @@ def create_billing_customer(**kwargs) -> Dict[str, Any]:
             }
         ],
         "billing_period": {"current_period_start": "2022-10-07T11:12:48", "current_period_end": "2022-11-07T11:12:48"},
+        "distinct_ids": [],
     }
     data.update(kwargs)
     return data
@@ -251,6 +252,7 @@ class TestBillingAPI(APILicensedTest):
                 "current_period_start": "2022-10-07T11:12:48",
                 "current_period_end": "2022-11-07T11:12:48",
             },
+            "distinct_ids": [],
         }
 
     @patch("ee.api.billing.requests.get")
@@ -516,3 +518,20 @@ class TestBillingAPI(APILicensedTest):
                 "usage": 0,
             },
         }
+
+    @patch("ee.api.billing.requests.patch")
+    @patch("ee.api.billing.requests.get")
+    def test_billing_distinct_ids_in_sync(self, mock_request, mock_patch, *args):
+        mock_request.return_value.status_code = 200
+        mock_request.return_value.json.return_value = create_billing_response(
+            customer=create_billing_customer(has_active_subscription=True)
+        )
+        self.organization.customer_id = None
+        self.organization.usage = None
+        self.organization.members.add(self.user)
+        self.organization.save()
+
+        res = self.client.get("/api/billing-v2")
+        assert res.status_code == 200
+        assert mock_patch.call_count == 1
+        assert mock_patch.call_args[1]["json"]["distinct_ids"] == [self.user.distinct_id]
