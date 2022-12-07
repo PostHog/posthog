@@ -143,7 +143,7 @@ drf-exceptions-hog==0.3.0
     # via -r requirements.in
 drf-extensions==0.7.0
     # via -r requirements.in
-drf-spectacular==0.21.1
+drf-spectacular==0.24.2
     # via -r requirements.in
 frozenlist==1.3.0
     # via
