@@ -1,3 +1,5 @@
+import type { Config } from 'jest'
+
 process.env.TZ = process.env.TZ || 'UTC'
 
 /*
@@ -5,7 +7,7 @@ process.env.TZ = process.env.TZ || 'UTC'
  * https://jestjs.io/docs/en/configuration.html
  */
 
-export default {
+const config: Config = {
     // All imported modules in your tests should be mocked automatically
     // automock: false,
 
@@ -203,3 +205,5 @@ export default {
     // Whether to use watchman for file crawling
     // watchman: true,
 }
+
+export default config
