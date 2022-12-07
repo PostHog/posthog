@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional, Type, cast
 
 from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
@@ -140,11 +140,15 @@ class TeamSerializer(serializers.ModelSerializer):
         organization = self.context["view"].organization  # Use the org we used to validate permissions
         with transaction.atomic():
             try:
-                team = Team.objects.create_with_data(**validated_data, organization=organization)
-                request.user.current_team = team
-                request.user.save()
-                if validated_data.get("is_demo", False):
-                    MatrixManager(HedgeboxMatrix(), use_pre_save=True).run_on_team(team, request.user)
+                with transaction.atomic():
+                    team = Team.objects.create_with_data(**validated_data, organization=organization)
+                    request.user.current_team = team
+                    request.user.save()
+                    if validated_data.get("is_demo", False):
+                        MatrixManager(HedgeboxMatrix(), use_pre_save=True).run_on_team(team, request.user)
+            except DatabaseError as db_err:
+                capture_exception()
+                raise db_err
             except Exception as e:  # TODO: Remove this after 2022-12-07, the except is just temporary for debugging
                 capture_exception()
                 raise e
