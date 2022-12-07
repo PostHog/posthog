@@ -472,11 +472,11 @@ export function EventsTable({
             person: ['person.distinct_ids.0', 'person.properties.email'],
         }
 
-        return (selectedColumns === 'DEFAULT' ? defaultColumns.map((e) => e.key || '') : selectedColumns).flatMap(
-            (x) => {
+        return (selectedColumns === 'DEFAULT' ? defaultColumns.map((e) => e.key || '') : selectedColumns)
+            .flatMap((x) => {
                 return columnMapping[x] || `properties.${x}`
-            }
-        )
+            })
+            .filter((c) => !c.startsWith('custom.'))
     }, [defaultColumns, selectedColumns])
 
     return (

@@ -72,13 +72,20 @@ export interface EntityNode extends DataNode {
     math?: BaseMathType | PropertyMathType | CountPerActorMathType
     math_property?: string
     math_group_type_index?: 0 | 1 | 2 | 3 | 4
+    /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?: AnyPropertyFilter[]
 }
 
 export interface EventsNode extends EntityNode {
     kind: NodeKind.EventsNode
     event?: string
     limit?: number
+    /** Show events matching a given action */
+    actionId?: number
+    /** Show events for a given person */
+    personId?: string
     /** Only fetch events that happened before this timestamp */
     before?: string
     /** Only fetch events that happened after this timestamp */
@@ -219,4 +226,15 @@ export interface BreakdownFilter {
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number | undefined // Groups aggregation
+}
+
+/** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
+export interface QueryContext {
+    /** Column templates for the DataTable */
+    columns: Record<string, QueryContextColumn>
+}
+
+interface QueryContextColumn {
+    title?: string
+    render?: (props: { record: any }) => JSX.Element
 }

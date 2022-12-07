@@ -6,6 +6,7 @@ import { query } from '~/queries/query'
 import { isEventsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
+import clsx from 'clsx'
 
 export interface DataNodeLogicProps {
     key: string
@@ -87,7 +88,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         autoLoadToggled: [
             false,
             // store the autoload toggle's state in localstorage, separately for each data node kind
-            { persist: true, storageKey: `queries.nodes.dataNodeLogic.autoLoadToggled.${props.query.kind}` },
+            {
+                persist: true,
+                storageKey: clsx('queries.nodes.dataNodeLogic.autoLoadToggled', props.query.kind, {
+                    action: isEventsNode(props.query) && props.query.actionId,
+                    person: isEventsNode(props.query) && props.query.personId,
+                }),
+            },
             { toggleAutoLoad: (state) => !state },
         ],
         autoLoadStarted: [false, { startAutoLoad: () => true, stopAutoLoad: () => false }],
