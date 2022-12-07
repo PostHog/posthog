@@ -188,19 +188,19 @@ def _ensure_web_feature_flags_in_properties(
                 event["properties"][f"$feature/{k}"] = v
 
 
-def _update_event_seen_cache(team_id: int, ttl=60 * 60 * 24):
+def _update_event_seen_cache(team_id: int, ttl=60 * 60 * 24) -> None:
     # Defaults to expiring this key in Redis after 24 hours
     r = get_client()
     r.setex(f"posthog_event_seen_for_team:{team_id}", ttl, time.time())
 
 
-def _has_team_seen_events(team_id: int):
+def _has_team_seen_events(team_id: int) -> bool:
     r = get_client()
     exists = bool(r.exists(f"posthog_event_seen_for_team:{team_id}"))
     return exists
 
 
-def mark_events_seen_for_team(team_id: int):
+def mark_events_seen_for_team(team_id: int) -> None:
     # If this is the first time we've seen an event for this team in 24 hours
     # we update the db to make sure that we have marked the team as ingesting events
     try:
