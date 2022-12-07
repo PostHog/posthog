@@ -15,7 +15,7 @@ import {
 import api, { getJSONOrThrow } from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { router, urlToAction } from 'kea-router'
-import { areObjectValuesEmpty, clearDOMTextSelection, isUserLoggedIn, toParams, uuid } from 'lib/utils'
+import { clearDOMTextSelection, isUserLoggedIn, toParams, uuid } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
 import {
     AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS,
@@ -578,7 +578,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
     })),
-    selectors(({ actions }) => ({
+    selectors(() => ({
         asDashboardTemplate: [
             (s) => [s.allItems],
             (dashboard: DashboardType): string => {
@@ -688,8 +688,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         layouts: [
             (s) => [s.tiles],
             (tiles) => {
-                const tilesWithNoLayout = tiles.filter((t) => !t.layouts || areObjectValuesEmpty(t.layouts))
-
                 const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout[]>> = {}
 
                 for (const col of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
@@ -771,15 +769,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     allLayouts[col] = cleanLayouts
                 }
 
-                if (tilesWithNoLayout.length > 0) {
-                    const layoutsByTileId = layoutsByTile(allLayouts)
-                    actions.saveLayouts(
-                        tilesWithNoLayout.map((t) => ({
-                            id: t.id,
-                            layouts: layoutsByTileId[t.id],
-                        }))
-                    )
-                }
                 return allLayouts
             },
         ],
@@ -817,6 +806,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     name: allItems?.id ? allItems.name || 'Unnamed' : null,
                 },
             ],
+        ],
+        sortTilesByLayout: [
+            (s) => [s.layoutForItem],
+            (layoutForItem) => (tiles: Array<DashboardTile>) => {
+                return [...tiles].sort((a: DashboardTile, b: DashboardTile) => {
+                    const ax = layoutForItem[a.id]?.x ?? 0
+                    const ay = layoutForItem[a.id]?.y ?? 0
+                    const bx = layoutForItem[b.id]?.x ?? 0
+                    const by = layoutForItem[b.id]?.y ?? 0
+                    if (ay < by || (ay == by && ax < bx)) {
+                        return -1
+                    } else if (ay > by || (ay == by && ax > bx)) {
+                        return 1
+                    } else {
+                        return 0
+                    }
+                })
+            },
         ],
     })),
     events(({ actions, cache, props }) => ({
@@ -961,7 +968,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
             const dashboardId: number = props.id
 
-            const insights = (tiles || values.insightTiles || [])
+            const insights = values
+                .sortTilesByLayout(tiles || values.insightTiles || [])
                 .map((t) => t.insight)
                 .filter((i): i is InsightModel => !!i)
 

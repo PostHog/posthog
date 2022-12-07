@@ -281,52 +281,6 @@ describe('dashboardLogic', () => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
         })
-        it('updates layouts via API when starting with empty layouts', async () => {
-            await expectLogic(logic)
-                .toFinishAllListeners()
-                .toMatchValues({
-                    layouts: {
-                        // generates the default layouts because all the tiles start empty
-                        sm: [
-                            { h: 8, i: '0', minH: 5, minW: 3, w: 8, x: 0, y: 0 },
-                            { h: 5, i: '1', minH: 5, minW: 3, w: 6, x: 0, y: 8 },
-                            { h: 6, i: '4', minH: 5, minW: 3, w: 6, x: 6, y: 8 },
-                        ],
-                        xs: [
-                            { h: 8, i: '0', minH: 5, minW: 1, w: 1, x: 0, y: 0 },
-                            { h: 5, i: '1', minH: 5, minW: 1, w: 1, x: 0, y: 8 },
-                            { h: 6, i: '4', minH: 5, minW: 1, w: 1, x: 0, y: 13 },
-                        ],
-                    },
-                })
-                .toDispatchActions([
-                    // frustratingly the same properties are sent in a different order
-                    // and the matcher cares about the order
-                    logic.actionCreators.saveLayouts([
-                        {
-                            id: 0,
-                            layouts: {
-                                sm: { i: '0', x: 0, y: 0, w: 8, h: 8, minW: 3, minH: 5 },
-                                xs: { i: '0', x: 0, y: 0, w: 1, h: 8, minW: 1, minH: 5 },
-                            },
-                        },
-                        {
-                            id: 1,
-                            layouts: {
-                                sm: { i: '1', x: 0, y: 8, w: 6, h: 5, minW: 3, minH: 5 },
-                                xs: { i: '1', x: 0, y: 8, w: 1, h: 5, minW: 1, minH: 5 },
-                            },
-                        },
-                        {
-                            id: 4,
-                            layouts: {
-                                sm: { i: '4', x: 6, y: 8, w: 6, h: 6, minW: 3, minH: 5 },
-                                xs: { i: '4', x: 0, y: 13, w: 1, h: 6, minW: 1, minH: 5 },
-                            },
-                        },
-                    ]),
-                ])
-        })
 
         it('saving layouts with no provided tiles updates all tiles', async () => {
             jest.spyOn(api, 'update')
@@ -339,11 +293,11 @@ describe('dashboardLogic', () => {
                 no_items_field: true,
                 tiles: [
                     {
-                        id: 9,
+                        id: 0,
                         layouts: {},
                     },
                     {
-                        id: 10,
+                        id: 1,
                         layouts: {},
                     },
                     {
