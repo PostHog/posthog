@@ -1,12 +1,17 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
+import { Link } from '@posthog/lemon-ui'
 
-function RNInstallSnippet(): JSX.Element {
+export function RNInstructions(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const url = window.location.origin
+
     return (
-        <CodeSnippet language={Language.Bash}>
-            {`
-# Expo apps
+        <>
+            <h3 className="mt-4">Install</h3>
+            <CodeSnippet language={Language.Bash}>
+                {`# Expo apps
 expo install posthog-react-native expo-file-system expo-application expo-device expo-localization
 
 # Standard React Native apps
@@ -17,37 +22,43 @@ npm i -s posthog-react-native @react-native-async-storage/async-storage react-na
 # for iOS
 cd ios
 pod install`}
-        </CodeSnippet>
-    )
-}
+            </CodeSnippet>
+            <h3 className="mt-4">Configure</h3>
+            <p>
+                PostHog is most easily used via the <code>PostHogProvider</code> component but if you need to
+                instantiate it directly,{' '}
+                <Link to="https://posthog.com/docs/integrate/client/react-native#without-the-posthogprovider">
+                    check out the docs
+                </Link>{' '}
+                which explain how to do this correctly.
+            </p>
+            <CodeSnippet language={Language.JSX}>
+                {`// App.(js|ts)
+import PostHog, { PostHogProvider } from 'posthog-react-native'
+...
 
-function RNSetupSnippet(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const url = window.location.origin
+export function MyApp() {
     return (
-        <CodeSnippet language={Language.JSX}>
-            {"import PostHog from 'posthog-react-native'\n\nawait PostHog.setup('" +
-                currentTeam?.api_token +
-                "', {\n\t// PostHog API host\n\thost: '" +
-                url +
-                "',\n\n\t// Record certain application events automatically! (off/false by default)\n\tcaptureApplicationLifecycleEvents: true,\n\n\t// Capture deep links as part of the screen call. (off by default)\n\tcaptureDeepLinks: true,\n\n\t// Record screen views automatically! (off/false by default)\n\trecordScreenViews: true,\n\n\t// Max delay before flushing the queue (30 seconds)\n\tflushInterval: 30,\n\n\t// Maximum number of events to keep in queue before flushing (20)\n\tflushAt: 20,\n\n\t// Used only for Android\n\tandroid: {\n\t\t// Enable or disable collection of ANDROID_ID (true)\n\t\tcollectDeviceId: true,\n\t},\n\n\t// Used only for iOS\n\tiOS: {\n\t\t// Automatically capture in-app purchases from the App Store\n\t\tcaptureInAppPurchases: false,\n\n\t\t// Capture push notifications\n\t\tcapturePushNotifications: false,\n\n\t\t// Capture advertisting info\n\t\tenableAdvertisingCapturing: true,\n\n\t\t// The maximum number of items to queue before starting to drop old ones.\n\t\tmaxQueueSize: 1000,\n\n\t\t// Record bluetooth information.\n\t\tshouldUseBluetooth: false,\n\n\t\t// Use location services. Will ask for permissions.\n\t\tshouldUseLocationServices: false\n\t}\n})"}
-        </CodeSnippet>
+        <PostHogProvider apiKey="${currentTeam?.api_token}" options={{
+            host: "${url}",
+        }}>
+            <RestOfApp />
+        </PostHogProvider>
     )
-}
+}`}
+            </CodeSnippet>
+            <h3 className="mt-4">Send an Event</h3>
+            <CodeSnippet language={Language.JSX}>{`// With hooks
+import PostHog, { usePostHog } from 'posthog-react-native'
 
-function RNCaptureSnippet(): JSX.Element {
-    return <CodeSnippet language={Language.JSX}>{"PostHog.capture('test-event')"}</CodeSnippet>
-}
+const MyComponent = () => {
+    const posthog = usePostHog()
 
-export function RNInstructions(): JSX.Element {
-    return (
-        <>
-            <h3>Install</h3>
-            <RNInstallSnippet />
-            <h3>Configure</h3>
-            <RNSetupSnippet />
-            <h3>Send an Event</h3>
-            <RNCaptureSnippet />
+    useEffect(() => {
+        posthog.capture("MyComponent loaded", { foo: "bar" })
+    }, [])
+}
+        `}</CodeSnippet>
         </>
     )
 }
