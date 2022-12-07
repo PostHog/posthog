@@ -14,11 +14,7 @@ with insight_stats AS (
         insight_created_count,
         CASE
             WHEN insight_created_count >= 10 THEN 'deep_diver'
-        END AS badge,
-        PERCENT_RANK() OVER (
-            ORDER BY
-                insight_created_count
-        ) AS insight_rank
+        END AS badge
     FROM
         (
             SELECT
@@ -33,6 +29,7 @@ with insight_stats AS (
                     name IS NOT NULL
                     OR derived_name IS NOT NULL
                 )
+                AND created_by_id = %s
             GROUP BY
                 created_by_id
         ) AS insight_stats_inner
@@ -43,11 +40,7 @@ flag_stats AS (
         flag_created_count,
         CASE
             WHEN flag_created_count >= 10 THEN 'flag_raiser'
-        END AS badge,
-        PERCENT_RANK() OVER (
-            ORDER BY
-                flag_created_count
-        ) AS flag_rank
+        END AS badge
     FROM
         (
             SELECT
@@ -57,6 +50,7 @@ flag_stats AS (
                 posthog_featureflag
             WHERE
                 date_part('year', created_at) = 2022
+                AND created_by_id = %s
             GROUP BY
                 user_id
         ) AS flag_stats_inner
@@ -67,11 +61,7 @@ recording_viewed_stats AS (
         viewed_recording_count,
         CASE
             WHEN viewed_recording_count >= 10 THEN 'popcorn_muncher'
-        END AS badge,
-        PERCENT_RANK() OVER (
-            ORDER BY
-                viewed_recording_count
-        ) AS viewed_recording_rank
+        END AS badge
     FROM
         (
             SELECT
@@ -81,6 +71,7 @@ recording_viewed_stats AS (
                 posthog_sessionrecordingviewed
             WHERE
                 date_part('year', created_at) = 2022
+                AND user_id = %s
             GROUP BY
                 user_id
         ) AS recording_stats_inner
@@ -91,11 +82,7 @@ experiments_stats AS (
         experiments_created_count,
         CASE
             WHEN experiments_created_count >= 4 THEN 'scientist'
-        END AS badge,
-        PERCENT_RANK() OVER (
-            ORDER BY
-                experiments_created_count
-        ) AS experiments_created_rank
+        END AS badge
     FROM
         (
             SELECT
@@ -105,6 +92,7 @@ experiments_stats AS (
                 posthog_experiment
             WHERE
                 date_part('year', created_at) = 2022
+                AND created_by_id = %s
             GROUP BY
                 user_id
         ) AS experiment_stats_inner
@@ -115,11 +103,7 @@ dashboards_created_stats AS (
         dashboards_created_count,
         CASE
             WHEN dashboards_created_count >= 10 THEN 'curator'
-        END AS badge,
-        PERCENT_RANK() OVER (
-            ORDER BY
-                dashboards_created_count
-        ) AS dashboards_created_rank
+        END AS badge
     FROM
         (
             SELECT
@@ -129,7 +113,7 @@ dashboards_created_stats AS (
                 posthog_dashboard
             WHERE
                 date_part('year', created_at) = 2022
-                AND created_by_id is not null
+                AND created_by_id = %s
             GROUP BY
                 user_id
         ) AS dashboard_stats_inner
@@ -149,11 +133,11 @@ SELECT
                 and insight_stats.badge is not null
             then 'champion' end
     ], NULL) AS badges,
-    insight_stats.insight_created_count, insight_stats.insight_rank,
-    flag_stats.flag_created_count, flag_stats.flag_rank,
-    recording_viewed_stats.viewed_recording_count, recording_viewed_stats.viewed_recording_rank,
-    experiments_stats.experiments_created_count, experiments_stats.experiments_created_rank,
-    dashboards_created_stats.dashboards_created_count,dashboards_created_stats.dashboards_created_rank
+    insight_stats.insight_created_count,
+    flag_stats.flag_created_count,
+    recording_viewed_stats.viewed_recording_count,
+    experiments_stats.experiments_created_count,
+    dashboards_created_stats.dashboards_created_count
 FROM
     posthog_user
     LEFT JOIN insight_stats ON posthog_user.id = insight_stats.user_id
@@ -174,7 +158,7 @@ def dictfetchall(cursor):
 @timed("year_in_posthog_2022")
 def calculate_year_in_posthog_2022(user_id: int) -> Optional[Dict]:
     with connection.cursor() as cursor:
-        cursor.execute(query, [user_id])
+        cursor.execute(query, [user_id] * 6)
         results = dictfetchall(cursor)
 
     # we should only match one or zero users
@@ -183,15 +167,10 @@ def calculate_year_in_posthog_2022(user_id: int) -> Optional[Dict]:
         return {
             "stats": {
                 "insight_created_count": result["insight_created_count"],
-                "insight_rank": result["insight_rank"],
                 "flag_created_count": result["flag_created_count"],
-                "flag_rank": result["flag_rank"],
                 "viewed_recording_count": result["viewed_recording_count"],
-                "viewed_recording_rank": result["viewed_recording_rank"],
                 "experiments_created_count": result["experiments_created_count"],
-                "experiments_created_rank": result["experiments_created_rank"],
                 "dashboards_created_count": result["dashboards_created_count"],
-                "dashboards_created_rank": result["dashboards_created_rank"],
             },
             "badges": result["badges"],
         }
