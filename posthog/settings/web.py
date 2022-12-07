@@ -96,7 +96,7 @@ ROOT_URLCONF = "posthog.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": ["frontend/dist", "posthog/templates"],
+        "DIRS": ["frontend/dist", "posthog/templates", "posthog/year_in_posthog"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
