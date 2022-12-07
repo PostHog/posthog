@@ -150,7 +150,7 @@ class TeamSerializer(serializers.ModelSerializer):
                 capture_exception(db_err)
                 raise db_err
             except Exception as e:  # TODO: Remove this after 2022-12-07, the except is just temporary for debugging
-                capture_exception()
+                capture_exception(e)
                 raise e
         return team
 
