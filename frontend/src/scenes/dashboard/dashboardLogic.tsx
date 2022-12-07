@@ -1247,6 +1247,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (values.featureFlags[FEATURE_FLAGS.CANCEL_RUNNING_QUERIES]) {
                 await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: dashboardQueryId })
 
+                // TRICKY: we cancel just once using the dashboard query id.
+                // we can record the queryId that happened to capture the AbortError exception
+                // and request the cancellation, but it is probably not particularly relevant
                 await captureTimeToSeeData(values.currentTeamId, {
                     type: 'insight_load',
                     context: 'dashboard',
