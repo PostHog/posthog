@@ -95,6 +95,7 @@ const config: Config = {
         '^antd/es/(.*)$': 'antd/lib/$1',
         '^react-virtualized/dist/es/(.*)$': 'react-virtualized/dist/commonjs/$1',
         '^react-syntax-highlighter/dist/esm/(.*)$': 'react-syntax-highlighter/dist/cjs/$1',
+        '^query-selector-shadow-dom$': 'query-selector-shadow-dom/dist/querySelectorShadowDom.js',
     },
 
     // An array of regexp pattern strings, matched against all module paths before considered 'visible' to the module loader
@@ -192,7 +193,7 @@ const config: Config = {
     },
 
     // An array of regexp pattern strings that are matched against all source file paths, matched files will skip transformation
-    transformIgnorePatterns: ['node_modules/(?!(query-selector-shadow-dom|react-syntax-highlighter|@react-hook)/)'],
+    // transformIgnorePatterns: ['node_modules/(?!(package1|package2)/)'],
 
     // An array of regexp pattern strings that are matched against all modules before the module loader will automatically return a mock for them
     // unmockedModulePathPatterns: undefined,
