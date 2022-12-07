@@ -35,7 +35,7 @@ echo ''
 echo '::endgroup::'
 
 set +e
-pnpm functional_tests --maxConcurrency=10  --verbose
+pnpm functional_tests --maxConcurrency=10 --verbose
 exit_code=$?
 set -e
 
