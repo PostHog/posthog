@@ -12,7 +12,7 @@ import {
     selectors,
     sharedListeners,
 } from 'kea'
-import api, { getJSONOrThrow } from 'lib/api'
+import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { router, urlToAction } from 'kea-router'
 import { clearDOMTextSelection, isUserLoggedIn, toParams, uuid } from 'lib/utils'
@@ -20,6 +20,7 @@ import { insightsModel } from '~/models/insightsModel'
 import {
     AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS,
     DashboardPrivilegeLevel,
+    FEATURE_FLAGS,
     OrganizationMembershipLevel,
 } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -52,6 +53,7 @@ import { isPathsFilter, isRetentionFilter, isTrendsFilter } from 'scenes/insight
 import { captureTimeToSeeData, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { getResponseBytes, sortDates } from '../insights/utils'
 import { loaders } from 'kea-loaders'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -123,7 +125,7 @@ function updateExistingInsightState({ cachedInsight, dashboardId, refreshedInsig
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
         logic: [dashboardsModel, insightsModel, eventUsageLogic],
     })),
 
@@ -186,6 +188,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         duplicateTile: (tile: DashboardTile) => ({ tile }),
         loadingDashboardItemsStarted: (action: string, dashboardQueryId: string) => ({ action, dashboardQueryId }),
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
+        abortQuery: (payload: { queryId: string; exception?: Record<string, any> }) => payload,
     }),
 
     loaders(({ actions, props, values }) => ({
@@ -297,6 +300,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 loadDashboardItemsSuccess: () => false,
                 loadDashboardItemsFailure: () => true,
+                abortQuery: () => false,
             },
         ],
         filters: [
@@ -502,6 +506,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     [shortId]: { error: true, timer: state[shortId]?.timer || null },
                 }),
                 refreshAllDashboardItems: () => ({}),
+                abortQuery: () => ({}),
             },
         ],
         columns: [
@@ -840,6 +845,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         beforeUnmount: () => {
+            cache.abortController?.abort()
             if (cache.autoRefreshInterval) {
                 window.clearInterval(cache.autoRefreshInterval)
                 cache.autoRefreshInterval = null
@@ -961,7 +967,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.resetInterval()
             actions.refreshAllDashboardItems({ action: 'refresh_manual' })
         },
-        refreshAllDashboardItems: async ({ tiles, action, initialLoad, dashboardQueryId }, breakpoint) => {
+        refreshAllDashboardItems: async ({ tiles, action, initialLoad, dashboardQueryId = uuid() }, breakpoint) => {
             if (!props.id) {
                 // what are we loading the insight card on?!
                 return
@@ -978,14 +984,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
 
-            let breakpointTriggered = false
+            let cancelled = false
             actions.setRefreshStatuses(
                 insights.map((item) => item.short_id),
                 true
             )
 
+            // If a query is in progress, kill that query
+            // we will use one abort controller for all insight queries for this dashboard
+            if (cache.abortController) {
+                cache.abortController.abort()
+            }
+            cache.abortController = new AbortController()
+            const methodOptions: ApiMethodOptions = {
+                signal: cache.abortController.signal,
+            }
+
             const refreshStartTime = performance.now()
-            dashboardQueryId = dashboardQueryId ?? uuid()
+
             let refreshesFinished = 0
             let totalResponseBytes = 0
 
@@ -997,12 +1013,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
                     refresh: true,
                     from_dashboard: dashboardId, // needed to load insight in correct context
+                    client_query_id: queryId,
                 })}`
 
                 try {
                     breakpoint()
 
-                    const refreshedInsightResponse: Response = await api.getResponse(apiUrl)
+                    const refreshedInsightResponse: Response = await api.getResponse(apiUrl, methodOptions)
                     const refreshedInsight: InsightModel = await getJSONOrThrow(refreshedInsightResponse)
                     breakpoint()
                     updateExistingInsightState({ cachedInsight: insight, dashboardId, refreshedInsight })
@@ -1029,7 +1046,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 } catch (e: any) {
                     console.error(e)
                     if (isBreakpoint(e)) {
-                        breakpointTriggered = true
+                        cancelled = true
+                    } else if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
+                        if (!cancelled) {
+                            // cancel all insight requests for this query in one go
+                            actions.abortQuery({ queryId: dashboardQueryId })
+                        }
+                        cancelled = true
                     } else {
                         actions.setRefreshError(insight.short_id)
                     }
@@ -1037,6 +1060,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 refreshesFinished += 1
                 if (refreshesFinished === insights.length) {
+                    breakpoint()
+                    cache.abortController = null
+
                     const payload: TimeToSeeDataPayload = {
                         type: 'dashboard_load',
                         context: 'dashboard',
@@ -1063,7 +1089,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             // run 4 item reloaders in parallel
             function loadNextPromise(): void {
-                if (!breakpointTriggered && fetchItemFunctions.length > 0) {
+                if (!cancelled && fetchItemFunctions.length > 0) {
                     fetchItemFunctions.shift()?.().then(loadNextPromise)
                 }
             }
@@ -1076,6 +1102,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         updateAndRefreshDashboard: async (_, breakpoint) => {
             await breakpoint(200)
+
+            if (cache.abortController) {
+                cache.abortController.abort()
+            }
+            cache.abortController = null
+
             await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                 filters: values.filters,
                 no_items_field: true,
@@ -1208,6 +1240,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             } else {
                 // allItems has not loaded yet, report after API request is completed
                 actions.setShouldReportOnAPILoad(true)
+            }
+        },
+        abortQuery: ({ queryId }) => {
+            const { currentTeamId } = values
+            if (values.featureFlags[FEATURE_FLAGS.CANCEL_RUNNING_QUERIES]) {
+                api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId })
             }
         },
     })),
