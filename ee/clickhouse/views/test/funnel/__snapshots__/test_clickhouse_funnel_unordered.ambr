@@ -92,7 +92,7 @@
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps) SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
   '
 ---
 # name: ClickhouseTestUnorderedFunnelGroups.test_unordered_funnel_with_groups.1
@@ -192,6 +192,6 @@
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---

@@ -47,6 +47,8 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     If no people have reached step {from_step} in the period, {conversion_rate} is zero.
     """
 
+    QUERY_TYPE = "funnel_trends"
+
     def __init__(self, filter: Filter, team: Team) -> None:
 
         super().__init__(filter, team)
@@ -137,7 +139,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             ) fill
             USING (entrance_period_start {breakdown_clause})
             ORDER BY entrance_period_start ASC
-            SETTINGS allow_experimental_window_functions = 1"""
+        """
 
         return query
 

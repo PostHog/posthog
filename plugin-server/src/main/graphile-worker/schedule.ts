@@ -1,8 +1,12 @@
 import Piscina from '@posthog/piscina'
+import { JobHelpers } from 'graphile-worker'
 
+import { KAFKA_SCHEDULED_TASKS } from '../../config/kafka-topics'
 import { Hub, PluginConfigId } from '../../types'
 import { status } from '../../utils/status'
 import { delay } from '../../utils/utils'
+
+type TaskTypes = 'runEveryMinute' | 'runEveryHour' | 'runEveryDay'
 
 export async function loadPluginSchedule(piscina: Piscina, maxIterations = 2000): Promise<Hub['pluginSchedule']> {
     let allThreadsReady = false
@@ -28,9 +32,43 @@ export async function loadPluginSchedule(piscina: Piscina, maxIterations = 2000)
     throw new Error('Could not load plugin schedule in time')
 }
 
-export async function runScheduledTasks(server: Hub, piscina: Piscina, taskType: string): Promise<void> {
-    for (const pluginConfigId of server.pluginSchedule?.[taskType] || []) {
-        status.info('⏲️', `Running ${taskType} for plugin config with ID ${pluginConfigId}`)
-        await piscina.run({ task: taskType, args: { pluginConfigId } })
+export async function runScheduledTasks(
+    server: Hub,
+    piscina: Piscina,
+    taskType: TaskTypes,
+    helpers: JobHelpers
+): Promise<void> {
+    // If the tasks run_at is older than the grace period, we ignore it. We
+    // don't want to end up with old tasks being scheduled if we are backed up.
+    if (new Date(helpers.job.run_at).getTime() < Date.now() - gracePeriodMilliSecondsByTaskType[taskType]) {
+        status.warn('🔁', 'stale_scheduled_task_skipped', {
+            taskType: taskType,
+            runAt: helpers.job.run_at,
+        })
+        server.statsd?.increment('skipped_scheduled_tasks', { taskType })
+        return
+    }
+
+    if (server.USE_KAFKA_FOR_SCHEDULED_TASKS) {
+        for (const pluginConfigId of server.pluginSchedule?.[taskType] || []) {
+            status.info('⏲️', 'queueing_schedule_task', { taskType, pluginConfigId })
+            await server.kafkaProducer.producer.send({
+                topic: KAFKA_SCHEDULED_TASKS,
+                messages: [{ key: pluginConfigId.toString(), value: JSON.stringify({ taskType, pluginConfigId }) }],
+            })
+            server.statsd?.increment('queued_scheduled_task', { taskType })
+        }
+    } else {
+        for (const pluginConfigId of server.pluginSchedule?.[taskType] || []) {
+            status.info('⏲️', `Running ${taskType} for plugin config with ID ${pluginConfigId}`)
+            await piscina.run({ task: taskType, args: { pluginConfigId } })
+            server.statsd?.increment('completed_scheduled_task', { taskType })
+        }
     }
 }
+
+const gracePeriodMilliSecondsByTaskType = {
+    runEveryMinute: 60 * 1000,
+    runEveryHour: 60 * 60 * 1000,
+    runEveryDay: 24 * 60 * 60 * 1000,
+} as const

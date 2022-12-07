@@ -22,7 +22,6 @@ from posthog.utils import (
     get_compare_period_dates,
     get_default_event_name,
     load_data_from_request,
-    mask_email_address,
     relative_date_parse,
     should_refresh,
 )
@@ -121,18 +120,6 @@ class TestFormatUrls(TestCase):
 
 
 class TestGeneralUtils(TestCase):
-    def test_mask_email_address(self):
-        self.assertEqual(mask_email_address("hey@posthog.com"), "h*y@posthog.com")
-        self.assertEqual(mask_email_address("richard@gmail.com"), "r*****d@gmail.com")
-        self.assertEqual(
-            mask_email_address("m@posthog.com"), "*@posthog.com"
-        )  # one letter emails are masked differently
-        self.assertEqual(mask_email_address("test+alias@posthog.com"), "t********s@posthog.com")
-
-        with self.assertRaises(ValueError) as e:
-            mask_email_address("not an email")
-        self.assertEqual(str(e.exception), "Please provide a valid email address.")
-
     def test_available_timezones(self):
         timezones = get_available_timezones_with_offsets()
         self.assertEqual(timezones.get("Europe/Moscow"), 3)
@@ -144,6 +131,23 @@ class TestGeneralUtils(TestCase):
 
         mock_env.return_value = "4"
         self.assertEqual(get_from_env("test_key", type_cast=int), 4)
+
+    @patch("os.getenv")
+    def test_fetching_env_var_parsed_as_float(self, mock_env):
+        mock_env.return_value = ""
+        self.assertEqual(get_from_env("test_key", optional=True, type_cast=float, default=0.0), None)
+
+        mock_env.return_value = ""
+        self.assertEqual(get_from_env("test_key", type_cast=float, default=0.0), 0.0)
+
+        mock_env.return_value = "4"
+        self.assertEqual(get_from_env("test_key", type_cast=float), 4.0)
+
+    @patch("os.getenv")
+    def test_fetching_env_var_parsed_as_float_from_nonsense_input(self, mock_env):
+        with pytest.raises(ValueError):
+            mock_env.return_value = "wat"
+            get_from_env("test_key", type_cast=float)
 
 
 class TestRelativeDateParse(TestCase):

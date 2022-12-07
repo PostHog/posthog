@@ -365,9 +365,8 @@ class PropertyGroup:
         return PropertyGroup(operator, [self, property_group])
 
     def to_dict(self):
-        result: Dict = {}
         if not self.values:
-            return result
+            return {}
 
         return {"type": self.type.value, "values": [prop.to_dict() for prop in self.values]}
 

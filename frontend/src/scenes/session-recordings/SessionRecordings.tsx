@@ -5,24 +5,33 @@ import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { AlertMessage } from 'lib/components/AlertMessage'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonWithSideAction } from '@posthog/lemon-ui'
 import { Tabs } from 'antd'
 import { SessionRecordingsTabs } from '~/types'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { Tooltip } from 'lib/components/Tooltip'
 import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecordingsLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { IconPlus, IconSettings } from 'lib/components/icons'
+import { IconSettings } from 'lib/components/icons'
 import { router } from 'kea-router'
 import { openSessionRecordingSettingsDialog } from './settings/SessionRecordingSettings'
+import { openPlayerNewPlaylistDialog } from 'scenes/session-recordings/player/new-playlist/PlayerNewPlaylist'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { SessionRecordingFilePlayback } from './file-playback/SessionRecodingFilePlayback'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { tab, newPlaylistLoading } = useValues(sessionRecordingsLogic)
     const { saveNewPlaylist } = useActions(sessionRecordingsLogic)
-    const recentRecordings = <SessionRecordingsPlaylist logicKey="recents" updateSearchParams />
-
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const visibleTabs = [SessionRecordingsTabs.Recent, SessionRecordingsTabs.Playlists]
+
+    if (!featureFlags[FEATURE_FLAGS.RECORDINGS_EXPORT]) {
+        visibleTabs.push(SessionRecordingsTabs.FilePlayback)
+    }
 
     return (
         <div>
@@ -48,15 +57,56 @@ export function SessionsRecordings(): JSX.Element {
                                     : 'Create a new playlist'
                             }
                         >
-                            <LemonButton
-                                type="primary"
-                                onClick={() => saveNewPlaylist()}
-                                loading={newPlaylistLoading}
-                                data-attr="save-recordings-playlist-button"
-                                icon={<IconPlus />}
-                            >
-                                {tab === SessionRecordingsTabs.Recent ? 'Save as playlist' : 'Create new playlist'}
-                            </LemonButton>
+                            {tab === SessionRecordingsTabs.Recent ? (
+                                <LemonButtonWithSideAction
+                                    type="primary"
+                                    onClick={() => {
+                                        saveNewPlaylist()
+                                    }}
+                                    loading={newPlaylistLoading}
+                                    data-attr="save-recordings-playlist-button"
+                                    sideAction={{
+                                        popup: {
+                                            placement: 'bottom-end',
+                                            className: 'save-recordings-playlist-overlay',
+                                            actionable: true,
+                                            overlay: (
+                                                <LemonButton
+                                                    status="stealth"
+                                                    onClick={() => {
+                                                        openPlayerNewPlaylistDialog({
+                                                            sessionRecordingId: 'global',
+                                                            playerKey: 'recents',
+                                                            defaultStatic: true,
+                                                        })
+                                                    }}
+                                                    data-attr="create-new-playlist-button"
+                                                    fullWidth
+                                                >
+                                                    Create new static playlist
+                                                </LemonButton>
+                                            ),
+                                        },
+                                        'data-attr': 'saved-recordings-playlists-new-playlist-dropdown',
+                                    }}
+                                >
+                                    Save as dynamic playlist
+                                </LemonButtonWithSideAction>
+                            ) : tab === SessionRecordingsTabs.Playlists ? (
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => {
+                                        openPlayerNewPlaylistDialog({
+                                            sessionRecordingId: 'global',
+                                            playerKey: 'recents',
+                                        })
+                                    }}
+                                    loading={newPlaylistLoading}
+                                    data-attr="save-recordings-playlist-button"
+                                >
+                                    New playlist
+                                </LemonButton>
+                            ) : null}
                         </Tooltip>
                     </>
                 }
@@ -89,10 +139,12 @@ export function SessionsRecordings(): JSX.Element {
             {!tab ? (
                 <Spinner />
             ) : tab === SessionRecordingsTabs.Recent ? (
-                recentRecordings
-            ) : (
+                <SessionRecordingsPlaylist logicKey="recents" updateSearchParams />
+            ) : tab === SessionRecordingsTabs.Playlists ? (
                 <SavedSessionRecordingPlaylists tab={SessionRecordingsTabs.Playlists} />
-            )}
+            ) : tab === SessionRecordingsTabs.FilePlayback ? (
+                <SessionRecordingFilePlayback />
+            ) : null}
         </div>
     )
 }

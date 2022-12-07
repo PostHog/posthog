@@ -2,6 +2,7 @@ import datetime
 import json
 from contextlib import ExitStack
 from typing import Dict, List, Optional, Union
+from uuid import UUID
 
 import pytz
 from dateutil.parser import isoparse
@@ -39,9 +40,11 @@ if TEST:
             version=instance.version or 0,
         )
 
-    @receiver(post_save, sender=PersonDistinctId)
+    @mutable_receiver(post_save, sender=PersonDistinctId)
     def person_distinct_id_created(sender, instance: PersonDistinctId, created, **kwargs):
-        create_person_distinct_id(instance.team.pk, instance.distinct_id, str(instance.person.uuid))
+        create_person_distinct_id(
+            instance.team.pk, instance.distinct_id, str(instance.person.uuid), version=instance.version or 0
+        )
 
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
@@ -136,7 +139,9 @@ def create_person(
     return uuid
 
 
-def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str, version=0, is_deleted=False) -> None:
+def create_person_distinct_id(
+    team_id: int, distinct_id: str, person_id: str, version=0, is_deleted: bool = False, sync: bool = False
+) -> None:
     p = ClickhouseProducer()
     p.produce(
         topic=KAFKA_PERSON_DISTINCT_ID,
@@ -148,6 +153,7 @@ def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str, ve
             "version": version,
             "is_deleted": int(is_deleted),
         },
+        sync=sync,
     )
 
 
@@ -164,16 +170,19 @@ def get_persons_by_uuids(team: Team, uuids: List[str]) -> QuerySet:
 def delete_person(person: Person) -> None:
     # This is racy https://github.com/PostHog/posthog/issues/11590
     distinct_ids_to_version = _get_distinct_ids_with_version(person)
+    _delete_person(person.team.id, person.uuid, int(person.version or 0), person.created_at)
+    for distinct_id, version in distinct_ids_to_version.items():
+        _delete_ch_distinct_id(person.team.id, person.uuid, distinct_id, version)
+
+
+def _delete_person(team_id: int, uuid: UUID, version: int, created_at: Optional[datetime.datetime] = None) -> None:
     create_person(
-        uuid=str(person.uuid),
-        team_id=person.team.id,
-        properties={},
-        created_at=person.created_at,
-        is_identified=person.is_identified,
-        version=int(person.version or 0) + 100,  # keep in sync with deletePerson in plugin-server/src/utils/db/db.ts
+        uuid=str(uuid),
+        team_id=team_id,
+        version=version + 100,  # keep in sync with deletePerson in plugin-server/src/utils/db/db.ts
+        created_at=created_at,
         is_deleted=True,
     )
-    _delete_ch_distinct_ids(person, distinct_ids_to_version=distinct_ids_to_version)
 
 
 def _get_distinct_ids_with_version(person: Person) -> Dict[str, int]:
@@ -185,15 +194,15 @@ def _get_distinct_ids_with_version(person: Person) -> Dict[str, int]:
     }
 
 
-def _delete_ch_distinct_ids(person: Person, distinct_ids_to_version: Dict[str, int]):
-    for distinct_id, version in distinct_ids_to_version.items():
-        create_person_distinct_id(
-            team_id=person.team_id,
-            distinct_id=distinct_id,
-            person_id=str(person.uuid),
-            version=version + 100,
-            is_deleted=True,
-        )
+def _delete_ch_distinct_id(team_id: int, uuid: UUID, distinct_id: str, version: int, sync: bool = False) -> None:
+    create_person_distinct_id(
+        team_id=team_id,
+        distinct_id=distinct_id,
+        person_id=str(uuid),
+        version=version + 100,
+        is_deleted=True,
+        sync=sync,
+    )
 
 
 class ClickhousePersonSerializer(serializers.Serializer):

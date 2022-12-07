@@ -17,6 +17,7 @@ from posthog.api import (
     decide,
     organizations_router,
     project_dashboards_router,
+    project_feature_flags_router,
     projects_router,
     router,
     sharing,
@@ -27,8 +28,9 @@ from posthog.api import (
     user,
 )
 from posthog.api.decide import hostname_in_allowed_url_list
+from posthog.api.prompt import prompt_webhook
 from posthog.cloud_utils import is_cloud
-from posthog.demo import demo_route
+from posthog.demo.legacy import demo_route
 from posthog.models import User
 
 from .utils import render_template
@@ -41,7 +43,13 @@ try:
 except ImportError:
     pass
 else:
-    extend_api_router(router, projects_router=projects_router, project_dashboards_router=project_dashboards_router)
+    extend_api_router(
+        router,
+        projects_router=projects_router,
+        organizations_router=organizations_router,
+        project_dashboards_router=project_dashboards_router,
+        project_feature_flags_router=project_feature_flags_router,
+    )
 
 
 try:
@@ -54,7 +62,9 @@ else:
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
 admin_urlpatterns = (
-    [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)] if is_cloud() or settings.DEMO else []
+    [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)]
+    if is_cloud() or settings.DEMO or settings.DEBUG
+    else []
 )
 
 
@@ -121,6 +131,7 @@ urlpatterns = [
     path("api/", include(router.urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
+    opt_slash_path("api/prompts/webhook", prompt_webhook),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),

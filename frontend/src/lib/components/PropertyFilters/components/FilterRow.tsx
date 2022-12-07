@@ -22,6 +22,7 @@ interface FilterRowProps {
     label: string
     onRemove: (index: number) => void
     orFiltering?: boolean
+    errorMessage?: JSX.Element | null
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -36,6 +37,7 @@ export const FilterRow = React.memo(function FilterRow({
     label,
     onRemove,
     orFiltering,
+    errorMessage,
 }: FilterRowProps) {
     const [open, setOpen] = useState(false)
 
@@ -49,78 +51,81 @@ export const FilterRow = React.memo(function FilterRow({
     }
 
     return (
-        <Row
-            align="middle"
-            className={clsx(
-                'property-filter-row',
-                !disablePopover && 'wrap-filters',
-                orFiltering && index !== 0 && 'mt-2'
-            )}
-            data-attr={'property-filter-' + index}
-            wrap={false}
-        >
-            {disablePopover ? (
-                <>
-                    {filterComponent(() => setOpen(false))}
-                    {!!Object.keys(filters[index]).length &&
-                        (orFiltering ? (
-                            <LemonButton
-                                icon={<IconDelete />}
-                                status="primary-alt"
-                                onClick={() => onRemove(index)}
-                                size="small"
-                                className="ml-2"
+        <>
+            <Row
+                align="middle"
+                className={clsx(
+                    'property-filter-row',
+                    !disablePopover && 'wrap-filters',
+                    orFiltering && index !== 0 && 'mt-2'
+                )}
+                data-attr={'property-filter-' + index}
+                wrap={false}
+            >
+                {disablePopover ? (
+                    <>
+                        {filterComponent(() => setOpen(false))}
+                        {!!Object.keys(filters[index]).length &&
+                            (orFiltering ? (
+                                <LemonButton
+                                    icon={<IconDelete />}
+                                    status="primary-alt"
+                                    onClick={() => onRemove(index)}
+                                    size="small"
+                                    className="ml-2"
+                                />
+                            ) : (
+                                <LemonButton
+                                    icon={<IconClose />}
+                                    status="primary-alt"
+                                    onClick={() => onRemove(index)}
+                                    size="small"
+                                    className="ml-2"
+                                />
+                            ))}
+                    </>
+                ) : (
+                    <Popup
+                        className={'filter-row-popup'}
+                        visible={open}
+                        onClickOutside={() => handleVisibleChange(false)}
+                        overlay={filterComponent(() => setOpen(false))}
+                    >
+                        {isValidPropertyFilter(item) ? (
+                            <PropertyFilterButton
+                                onClick={() => setOpen(!open)}
+                                onClose={() => onRemove(index)}
+                                item={item}
                             />
+                        ) : isValidPathCleanFilter(item) ? (
+                            <PropertyFilterButton
+                                item={item}
+                                onClick={() => setOpen(!open)}
+                                onClose={() => onRemove(index)}
+                            >
+                                {`${item['alias']}::${item['regex']}`}
+                            </PropertyFilterButton>
                         ) : (
                             <LemonButton
-                                icon={<IconClose />}
-                                status="primary-alt"
-                                onClick={() => onRemove(index)}
+                                onClick={() => setOpen(!open)}
+                                className="new-prop-filter"
+                                data-attr={'new-prop-filter-' + pageKey}
+                                type="secondary"
                                 size="small"
-                                className="ml-2"
-                            />
-                        ))}
-                </>
-            ) : (
-                <Popup
-                    className={'filter-row-popup'}
-                    visible={open}
-                    onClickOutside={() => handleVisibleChange(false)}
-                    overlay={filterComponent(() => setOpen(false))}
-                >
-                    {isValidPropertyFilter(item) ? (
-                        <PropertyFilterButton
-                            onClick={() => setOpen(!open)}
-                            onClose={() => onRemove(index)}
-                            item={item}
-                        />
-                    ) : isValidPathCleanFilter(item) ? (
-                        <PropertyFilterButton
-                            item={item}
-                            onClick={() => setOpen(!open)}
-                            onClose={() => onRemove(index)}
-                        >
-                            {`${item['alias']}::${item['regex']}`}
-                        </PropertyFilterButton>
-                    ) : (
-                        <LemonButton
-                            onClick={() => setOpen(!open)}
-                            className="new-prop-filter"
-                            data-attr={'new-prop-filter-' + pageKey}
-                            type="secondary"
-                            size="small"
-                            icon={<IconPlus style={{ color: 'var(--primary)' }} />}
-                        >
-                            {label}
-                        </LemonButton>
-                    )}
-                </Popup>
-            )}
-            {key && showConditionBadge && index + 1 < totalCount && (
-                <span style={{ marginLeft: 16, right: 16, position: 'absolute' }} className="stateful-badge and">
-                    AND
-                </span>
-            )}
-        </Row>
+                                icon={<IconPlus style={{ color: 'var(--primary)' }} />}
+                            >
+                                {label}
+                            </LemonButton>
+                        )}
+                    </Popup>
+                )}
+                {key && showConditionBadge && index + 1 < totalCount && (
+                    <span style={{ marginLeft: 16, right: 16, position: 'absolute' }} className="stateful-badge and">
+                        AND
+                    </span>
+                )}
+            </Row>
+            {errorMessage}
+        </>
     )
 })

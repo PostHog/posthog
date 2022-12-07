@@ -22,7 +22,7 @@
      GROUP BY aggregation_target)
   WHERE num_intervals <= 8
   GROUP BY num_intervals
-  ORDER BY num_intervals SETTINGS optimize_move_to_prewhere = 0
+  ORDER BY num_intervals
   '
 ---
 # name: TestClickhouseStickiness.test_aggregate_by_groups.1
@@ -49,7 +49,7 @@
      GROUP BY aggregation_target)
   WHERE num_intervals = 1
   LIMIT 100
-  OFFSET 0 SETTINGS optimize_move_to_prewhere = 0
+  OFFSET 0
   '
 ---
 # name: TestClickhouseStickiness.test_aggregate_by_groups.2
@@ -76,7 +76,7 @@
      GROUP BY aggregation_target)
   WHERE num_intervals = 2
   LIMIT 100
-  OFFSET 0 SETTINGS optimize_move_to_prewhere = 0
+  OFFSET 0
   '
 ---
 # name: TestClickhouseStickiness.test_aggregate_by_groups.3
@@ -103,7 +103,7 @@
      GROUP BY aggregation_target)
   WHERE num_intervals = 3
   LIMIT 100
-  OFFSET 0 SETTINGS optimize_move_to_prewhere = 0
+  OFFSET 0
   '
 ---
 # name: TestClickhouseStickiness.test_compare
@@ -129,7 +129,7 @@
      GROUP BY aggregation_target)
   WHERE num_intervals <= 9
   GROUP BY num_intervals
-  ORDER BY num_intervals SETTINGS optimize_move_to_prewhere = 0
+  ORDER BY num_intervals
   '
 ---
 # name: TestClickhouseStickiness.test_compare.1
@@ -155,7 +155,7 @@
      GROUP BY aggregation_target)
   WHERE num_intervals <= 9
   GROUP BY num_intervals
-  ORDER BY num_intervals SETTINGS optimize_move_to_prewhere = 0
+  ORDER BY num_intervals
   '
 ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties
@@ -189,7 +189,7 @@
      GROUP BY aggregation_target)
   WHERE num_intervals <= 8
   GROUP BY num_intervals
-  ORDER BY num_intervals SETTINGS optimize_move_to_prewhere = 0
+  ORDER BY num_intervals
   '
 ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties.1
@@ -222,7 +222,7 @@
      GROUP BY aggregation_target)
   WHERE num_intervals = 1
   LIMIT 100
-  OFFSET 0 SETTINGS optimize_move_to_prewhere = 0
+  OFFSET 0
   '
 ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties.2
@@ -255,7 +255,7 @@
      GROUP BY aggregation_target)
   WHERE num_intervals = 2
   LIMIT 100
-  OFFSET 0 SETTINGS optimize_move_to_prewhere = 0
+  OFFSET 0
   '
 ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties.3
@@ -288,7 +288,7 @@
      GROUP BY aggregation_target)
   WHERE num_intervals = 3
   LIMIT 100
-  OFFSET 0 SETTINGS optimize_move_to_prewhere = 0
+  OFFSET 0
   '
 ---
 # name: TestClickhouseStickiness.test_stickiness_all_time
@@ -325,7 +325,7 @@
      GROUP BY aggregation_target)
   WHERE num_intervals <= 9
   GROUP BY num_intervals
-  ORDER BY num_intervals SETTINGS optimize_move_to_prewhere = 0
+  ORDER BY num_intervals
   '
 ---
 # name: TestClickhouseStickiness.test_stickiness_hours
@@ -351,7 +351,7 @@
      GROUP BY aggregation_target)
   WHERE num_intervals <= 10
   GROUP BY num_intervals
-  ORDER BY num_intervals SETTINGS optimize_move_to_prewhere = 0
+  ORDER BY num_intervals
   '
 ---
 # name: TestClickhouseStickiness.test_stickiness_people_endpoint
@@ -376,7 +376,7 @@
      GROUP BY aggregation_target)
   WHERE num_intervals = 1
   LIMIT 100
-  OFFSET 0 SETTINGS optimize_move_to_prewhere = 0
+  OFFSET 0
   '
 ---
 # name: TestClickhouseStickiness.test_stickiness_people_paginated
@@ -401,7 +401,7 @@
      GROUP BY aggregation_target)
   WHERE num_intervals = 1
   LIMIT 100
-  OFFSET 0 SETTINGS optimize_move_to_prewhere = 0
+  OFFSET 0
   '
 ---
 # name: TestClickhouseStickiness.test_stickiness_people_paginated.1
@@ -426,7 +426,7 @@
      GROUP BY aggregation_target)
   WHERE num_intervals = 1
   LIMIT 100
-  OFFSET 100 SETTINGS optimize_move_to_prewhere = 0
+  OFFSET 100
   '
 ---
 # name: TestClickhouseStickiness.test_timezones
@@ -452,7 +452,7 @@
      GROUP BY aggregation_target)
   WHERE num_intervals <= 16
   GROUP BY num_intervals
-  ORDER BY num_intervals SETTINGS optimize_move_to_prewhere = 0
+  ORDER BY num_intervals
   '
 ---
 # name: TestClickhouseStickiness.test_timezones.1
@@ -478,6 +478,6 @@
      GROUP BY aggregation_target)
   WHERE num_intervals <= 16
   GROUP BY num_intervals
-  ORDER BY num_intervals SETTINGS optimize_move_to_prewhere = 0
+  ORDER BY num_intervals
   '
 ---

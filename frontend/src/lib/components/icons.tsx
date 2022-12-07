@@ -19,7 +19,7 @@ export function IconWithCount({
     return (
         <span style={{ position: 'relative', display: 'inline-flex' }}>
             {children}
-            <LemonBadge count={count} size="small" position="top-right" showZero={showZero} status={status} />
+            <LemonBadge.Number count={count} size="small" position="top-right" showZero={showZero} status={status} />
         </span>
     )
 }
@@ -552,11 +552,91 @@ export function IconFlag(props: SvgIconProps): JSX.Element {
     )
 }
 
+/** Material Design Show Chart icon. */
+export function IconShowChart(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99l1.5 1.5z" fill="currentColor" />
+        </SvgIcon>
+    )
+}
+
+export function IconCumulativeChart(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M20.8805 7.97408C15.0614 18.7809 6.51281 19.5979 2.71265 18.4578L3.28734 16.5422C6.15384 17.4021 13.7386 17.0191 19.1195 7.02588L20.8805 7.97408Z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
 /** Material Design Bar Chart icon. */
 export function IconBarChart(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
             <path d="m5 9.2h3v9.8h-3zm5.6-4.2h2.8v14h-2.8zm5.6 8h2.8v6h-2.8z" fill="currentColor" />
+        </SvgIcon>
+    )
+}
+
+/** Material Design Area Chart icon. */
+export function IconAreaChart(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="M3 20V7l4 3 5-7 5 4h4v13Zm5-3 4-5.5 7 5.45V9h-2.7l-3.9-3.125-4.95 6.95L5 11v3.6Z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+/** Material Design Pie Chart icon. */
+export function IconPieChart(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm7.93 9H13V4.07c3.61.45 6.48 3.32 6.93 6.93zM4 12c0-4.07 3.06-7.44 7-7.93v15.86c-3.94-.49-7-3.86-7-7.93zm9 7.93V13h6.93c-.45 3.61-3.32 6.48-6.93 6.93z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+/** Material Design Table Chart icon. */
+export function IconTableChart(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M20 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h15c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 2v3H5V5h15zm-5 14h-5v-9h5v9zM5 10h3v9H5v-9zm12 9v-9h3v9h-3z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+/** Material Design 123 icon. */
+export function Icon123(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M7,15H5.5v-4.5H4V9h3V15z M13.5,13.5h-3v-1h2c0.55,0,1-0.45,1-1V10c0-0.55-0.45-1-1-1H9v1.5h3v1h-2c-0.55,0-1,0.45-1,1V15 h4.5V13.5z M19.5,14v-4c0-0.55-0.45-1-1-1H15v1.5h3v1h-2v1h2v1h-3V15h3.5C19.05,15,19.5,14.55,19.5,14z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+/** Material Public icon. */
+export function IconPublic(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-.61.08-1.21.21-1.78L8.99 15v1c0 1.1.9 2 2 2v1.93C7.06 19.43 4 16.07 4 12zm13.89 5.4c-.26-.81-1-1.4-1.9-1.4h-1v-3c0-.55-.45-1-1-1h-6v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41C17.92 5.77 20 8.65 20 12c0 2.08-.81 3.98-2.11 5.4z"
+                fill="currentColor"
+            />
         </SvgIcon>
     )
 }

@@ -4,6 +4,7 @@ from django.utils import timezone
 from posthog.models.team import Team
 
 
+# DEPRECATED: PostHog model is no longer supported or used
 class SessionRecordingEvent(models.Model):
     class Meta:
         indexes = [

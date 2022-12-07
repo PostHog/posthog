@@ -68,7 +68,7 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             ).get_snapshots(filter.limit, filter.offset)
 
             self.assertEqual(
-                recording.snapshot_data_by_window_id,
+                recording["snapshot_data_by_window_id"],
                 {
                     "": [
                         {"timestamp": 1600000000000, "type": 3, "data": {"source": 0}},
@@ -77,7 +77,7 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                     ]
                 },
             )
-            self.assertEqual(recording.has_next, False)
+            self.assertEqual(recording["has_next"], False)
 
     def test_get_snapshots_does_not_leak_teams(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -105,7 +105,7 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             ).get_snapshots(filter.limit, filter.offset)
 
             self.assertEqual(
-                recording.snapshot_data_by_window_id,
+                recording["snapshot_data_by_window_id"],
                 {"": [{"data": {"source": 0}, "timestamp": 1600000000000, "type": 3}]},
             )
 
@@ -134,8 +134,8 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             recording: DecompressedRecordingData = SessionRecording(
                 team=self.team, session_recording_id=chunked_session_id, request=req
             ).get_snapshots(chunk_limit, filter.offset)
-            self.assertEqual(len(recording.snapshot_data_by_window_id[""]), chunk_limit * snapshots_per_chunk)
-            self.assertTrue(recording.has_next)
+            self.assertEqual(len(recording["snapshot_data_by_window_id"][""]), chunk_limit * snapshots_per_chunk)
+            self.assertTrue(recording["has_next"])
 
     def test_get_chunked_snapshots_with_specific_limit_and_offset(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -157,9 +157,9 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                 team=self.team, session_recording_id=chunked_session_id, request=req
             ).get_snapshots(chunk_limit, filter.offset)
 
-            self.assertEqual(len(recording.snapshot_data_by_window_id[""]), chunk_limit * snapshots_per_chunk)
-            self.assertEqual(recording.snapshot_data_by_window_id[""][0]["timestamp"], 1_600_000_300_000)
-            self.assertTrue(recording.has_next)
+            self.assertEqual(len(recording["snapshot_data_by_window_id"][""]), chunk_limit * snapshots_per_chunk)
+            self.assertEqual(recording["snapshot_data_by_window_id"][""][0]["timestamp"], 1_600_000_300_000)
+            self.assertTrue(recording["has_next"])
 
     def test_get_metadata(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -337,14 +337,19 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                 ],
                 start_and_end_times_by_window_id={
                     "1": {
+                        "window_id": "1",
+                        "is_active": False,
                         "start_time": now(),
                         "end_time": now() + relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 4 - 2),
                     },
                     "2": {
+                        "window_id": "2",
+                        "is_active": False,
                         "start_time": now(),
                         "end_time": now() + relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 4),
                     },
                 },
+                playlists=[],
             )
             self.assertEqual(
                 recording,
@@ -392,7 +397,7 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             req, _ = create_recording_request_and_filter("1")
             recording = SessionRecording(team=self.team, session_recording_id="1", request=req).get_metadata()
             assert recording is not None
-            assert recording.segments[0].start_time != now()
+            assert recording["segments"][0]["start_time"] != now()
 
     def test_get_snapshots_with_date_filter(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -420,4 +425,4 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                 team=self.team, session_recording_id="1", request=req, recording_start_time=now()
             ).get_snapshots(filter.limit, filter.offset)
 
-            self.assertEqual(len(recording.snapshot_data_by_window_id[""]), 1)
+            self.assertEqual(len(recording["snapshot_data_by_window_id"][""]), 1)

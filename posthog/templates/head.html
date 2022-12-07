@@ -21,7 +21,6 @@
     window.JS_POSTHOG_API_KEY = {{js_posthog_api_key | safe}};
     window.JS_POSTHOG_HOST = {{js_posthog_host | safe}};
     window.JS_POSTHOG_SELF_CAPTURE = {{self_capture | yesno:"true,false" }};
-    window.JS_CAPTURE_INTERNAL_METRICS = {{js_capture_internal_metrics | yesno:"true,false"}}
     window.POSTHOG_USER_IDENTITY_WITH_FLAGS = JSON.parse("{{ posthog_bootstrap | escapejs }}")
     </script>
 {% endif %}
@@ -34,4 +33,5 @@
     // he bundle to be set at runtime, e.g. for PostHog Cloud we serve the
     // frontent JS from a CDN
     window.JS_URL = "{{ js_url|default:"" }}";
+    window.JS_CAPTURE_TIME_TO_SEE_DATA = {{js_capture_time_to_see_data | yesno:"true,false"}};
 </script>

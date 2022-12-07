@@ -1,8 +1,15 @@
 from infi.clickhouse_orm import migrations
 
 from posthog.client import sync_execute
-from posthog.models.session_recording_event.sql import SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_REPLICATION
+
+SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL = lambda: """
+    ALTER TABLE session_recording_events
+    ON CLUSTER '{cluster}'
+    COMMENT COLUMN has_full_snapshot 'column_materializer::has_full_snapshot'
+""".format(
+    cluster=CLICKHOUSE_CLUSTER
+)
 
 
 def create_has_full_snapshot_materialized_column(database):

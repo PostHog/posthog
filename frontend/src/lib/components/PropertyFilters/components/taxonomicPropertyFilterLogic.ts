@@ -5,8 +5,10 @@ import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilter
 import { cohortsModel } from '~/models/cohortsModel'
 import { TaxonomicFilterGroup, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import {
+    isGroupPropertyFilter,
     isPropertyFilterWithOperator,
     propertyFilterTypeToTaxonomicFilterType,
+    sanitizePropertyFilter,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -55,7 +57,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     selectors: {
         filter: [
             (s) => [s.filters, (_, props) => props.filterIndex],
-            (filters, filterIndex): AnyPropertyFilter | null => filters[filterIndex] || null,
+            (filters, filterIndex): AnyPropertyFilter | null =>
+                filters[filterIndex] ? sanitizePropertyFilter(filters[filterIndex]) : null,
         ],
         selectedCohortName: [
             (s) => [s.filter, cohortsModel.selectors.cohorts],
@@ -64,7 +67,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         activeTaxonomicGroup: [
             (s) => [s.filter, s.taxonomicGroups],
             (filter, groups): TaxonomicFilterGroup | undefined => {
-                if (filter) {
+                if (isGroupPropertyFilter(filter)) {
                     const taxonomicGroupType = propertyFilterTypeToTaxonomicFilterType(
                         filter.type,
                         filter.group_type_index

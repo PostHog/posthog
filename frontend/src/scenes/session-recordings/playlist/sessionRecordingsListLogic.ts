@@ -7,6 +7,7 @@ import {
     PropertyOperator,
     RecordingFilters,
     SessionRecordingId,
+    SessionRecordingPlaylistType,
     SessionRecordingPropertiesType,
     SessionRecordingsResponse,
     SessionRecordingType,
@@ -17,6 +18,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
 import { dayjs } from 'lib/dayjs'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 export type PersonUUID = string
 interface Params {
@@ -99,6 +101,8 @@ export interface SessionRecordingListLogicProps {
     personUUID?: PersonUUID
     filters?: RecordingFilters
     updateSearchParams?: boolean
+    isStatic?: boolean
+    staticRecordings?: SessionRecordingPlaylistType['playlist_items']
 }
 
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
@@ -112,7 +116,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         ],
     }),
     actions({
-        getSessionRecordings: true,
         setFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
         replaceFilters: (filters: RecordingFilters) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
@@ -130,11 +133,20 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             } as SessionRecordingsResponse,
             {
                 getSessionRecordings: async (_, breakpoint) => {
-                    const paramsDict = {
+                    let paramsDict = {
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
                         limit: PLAYLIST_LIMIT,
                     }
+
+                    // If list should be a static list
+                    if (props.isStatic) {
+                        paramsDict = {
+                            ...paramsDict,
+                            static_recordings: values.staticRecordings ?? [],
+                        }
+                    }
+
                     const params = toParams(paramsDict)
                     await breakpoint(100) // Debounce for lots of quick filter changes
 
@@ -227,10 +239,10 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     })),
     listeners(({ actions, values }) => ({
         setFilters: () => {
-            actions.getSessionRecordings()
+            actions.getSessionRecordings({})
         },
         replaceFilters: () => {
-            actions.getSessionRecordings()
+            actions.getSessionRecordings({})
         },
         loadNext: () => {
             actions.setFilters({
@@ -254,6 +266,10 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                     Object.fromEntries(propertiesResponse.results.map(({ id, properties }) => [id, properties])) ?? {}
                 )
             },
+        ],
+        staticRecordings: [
+            () => [(_, props) => props.staticRecordings],
+            (staticRecordings) => staticRecordings ?? null,
         ],
         activeSessionRecording: [
             (s) => [s.selectedRecordingId, s.sessionRecordings],
@@ -290,10 +306,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         ],
     }),
 
-    afterMount(({ actions }) => {
-        actions.getSessionRecordings()
-    }),
-
     actionToUrl(({ props, values }) => {
         const buildURL = (
             replace: boolean
@@ -323,7 +335,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         }
 
         return {
-            loadSessionRecordings: () => buildURL(true),
+            getSessionRecordings: () => buildURL(true),
             setSelectedRecordingId: () => buildURL(false),
             setFilters: () => buildURL(true),
         }
@@ -346,5 +358,21 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         return {
             '*': urlToAction,
         }
+    }),
+
+    subscriptions(({ actions, props }) => ({
+        staticRecordings: (staticRecording, oldStaticRecording) => {
+            if (!props.isStatic) {
+                return
+            }
+            if (!equal(staticRecording || [], oldStaticRecording || [])) {
+                actions.getSessionRecordings({})
+            }
+        },
+    })),
+
+    // NOTE: It is important this comes after urlToAction, as it will override the default behavior
+    afterMount(({ actions }) => {
+        actions.getSessionRecordings({})
     }),
 ])

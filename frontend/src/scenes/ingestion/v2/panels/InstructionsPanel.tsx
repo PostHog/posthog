@@ -15,7 +15,7 @@ import {
 } from 'scenes/ingestion/v2/frameworks'
 import { API, MOBILE, BACKEND, WEB } from '../constants'
 import { useValues } from 'kea'
-import { ingestionLogicV2 } from '../ingestionLogic'
+import { ingestionLogicV2 } from '../ingestionLogicV2'
 import { WebInstructions } from '../frameworks/WebInstructions'
 import { Link } from '@posthog/lemon-ui'
 

@@ -85,12 +85,9 @@ export class EventsProcessor {
                             eventUuid,
                             teamId,
                             distinctId,
-                            properties['$session_id'],
-                            properties['$window_id'],
                             timestamp,
-                            properties['$snapshot_data'],
-                            properties,
-                            ip
+                            ip,
+                            properties
                         )
                         this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer, {
                             team_id: teamId.toString(),
@@ -243,22 +240,19 @@ export class EventsProcessor {
         uuid: string,
         team_id: number,
         distinct_id: string,
-        session_id: string,
-        window_id: string,
         timestamp: DateTime,
-        snapshot_data: Record<any, any>,
-        properties: Properties,
-        ip: string | null
+        ip: string | null,
+        properties: Properties
     ): Promise<PostIngestionEvent> {
         const timestampString = castTimestampOrNow(timestamp, TimestampFormat.ClickHouse)
 
-        const data: RawSessionRecordingEvent = {
+        const data: Partial<RawSessionRecordingEvent> = {
             uuid,
             team_id: team_id,
             distinct_id: distinct_id,
-            session_id: session_id,
-            window_id: window_id,
-            snapshot_data: JSON.stringify(snapshot_data),
+            session_id: properties['$session_id'],
+            window_id: properties['$window_id'],
+            snapshot_data: JSON.stringify(properties['$snapshot_data']),
             timestamp: timestampString,
             created_at: timestampString,
         }

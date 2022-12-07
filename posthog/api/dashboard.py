@@ -27,7 +27,7 @@ from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
 from posthog.models.team.team import get_available_features_for_team
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.utils import should_refresh
+from posthog.utils import should_ignore_dashboard_items_field, should_refresh
 
 logger = structlog.get_logger(__name__)
 
@@ -61,6 +61,7 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         The datetime this tile's insight results were generated.
         """,
     )
+    is_cached = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = DashboardTile
@@ -72,6 +73,11 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         if should_refresh(self.context["request"]):
             return now()
         return dashboard_tile.last_refresh
+
+    def get_is_cached(self, dashboard_tile: DashboardTile) -> bool:
+        if should_refresh(self.context["request"]):
+            return False
+        return dashboard_tile.last_refresh is not None
 
 
 class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
@@ -160,20 +166,6 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             except Dashboard.DoesNotExist:
                 raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
 
-        elif request.data.get("items"):
-            for item in request.data["items"]:
-                insight = Insight.objects.create(
-                    **{
-                        key: value
-                        for key, value in item.items()
-                        if key not in ("id", "deleted", "dashboard", "team", "layout", "color")
-                    },
-                    team=team,
-                )
-                DashboardTile.objects.create(
-                    dashboard=dashboard, insight=insight, layouts=item.get("layouts"), color=item.get("color")
-                )
-
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, dashboard)
 
@@ -261,6 +253,8 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
     @staticmethod
     def _update_tiles(instance: Dashboard, tile_data: Dict, user: User) -> None:
+        tile_data.pop("is_cached", None)  # read only field
+
         if tile_data.get("text", None):
             text_json: Dict = tile_data.get("text", {})
             created_by_json = text_json.get("created_by", None)
@@ -334,7 +328,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
     @extend_schema(deprecated=True, description="items is deprecated, use tiles instead")
     def get_items(self, dashboard: Dashboard):
-        if self.context["view"].action == "list":
+        if self.context["view"].action == "list" or should_ignore_dashboard_items_field(self.context["request"]):
             return None
 
         # used by insight serializer to load insight filters in correct context

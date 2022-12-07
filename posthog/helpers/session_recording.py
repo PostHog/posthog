@@ -3,8 +3,17 @@ import dataclasses
 import gzip
 import json
 from collections import defaultdict
-from datetime import datetime, timedelta
-from typing import DefaultDict, Dict, Generator, List, Optional, TypedDict, Union
+from datetime import datetime, timedelta, timezone
+from typing import (
+    Any,
+    DefaultDict,
+    Dict,
+    Generator,
+    List,
+    Optional,
+    TypedDict,
+    Union,
+)
 
 from sentry_sdk.api import capture_exception, capture_message
 
@@ -12,9 +21,59 @@ from posthog.models import utils
 
 FULL_SNAPSHOT = 2
 
-Event = Dict
+Event = Dict[str, Any]
 SnapshotData = Dict
 WindowId = Optional[str]
+
+# NOTE: For reference here are some helpful enum mappings from rrweb
+# https://github.com/rrweb-io/rrweb/blob/master/packages/rrweb/src/types.ts
+
+# event.type
+
+
+class RRWEB_MAP_EVENT_TYPE:
+    DomContentLoaded = 0
+    Load = 1
+    FullSnapshot = 2
+    IncrementalSnapshot = 3
+    Meta = 4
+    Custom = 5
+    Plugin = 6
+
+
+# event.data.source
+class RRWEB_MAP_EVENT_DATA_SOURCE:
+    Mutation = 0
+    MouseMove = 1
+    MouseInteraction = 2
+    Scroll = 3
+    ViewportResize = 4
+    Input = 5
+    TouchMove = 6
+    MediaInteraction = 7
+    StyleSheetRule = 8
+    CanvasMutation = 9
+    Font = 1
+    Log = 1
+    Drag = 1
+    StyleDeclaration = 1
+    Selection = 1
+
+
+# event.data.type
+class RRWEB_MAP_EVENT_DATA_TYPE:
+    MouseUp = 0
+    MouseDown = 1
+    Click = 2
+    ContextMenu = 3
+    DblClick = 4
+    Focus = 5
+    Blur = 6
+    TouchStart = 7
+    TouchMove_Departed = 8
+    TouchEnd = 9
+    TouchCancel = 10
+
 
 # List of properties from the event payload we care about for our uncompressed `events_summary`
 # NOTE: We should keep this as minimal as possible
@@ -30,6 +89,19 @@ EVENT_SUMMARY_DATA_INCLUSIONS = [
     "payload.level",
 ]
 
+
+class RecordingSegment(TypedDict):
+    start_time: datetime
+    end_time: datetime
+    window_id: WindowId
+    is_active: bool
+
+
+class SnapshotDataTaggedWithWindowId(TypedDict):
+    window_id: WindowId
+    snapshot_data: SnapshotData
+
+
 # NOTE: EventSummary is a minimal version of full events, containing only some of the "data" content - strings and numbers
 class SessionRecordingEventSummary(TypedDict):
     timestamp: int
@@ -38,30 +110,30 @@ class SessionRecordingEventSummary(TypedDict):
     data: Dict[str, Union[int, str]]
 
 
-@dataclasses.dataclass
-class EventActivityData:
+class MinimalStaticSessionRecording(TypedDict):
+    id: int
+    created_at: datetime
+
+
+class SessionRecordingEvent(TypedDict):
     timestamp: datetime
-    is_active: bool
+    distinct_id: str
+    session_id: str
+    window_id: str
+    snapshot_data: Dict[str, Any]
+    events_summary: List[SessionRecordingEventSummary]
 
 
-@dataclasses.dataclass
-class RecordingSegment:
-    start_time: datetime
-    end_time: datetime
-    window_id: WindowId
-    is_active: bool
+class RecordingMetadata(TypedDict):
+    distinct_id: str
+    segments: List[RecordingSegment]
+    start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment]
+    playlists: List[int]
 
 
-@dataclasses.dataclass
-class SnapshotDataTaggedWithWindowId:
-    window_id: WindowId
-    snapshot_data: SnapshotData
-
-
-@dataclasses.dataclass
-class DecompressedRecordingData:
+class DecompressedRecordingData(TypedDict):
     has_next: bool
-    snapshot_data_by_window_id: Dict[WindowId, List[SnapshotData]]
+    snapshot_data_by_window_id: Dict[WindowId, List[Union[SnapshotData, SessionRecordingEventSummary]]]
 
 
 def preprocess_session_recording_events_for_clickhouse(events: List[Event]) -> List[Event]:
@@ -84,13 +156,14 @@ def preprocess_session_recording_events_for_clickhouse(events: List[Event]) -> L
 def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> Generator[Event, None, None]:
     data_list = [event["properties"]["$snapshot_data"] for event in events]
     session_id = events[0]["properties"]["$session_id"]
-    has_full_snapshot = any(snapshot_data["type"] == FULL_SNAPSHOT for snapshot_data in data_list)
+    has_full_snapshot = any(snapshot_data["type"] == RRWEB_MAP_EVENT_TYPE.FullSnapshot for snapshot_data in data_list)
     window_id = events[0]["properties"].get("$window_id")
 
     compressed_data = compress_to_string(json.dumps(data_list))
 
     id = str(utils.UUIDT())
     chunks = chunk_string(compressed_data, chunk_size)
+
     for index, chunk in enumerate(chunks):
         yield {
             **events[0],
@@ -98,6 +171,7 @@ def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> 
                 **events[0]["properties"],
                 "$session_id": session_id,
                 "$window_id": window_id,
+                # If it is the first chunk we include all events
                 "$snapshot_data": {
                     "chunk_id": id,
                     "chunk_index": index,
@@ -165,10 +239,14 @@ def decompress_chunked_snapshot_data(
     snapshot_data_by_window_id = defaultdict(list)
 
     # Handle backward compatibility to the days of uncompressed and unchunked snapshots
-    if "chunk_id" not in all_recording_events[0].snapshot_data:
+    if "chunk_id" not in all_recording_events[0]["snapshot_data"]:
         paginated_list = paginate_list(all_recording_events, limit, offset)
         for event in paginated_list.paginated_list:
-            snapshot_data_by_window_id[event.window_id].append(event.snapshot_data)
+            snapshot_data_by_window_id[event["window_id"]].append(
+                get_events_summary_from_snapshot_data([event["snapshot_data"]])[0]
+                if return_only_activity_data
+                else event["snapshot_data"]
+            )
         return DecompressedRecordingData(
             has_next=paginated_list.has_next, snapshot_data_by_window_id=snapshot_data_by_window_id
         )
@@ -176,7 +254,7 @@ def decompress_chunked_snapshot_data(
     # Split decompressed recording events into their chunks
     chunks_collector: DefaultDict[str, List[SnapshotDataTaggedWithWindowId]] = defaultdict(list)
     for event in all_recording_events:
-        chunks_collector[event.snapshot_data["chunk_id"]].append(event)
+        chunks_collector[event["snapshot_data"]["chunk_id"]].append(event)
 
     # Paginate the list of chunks
     paginated_chunk_list = paginate_list(list(chunks_collector.values()), limit, offset)
@@ -186,75 +264,78 @@ def decompress_chunked_snapshot_data(
 
     # Decompress the chunks and split the resulting events by window_id
     for chunks in chunk_list:
-        if len(chunks) != chunks[0].snapshot_data["chunk_count"]:
+        if len(chunks) != chunks[0]["snapshot_data"]["chunk_count"]:
             capture_message(
                 "Did not find all session recording chunks! Team: {}, Session: {}, Chunk-id: {}. Found {} of {} expected chunks".format(
                     team_id,
                     session_recording_id,
-                    chunks[0].snapshot_data["chunk_id"],
+                    chunks[0]["snapshot_data"]["chunk_id"],
                     len(chunks),
-                    chunks[0].snapshot_data["chunk_count"],
+                    chunks[0]["snapshot_data"]["chunk_count"],
                 )
             )
             continue
 
         b64_compressed_data = "".join(
-            chunk.snapshot_data["data"] for chunk in sorted(chunks, key=lambda c: c.snapshot_data["chunk_index"])
+            chunk["snapshot_data"]["data"] for chunk in sorted(chunks, key=lambda c: c["snapshot_data"]["chunk_index"])
         )
         decompressed_data = json.loads(decompress(b64_compressed_data))
 
         # Decompressed data can be large, and in metadata calculations, we only care if the event is "active"
         # This pares down the data returned, so we're not passing around a massive object
         if return_only_activity_data:
-            events_with_only_activity_data = [
-                {"timestamp": recording_event.get("timestamp"), "is_active": is_active_event(recording_event)}
-                for recording_event in decompressed_data
-            ]
-            snapshot_data_by_window_id[chunks[0].window_id].extend(events_with_only_activity_data)
-
+            events_with_only_activity_data = get_events_summary_from_snapshot_data(decompressed_data)
+            snapshot_data_by_window_id[chunks[0]["window_id"]].extend(events_with_only_activity_data)
         else:
-            snapshot_data_by_window_id[chunks[0].window_id].extend(decompressed_data)
+            snapshot_data_by_window_id[chunks[0]["window_id"]].extend(decompressed_data)
     return DecompressedRecordingData(has_next=has_next, snapshot_data_by_window_id=snapshot_data_by_window_id)
 
 
-def is_active_event(event: SnapshotData) -> bool:
+def is_active_event(event: SessionRecordingEventSummary) -> bool:
     """
     Determines which rr-web events are "active" - meaning user generated
     """
     active_rr_web_sources = [
-        1,  # "MouseMove"
-        2,  # "MouseInteraction"
-        3,  # "Scroll"
-        4,  # "ViewportResize"
-        5,  # "Input"
-        6,  # "TouchMove"
-        7,  # "MediaInteraction"
-        12,  # "Drag"
+        1,  # MouseMove,
+        2,  # MouseInteraction,
+        3,  # Scroll,
+        4,  # ViewportResize,
+        5,  # Input,
+        6,  # TouchMove,
+        7,  # MediaInteraction,
+        12,  # Drag,
     ]
-    return event.get("type") == 3 and event.get("data", {}).get("source") in active_rr_web_sources
+    return event["type"] == 3 and event["data"].get("source") in active_rr_web_sources
+
+
+def parse_snapshot_timestamp(timestamp: int):
+    return datetime.fromtimestamp(timestamp / 1000, timezone.utc)
 
 
 ACTIVITY_THRESHOLD_SECONDS = 10
 
 
 def get_active_segments_from_event_list(
-    event_list: List[EventActivityData], window_id: WindowId, activity_threshold_seconds=ACTIVITY_THRESHOLD_SECONDS
+    event_list: List[SessionRecordingEventSummary],
+    window_id: WindowId,
+    activity_threshold_seconds=ACTIVITY_THRESHOLD_SECONDS,
 ) -> List[RecordingSegment]:
     """
     Processes a list of events for a specific window_id to determine
     the segments of the recording where the user is "active". And active segment ends
     when there isn't another active event for activity_threshold_seconds seconds
     """
-    active_event_timestamps = [event.timestamp for event in event_list if event.is_active]
+    active_event_timestamps = [event["timestamp"] for event in event_list if is_active_event(event)]
 
     active_recording_segments: List[RecordingSegment] = []
     current_active_segment: Optional[RecordingSegment] = None
-    for current_timestamp in active_event_timestamps:
+    for current_timestamp_int in active_event_timestamps:
+        current_timestamp = parse_snapshot_timestamp(current_timestamp_int)
         # If the time since the last active event is less than the threshold, continue the existing segment
-        if current_active_segment and (current_timestamp - current_active_segment.end_time) <= timedelta(
+        if current_active_segment and (current_timestamp - current_active_segment["end_time"]) <= timedelta(
             seconds=activity_threshold_seconds
         ):
-            current_active_segment.end_time = current_timestamp
+            current_active_segment["end_time"] = current_timestamp
 
         # Otherwise, start a new segment
         else:
@@ -317,7 +398,7 @@ def generate_inactive_segments_for_range(
     range_start_time: datetime,
     range_end_time: datetime,
     last_active_window_id: WindowId,
-    start_and_end_times_by_window_id: Dict[WindowId, Dict],
+    start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment],
     is_first_segment: bool = False,
     is_last_segment: bool = False,
 ) -> List[RecordingSegment]:
@@ -354,13 +435,13 @@ def generate_inactive_segments_for_range(
 
     # Ensure segments don't exactly overlap. This makes the corresponding player logic simpler
     for index, segment in enumerate(inactive_segments):
-        if (index == 0 and segment.start_time == range_start_time and not is_first_segment) or (
-            index > 0 and segment.start_time == inactive_segments[index - 1].end_time
+        if (index == 0 and segment["start_time"] == range_start_time and not is_first_segment) or (
+            index > 0 and segment["start_time"] == inactive_segments[index - 1]["end_time"]
         ):
-            segment.start_time = segment.start_time + timedelta(milliseconds=1)
+            segment["start_time"] = segment["start_time"] + timedelta(milliseconds=1)
 
-        if index == len(inactive_segments) - 1 and segment.end_time == range_end_time and not is_last_segment:
-            segment.end_time = segment.end_time - timedelta(milliseconds=1)
+        if index == len(inactive_segments) - 1 and segment["end_time"] == range_end_time and not is_last_segment:
+            segment["end_time"] = segment["end_time"] - timedelta(milliseconds=1)
 
     return inactive_segments
 

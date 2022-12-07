@@ -190,8 +190,9 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             organization.refresh_from_db()
             self.assertTrue(organization.name, "Meow")
 
-    @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
     def test_feature_available_self_hosted_has_license(self):
+        current_plans = License.PLANS
+        License.PLANS = {"enterprise": ["whatever"]}  # type: ignore
         with self.is_cloud(False):
             License.objects.create(key="key", plan="enterprise", valid_until=dt.datetime.now() + dt.timedelta(days=1))
 
@@ -203,16 +204,23 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             self.organization.refresh_from_db()
             self.assertTrue(self.organization.is_feature_available("whatever"))
             self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
+        License.PLANS = current_plans
 
-    @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
     def test_feature_available_self_hosted_no_license(self):
+        current_plans = License.PLANS
+        License.PLANS = {"enterprise": ["whatever"]}  # type: ignore
+
         self.assertFalse(self.organization.is_feature_available("whatever"))
         self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
+        License.PLANS = current_plans
 
-    @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
     @patch("ee.api.license.requests.post")
     def test_feature_available_self_hosted_license_expired(self, patch_post):
+        current_plans = License.PLANS
+        License.PLANS = {"enterprise": ["whatever"]}  # type: ignore
+
         with freeze_time("2070-01-01T12:00:00.000Z"):  # LicensedTestMixin enterprise license expires in 2038
             sync_all_organization_available_features()  # This is normally ran every hour
             self.organization.refresh_from_db()
             self.assertFalse(self.organization.is_feature_available("whatever"))
+        License.PLANS = current_plans

@@ -129,6 +129,7 @@ field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight", "SessionRecor
         "created_by",
         "insightviewed",
         "dashboardtile",
+        "caching_states",
     ],
     "SessionRecordingPlaylist": ["id", "short_id", "created_at", "created_by", "last_modified_at", "last_modified_by"],
 }

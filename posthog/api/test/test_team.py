@@ -4,6 +4,7 @@ from unittest.mock import ANY, MagicMock, patch
 from django.core.cache import cache
 from rest_framework import status
 
+from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
@@ -137,6 +138,9 @@ class TestTeamAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 204)
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
+        self.assertEqual(
+            AsyncDeletion.objects.filter(team_id=team.id, deletion_type=DeletionType.Team, key=str(team.id)).count(), 1
+        )
         mock_capture.assert_called_once_with(
             self.user.distinct_id,
             "team deleted",

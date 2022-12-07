@@ -6,13 +6,12 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SessionPlayerState } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
-import { SeekSkip, Timestamp } from 'scenes/session-recordings/player/PlayerControllerTime'
+import { SeekSkip } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { IconFullScreen, IconPause, IconPlay, IconSkipInactivity, IconLink } from 'lib/components/icons'
+import { IconExport, IconFullScreen, IconPause, IconPlay, IconSkipInactivity } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
 import { PlayerInspectorPicker } from './PlayerInspector'
-import { openPlayerShareDialog } from './share/PlayerShare'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonCheckbox } from '@posthog/lemon-ui'
@@ -29,29 +28,18 @@ export function PlayerController({
     hideInspectorPicker = false,
 }: PlayerControllerProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    const { togglePlayPause, setPause } = useActions(logic)
-    const { currentPlayerState, isSmallScreen } = useValues(logic)
+    const { togglePlayPause, exportRecordingToFile } = useActions(logic)
+    const { currentPlayerState } = useValues(logic)
 
     const { speed, skipInactivitySetting, isFullScreen, autoplayEnabled } = useValues(playerSettingsLogic)
     const { setSpeed, setSkipInactivitySetting, setIsFullScreen, setAutoplayEnabled } = useActions(playerSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const featureAutoplay = !!featureFlags[FEATURE_FLAGS.RECORDING_AUTOPLAY]
-
-    const onShare = (): void => {
-        setPause()
-        openPlayerShareDialog({
-            seconds: Math.floor((logic.values.currentPlayerTime || 0) / 1000),
-            id: sessionRecordingId,
-        })
-    }
+    const featureExport = !!featureFlags[FEATURE_FLAGS.RECORDINGS_EXPORT]
 
     return (
-        <div className="p-3 bg-light flex flex-col select-none">
-            <div className="flex items-center h-8 mb-2" data-attr="rrweb-controller">
-                {!isSmallScreen && <Timestamp sessionRecordingId={sessionRecordingId} playerKey={playerKey} />}
-                <Seekbar sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-            </div>
+        <div className="p-3 bg-light flex flex-col select-none space-y-2">
+            <Seekbar sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
             <div className="flex justify-between items-center h-8 gap-2">
                 <div className="flex items-center gap-2 flex-1">
                     {!hideInspectorPicker && !isFullScreen && (
@@ -131,32 +119,35 @@ export function PlayerController({
                             />
                         </LemonButton>
                     </Tooltip>
-                    <Tooltip title={`Share recording`}>
-                        <LemonButton size="small" status="primary-alt" onClick={() => onShare()}>
-                            <IconLink
-                                className={clsx('text-2xl', isFullScreen ? 'text-primary' : 'text-primary-alt')}
-                            />
-                        </LemonButton>
-                    </Tooltip>
 
-                    {featureAutoplay && (
-                        <More
-                            overlay={
-                                <>
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={() => setAutoplayEnabled(!autoplayEnabled)}
+                                    fullWidth
+                                    sideIcon={
+                                        <LemonCheckbox className="pointer-events-none" checked={autoplayEnabled} />
+                                    }
+                                >
+                                    Autoplay enabled
+                                </LemonButton>
+
+                                {featureExport && (
                                     <LemonButton
                                         status="stealth"
-                                        onClick={() => setAutoplayEnabled(!autoplayEnabled)}
+                                        onClick={() => exportRecordingToFile()}
                                         fullWidth
-                                        sideIcon={
-                                            <LemonCheckbox className="pointer-events-none" checked={autoplayEnabled} />
-                                        }
+                                        sideIcon={<IconExport />}
+                                        tooltip="Export recording to a file. This can be loaded later into PostHog for playback."
                                     >
-                                        Autoplay enabled
+                                        Export to file
                                     </LemonButton>
-                                </>
-                            }
-                        />
-                    )}
+                                )}
+                            </>
+                        }
+                    />
                 </div>
             </div>
         </div>

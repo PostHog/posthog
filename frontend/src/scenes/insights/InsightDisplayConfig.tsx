@@ -24,8 +24,8 @@ import {
     isRetentionFilter,
     isStickinessFilter,
     isTrendsFilter,
+    isAreaChartDisplay,
 } from 'scenes/insights/sharedUtils'
-
 interface InsightDisplayConfigProps {
     filters: FilterType
     activeView: InsightType
@@ -55,13 +55,16 @@ const showDateFilter = {
     [`${InsightType.PATHS}`]: true,
 }
 
-const showComparePrevious = {
-    [`${InsightType.TRENDS}`]: true,
-    [`${InsightType.STICKINESS}`]: true,
-    [`${InsightType.LIFECYCLE}`]: false,
-    [`${InsightType.FUNNELS}`]: false,
-    [`${InsightType.RETENTION}`]: false,
-    [`${InsightType.PATHS}`]: false,
+const showCompareFilter = function (filters: Partial<FilterType>): boolean {
+    if (isTrendsFilter(filters)) {
+        return !isAreaChartDisplay(filters)
+    }
+
+    if (isStickinessFilter(filters)) {
+        return true
+    }
+
+    return false
 }
 
 const isFunnelEmpty = (filters: FilterType): boolean => {
@@ -133,7 +136,7 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                     </ConfigFilter>
                 )}
 
-                {filters.insight && showComparePrevious[filters.insight] && (
+                {showCompareFilter(filters) && (
                     <ConfigFilter>
                         <CompareFilter />
                     </ConfigFilter>

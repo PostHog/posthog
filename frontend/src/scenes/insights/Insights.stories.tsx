@@ -5,7 +5,12 @@ import { createInsightScene } from 'scenes/insights/__mocks__/createInsightScene
 
 export default {
     title: 'Scenes-App/Insights',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+        mockDate: '2022-03-11',
+    },
     decorators: [
         mswDecorator({
             get: {
@@ -26,6 +31,8 @@ export const TrendsBar = createInsightScene(require('./__mocks__/trendsBar.json'
 export const TrendsBarBreakdown = createInsightScene(require('./__mocks__/trendsBarBreakdown.json'))
 export const TrendsValue = createInsightScene(require('./__mocks__/trendsValue.json'))
 export const TrendsValueBreakdown = createInsightScene(require('./__mocks__/trendsValueBreakdown.json'))
+export const TrendsArea = createInsightScene(require('./__mocks__/trendsArea.json'))
+export const TrendsAreaBreakdown = createInsightScene(require('./__mocks__/trendsAreaBreakdown.json'))
 export const TrendsNumber = createInsightScene(require('./__mocks__/trendsNumber.json'))
 export const TrendsTable = createInsightScene(require('./__mocks__/trendsTable.json'))
 export const TrendsTableBreakdown = createInsightScene(require('./__mocks__/trendsTableBreakdown.json'))

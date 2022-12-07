@@ -13,6 +13,8 @@ class StickinessActors(ActorBaseQuery):
     entity: Entity
     _filter: StickinessFilter
 
+    QUERY_TYPE = "stickiness"
+
     def __init__(self, team: Team, entity: Entity, filter: StickinessFilter, **kwargs):
         super().__init__(team, filter, entity, **kwargs)
 
@@ -33,8 +35,6 @@ class StickinessActors(ActorBaseQuery):
         SELECT DISTINCT aggregation_target AS actor_id FROM ({events_query}) WHERE num_intervals = %(stickiness_day)s
         {"LIMIT %(limit)s" if limit_actors else ""}
         {"OFFSET %(offset)s" if limit_actors else ""}
-
-        SETTINGS optimize_move_to_prewhere = 0
         """,
             {
                 **event_params,

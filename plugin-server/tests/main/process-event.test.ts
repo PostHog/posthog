@@ -287,6 +287,7 @@ test('capture new person', async () => {
         ],
     })
 
+    const uuid = new UUIDT().toString()
     await processEvent(
         '2',
         '127.0.0.1',
@@ -297,13 +298,14 @@ test('capture new person', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        new UUIDT().toString()
+        uuid
     )
 
     let persons = await hub.db.fetchPersons()
     expect(persons[0].version).toEqual(0)
     expect(persons[0].created_at).toEqual(now)
     let expectedProps = {
+        $creator_event_uuid: uuid,
         $initial_browser: 'Chrome',
         $initial_browser_version: '95',
         $initial_utm_medium: 'twitter',
@@ -382,6 +384,7 @@ test('capture new person', async () => {
     expect(persons.length).toEqual(1)
     expect(persons[0].version).toEqual(1)
     expectedProps = {
+        $creator_event_uuid: uuid,
         $initial_browser: 'Chrome',
         $initial_browser_version: '95',
         $initial_utm_medium: 'twitter',
@@ -1027,29 +1030,6 @@ test('snapshot event stored as session_recording_event', async () => {
     expect(event.session_id).toEqual('abcf-efg')
     expect(event.distinct_id).toEqual('some-id')
     expect(event.snapshot_data).toEqual({ timestamp: 123 })
-})
-
-test('$snapshot event creates new person if needed', async () => {
-    const pluginEvent: PluginEvent = {
-        distinct_id: 'some_new_id',
-        site_url: '',
-        team_id: team.id,
-        timestamp: now.toUTC().toISO(),
-        now: now.toUTC().toISO(),
-        ip: '',
-        uuid: new UUIDT().toString(),
-        event: '$snapshot',
-        properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
-    } as any as PluginEvent
-
-    const runner = new EventPipelineRunner(hub, pluginEvent)
-    await runner.runEventPipeline(pluginEvent)
-
-    await delayUntilEventIngested(() => hub.db.fetchPersons())
-
-    const persons = await hub.db.fetchPersons()
-
-    expect(persons.length).toEqual(1)
 })
 
 test('identify set', async () => {
@@ -1914,6 +1894,8 @@ test('any event can do $set on props (user exists)', async () => {
 })
 
 test('any event can do $set on props (new user)', async () => {
+    const uuid = new UUIDT().toString()
+
     await processEvent(
         'distinct_id1',
         '',
@@ -1928,7 +1910,7 @@ test('any event can do $set on props (new user)', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        new UUIDT().toString()
+        uuid
     )
 
     expect((await hub.db.fetchEvents()).length).toBe(1)
@@ -1938,7 +1920,7 @@ test('any event can do $set on props (new user)', async () => {
 
     const [person] = await hub.db.fetchPersons()
     expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
-    expect(person.properties).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
+    expect(person.properties).toEqual({ $creator_event_uuid: uuid, a_prop: 'test-1', c_prop: 'test-1' })
 })
 
 test('any event can do $set_once on props', async () => {
@@ -1992,6 +1974,7 @@ test('any event can do $set_once on props', async () => {
 })
 
 test('$set and $set_once', async () => {
+    const uuid = new UUIDT().toString()
     await processEvent(
         'distinct_id1',
         '',
@@ -2007,7 +1990,7 @@ test('$set and $set_once', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        new UUIDT().toString()
+        uuid
     )
 
     expect((await hub.db.fetchEvents()).length).toBe(1)
@@ -2015,6 +1998,7 @@ test('$set and $set_once', async () => {
     const [person] = await hub.db.fetchPersons()
     expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
     expect(person.properties).toEqual({
+        $creator_event_uuid: uuid,
         key1: 'value1',
         key2: 'value2',
         key3: 'value4',

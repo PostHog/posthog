@@ -14,6 +14,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.signals import mute_selected_signals
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from posthog.utils import generate_cache_key
 
@@ -161,27 +162,28 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_adding_insights_is_not_nplus1_for_gets(self):
-        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-            "properties": [{"key": "$browser", "value": "Mac OS X"}],
-            "insight": "TRENDS",
-        }
+        with mute_selected_signals():
+            dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+            filter_dict = {
+                "events": [{"id": "$pageview"}],
+                "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                "insight": "TRENDS",
+            }
 
-        with self.assertNumQueries(11):
-            self._get_dashboard(dashboard_id)
+            with self.assertNumQueries(10):
+                self._get_dashboard(dashboard_id)
 
-        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(15):
-            self._get_dashboard(dashboard_id)
+            self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+            with self.assertNumQueries(13):
+                self._get_dashboard(dashboard_id)
 
-        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(16):
-            self._get_dashboard(dashboard_id)
+            self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+            with self.assertNumQueries(13):
+                self._get_dashboard(dashboard_id)
 
-        self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(17):
-            self._get_dashboard(dashboard_id)
+            self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+            with self.assertNumQueries(13):
+                self._get_dashboard(dashboard_id)
 
     @snapshot_postgres_queries
     def test_listing_dashboards_is_not_nplus1(self) -> None:
@@ -547,6 +549,45 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         first_tile_layouts = dashboard_json["tiles"][0]["layouts"]
 
         self.assertTrue("lg" in first_tile_layouts)
+
+    def test_dashboard_tile_color_can_be_set_for_new_or_existing_tiles(self):
+        dashboard_id, _ = self._create_dashboard({"name": "asdasd", "pinned": True})
+
+        insight_id, _ = self._create_insight(
+            {"filters": {"hello": "test"}, "dashboards": [dashboard_id], "name": "another"}
+        )
+
+        dashboard_json = self._get_dashboard(dashboard_id)
+        tiles = dashboard_json["tiles"]
+        assert len(tiles) == 1
+        tile_id = tiles[0]["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {
+                "tiles": [
+                    {
+                        "id": tile_id,
+                        "color": "red",
+                        "is_cached": True,  # included to ensure we can update existing tiles with this readonly property
+                    },
+                    {
+                        "id": tile_id + 1,
+                        "color": "red",
+                        "is_cached": True,  # included to ensure we can update new tiles with this readonly property
+                        "text": {"body": "an example"},
+                        "layouts": {},
+                    },
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        dashboard_json = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/", {"refresh": False}
+        ).json()
+        assert dashboard_json["tiles"][0]["color"] == "red"
 
     def test_dashboard_from_template(self):
         response = self.client.post(
@@ -951,6 +992,20 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         expected_dashboards_on_insight = dashboard_two_json["tiles"][0]["insight"]["dashboards"]
         assert expected_dashboards_on_insight == [dashboard_two_id]
 
+    def test_dashboard_items_deprecation(self) -> None:
+        dashboard_id, _ = self._create_dashboard({"name": "items deprecation"})
+        self._create_insight({"dashboards": [dashboard_id]})
+
+        default_dashboard_json = self._get_dashboard(dashboard_id, query_params="")
+
+        assert len(default_dashboard_json["tiles"]) == 1
+        assert len(default_dashboard_json["items"]) == 1
+
+        no_items_dashboard_json = self._get_dashboard(dashboard_id, query_params="?no_items_field")
+
+        assert len(no_items_dashboard_json["tiles"]) == 1
+        assert no_items_dashboard_json["items"] is None
+
     def _soft_delete(
         self,
         model_id: int,
@@ -998,7 +1053,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response_json = response.json()
         return response_json.get("id", None), response_json
 
-    def _get_dashboard(self, dashboard_id: int) -> Dict:
-        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/")
+    def _get_dashboard(self, dashboard_id: int, query_params: str = "") -> Dict:
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/{query_params}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()

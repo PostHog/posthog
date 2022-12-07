@@ -1,5 +1,4 @@
 import './TextCard.scss'
-import { Textfit } from 'react-textfit'
 import { ResizeHandle1D, ResizeHandle2D } from 'lib/components/Cards/handles'
 import clsx from 'clsx'
 import { DashboardTile, DashboardType } from '~/types'
@@ -10,7 +9,7 @@ import { urls } from 'scenes/urls'
 import ReactMarkdown from 'react-markdown'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { CardMeta, Resizeable } from 'lib/components/Cards/Card'
 
 interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
@@ -31,16 +30,20 @@ interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, '
     closeDetails?: () => void
 }
 
-export function TextCardBody({ text, closeDetails, style }: TextCardBodyProps): JSX.Element {
-    useEffect(() => {
-        window.dispatchEvent(new Event('resize'))
-    }, [style?.height])
-
+export function TextContent({ text, closeDetails, style }: TextCardBodyProps): JSX.Element {
     return (
-        <div className="TextCard-Body p-2 w-full overflow-y-auto" onClick={() => closeDetails?.()} style={style}>
-            <Textfit mode={'multi'} min={14} max={100}>
-                <ReactMarkdown>{text}</ReactMarkdown>
-            </Textfit>
+        // eslint-disable-next-line react/forbid-dom-props
+        <div className="p-2 w-full overflow-auto" onClick={() => closeDetails?.()} style={style}>
+            <ReactMarkdown>{text}</ReactMarkdown>
+        </div>
+    )
+}
+
+export function TextCardBody({ text, closeDetails, style }: TextCardBodyProps): JSX.Element {
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div className="TextCard-Body w-full" onClick={() => closeDetails?.()} style={style}>
+            <TextContent text={text} />
         </div>
     )
 }

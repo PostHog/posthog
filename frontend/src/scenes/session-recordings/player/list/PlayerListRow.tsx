@@ -9,8 +9,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { PlayerListExpandableConfig } from 'scenes/session-recordings/player/list/PlayerList'
 import { LemonSelectOptionLeaf } from '@posthog/lemon-ui'
 
-export interface ListRowOption<T>
-    extends Pick<LemonSelectOptionLeaf<T>, 'value' | 'label' | 'tooltip' | 'disabled' | 'data-attr'> {
+export interface ListRowOption<T> extends Pick<LemonSelectOptionLeaf<T>, 'value' | 'label' | 'tooltip' | 'data-attr'> {
     onClick?: (record: T) => void
 }
 
@@ -141,7 +140,6 @@ function PlayerListRowRaw<T extends Record<string, any>>({
                                                         ;(option as ListRowOption<T> | undefined)?.onClick?.(record)
                                                     }}
                                                     status="stealth"
-                                                    disabled={option.disabled}
                                                     fullWidth
                                                     data-attr={option['data-attr']}
                                                 >

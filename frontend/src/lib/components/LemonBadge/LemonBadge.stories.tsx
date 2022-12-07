@@ -1,67 +1,46 @@
-import { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { LemonBadge, LemonBadgeProps } from './LemonBadge'
+import { LemonBadge } from './LemonBadge'
 import { LemonButton } from '../LemonButton'
+import { IconPlusMini } from '../icons'
 
 export default {
-    title: 'Lemon UI/Lemon Badge',
+    title: 'Lemon UI/Lemon Badge/Lemon Badge',
     component: LemonBadge,
     parameters: {
         chromatic: { disableSnapshot: false },
     },
 } as ComponentMeta<typeof LemonBadge>
 
-const Template: ComponentStory<typeof LemonBadge> = ({ count, ...props }: LemonBadgeProps) => {
-    const [countOverride, setCount] = useState(count as number)
-
-    return (
-        <>
-            <div className="flex space-x-4">
-                Count: <LemonBadge count={countOverride} {...props} />
-            </div>
-            <br />
-            <div className="flex space-x-4">
-                <LemonButton type="primary" onClick={() => setCount((countOverride || 0) + 1)}>
-                    Increment
-                </LemonButton>
-                <LemonButton type="secondary" onClick={() => setCount((countOverride || 0) - 1)}>
-                    Decrement
-                </LemonButton>
-            </div>
-        </>
-    )
-}
+const Template: ComponentStory<typeof LemonBadge> = (props) => (
+    <div className="flex">
+        <LemonBadge {...props} />
+    </div>
+)
 
 export const Standard = Template.bind({})
-Standard.args = { count: 1 }
-
-export const OverNine = Template.bind({})
-OverNine.args = { count: 10 }
-
-export const ShowZero = Template.bind({})
-ShowZero.args = { count: 0, showZero: true }
+Standard.args = { content: '@' }
 
 export const Positioning: ComponentStory<typeof LemonBadge> = () => {
     return (
         <div className="space-y-4">
             <LemonButton type="secondary">
                 top-right
-                <LemonBadge count={4} position="top-right" />
+                <LemonBadge content={<IconPlusMini />} position="top-right" />
             </LemonButton>
 
             <LemonButton type="secondary">
                 top-left
-                <LemonBadge count={4} position="top-left" />
+                <LemonBadge content={<IconPlusMini />} position="top-left" />
             </LemonButton>
 
             <LemonButton type="secondary">
                 bottom-right
-                <LemonBadge count={4} position="bottom-right" />
+                <LemonBadge content={<IconPlusMini />} position="bottom-right" />
             </LemonButton>
 
             <LemonButton type="secondary">
                 bottom-left
-                <LemonBadge count={4} position="bottom-left" />
+                <LemonBadge content={<IconPlusMini />} position="bottom-left" />
             </LemonButton>
         </div>
     )
@@ -71,11 +50,11 @@ export const Sizes: ComponentStory<typeof LemonBadge> = () => {
     return (
         <div className="flex space-x-2 items-center">
             <span>small:</span>
-            <LemonBadge count={4} size="small" />
+            <LemonBadge content={<IconPlusMini />} size="small" />
             <span>medium:</span>
-            <LemonBadge count={4} size="medium" />
+            <LemonBadge content={<IconPlusMini />} size="medium" />
             <span>large:</span>
-            <LemonBadge count={4} size="large" />
+            <LemonBadge content={<IconPlusMini />} size="large" />
         </div>
     )
 }
@@ -84,11 +63,11 @@ export const Status: ComponentStory<typeof LemonBadge> = () => {
     return (
         <div className="flex space-x-2 items-center">
             <span>primary:</span>
-            <LemonBadge count={4} status="primary" />
+            <LemonBadge content={<IconPlusMini />} status="primary" />
             <span>danger:</span>
-            <LemonBadge count={4} status="danger" />
+            <LemonBadge content={<IconPlusMini />} status="danger" />
             <span>muted:</span>
-            <LemonBadge count={4} status="muted" />
+            <LemonBadge content={<IconPlusMini />} status="muted" />
         </div>
     )
 }

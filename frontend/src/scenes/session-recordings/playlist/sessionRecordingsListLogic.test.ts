@@ -56,6 +56,13 @@ describe('sessionRecordingsListLogic', () => {
                                 results: ['Recordings filtered by duration'],
                             },
                         ]
+                    } else if (searchParams.get('static_recordings')) {
+                        return [
+                            200,
+                            {
+                                results: ['Recordings belonging to static playlist'],
+                            },
+                        ]
                     }
                     return [
                         200,
@@ -227,6 +234,41 @@ describe('sessionRecordingsListLogic', () => {
                     value: 600,
                     operator: PropertyOperator.LessThan,
                 })
+            })
+        })
+
+        describe('fetch static recordings list', () => {
+            beforeEach(() => {
+                logic = sessionRecordingsListLogic({
+                    key: 'static-tests',
+                    isStatic: true,
+                    staticRecordings: [{ id: '1' }, { id: '2' }],
+                })
+                logic.mount()
+            })
+            it('calls list session recordings for static playlists', async () => {
+                await expectLogic(logic)
+                    .toDispatchActions(['getSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        sessionRecordings: ['Recordings belonging to static playlist'],
+                    })
+            })
+        })
+
+        describe('set recording from hash param', () => {
+            it('loads the correct recording from the hash params', async () => {
+                router.actions.push('/recordings/recent', {}, { sessionRecordingId: 'abc' })
+
+                logic = sessionRecordingsListLogic({
+                    key: 'hash-recording-tests',
+                })
+                logic.mount()
+
+                await expectLogic(logic).toDispatchActions(['getSessionRecordingsSuccess']).toMatchValues({
+                    selectedRecordingId: 'abc',
+                })
+
+                logic.actions.setSelectedRecordingId('1234')
             })
         })
 

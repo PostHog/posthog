@@ -50,6 +50,8 @@ export enum AvailableFeature {
     SUBSCRIPTIONS = 'subscriptions',
     APP_METRICS = 'app_metrics',
     RECORDINGS_PLAYLISTS = 'recordings_playlists',
+    ROLE_BASED_ACCESS = 'role_based_access',
+    RECORDINGS_FILE_EXPORT = 'recordings_file_export',
 }
 
 export enum LicensePlan {
@@ -329,13 +331,19 @@ export interface ElementType {
 }
 
 export type ToolbarUserIntent = 'add-action' | 'edit-action'
+export type ToolbarSource = 'url' | 'localstorage'
+export type ToolbarVersion = 'toolbar'
 
-export interface EditorProps {
+/* sync with posthog-js */
+export interface ToolbarParams {
     apiURL?: string
     jsURL?: string
-    temporaryToken?: string
+    token?: string /** public posthog-js token */
+    temporaryToken?: string /** private temporary user token */
     actionId?: number
     userIntent?: ToolbarUserIntent
+    source?: ToolbarSource
+    toolbarVersion?: ToolbarVersion
     instrument?: boolean
     distinctId?: string
     userEmail?: string
@@ -343,7 +351,7 @@ export interface EditorProps {
     featureFlags?: Record<string, string | boolean>
 }
 
-export interface ToolbarProps extends EditorProps {
+export interface ToolbarProps extends ToolbarParams {
     posthog?: PostHog
     disableExternalStyles?: boolean
 }
@@ -383,6 +391,7 @@ export enum SavedInsightsTabs {
 export enum SessionRecordingsTabs {
     Recent = 'recent',
     Playlists = 'playlists',
+    FilePlayback = 'file-playback',
 }
 
 export enum ExperimentsTabs {
@@ -398,9 +407,14 @@ export enum ExperimentStatus {
 }
 
 export enum PropertyFilterType {
+    /** Event metadata and fields on the clickhouse events table */
+    Meta = 'meta',
+    /** Event properties */
     Event = 'event',
+    /** Person properties */
     Person = 'person',
     Element = 'element',
+    /** Event property with "$feature/" prepended */
     Feature = 'feature',
     Session = 'session',
     Cohort = 'cohort',
@@ -414,7 +428,6 @@ interface BasePropertyFilter {
     value: PropertyFilterValue
     label?: string
     type?: PropertyFilterType
-    group_type_index?: number | null
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -449,6 +462,17 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     value: number
 }
 
+export interface GroupPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Group
+    group_type_index?: number | null
+    operator: PropertyOperator
+}
+
+export interface FeaturePropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Feature
+    operator: PropertyOperator
+}
+
 export type PropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
@@ -456,6 +480,8 @@ export type PropertyFilter =
     | SessionPropertyFilter
     | CohortPropertyFilter
     | RecordingDurationFilter
+    | GroupPropertyFilter
+    | FeaturePropertyFilter
 
 export type AnyPropertyFilter =
     | Partial<EventPropertyFilter>
@@ -464,6 +490,8 @@ export type AnyPropertyFilter =
     | Partial<SessionPropertyFilter>
     | Partial<CohortPropertyFilter>
     | Partial<RecordingDurationFilter>
+    | Partial<GroupPropertyFilter>
+    | Partial<FeaturePropertyFilter>
 
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
@@ -510,6 +538,7 @@ export interface SessionRecordingMeta {
     segments: RecordingSegment[]
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
     recordingDurationMs: number
+    playlists?: SessionRecordingPlaylistType['id'][]
 }
 
 export interface SessionPlayerSnapshotData {
@@ -568,6 +597,7 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
+    static_recordings?: SessionRecordingPlaylistType['playlist_items']
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {
@@ -612,7 +642,7 @@ export interface FunnelStepRangeEntityFilter {
 export type EntityFilterTypes = EntityFilter | ActionFilter | null
 
 export interface PersonType {
-    id?: number
+    id?: string
     uuid?: string
     name?: string
     distinct_ids: string[]
@@ -773,15 +803,17 @@ export interface EventsTableAction {
 }
 
 export interface EventType {
-    elements: ElementType[]
-    elements_hash: string | null // Deprecated for elements_chain
-    elements_chain?: string | null
-    id: number | string
+    // fields from the API
+    id: string
+    distinct_id: string
     properties: Record<string, any>
-    timestamp: string
-    colonTimestamp?: string // Used in session recording events list
-    person?: Pick<PersonType, 'is_identified' | 'distinct_ids' | 'properties'>
     event: string
+    timestamp: string
+    person?: Pick<PersonType, 'is_identified' | 'distinct_ids' | 'properties'>
+    elements: ElementType[]
+    elements_chain?: string | null
+    /** Used in session recording events list */
+    colonTimestamp?: string
 }
 
 export interface RecordingTimeMixinType {
@@ -816,6 +848,8 @@ export interface SessionRecordingPlaylistType {
     last_modified_at: string
     last_modified_by: UserBasicType | null
     filters?: RecordingFilters
+    playlist_items?: Pick<SessionRecordingType, 'id'>[] // only id is exposed by api to minimize data passed through components
+    is_static?: boolean
 }
 
 export interface SessionRecordingType {
@@ -833,6 +867,11 @@ export interface SessionRecordingType {
     distinct_id?: string
     email?: string
     person?: PersonType
+    /** List of static playlists that this recording is referenced on */
+    playlists?: SessionRecordingPlaylistType['id'][]
+    click_count?: number
+    keypress_count?: number
+    urls?: string[]
 }
 
 export interface SessionRecordingPropertiesType {
@@ -962,6 +1001,7 @@ export interface DashboardTile extends Tileable, Cacheable {
     insight?: InsightModel
     text?: TextModel
     deleted?: boolean
+    is_cached?: boolean
 }
 
 export interface TextModel {
@@ -1175,6 +1215,7 @@ export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
 export enum ChartDisplayType {
     ActionsLineGraph = 'ActionsLineGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
+    ActionsAreaGraph = 'ActionsAreaGraph',
     ActionsTable = 'ActionsTable',
     ActionsPie = 'ActionsPie',
     ActionsBar = 'ActionsBar',
@@ -1230,9 +1271,6 @@ export interface FilterType {
     date_from?: string | null
     date_to?: string | null
 
-    // used by insights and funnels
-    interval?: IntervalType
-
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
@@ -1245,6 +1283,8 @@ export interface FilterType {
     entity_type?: EntityType
     entity_math?: string
 
+    // used by trends and stickiness
+    interval?: IntervalType
     // TODO: extract into TrendsFunnelsCommonFilterType
     breakdown_type?: BreakdownType | null
     breakdown?: BreakdownKeyType
@@ -1267,8 +1307,6 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
-    people_day?: any
-    people_action?: any
     formula?: any
     shown_as?: ShownAsValue
     display?: ChartDisplayType
@@ -1359,6 +1397,7 @@ export interface EventsListQueryParams {
     orderBy?: string[]
     action_id?: number
     after?: string
+    before?: string
     limit?: number
 }
 
@@ -1413,9 +1452,6 @@ export interface SystemStatusRow {
 
 export interface SystemStatus {
     overview: SystemStatusRow[]
-    internal_metrics: {
-        clickhouse?: DashboardType
-    }
 }
 
 export type QuerySummary = { duration: string } & Record<string, string>
@@ -1632,7 +1668,8 @@ export interface SetInsightOptions {
 export interface FeatureFlagGroupType {
     properties: AnyPropertyFilter[]
     rollout_percentage: number | null
-    variant?: string
+    variant: string | null
+    users_affected?: number
 }
 
 export interface MultivariateFlagVariant {
@@ -1666,6 +1703,7 @@ export interface FeatureFlagType {
     experiment_set: string[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
+    can_edit: boolean
 }
 
 export interface FeatureFlagRollbackConditions {
@@ -1678,6 +1716,11 @@ export interface FeatureFlagRollbackConditions {
 export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
     value: boolean | string
+}
+
+export interface UserBlastRadiusType {
+    users_affected: number
+    total_users: number
 }
 
 export interface PrevalidatedInvite {
@@ -1740,7 +1783,6 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
 
 export enum DashboardPlacement {
     Dashboard = 'dashboard', // When on the standard dashboard page
-    InternalMetrics = 'internal-metrics', // When embedded in /instance/status
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
     Public = 'public', // When viewing the dashboard publicly
     Export = 'export', // When the dashboard is being exported (alike to being printed)
@@ -2282,21 +2324,33 @@ export enum ExporterFormat {
     PNG = 'image/png',
     CSV = 'text/csv',
     PDF = 'application/pdf',
+    JSON = 'application/json',
 }
+
+/** Exporting directly from the browser to a file */
+export type LocalExportContext = {
+    localData: string
+    filename: string
+    mediaType: ExporterFormat
+}
+
+export type OnlineExportContext = {
+    method?: string
+    path: string
+    query?: any
+    body?: any
+    filename?: string
+    max_limit?: number
+}
+
+export type ExportContext = OnlineExportContext | LocalExportContext
 
 export interface ExportedAssetType {
     id: number
     export_format: ExporterFormat
     dashboard?: number
     insight?: number
-    export_context?: {
-        method?: string
-        path: string
-        query?: any
-        body?: any
-        filename?: string
-        max_limit?: number
-    }
+    export_context?: ExportContext
     has_content: boolean
     filename: string
 }
@@ -2320,4 +2374,53 @@ export interface MediaUploadResponse {
 export enum RolloutConditionType {
     Insight = 'insight',
     Sentry = 'sentry',
+}
+
+export enum Resource {
+    FEATURE_FLAGS = 'feature flags',
+}
+
+export enum AccessLevel {
+    READ = 21,
+    WRITE = 37,
+}
+
+export interface RoleType {
+    id: string
+    name: string
+    feature_flags_access_level: AccessLevel
+    members: RoleMemberType[]
+    associated_flags: { id: number; key: string }[]
+    created_at: string
+    created_by: UserBasicType | null
+}
+
+export interface RolesListParams {
+    feature_flags_access_level?: AccessLevel
+}
+
+export interface FeatureFlagAssociatedRoleType {
+    id: string
+    feature_flag: FeatureFlagType
+    role: RoleType
+    updated_at: string
+    added_at: string
+}
+
+export interface RoleMemberType {
+    id: string
+    user: UserBaseType
+    role_id: string
+    joined_at: string
+    updated_at: string
+    user_uuid: string
+}
+
+export interface OrganizationResourcePermissionType {
+    id: string
+    resource: Resource
+    access_level: AccessLevel
+    created_at: string
+    updated_at: string
+    created_by: UserBaseType | null
 }

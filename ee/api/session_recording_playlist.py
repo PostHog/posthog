@@ -1,7 +1,7 @@
 from typing import Dict, List, Optional
 
 import structlog
-from django.db.models import Q, QuerySet
+from django.db.models import Prefetch, Q, QuerySet
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import request, serializers, viewsets
@@ -12,7 +12,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import SESSION_RECORDINGS_PLAYLIST_FREE_COUNT, AvailableFeature
-from posthog.models import SessionRecordingPlaylist, Team, User
+from posthog.models import SessionRecordingPlaylist, SessionRecordingPlaylistItem, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.team.team import get_available_features_for_team
 from posthog.models.utils import UUIDT
@@ -52,6 +52,17 @@ def log_playlist_activity(
         )
 
 
+class SessionRecordingPlaylistItemSerializer(serializers.Serializer):
+    session_id = serializers.CharField()
+    created_at = serializers.DateTimeField()
+
+    def to_representation(self, instance):
+        return {
+            "id": instance.session_id,
+            "created_at": instance.created_at,
+        }
+
+
 class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
     class Meta:
         model = SessionRecordingPlaylist
@@ -68,6 +79,8 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             "filters",
             "last_modified_at",
             "last_modified_by",
+            "is_static",
+            "playlist_items",
         ]
         read_only_fields = [
             "id",
@@ -77,10 +90,12 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             "created_by",
             "last_modified_at",
             "last_modified_by",
+            "playlist_items",
         ]
 
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
+    playlist_items = SessionRecordingPlaylistItemSerializer(many=True, read_only=True, default=list)
 
     def create(self, validated_data: Dict, *args, **kwargs) -> SessionRecordingPlaylist:
         request = self.context["request"]
@@ -172,6 +187,12 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
         else:
             queryset = queryset.order_by("last_modified_at")
 
+        queryset = queryset.prefetch_related(
+            Prefetch(
+                "playlist_items", queryset=SessionRecordingPlaylistItem.objects.exclude(deleted=True).order_by("id")
+            )
+        )
+
         return queryset
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
@@ -182,6 +203,8 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
                 queryset = queryset.filter(created_by=request.user)
             elif key == "pinned":
                 queryset = queryset.filter(pinned=True)
+            elif key == "static":
+                queryset = queryset.filter(is_static=True)
             elif key == "date_from":
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(request.GET["date_from"]))
             elif key == "date_to":

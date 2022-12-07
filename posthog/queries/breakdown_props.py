@@ -2,8 +2,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from django.forms import ValidationError
 
-from posthog.client import sync_execute
-from posthog.constants import BREAKDOWN_TYPES, PropertyOperatorType
+from posthog.constants import BREAKDOWN_TYPES, MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import format_filter_query
 from posthog.models.entity import Entity
@@ -21,6 +20,7 @@ from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
@@ -93,7 +93,7 @@ def get_breakdown_prop_values(
                 INNER JOIN ({get_team_distinct_ids_query(team.pk)}) AS pdi ON e.distinct_id = pdi.distinct_id
                 INNER JOIN ({person_subquery}) person ON pdi.person_id = person.id
             """
-        elif column_optimizer.is_using_cohort_propertes:
+        elif entity.math in (WEEKLY_ACTIVE, MONTHLY_ACTIVE) or column_optimizer.is_using_cohort_propertes:
             person_join_clauses = f"""
                 INNER JOIN ({get_team_distinct_ids_query(team.pk)}) AS pdi ON e.distinct_id = pdi.distinct_id
             """
@@ -169,7 +169,7 @@ def get_breakdown_prop_values(
             null_person_filter=null_person_filter,
             **entity_format_params,
         )
-    return sync_execute(
+    return insight_sync_execute(
         elements_query,
         {
             "key": filter.breakdown,
@@ -185,6 +185,8 @@ def get_breakdown_prop_values(
             **extra_params,
             **date_params,
         },
+        query_type="get_breakdown_prop_values",
+        filter=filter,
     )[0][0]
 
 
@@ -226,13 +228,11 @@ def _to_value_expression(
         )
     else:
         value_expression = get_single_or_multi_property_string_expr(
-            breakdown, table="events", query_alias=None, column="properties"
+            breakdown, table="events", query_alias=None, column="properties", normalize_url=breakdown_normalize_url
         )
 
     if cast_as_float:
         value_expression = f"toFloat64OrNull(toString({value_expression}))"
-
-    value_expression = normalize_url_breakdown(value_expression, breakdown_normalize_url)
 
     return f"{value_expression} AS value"
 
@@ -315,12 +315,3 @@ def get_breakdown_cohort_name(cohort_id: int) -> str:
         return "all users"
     else:
         return Cohort.objects.get(pk=cohort_id).name
-
-
-def normalize_url_breakdown(breakdown_value, breakdown_normalize_url: bool = True):
-    if breakdown_normalize_url:
-        return (
-            f"if( empty(trim(TRAILING '/?#' from {breakdown_value})), '/', trim(TRAILING '/?#' from {breakdown_value}))"
-        )
-
-    return breakdown_value

@@ -19,7 +19,7 @@ export interface LemonButtonPropsBase
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
     /** What color scheme the button should follow */
-    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'stealth'
+    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */
@@ -111,7 +111,7 @@ function LemonButtonInternal(
                 className
             )}
             disabled={disabled || loading}
-            to={to}
+            to={disabled ? undefined : to}
             target={targetBlank ? '_blank' : undefined}
             {...linkOnlyProps}
             {...buttonProps}
@@ -138,7 +138,7 @@ export const LemonButton = React.forwardRef(LemonButtonInternal)
 
 export type SideAction = Pick<
     LemonButtonProps,
-    'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr' | 'aria-label'
+    'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr' | 'aria-label' | 'status'
 > & {
     popup?: LemonButtonPopup
 }

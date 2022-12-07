@@ -166,14 +166,14 @@
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     HAVING steps = max_steps)
   WHERE steps IN [1, 2, 3]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestFunnelPersons.test_funnel_person_recordings.1
@@ -354,14 +354,14 @@
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     HAVING steps = max_steps)
   WHERE steps IN [2, 3]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestFunnelPersons.test_funnel_person_recordings.3
@@ -542,14 +542,14 @@
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     HAVING steps = max_steps)
   WHERE steps = 2
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestFunnelPersons.test_funnel_person_recordings.5

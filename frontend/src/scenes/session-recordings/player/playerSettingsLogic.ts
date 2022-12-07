@@ -31,6 +31,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         ],
         showOnlyMatching: [
             false,
+            { persist: true },
             {
                 setShowOnlyMatching: (_, { showOnlyMatching }) => showOnlyMatching,
             },
@@ -47,7 +48,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setIsMetadataExpanded: (_, { isMetadataExpanded }) => isMetadataExpanded,
             },
         ],
-
         autoplayEnabled: [
             true,
             { persist: true },

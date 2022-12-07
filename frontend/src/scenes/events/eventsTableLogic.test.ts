@@ -13,12 +13,24 @@ const errorToastSpy = jest.spyOn(lemonToast, 'error')
 
 const timeNow = '2021-05-05T00:00:00.000Z'
 
-import * as dayjs from 'lib/dayjs'
-jest.spyOn(dayjs, 'now').mockImplementation(() => dayjs.dayjs(timeNow))
-
 import * as exporter from 'lib/components/ExportButton/exporter'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
-jest.spyOn(exporter, 'triggerExport')
+
+jest.mock('lib/dayjs', () => {
+    const mod = jest.requireActual('lib/dayjs')
+    return {
+        ...mod,
+        now: () => mod.dayjs(timeNow),
+    }
+})
+
+jest.mock('lib/components/ExportButton/exporter', () => {
+    const mod = jest.requireActual('lib/components/ExportButton/exporter')
+    return {
+        ...mod,
+        triggerExport: jest.fn(),
+    }
+})
 
 const randomBool = (): boolean => Math.random() < 0.5
 
@@ -27,8 +39,8 @@ const randomString = (): string => Math.random().toString(36).substring(2, 5)
 const makeEvent = (id: string = '1', timestamp: string = randomString()): EventType => ({
     id: id,
     timestamp,
+    distinct_id: 'distinct_id',
     elements: [],
-    elements_hash: '',
     event: '',
     properties: {},
 })

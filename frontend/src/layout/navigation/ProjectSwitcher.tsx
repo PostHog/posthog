@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { IconPlus, IconSettings } from 'lib/components/icons'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonSnack } from 'lib/components/LemonSnack/LemonSnack'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -10,6 +11,19 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, TeamBasicType } from '~/types'
 import { navigationLogic } from './navigationLogic'
+
+export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
+    return (
+        <div className="flex items-center">
+            <span>{team.name}</span>
+            {team.is_demo ? (
+                <LemonSnack className="ml-2 text-xs shrink-0" color="primary-extralight">
+                    Demo
+                </LemonSnack>
+            ) : null}
+        </div>
+    )
+}
 
 export function ProjectSwitcherOverlay(): JSX.Element {
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
@@ -69,7 +83,7 @@ function CurrentProjectButton(): JSX.Element | null {
             status="stealth"
             fullWidth
         >
-            {currentTeam.name}
+            <ProjectName team={currentTeam} />
         </LemonButtonWithSideAction>
     ) : null
 }
@@ -97,7 +111,7 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
             fullWidth
             disabled={!team.effective_membership_level}
         >
-            {team.name}
+            <ProjectName team={team} />
         </LemonButtonWithSideAction>
     )
 }

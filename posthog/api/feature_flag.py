@@ -4,7 +4,8 @@ from typing import Any, Dict, List, Optional, cast
 from django.db.models import QuerySet
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -16,10 +17,25 @@ from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort import Cohort
-from posthog.models.feature_flag import FeatureFlagMatcher, get_active_feature_flags
+from posthog.models.feature_flag import (
+    FeatureFlagMatcher,
+    can_user_edit_feature_flag,
+    get_active_feature_flags,
+    get_user_blast_radius,
+)
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+
+
+class CanEditFeatureFlag(BasePermission):
+    message = "You don't have edit permissions for this feature flag."
+
+    def has_object_permission(self, request: Request, view, feature_flag) -> bool:
+        if request.method in SAFE_METHODS:
+            return True
+        else:
+            return can_user_edit_feature_flag(request, feature_flag)
 
 
 class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
@@ -36,6 +52,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         allow_blank=True,
         help_text="contains the description for the flag (field name `name` is kept for backwards-compatibility)",
     )
+    can_edit = serializers.SerializerMethodField()
 
     class Meta:
         model = FeatureFlag
@@ -54,7 +71,12 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "experiment_set",
             "rollback_conditions",
             "performed_rollback",
+            "can_edit",
         ]
+
+    def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
+        # TODO: make sure this isn't n+1
+        return can_user_edit_feature_flag(self.context["request"], feature_flag)
 
     # Simple flags are ones that only have rollout_percentage
     #  That means server side libraries are able to gate these flags without calling to the server
@@ -207,7 +229,12 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+        CanEditFeatureFlag,
+    ]
     authentication_classes = [
         PersonalAPIKeyAuthentication,
         TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
@@ -246,10 +273,11 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
         for feature_flag in feature_flags:
             flags.append(
                 {
-                    "feature_flag": FeatureFlagSerializer(feature_flag).data,
+                    "feature_flag": FeatureFlagSerializer(feature_flag, context=self.get_serializer_context()).data,
                     "value": matches.get(feature_flag.key, False),
                 }
             )
+
         return Response(flags)
 
     @action(methods=["GET"], detail=False)
@@ -271,7 +299,10 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
         return Response(
             {
-                "flags": [MinimalFeatureFlagSerializer(feature_flag).data for feature_flag in parsed_flags],
+                "flags": [
+                    MinimalFeatureFlagSerializer(feature_flag, context=self.get_serializer_context()).data
+                    for feature_flag in parsed_flags
+                ],
                 "group_type_mapping": {
                     str(row.group_type_index): row.group_type
                     for row in GroupTypeMapping.objects.filter(team_id=self.team_id)
@@ -312,6 +343,23 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
             }
 
         return Response(flags_with_evaluation_reasons)
+
+    @action(methods=["POST"], detail=False)
+    def user_blast_radius(self, request: request.Request, **kwargs):
+
+        if "condition" not in request.data:
+            raise exceptions.ValidationError("Missing condition for which to get blast radius")
+
+        condition = request.data.get("condition") or {}
+
+        users_affected, total_users = get_user_blast_radius(condition, self.team)
+
+        return Response(
+            {
+                "users_affected": users_affected,
+                "total_users": total_users,
+            }
+        )
 
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: request.Request, **kwargs):

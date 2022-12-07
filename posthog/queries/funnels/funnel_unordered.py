@@ -33,6 +33,8 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
     See test_advanced_funnel_multiple_exclusions_between_steps for details.
     """
 
+    QUERY_TYPE = "funnel_unordered"
+
     def _serialize_step(self, step: Entity, count: int, people: Optional[List[uuid.UUID]] = None) -> Dict[str, Any]:
         return {
             "action_id": None,
@@ -57,7 +59,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         return f"""
         SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {self._get_step_time_median(max_steps)} {breakdown_clause} FROM (
             {self.get_step_counts_query()}
-        ) {'GROUP BY prop' if breakdown_clause != '' else ''} SETTINGS allow_experimental_window_functions = 1
+        ) {'GROUP BY prop' if breakdown_clause != '' else ''}
         """
 
     def get_step_counts_query(self):

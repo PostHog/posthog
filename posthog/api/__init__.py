@@ -30,6 +30,7 @@ from . import (
     property_definition,
     sharing,
     site_app,
+    tagged_item,
     team,
     uploaded_media,
     user,
@@ -51,7 +52,7 @@ router.register(r"dashboard_item", dashboard.LegacyInsightViewSet)  # To be dele
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet)
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
-router.register(r"prompts", prompt.PromptSequenceStateViewSet, "user_prompts")  # User prompts
+router.register(r"prompts", prompt.PromptSequenceViewSet, "user_prompts")  # User prompts
 
 # Nested endpoints shared
 projects_router = router.register(r"projects", team.TeamViewSet)
@@ -63,7 +64,9 @@ project_plugins_configs_router.register(
 )
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
 projects_router.register(r"activity_log", activity_log.ActivityLogViewSet, "project_activity_log", ["team_id"])
-projects_router.register(r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"])
+project_feature_flags_router = projects_router.register(
+    r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"]
+)
 project_dashboards_router = projects_router.register(
     r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
 )
@@ -107,6 +110,8 @@ projects_router.register(
 )
 
 projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["team_id"])
+
+projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["team_id"])
 
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet)

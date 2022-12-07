@@ -22,6 +22,7 @@ from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_type_mapping import GroupTypeMapping
 from .insight import Insight, InsightViewed
+from .insight_caching_state import InsightCachingState
 from .instance_setting import InstanceSetting
 from .integration import Integration
 from .messaging import MessagingRecord
@@ -30,11 +31,11 @@ from .organization_domain import OrganizationDomain
 from .person import Person, PersonDistinctId
 from .personal_api_key import PersonalAPIKey
 from .plugin import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
-from .prompt import UserPromptSequenceState
+from .prompt.prompt import Prompt, PromptSequence, UserPromptState
 from .property import Property
 from .property_definition import PropertyDefinition
-from .session_recording_event import SessionRecordingEvent
 from .session_recording_playlist import SessionRecordingPlaylist
+from .session_recording_playlist_item import SessionRecordingPlaylistItem
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
 from .tag import Tag
@@ -70,6 +71,7 @@ __all__ = [
     "Group",
     "GroupTypeMapping",
     "Insight",
+    "InsightCachingState",
     "InsightViewed",
     "InstanceSetting",
     "Integration",
@@ -88,11 +90,13 @@ __all__ = [
     "PluginConfig",
     "PluginLogEntry",
     "PluginSourceFile",
+    "Prompt",
+    "PromptSequence",
     "Property",
     "PropertyDefinition",
     "RetentionFilter",
-    "SessionRecordingEvent",
     "SessionRecordingPlaylist",
+    "SessionRecordingPlaylistItem",
     "SharingConfiguration",
     "Subscription",
     "Tag",
@@ -102,5 +106,5 @@ __all__ = [
     "UploadedMedia",
     "User",
     "UserManager",
-    "UserPromptSequenceState",
+    "UserPromptState",
 ]

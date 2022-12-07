@@ -1,21 +1,21 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { Breadcrumb, SessionRecordingPlaylistType, SessionRecordingsTabs } from '~/types'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { Breadcrumb, SessionRecordingsTabs } from '~/types'
 import { urls } from 'scenes/urls'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-
 import type { sessionRecordingsLogicType } from './sessionRecordingsLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { loaders } from 'kea-loaders'
-import { createPlaylist } from './playlist/playlistUtils'
+import { savedSessionRecordingPlaylistModelLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
 
 export const humanFriendlyTabName = (tab: SessionRecordingsTabs): string => {
     switch (tab) {
         case SessionRecordingsTabs.Recent:
             return 'Recent Recordings'
         case SessionRecordingsTabs.Playlists:
-            return 'Saved Playlists'
+            return 'Playlists'
+        case SessionRecordingsTabs.FilePlayback:
+            return 'Playback from file'
         default:
             return capitalizeFirstLetter(tab)
     }
@@ -25,9 +25,18 @@ export const PLAYLIST_LIMIT_REACHED_MESSAGE = `You have reached the free limit o
 
 export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
     path(() => ['scenes', 'session-recordings', 'root']),
-    connect({
-        values: [featureFlagLogic, ['featureFlags']],
-    }),
+    connect(() => ({
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            savedSessionRecordingPlaylistModelLogic,
+            ['_playlistModelLoading'],
+        ],
+        actions: [
+            savedSessionRecordingPlaylistModelLogic,
+            ['createSavedPlaylist', 'duplicateSavedPlaylist', 'updateSavedPlaylist'],
+        ],
+    })),
     actions({
         setTab: (tab: SessionRecordingsTabs = SessionRecordingsTabs.Recent) => ({ tab }),
         saveNewPlaylist: true,
@@ -41,19 +50,16 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
         ],
     })),
 
-    loaders(({ values }) => ({
-        newPlaylist: [
-            null as SessionRecordingPlaylistType | null,
-            {
-                saveNewPlaylist: async () => {
-                    // NOTE: We do it from the url so we aren't always loading recent recordings
-                    const filters = router.values.searchParams?.filters
-                    return await createPlaylist({
-                        filters: values.tab === SessionRecordingsTabs.Recent ? filters : undefined,
-                    })
+    listeners(({ actions, values }) => ({
+        saveNewPlaylist: async () => {
+            const filters = router.values.searchParams?.filters
+            await actions.createSavedPlaylist(
+                {
+                    filters: values.tab === SessionRecordingsTabs.Recent ? filters : undefined,
                 },
-            },
-        ],
+                true
+            )
+        },
     })),
 
     actionToUrl(({ values }) => {
@@ -63,6 +69,7 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
     }),
 
     selectors(({}) => ({
+        newPlaylistLoading: [(s) => [s._playlistModelLoading], (_playlistModelLoading) => !!_playlistModelLoading],
         breadcrumbs: [
             (s) => [s.tab],
             (tab): Breadcrumb[] => [
@@ -75,9 +82,6 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
 
     urlToAction(({ actions, values }) => {
         return {
-            [urls.sessionRecordings()]: () => {
-                router.actions.replace(urls.sessionRecordings(SessionRecordingsTabs.Recent))
-            },
             '/recordings/:tab': ({ tab }) => {
                 if (tab !== values.tab) {
                     actions.setTab(tab as SessionRecordingsTabs)

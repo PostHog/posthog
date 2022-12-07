@@ -21,6 +21,8 @@ import { Placement } from '@floating-ui/react-dom-interactions'
 import { DefaultAction, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
 import { HedgehogBuddyWithLogic } from '../HedgehogBuddy/HedgehogBuddy'
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { activationLogic } from '../ActivationSidebar/activationLogic'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
@@ -85,6 +87,8 @@ export function HelpButton({
     const { isPromptVisible } = useValues(inAppPromptLogic)
     const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
     const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
+    const { toggleActivationSideBar } = useActions(navigationLogic)
+    const { shouldShowSecondaryOnboarding } = useValues(activationLogic)
 
     return (
         <>
@@ -145,17 +149,17 @@ export function HelpButton({
                                 Read the docs
                             </LemonButton>
                         )}
-                        {!isPromptVisible && (
+                        {shouldShowSecondaryOnboarding && (
                             <LemonButton
                                 icon={<IconTrendingUp />}
                                 status="stealth"
                                 fullWidth
                                 onClick={() => {
-                                    promptAction('activation-checklist')
+                                    toggleActivationSideBar()
                                     hideHelp()
                                 }}
                             >
-                                How to be successful with PostHog
+                                Quick Start
                             </LemonButton>
                         )}
                         {validProductTourSequences.length > 0 && (

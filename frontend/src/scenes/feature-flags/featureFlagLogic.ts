@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import type { featureFlagLogicType } from './featureFlagLogicType'
 import {
     AnyPropertyFilter,
+    AvailableFeature,
     Breadcrumb,
     FeatureFlagRollbackConditions,
     FeatureFlagType,
@@ -14,6 +15,8 @@ import {
     PropertyFilterType,
     PropertyOperator,
     RolloutConditionType,
+    FeatureFlagGroupType,
+    UserBlastRadiusType,
 } from '~/types'
 import api from 'lib/api'
 import { router, urlToAction } from 'kea-router'
@@ -30,6 +33,8 @@ import { forms } from 'kea-forms'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dayjs } from 'lib/dayjs'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
+import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
+import { userLogic } from 'scenes/userLogic'
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -49,7 +54,7 @@ const NEW_FLAG: FeatureFlagType = {
     created_at: null,
     key: '',
     name: '',
-    filters: { groups: [{ properties: [], rollout_percentage: null, variant: undefined }], multivariate: null },
+    filters: { groups: [{ properties: [], rollout_percentage: null, variant: null }], multivariate: null },
     deleted: false,
     active: true,
     created_by: null,
@@ -59,6 +64,7 @@ const NEW_FLAG: FeatureFlagType = {
     experiment_set: null,
     rollback_conditions: [],
     performed_rollback: false,
+    can_edit: true,
 }
 const NEW_VARIANT = {
     key: '',
@@ -121,6 +127,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['currentTeamId', 'sentryIntegrationEnabled'],
             groupsModel,
             ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel'],
+            userLogic,
+            ['hasAvailableFeature'],
         ],
     }),
     actions({
@@ -136,7 +144,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             index: number,
             newRolloutPercentage?: number | null,
             newProperties?: AnyPropertyFilter[],
-            newVariant?: string
+            newVariant?: string | null
         ) => ({
             index,
             newRolloutPercentage,
@@ -155,8 +163,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         loadInsightAtIndex: (index: number, filters: Partial<FilterType>) => ({ index, filters }),
         setInsightResultAtIndex: (index: number, average: number) => ({ index, average }),
         loadAllInsightsForFlag: true,
+        setAffectedUsers: (index: number, count?: number) => ({ index, count }),
+        setTotalUsers: (count: number) => ({ count }),
     }),
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         featureFlag: {
             defaults: { ...NEW_FLAG } as FeatureFlagType,
             errors: ({ key, filters }) => ({
@@ -177,6 +187,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             })
                         ),
                     },
+                    groups: values.propertySelectErrors,
                 },
             }),
             submit: (featureFlag) => {
@@ -207,7 +218,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (!state) {
                         return state
                     }
-                    const groups = [...state?.filters.groups, { properties: [], rollout_percentage: null }]
+                    const groups = [
+                        ...state?.filters.groups,
+                        { properties: [], rollout_percentage: null, variant: null },
+                    ]
                     return { ...state, filters: { ...state.filters, groups } }
                 },
                 addRollbackCondition: (state) => {
@@ -344,7 +358,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             ...state.filters,
                             aggregation_group_type_index: value,
                             // :TRICKY: We reset property filters after changing what you're aggregating by.
-                            groups: [{ properties: [], rollout_percentage: null }],
+                            groups: [{ properties: [], rollout_percentage: null, variant: null }],
                         },
                     }
                 },
@@ -367,6 +381,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }),
             },
         ],
+        affectedUsers: [
+            {},
+            {
+                setAffectedUsers: (state, { index, count }) => ({
+                    ...state,
+                    [index]: count,
+                }),
+                resetFeatureFlag: () => ({ 0: -1 }),
+                loadFeatureFlag: () => ({ 0: -1 }),
+            },
+        ],
+        totalUsers: [
+            null as number | null,
+            {
+                setTotalUsers: (_, { count }) => count,
+            },
+        ],
     }),
     loaders(({ values, props, actions }) => ({
         featureFlag: {
@@ -383,10 +414,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
                 const { created_at, id, ...flag } = updatedFlag
-
                 try {
                     if (!updatedFlag.id) {
-                        return await api.create(`api/projects/${values.currentTeamId}/feature_flags`, flag)
+                        const newFlag = await api.create(`api/projects/${values.currentTeamId}/feature_flags`, flag)
+                        if (values.roleBasedAccessEnabled) {
+                            featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(newFlag.id)
+                        }
+                        return newFlag
                     } else {
                         return await api.update(
                             `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,
@@ -462,8 +496,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     )}`
                 )
                 const counts = response.result?.[0]?.data
-                const firstWeek = counts.slice(0, 7)
-                const avg = Math.round(sum(firstWeek) / 7)
+                const avg = Math.round(sum(counts) / 7)
                 actions.setInsightResultAtIndex(index, avg)
             }
         },
@@ -481,10 +514,87 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 values.featureFlag.rollback_conditions[index].threshold_metric as FilterType
             )
         },
+        updateConditionSet: async ({ index, newProperties }, breakpoint) => {
+            if (newProperties) {
+                // properties have changed, so we'll have to re-fetch affected users
+                actions.setAffectedUsers(index, undefined)
+            }
+
+            if (
+                !newProperties ||
+                newProperties.some(
+                    (property) =>
+                        property.value === null ||
+                        property.value === undefined ||
+                        (Array.isArray(property.value) && property.value.length === 0)
+                )
+            ) {
+                return
+            }
+
+            await breakpoint(1000) // in ms
+
+            const response = await api.create(`api/projects/${values.currentTeamId}/feature_flags/user_blast_radius`, {
+                condition: { properties: newProperties },
+            })
+            actions.setAffectedUsers(index, response.users_affected)
+            actions.setTotalUsers(response.total_users)
+        },
+        addConditionSet: () => {
+            actions.setAffectedUsers(values.featureFlag.filters.groups.length - 1, -1)
+        },
+        editFeatureFlag: async ({ editing }) => {
+            if (!editing) {
+                return
+            }
+
+            const usersAffected: Promise<UserBlastRadiusType>[] = []
+
+            values.featureFlag?.filters?.groups?.forEach((condition, index) => {
+                actions.setAffectedUsers(index, undefined)
+
+                const properties = condition.properties
+                if (
+                    !properties ||
+                    properties?.length === 0 ||
+                    properties.some(
+                        (property) =>
+                            property.value === null ||
+                            property.value === undefined ||
+                            (Array.isArray(property.value) && property.value.length === 0)
+                    )
+                ) {
+                    // don't compute for full rollouts or empty conditions
+                    usersAffected.push(Promise.resolve({ users_affected: -1, total_users: -1 }))
+                } else {
+                    const responsePromise = api.create(
+                        `api/projects/${values.currentTeamId}/feature_flags/user_blast_radius`,
+                        {
+                            condition,
+                        }
+                    )
+
+                    usersAffected.push(responsePromise)
+                }
+            })
+
+            const results = await Promise.all(usersAffected)
+            // Create action for all users affected
+            results.forEach((result, index) => {
+                actions.setAffectedUsers(index, result.users_affected)
+                if (result.total_users !== -1) {
+                    actions.setTotalUsers(result.total_users)
+                }
+            })
+        },
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],
         multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
+        roleBasedAccessEnabled: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS),
+        ],
         variants: [(s) => [s.featureFlag], (featureFlag) => featureFlag?.filters.multivariate?.variants || []],
         nonEmptyVariants: [(s) => [s.variants], (variants) => variants.filter(({ key }) => !!key)],
         variantRolloutSum: [
@@ -529,6 +639,56 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
                 ...(featureFlag ? [{ name: featureFlag.key || 'Unnamed' }] : []),
             ],
+        ],
+        propertySelectErrors: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                return featureFlag?.filters?.groups?.map(({ properties }: FeatureFlagGroupType) => ({
+                    properties: properties?.map((property: AnyPropertyFilter) => ({
+                        value:
+                            property.value === null ||
+                            property.value === undefined ||
+                            (Array.isArray(property.value) && property.value.length === 0)
+                                ? "Property filters can't be empty"
+                                : undefined,
+                    })),
+                }))
+            },
+        ],
+        computeBlastRadiusPercentage: [
+            (s) => [s.affectedUsers, s.totalUsers],
+            (affectedUsers, totalUsers) => (rolloutPercentage, index) => {
+                let effectiveRolloutPercentage = rolloutPercentage
+                if (rolloutPercentage === undefined || rolloutPercentage === null) {
+                    effectiveRolloutPercentage = 100
+                }
+
+                if (affectedUsers[index] === -1 || totalUsers === -1 || !totalUsers) {
+                    return effectiveRolloutPercentage
+                }
+
+                let effectiveTotalUsers = totalUsers
+                if (effectiveTotalUsers === 0) {
+                    effectiveTotalUsers = 1
+                }
+
+                return effectiveRolloutPercentage * (affectedUsers[index] / effectiveTotalUsers)
+            },
+        ],
+        approximateTotalBlastRadius: [
+            (s) => [s.computeBlastRadiusPercentage, s.featureFlag],
+            (computeBlastRadiusPercentage, featureFlag) => {
+                if (!featureFlag || !featureFlag.filters.groups) {
+                    return 0
+                }
+
+                let total = 0
+                featureFlag.filters.groups.forEach((group, index) => {
+                    total += computeBlastRadiusPercentage(group.rollout_percentage, index)
+                })
+
+                return Math.min(total, 100)
+            },
         ],
     }),
     urlToAction(({ actions, props }) => ({

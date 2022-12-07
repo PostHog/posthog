@@ -17,7 +17,6 @@ from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import get_materialized_columns
-from posthog.client import sync_execute
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models import Team
 from posthog.models.element.element import chain_to_elements
@@ -26,6 +25,7 @@ from posthog.models.filters import Filter
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.queries.funnels.utils import get_funnel_order_actor_class
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 
@@ -103,7 +103,7 @@ class FunnelCorrelation:
 
     def __init__(
         self,
-        filter: Filter,  #  Used to filter people
+        filter: Filter,  # Used to filter people
         team: Team,  # Used to partition by team
         base_uri: str = "/",  # Used to generate absolute urls
     ) -> None:
@@ -802,7 +802,7 @@ class FunnelCorrelation:
         """
 
         query, params = self.get_contingency_table_query()
-        results_with_total = sync_execute(query, params)
+        results_with_total = insight_sync_execute(query, params, query_type="funnel_correlation", filter=self._filter)
 
         # Get the total success/failure counts from the results
         results = [result for result in results_with_total if result[0] != self.TOTAL_IDENTIFIER]

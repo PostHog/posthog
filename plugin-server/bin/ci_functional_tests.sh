@@ -9,7 +9,7 @@
 # Context is this was originally written in the GitHub Actions workflow file,
 # but it's easier to debug in a script.
 
-set -ex -o pipefail
+set -e -o pipefail
 
 export WORKER_CONCURRENCY=1
 export CONVERSION_BUFFER_ENABLED=true
@@ -17,7 +17,11 @@ export BUFFER_CONVERSION_SECONDS=2 # Make sure we don't have to wait for the def
 export KAFKA_MAX_MESSAGE_BATCH_SIZE=0
 export APP_METRICS_GATHERED_FOR_ALL=true
 
-./node_modules/.bin/c8 --reporter html node dist/index.js &
+LOG_FILE=$(mktemp)
+
+echo '::group::Starting plugin server'
+
+./node_modules/.bin/c8 --reporter html node dist/index.js > $LOG_FILE 2>&1 &
 SERVER_PID=$!
 
 until curl http://localhost:6738/_ready; do
@@ -26,12 +30,25 @@ until curl http://localhost:6738/_ready; do
     sleep 1
 done
 
+echo ''
+
+echo '::endgroup::'
+
 set +e
-pnpm functional_tests --maxConcurrency=10
+pnpm functional_tests --maxConcurrency=10  --verbose
 exit_code=$?
 set -e
 
 kill $SERVER_PID
-wait $SERVER_PID
+
+while kill -0 $SERVER_PID; do
+    echo "Waiting for plugin-server to exit, pid $SERVER_PID..."
+    ((c++)) && ((c==60)) && break
+    sleep 1
+done
+
+echo '::group::Plugin Server logs'
+cat $LOG_FILE
+echo '::endgroup::'
 
 exit $exit_code

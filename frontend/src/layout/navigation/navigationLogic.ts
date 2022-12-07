@@ -23,6 +23,9 @@ export const navigationLogic = kea<navigationLogicType>({
     actions: {
         toggleSideBarBase: true,
         toggleSideBarMobile: true,
+        toggleActivationSideBar: true,
+        showActivationSideBar: true,
+        hideActivationSideBar: true,
         hideSideBarMobile: true,
         openSitePopover: true,
         closeSitePopover: true,
@@ -53,6 +56,13 @@ export const navigationLogic = kea<navigationLogicType>({
             {
                 toggleSideBarMobile: (state) => !state,
                 hideSideBarMobile: () => false,
+            },
+        ],
+        isActivationSideBarShownBase: [
+            false,
+            {
+                showActivationSideBar: () => true,
+                hideActivationSideBar: () => false,
             },
         ],
         isSitePopoverOpen: [
@@ -111,6 +121,12 @@ export const navigationLogic = kea<navigationLogicType>({
             (s) => [s.mobileLayout, s.isSideBarShownBase, s.isSideBarShownMobile, s.bareNav],
             (mobileLayout, isSideBarShownBase, isSideBarShownMobile, bareNav) =>
                 !bareNav && (mobileLayout ? isSideBarShownMobile : isSideBarShownBase),
+        ],
+        isActivationSideBarShown: [
+            (s) => [s.mobileLayout, s.isActivationSideBarShownBase, s.isSideBarShownMobile, s.bareNav],
+            (mobileLayout, isActivationSideBarShownBase, isSideBarShownMobile, bareNav) =>
+                !bareNav &&
+                (mobileLayout ? isActivationSideBarShownBase && !isSideBarShownMobile : isActivationSideBarShownBase),
         ],
         systemStatus: [
             () => [
@@ -248,9 +264,16 @@ export const navigationLogic = kea<navigationLogicType>({
             },
         ],
     },
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         closeProjectNotice: ({ projectNoticeVariant }) => {
             actions.reportProjectNoticeDismissed(projectNoticeVariant)
+        },
+        toggleActivationSideBar: () => {
+            if (values.isActivationSideBarShown) {
+                actions.hideActivationSideBar()
+            } else {
+                actions.showActivationSideBar()
+            }
         },
     }),
     events: ({ actions }) => ({

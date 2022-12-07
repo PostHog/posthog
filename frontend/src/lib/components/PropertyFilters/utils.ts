@@ -5,7 +5,9 @@ import {
     ElementPropertyFilter,
     EventDefinition,
     EventPropertyFilter,
+    FeaturePropertyFilter,
     FilterLogicalOperator,
+    GroupPropertyFilter,
     PersonPropertyFilter,
     PropertyFilter,
     PropertyFilterType,
@@ -17,6 +19,17 @@ import {
 } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { flattenPropertyGroup, isPropertyGroup } from 'lib/utils'
+
+/** Make sure unverified user property filter input has at least a "type" */
+export function sanitizePropertyFilter(propertyFilter: AnyPropertyFilter): AnyPropertyFilter {
+    if (!propertyFilter.type) {
+        return {
+            ...propertyFilter,
+            type: PropertyFilterType.Event,
+        }
+    }
+    return propertyFilter
+}
 
 export function parseProperties(
     input: AnyPropertyFilter[] | PropertyGroupFilter | Record<string, string> | null | undefined
@@ -71,6 +84,12 @@ export function isSessionPropertyFilter(filter?: AnyFilterLike | null): filter i
 export function isRecordingDurationFilter(filter?: AnyFilterLike | null): filter is RecordingDurationFilter {
     return filter?.type === PropertyFilterType.Recording
 }
+export function isGroupPropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
+    return filter?.type === PropertyFilterType.Group
+}
+export function isFeaturePropertyFilter(filter?: AnyFilterLike | null): filter is FeaturePropertyFilter {
+    return filter?.type === PropertyFilterType.Feature
+}
 
 export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is AnyPropertyFilter {
     return (
@@ -79,7 +98,9 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isElementPropertyFilter(filter) ||
         isSessionPropertyFilter(filter) ||
         isCohortPropertyFilter(filter) ||
-        isRecordingDurationFilter(filter)
+        isRecordingDurationFilter(filter) ||
+        isFeaturePropertyFilter(filter) ||
+        isGroupPropertyFilter(filter)
     )
 }
 
@@ -90,14 +111,18 @@ export function isPropertyFilterWithOperator(
     | PersonPropertyFilter
     | ElementPropertyFilter
     | SessionPropertyFilter
-    | RecordingDurationFilter {
+    | RecordingDurationFilter
+    | FeaturePropertyFilter
+    | GroupPropertyFilter {
     return (
         !isPropertyGroupFilterLike(filter) &&
         (isEventPropertyFilter(filter) ||
             isPersonPropertyFilter(filter) ||
             isElementPropertyFilter(filter) ||
             isSessionPropertyFilter(filter) ||
-            isRecordingDurationFilter(filter))
+            isRecordingDurationFilter(filter) ||
+            isFeaturePropertyFilter(filter) ||
+            isGroupPropertyFilter(filter))
     )
 }
 
@@ -132,7 +157,7 @@ export function propertyFilterTypeToTaxonomicFilterType(
     if (!filterType) {
         return undefined
     }
-    if (filterType == 'group') {
+    if (filterType === 'group') {
         return `${TaxonomicFilterGroupType.GroupsPrefix}_${groupTypeIndex}` as TaxonomicFilterGroupType
     }
     return propertyFilterMapping[filterType]

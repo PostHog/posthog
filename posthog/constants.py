@@ -27,12 +27,15 @@ class AvailableFeature(str, Enum):
     SUBSCRIPTIONS = "subscriptions"
     APP_METRICS = "app_metrics"
     RECORDINGS_PLAYLISTS = "recordings_playlists"
+    ROLE_BASED_ACCESS = "role_based_access"
+    RECORDINGS_FILE_EXPORT = "recordings_file_export"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 
 SESSION_RECORDINGS_FILTER_TYPE_DURATION = "session_recording_duration"
+SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS = "static_recordings"
 SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
 
 TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
@@ -223,6 +226,7 @@ class AnalyticsDBMS(str, Enum):
 
 
 UNIQUE_USERS = "dau"
+UNIQUE_GROUPS = "unique_group"
 WEEKLY_ACTIVE = "weekly_active"
 MONTHLY_ACTIVE = "monthly_active"
 

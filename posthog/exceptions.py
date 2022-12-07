@@ -1,4 +1,4 @@
-from typing import Optional, TypedDict
+from typing import Any, Optional, TypedDict
 
 import structlog
 from django.http.request import HttpRequest
@@ -42,19 +42,20 @@ class ExceptionContext(TypedDict):
     request: HttpRequest
 
 
-def exception_reporting(exception: Exception, context: ExceptionContext) -> None:
+def exception_reporting(exception: Exception, context: ExceptionContext) -> Optional[str]:
     """
     Determines which exceptions to report and sends them to Sentry.
     Used through drf-exceptions-hog
     """
     if not isinstance(exception, APIException):
         logger.exception(exception, path=context["request"].path)
-        capture_exception(exception)
+        return capture_exception(exception)
+    return None
 
 
 def generate_exception_response(
     endpoint: str,
-    detail: str,
+    detail: Any,
     code: str = "invalid",
     type: str = "validation_error",
     attr: Optional[str] = None,
@@ -64,7 +65,11 @@ def generate_exception_response(
     Generates a friendly JSON error response in line with drf-exceptions-hog for endpoints not under DRF.
     """
 
-    from posthog.internal_metrics import incr
+    # Importing here because this module is loaded before Django settings are configured,
+    # and statshog relies on those being ready
+    from statshog.defaults.django import statsd
 
-    incr(f"posthog_cloud_raw_endpoint_exception", tags={"endpoint": endpoint, "code": code, "type": type, "attr": attr})
+    statsd.incr(
+        f"posthog_cloud_raw_endpoint_exception", tags={"endpoint": endpoint, "code": code, "type": type, "attr": attr}
+    )
     return JsonResponse({"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code)
