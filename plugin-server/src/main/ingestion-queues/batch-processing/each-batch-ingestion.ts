@@ -34,7 +34,54 @@ export async function eachBatchIngestion(payload: EachBatchPayload, queue: Inges
         return batches
     }
 
+    await updateLatestEventSentAt(payload, queue)
     await eachBatch(payload, queue, eachMessageIngestion, groupIntoBatchesIngestion, 'ingestion')
+}
+
+async function updateLatestEventSentAt(payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> {
+    // Get the latest sent_at for each token within the batch. We want to
+    // minimise the number of PostgreSQL queries we're adding to the pipeline.
+    const latestSentAtPerToken: Record<number, string> = {}
+    for (const message of payload.batch.messages) {
+        if (message.value) {
+            const event = JSON.parse(message.value.toString())
+
+            if (event.token) {
+                if (Date.parse(event.sent_at) > new Date().getTime()) {
+                    // If the sent_at is in the future, we set latest_event_sent_at
+                    // to now, but we leave the event sent_at as is.
+                    // TODO: add ingestion warnings for future events.
+                    latestSentAtPerToken[event.token] = new Date().toISOString()
+                } else {
+                    latestSentAtPerToken[event.token] = event.sent_at
+                }
+            }
+        }
+    }
+
+    // Now update the latest sent_at for each token in the batch.
+    // TODO: collapse update query into one query?
+    for (const [token, sentAt] of Object.entries(latestSentAtPerToken)) {
+        const {
+            rowCount,
+            rows: [teamId],
+        } = await queue.pluginsServer.db.postgresQuery(
+            `
+            UPDATE posthog_team 
+            SET latest_event_sent_at = $1 
+            WHERE api_token = $2 AND (latest_event_sent_at < $1 OR latest_event_sent_at IS NULL)
+            RETURNING id
+            `,
+            [sentAt, token],
+            'setTeamLatestEventSentAt'
+        )
+
+        status.debug('🔍', `updated_latest_event_sent_at`, {
+            teamId,
+            sentAt,
+            updatedRows: rowCount,
+        })
+    }
 }
 
 export async function ingestEvent(

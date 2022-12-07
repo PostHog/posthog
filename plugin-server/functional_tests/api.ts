@@ -24,7 +24,8 @@ export const capture = async (
     uuid: string,
     event: string,
     properties: object = {},
-    token: string | null = null
+    token: string | null = null,
+    sentAt: Date = new Date()
 ) => {
     await producer.send({
         topic: 'events_plugin_ingestion',
@@ -38,7 +39,7 @@ export const capture = async (
                     site_url: '',
                     team_id: teamId,
                     now: new Date(),
-                    sent_at: new Date(),
+                    sent_at: sentAt,
                     uuid: uuid,
                     data: JSON.stringify({
                         event,
@@ -186,6 +187,13 @@ export const createTeam = async (
         slack_incoming_webhook,
     })
     return team.id
+}
+
+export const fetchTeam = async (pgClient: Pool, teamId: number) => {
+    const {
+        rows: [team],
+    } = await pgClient.query('SELECT * FROM posthog_team WHERE id = $1', [teamId])
+    return team
 }
 
 export const createAction = async (
