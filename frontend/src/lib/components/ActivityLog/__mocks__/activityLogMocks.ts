@@ -427,7 +427,7 @@ export const personActivityResponseJson: ActivityLogItem[] = [
                 type: 'Person',
                 source: [
                     {
-                        id: 502746582,
+                        id: '01819231-75a0-0000-467e-a4be57b44a37',
                         name: '1819231753016b-0b04ab5a3ab143-3297640-75300-181923175313d4',
                         uuid: '01819231-75a0-0000-467e-a4be57b44a37',
                         created_at: '2022-06-23T20:12:03.828000Z',
@@ -462,7 +462,7 @@ export const personActivityResponseJson: ActivityLogItem[] = [
                         distinct_ids: ['1819231753016b-0b04ab5a3ab143-3297640-75300-181923175313d4'],
                     },
                     {
-                        id: 502725471,
+                        id: '01819220-aa0b-0000-6992-fad9de0ea4dc',
                         name: '1819220a99e5ec-0005fee037f8d2-3297640-75300-1819220a99f6b7',
                         uuid: '01819220-aa0b-0000-6992-fad9de0ea4dc',
                         created_at: '2022-06-23T19:53:43.137000Z',
@@ -497,7 +497,7 @@ export const personActivityResponseJson: ActivityLogItem[] = [
                         distinct_ids: ['1819220a99e5ec-0005fee037f8d2-3297640-75300-1819220a99f6b7'],
                     },
                     {
-                        id: 502715718,
+                        id: '01819218-92f2-0000-7132-90a079001dc9',
                         name: '18192189287517-0e66a695611002-3297640-75300-18192189288790',
                         uuid: '01819218-92f2-0000-7132-90a079001dc9',
                         created_at: '2022-06-23T19:44:52.944000Z',
@@ -532,7 +532,7 @@ export const personActivityResponseJson: ActivityLogItem[] = [
                         distinct_ids: ['18192189287517-0e66a695611002-3297640-75300-18192189288790'],
                     },
                     {
-                        id: 502696118,
+                        id: '01819208-c74f-0000-75e7-7d3dc16da26b',
                         name: '1819208c6ed32c-0e427ef09bbae-3297640-75300-1819208c6ee74b',
                         uuid: '01819208-c74f-0000-75e7-7d3dc16da26b',
                         created_at: '2022-06-23T19:27:37.771000Z',
@@ -568,7 +568,7 @@ export const personActivityResponseJson: ActivityLogItem[] = [
                     },
                 ],
                 target: {
-                    id: 502792727,
+                    id: '502792727',
                     name: '1819220a99e5ec-0005fee037f8d2-3297640-75300-1819220a99f6b7',
                     uuid: '01819256-1d25-0000-4ed7-ea437589ada7',
                     created_at: '2022-06-23T20:52:06.053733Z',

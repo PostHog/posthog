@@ -1191,10 +1191,10 @@ export function roundToDecimal(value: number | null, places: number = 2): string
     return (Math.round(value * 100) / 100).toFixed(places)
 }
 
-export function sortedKeys(object: Record<string, any>): Record<string, any> {
-    const newObject: Record<string, any> = {}
+export function sortedKeys<T extends Record<string, any> = Record<string, any>>(object: T): T {
+    const newObject: T = {} as T
     for (const key of Object.keys(object).sort()) {
-        newObject[key] = object[key]
+        newObject[key as keyof T] = object[key]
     }
     return newObject
 }
