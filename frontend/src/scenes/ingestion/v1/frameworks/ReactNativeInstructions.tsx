@@ -5,7 +5,18 @@ import { teamLogic } from 'scenes/teamLogic'
 function RNInstallSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.Bash}>
-            {'yarn add posthog-react-native\n\nyarn react-native link\n\n# for iOS\ncd ios\npod install'}
+            {`
+# Expo apps
+expo install posthog-react-native expo-file-system expo-application expo-device expo-localization
+
+# Standard React Native apps
+yarn add posthog-react-native @react-native-async-storage/async-storage react-native-device-info
+# or
+npm i -s posthog-react-native @react-native-async-storage/async-storage react-native-device-info
+
+# for iOS
+cd ios
+pod install`}
         </CodeSnippet>
     )
 }
