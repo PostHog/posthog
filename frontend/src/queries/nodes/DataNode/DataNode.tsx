@@ -5,7 +5,7 @@ import { DataNode as DataNodeType, DataTableNode, Node } from '~/queries/schema'
 import { useValues } from 'kea'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { InlineEditor } from '~/queries/nodes/Node/InlineEditor'
+import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
 
 interface DataNodeProps {
     query: DataNodeType
@@ -23,7 +23,7 @@ export function DataNode(props: DataNodeProps): JSX.Element {
     return (
         <div className="relative">
             <div className="absolute right-0 z-10 p-1 mr-3">
-                <InlineEditor query={props.query} setQuery={props.setQuery as (node: Node) => void} />
+                <InlineEditorButton query={props.query} setQuery={props.setQuery as (node: Node) => void} />
             </div>
             {responseLoading ? (
                 <div className="text-2xl">

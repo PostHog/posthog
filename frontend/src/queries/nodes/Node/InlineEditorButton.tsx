@@ -6,12 +6,12 @@ import { Node } from '~/queries/schema'
 import { Drawer } from 'lib/components/Drawer'
 import { urls } from 'scenes/urls'
 
-export interface InlineEditorProps {
+export interface InlineEditorButtonProps {
     query: Node
     setQuery?: (query: Node) => void
 }
 
-export function InlineEditor({ query, setQuery }: InlineEditorProps): JSX.Element {
+export function InlineEditorButton({ query, setQuery }: InlineEditorButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
 
     return (

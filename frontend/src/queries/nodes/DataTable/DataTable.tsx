@@ -23,7 +23,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
-import { InlineEditor } from '~/queries/nodes/Node/InlineEditor'
+import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
 import { isEventsNode, isPersonsNode } from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
@@ -117,7 +117,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             {inlineRow === 1 ? (
                                 <>
                                     <div className="flex-1" />
-                                    <InlineEditor
+                                    <InlineEditorButton
                                         query={queryWithDefaults}
                                         setQuery={setQuery as (node: Node) => void}
                                     />
@@ -134,7 +134,10 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             )}
                             {showExport && <DataTableExport query={query} setQuery={setQuery} />}
                             {inlineRow === 2 ? (
-                                <InlineEditor query={queryWithDefaults} setQuery={setQuery as (node: Node) => void} />
+                                <InlineEditorButton
+                                    query={queryWithDefaults}
+                                    setQuery={setQuery as (node: Node) => void}
+                                />
                             ) : null}
                         </div>
                     )}
@@ -143,7 +146,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                     )}
                     {inlineRow === 0 ? (
                         <div className="absolute right-0 z-10 p-1">
-                            <InlineEditor query={queryWithDefaults} setQuery={setQuery as (node: Node) => void} />
+                            <InlineEditorButton query={queryWithDefaults} setQuery={setQuery as (node: Node) => void} />
                         </div>
                     ) : null}
                     <LemonTable
