@@ -66,8 +66,8 @@ class DashboardTileSerializer(serializers.ModelSerializer):
 
         insight_representation = representation["insight"] or {}  # May be missing for text tiles
 
-        representation["last_refresh"] = insight_representation.get("last_refresh", now())
-        representation["is_cached"] = insight_representation.get("is_cached", True)
+        representation["last_refresh"] = insight_representation.get("last_refresh", None)
+        representation["is_cached"] = insight_representation.get("is_cached", False)
 
         return representation
 
