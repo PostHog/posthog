@@ -7,23 +7,16 @@ from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UniqueConstraintByExpression, UUIDModel
 
 
 class InsightCachingState(UUIDModel):
     class Meta:
         indexes = [models.Index(fields=["cache_key"], name="filter_by_cache_key_idx")]
         constraints = [
-            models.UniqueConstraint(
-                fields=["insight"],
-                name=f"unique_insight_for_caching_state_idx",
-                condition=models.Q(("dashboard_tile__isnull", True)),
-            ),
-            models.UniqueConstraint(
-                fields=["insight", "dashboard_tile"],
-                name=f"unique_dashboard_tile_idx",
-                condition=models.Q(("dashboard_tile__isnull", False)),
-            ),
+            UniqueConstraintByExpression(
+                name="unique_insight_tile_idx", expression="(insight_id, coalesce(dashboard_tile_id, -1))"
+            )
         ]
 
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)

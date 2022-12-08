@@ -1,6 +1,5 @@
 import posthog, { PostHogConfig } from 'posthog-js'
 import * as Sentry from '@sentry/react'
-import { Integration } from '@sentry/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 const configWithSentry = (config: Partial<PostHogConfig>): Partial<PostHogConfig> => {
@@ -53,7 +52,7 @@ export function loadPostHogJS(): void {
         Sentry.init({
             dsn: (window as any).SENTRY_DSN,
             ...(window.location.host.indexOf('app.posthog.com') > -1 && {
-                integrations: [new posthog.SentryIntegration(posthog, 'posthog2', 1899813) as Integration],
+                integrations: [new posthog.SentryIntegration(posthog, 'posthog2', 1899813)],
             }),
         })
     }
