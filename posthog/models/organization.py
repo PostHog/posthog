@@ -376,7 +376,7 @@ def ensure_organization_membership_consistency(sender, instance: OrganizationMem
 
 
 def is_feature_available(organization_id: Optional[UUID], feature: AvailableFeature):
-    if organization_id is not None:
+    if organization_id is None:
         return False
     values = Organization.objects.values_list("available_features", flat=True).filter(id=organization_id).first()
     if values is None:
