@@ -12,14 +12,14 @@ jobs:
                   fetch-depth: 0 # 👈 Required to retrieve git history (https://www.chromatic.com/docs/github-actions)
 
             - name: Install pnpm
-              uses: pnpm/action-setup@v2.2.4
+              uses: pnpm/action-setup@v2
               with:
                   version: 7.x.x
 
-            - name: Set up Node 18
+            - name: Set up Node 16
               uses: actions/setup-node@v3
               with:
-                  node-version: 18
+                  node-version: 16
                   cache: pnpm
 
             # there's no need to run chromatic on every commit,
@@ -34,7 +34,7 @@ jobs:
 
             - name: Install dependencies and chromatic
               if: steps.changes.outputs.frontend == 'true'
-              run: pnpm add --save-dev chromatic
+              run: pnpm i -D chromatic
 
             - name: Publish to Chromatic
               if: steps.changes.outputs.frontend == 'true'
@@ -43,5 +43,3 @@ jobs:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   # 👇 Chromatic projectToken, refer to the manage page to obtain it.
                   projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
-              env:
-                  NODE_OPTIONS: --openssl-legacy-provider
