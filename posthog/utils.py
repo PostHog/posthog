@@ -311,7 +311,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     context["js_url"] = get_js_url(request)
 
     try:
-        year_in_hog_url = f"/year_in_posthog/2022/{str(request.user.uuid)}"
+        year_in_hog_url = f"/year_in_posthog/2022/{str(request.user.uuid)}"  # type: ignore
     except:
         year_in_hog_url = None
 
