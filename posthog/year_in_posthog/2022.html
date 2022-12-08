@@ -70,13 +70,15 @@
             align-items: center;
         }
 
+        h1 { margin: 0 }
+
         @media only screen and (min-width: 650px) {
             body {
                 font-size: 2.5vw;
             }
         }
 
-        .content {
+        main {
             flex-grow: 1;
             display: flex;
             flex-direction: column;
@@ -85,7 +87,7 @@
         }
 
         @media only screen and (min-width: 650px) {
-            .content {
+            main {
                 flex-direction: row;
             }
         }
@@ -225,12 +227,12 @@
     {% endfor %}
 </head>
 <body>
-<div class="content p-4">
+<main class="p-4" role="main">
     <div class="left column">
         <div>This year, I'm a</div>
         <img class="badge my-8" src="{% static image %}"
              alt="image for this badge {{ badge }}. An illustration of a hedgehog who is a {{ human_badge }}"/>
-        <div class="highlight text-2xl">{{ human_badge }}</div>
+        <h1 class="highlight text-2xl">{{ human_badge }}</h1>
     </div>
     <div class="right column">
         <div class="muted">You earned this badge because...</div>
@@ -244,8 +246,8 @@
             {% endfor %}
         </div>
     </div>
-</div>
-<footer class="footer">
+</main>
+<footer class="footer" role="contentinfo">
     <div class="footer-content pl-8 text-xl">
         <span>My year in&nbsp;&nbsp;</span>
         <img class="logo" src="{% static "logomark.png" %}"
