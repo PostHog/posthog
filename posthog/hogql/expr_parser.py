@@ -54,7 +54,7 @@ def translate_ast(node: ast.AST) -> str:
                 attribute_chain.insert(0, node.attr)
                 node = node.value
             elif type(node) == ast.Subscript:
-                if type(node.slice) == ast.Constant:  # type: ignore
+                if type(node.slice) == ast.Constant:
                     if type(node.slice.value) != str:
                         raise ValueError(
                             f"Only string property access is currently supported, found '{node.slice.value}'"
