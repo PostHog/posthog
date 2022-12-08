@@ -21,6 +21,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
     test_with_materialized_columns,
 )
+from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_journeys import journeys_for
 
 
@@ -47,11 +48,14 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         expected_queries = (
-            8  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
+            7  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
         )
 
-        with self.assertNumQueries(expected_queries):
+        with capture_db_queries() as context:
             response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2").json()
+
+            self.assertLessEqual(len(context), expected_queries)
+
         self.assertEqual(
             response["results"][0]["person"],
             {"distinct_ids": ["2"], "is_identified": True, "properties": {"email": "tim@posthog.com"}},
@@ -70,8 +74,11 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             8  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
         )
 
-        with self.assertNumQueries(expected_queries):
+        with capture_db_queries() as context:
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
+
+            self.assertLessEqual(len(context), expected_queries)
+
         self.assertEqual(response["results"][0]["event"], "event_name")
 
     def test_filter_events_by_properties(self):
@@ -86,11 +93,14 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             10  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
         )
 
-        with self.assertNumQueries(expected_queries):
+        with capture_db_queries() as context:
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/?properties=%s"
                 % (json.dumps([{"key": "$browser", "value": "Safari"}]))
             ).json()
+
+            self.assertLessEqual(len(context), expected_queries)
+
         self.assertEqual(response["results"][0]["id"], event2_uuid)
 
         properties = "invalid_json"

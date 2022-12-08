@@ -892,9 +892,11 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(7):
+        with capture_db_queries() as context:
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            query_count_with_1 = len(context.captured_queries)
 
         for i in range(1, 4):
             self.client.post(
@@ -903,9 +905,11 @@ class TestFeatureFlag(APIBaseTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(7):
+        with capture_db_queries() as context:
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertLessEqual(len(context.captured_queries), query_count_with_1)
 
     def test_getting_flags_is_not_nplus1(self) -> None:
         self.client.post(
@@ -914,9 +918,11 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(7):
+        with capture_db_queries() as context:
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            query_count_with_1 = len(context.captured_queries)
 
         for i in range(1, 5):
             self.client.post(
@@ -925,9 +931,11 @@ class TestFeatureFlag(APIBaseTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(7):
+        with capture_db_queries() as context:
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertLessEqual(len(context.captured_queries), query_count_with_1)
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_my_flags(self, mock_capture):
