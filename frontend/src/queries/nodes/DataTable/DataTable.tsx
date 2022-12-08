@@ -71,11 +71,13 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     } = queryWithDefaults
 
     const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = [
-        ...columns.map((key) => ({
+        ...columns.map((key, index) => ({
             dataIndex: key as any,
             title: renderTitle(key, context),
             render: function RenderDataTableColumn(_: any, record: EventType) {
-                return renderColumn(key, record, query, setQuery, context)
+                const arrayOfArrays = isEventsNode(query.source) && !!query.source.select
+                const value = arrayOfArrays ? record[index] : record[key]
+                return renderColumn(key, value, record, query, setQuery, context)
             },
         })),
         ...(showActions && isEventsNode(query.source)

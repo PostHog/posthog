@@ -58,6 +58,31 @@ const TotalEvents: EventsNode = {
     select: ['total()'],
 }
 
+const TotalEventsTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    source: TotalEvents,
+}
+
+const PropertyFormulas: EventsNode = {
+    kind: NodeKind.EventsNode,
+    properties: [
+        { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
+    ],
+    select: [
+        '1 + 2 + 3',
+        'event',
+        'person.created_at',
+        "concat(properties['$browser'], ' 💚 ', properties['$geoip_city_name'])",
+        "'random string'",
+    ],
+    limit: 100,
+}
+
+const PropertyFormulasTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    source: PropertyFormulas,
+}
+
 const DataPerCountry: EventsNode = {
     kind: NodeKind.EventsNode,
     properties: [
@@ -283,6 +308,9 @@ export const examples: Record<string, Node> = {
     EventsTable,
     EventsTableFull,
     TotalEvents,
+    TotalEventsTable,
+    PropertyFormulas,
+    PropertyFormulasTable,
     DataPerCountry,
     Persons,
     PersonsTable,

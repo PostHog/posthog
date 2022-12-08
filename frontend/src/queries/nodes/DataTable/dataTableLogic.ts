@@ -1,8 +1,9 @@
 import { actions, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 import type { dataTableLogicType } from './dataTableLogicType'
 import { DataTableNode, DataTableColumn } from '~/queries/schema'
-import { defaultDataTableColumns } from './defaults'
+import { defaultsForDataTable } from './defaults'
 import { sortedKeys } from 'lib/utils'
+import { isEventsNode } from '~/queries/utils'
 
 export interface DataTableLogicProps {
     key: string
@@ -16,12 +17,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
     path(['queries', 'nodes', 'DataTable', 'dataTableLogic']),
     actions({ setColumns: (columns: DataTableColumn[]) => ({ columns }) }),
     reducers(({ props }) => ({
-        columns: [
-            (props.query.columns ??
-                props.defaultColumns ??
-                defaultDataTableColumns(props.query.source)) as DataTableColumn[],
-            { setColumns: (_, { columns }) => columns },
-        ],
+        columns: [defaultsForDataTable(props.query, props.defaultColumns), { setColumns: (_, { columns }) => columns }],
     })),
     selectors({
         queryWithDefaults: [
@@ -34,12 +30,14 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     source,
                     ...sortedKeys({
                         ...rest,
-                        expandable: query.expandable ?? true,
+                        expandable:
+                            isEventsNode(query.source) && query.source.select ? false : query.expandable ?? true,
                         propertiesViaUrl: query.propertiesViaUrl ?? false,
                         showPropertyFilter: query.showPropertyFilter ?? false,
                         showEventFilter: query.showEventFilter ?? false,
                         showSearch: query.showSearch ?? false,
-                        showActions: query.showActions ?? true,
+                        showActions:
+                            isEventsNode(query.source) && query.source.select ? false : query.showActions ?? true,
                         showExport: query.showExport ?? false,
                         showReload: query.showReload ?? false,
                         showColumnConfigurator: query.showColumnConfigurator ?? false,
@@ -50,9 +48,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
         ],
     }),
     propsChanged(({ actions, props }, oldProps) => {
-        const newColumns = props.query.columns ?? props.defaultColumns ?? defaultDataTableColumns(props.query.source)
-        const oldColumns =
-            oldProps.query.columns ?? oldProps.defaultColumns ?? defaultDataTableColumns(oldProps.query.source)
+        const newColumns = defaultsForDataTable(props.query, props.defaultColumns)
+        const oldColumns = defaultsForDataTable(oldProps.query, oldProps.defaultColumns)
         if (JSON.stringify(newColumns) !== JSON.stringify(oldColumns)) {
             actions.setColumns(newColumns)
         }
