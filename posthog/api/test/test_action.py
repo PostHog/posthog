@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+from django.db import connections
+from django.test.utils import CaptureQueriesContext
 from freezegun import freeze_time
 from rest_framework import status
 
@@ -149,10 +151,12 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         # test queries
-        with self.assertNumQueries(7):
+        with CaptureQueriesContext(connections["default"]) as context:
             # Django session, PostHog user, PostHog team, PostHog org membership, PostHog org
             # PostHog action, PostHog action step
             self.client.get(f"/api/projects/{self.team.id}/actions/")
+
+            self.assertLessEqual(len(context.captured_queries), 7)
 
     def test_update_action_remove_all_steps(self, *args):
 
@@ -258,21 +262,26 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @freeze_time("2021-12-12")
     def test_listing_actions_is_not_nplus1(self) -> None:
-        with self.assertNumQueries(5), snapshot_postgres_queries_context(self):
+        with CaptureQueriesContext(connections["default"]) as context, snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
+
+            # NOTE: With no actions, we may have fewer queries than if we have any actions
+            self.assertLessEqual(len(context.captured_queries), 5)
 
         Action.objects.create(
             team=self.team, name="first", created_by=User.objects.create_and_join(self.organization, "a", "")
         )
 
-        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
+        with CaptureQueriesContext(connections["default"]) as context, snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
+
+            query_count_with_1 = len(context.captured_queries)
 
         Action.objects.create(
             team=self.team, name="second", created_by=User.objects.create_and_join(self.organization, "b", "")
         )
 
-        with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(query_count_with_1), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
     def test_get_tags_on_non_ee_returns_empty_list(self):
