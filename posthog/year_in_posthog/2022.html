@@ -35,7 +35,11 @@
         }(document, window.posthog || []);
         posthog.init('{{api_token}}', {
             api_host: window.location.origin, loaded: function (posthog) {
-                posthog.register({'yearInPostHog': 2022});
+                posthog.capture('year in posthog viewed', {
+                    'yearInPostHog': 2022, 'badge': '{{badge}}',     {% for stat in stats %}
+                        '{{ stat.description }}': {{ stat.count }},
+                    {% endfor %}
+                });
             }
         })
     </script>
