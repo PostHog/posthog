@@ -9,7 +9,7 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from posthog.settings import SECRET_KEY
 
 SECRET_BYTES = SECRET_KEY.encode()
-ITERATIONS = 100_000
+ITERATIONS = 480_000
 
 backend = default_backend()
 
