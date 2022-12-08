@@ -1738,8 +1738,11 @@ class TestFeatureFlag(APIBaseTest):
 
     def test_feature_flag_can_edit(self):
         self.assertEqual((AvailableFeature.ROLE_BASED_ACCESS in self.organization.available_features), False)
+        user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
+        FeatureFlag.objects.create(team=self.team, created_by=user_a, key="blue_button")
         res = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
         self.assertEqual(res.json()["results"][0]["can_edit"], True)
+        self.assertEqual(res.json()["results"][1]["can_edit"], True)
 
 
 class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
