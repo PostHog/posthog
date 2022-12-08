@@ -1,8 +1,8 @@
 from posthog.hogql.expr_parser import ExprParserContext, translate_hql
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin  # , test_with_materialized_columns
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
-class TestExprParser(ClickhouseTestMixin, APIBaseTest):
+class TestExprParser(APIBaseTest, ClickhouseTestMixin):
     def test_hogql_literals(self):
         self.assertEqual(translate_hql("1 + 2"), "plus(1, 2)")
         self.assertEqual(translate_hql("-1 + 2"), "plus(-1, 2)")
@@ -11,7 +11,6 @@ class TestExprParser(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(translate_hql("'string'"), "'string'")
         self.assertEqual(translate_hql('"string"'), "'string'")
 
-    # @test_with_materialized_columns(["$browser"])
     def test_hogql_fields_and_properties(self):
         self.assertEqual(
             translate_hql("properties.bla"),
@@ -29,7 +28,6 @@ class TestExprParser(ClickhouseTestMixin, APIBaseTest):
             translate_hql("properties.$bla"),
             "replaceRegexpAll(JSONExtractRaw(properties, '$bla'), '^\"|\"$', '')",
         )
-        # self.assertEqual(translate_hql("properties['$browser']"), "\"mat_$browser\"")
         self.assertEqual(
             translate_hql("person.properties.bla"),
             "replaceRegexpAll(JSONExtractRaw(person_properties, 'bla'), '^\"|\"$', '')",
@@ -40,6 +38,16 @@ class TestExprParser(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(translate_hql("distinct_id"), "distinct_id")
         self.assertEqual(translate_hql("person_id"), "person_id")
         self.assertEqual(translate_hql("person.created_at"), "person_created_at")
+
+    def test_hogql_materialized_fields_and_properties(self):
+        try:
+            from ee.clickhouse.materialized_columns.analyze import materialize
+        except:
+            # EE not available? Assume we're good
+            self.assertEqual(1 + 2, 3)
+            return
+        materialize("events", "$browser")
+        self.assertEqual(translate_hql("properties['$browser']"), '"mat_$browser"')
 
     def test_hogql_methods(self):
         self.assertEqual(translate_hql("total()"), "count(*)")
