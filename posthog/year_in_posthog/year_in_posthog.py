@@ -60,7 +60,7 @@ def count_from(data: Dict, badge: str) -> List[Dict[str, Union[int, str]]]:
             return [{"count": stats["viewed_recording_count"], "description": "Session recordings viewed"}]
         elif badge == "scientist":
             return [{"count": stats["experiments_created_count"], "description": "Experiments created"}]
-        elif badge == "curator":
+        elif badge == "champion":
             return [
                 {"count": stats["insight_created_count"], "description": "Insights created"},
                 {"count": stats["viewed_recording_count"], "description": "Session recordings viewed"},
@@ -77,7 +77,7 @@ def count_from(data: Dict, badge: str) -> List[Dict[str, Union[int, str]]]:
 
 def sort_list_based_on_preference(badges: List[str]) -> str:
     """sort a list based on its order in badge_preferences and then choose the last one"""
-    badges_by_preference = [x for _, x in sorted(zip(badge_preference, badges))]
+    badges_by_preference = sorted(badges, key=lambda x: badge_preference.index(x))
     return badges_by_preference[-1]
 
 
