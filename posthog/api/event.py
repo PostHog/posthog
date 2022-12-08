@@ -138,13 +138,13 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 )
 
             # Result with selected columns
-            if type(query_result) == dict:
+            if isinstance(query_result, dict):
                 return response.Response(
                     {"columns": select, "types": query_result["types"], "results": query_result["results"]}
                 )
 
             result = ClickhouseEventSerializer(
-                query_result[0:limit], many=True, context={"people": self._get_people(query_result, team)}  # type: ignore
+                query_result[0:limit], many=True, context={"people": self._get_people(query_result, team)}
             ).data
 
             next_url: Optional[str] = None

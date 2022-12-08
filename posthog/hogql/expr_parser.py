@@ -15,7 +15,7 @@ HOGQL_AGGREGATIONS = ["avg", "sum", "total"]
 
 @dataclass
 class ExprParserContext:
-    property_list: List[List[str]] = field(default_factory=list)
+    attribute_list: List[List[str]] = field(default_factory=list)
     encountered_nodes: List[ast.AST] = field(default_factory=list)
     is_aggregation: bool = False
 
@@ -102,7 +102,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
             else:
                 raise ValueError(f"Unknown node in field access chain: {ast.dump(node)}")
         response = property_access_to_clickhouse(attribute_chain)
-        context.property_list.append(attribute_chain)
+        context.attribute_list.append(attribute_chain)
 
     elif isinstance(node, ast.Call):
         if not isinstance(node.func, ast.Name):
@@ -115,7 +115,6 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
                     raise ValueError(f"Method 'total' does not accept any arguments.")
                 response = "count(*)"
             else:
-                # check that there
                 if len(node.args) != 1:
                     raise ValueError(f"Method '{call_name}' expects just one argument.")
 
@@ -127,12 +126,12 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
                         and isinstance(stack_node.func, ast.Name)
                         and stack_node.func.id in HOGQL_AGGREGATIONS
                     ):
-                        raise ValueError(f"Method 'avg' cannot be nested inside another aggregate.")
+                        raise ValueError(f"Method '{call_name}' cannot be nested inside another aggregate.")
 
                 # check that we're running an aggregate on a property
-                properties_before = len(context.property_list)
+                properties_before = len(context.attribute_list)
                 response = f"{call_name}({translate_ast(node.args[0], stack, context)})"
-                properties_after = len(context.property_list)
+                properties_after = len(context.attribute_list)
                 if properties_after == properties_before:
                     raise ValueError(f"{call_name}(...) must be called on fields or properties, not literals.")
 
@@ -142,7 +141,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
             raise ValueError(f"Unsupported function call '{call_name}(...)'")
     elif isinstance(node, ast.Name) and isinstance(node.id, str):
         response = property_access_to_clickhouse([node.id])
-        context.property_list.append([node.id])
+        context.attribute_list.append([node.id])
     else:
         ast.dump(node)
         raise ValueError(f"Unknown AST type {type(node).__name__}")

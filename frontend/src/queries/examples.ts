@@ -119,35 +119,6 @@ const DataPerCountry: EventsNode = {
     ],
 }
 
-// export enum BaseMathType {
-//     TotalCount = 'total',
-//     UniqueUsers = 'dau',
-//     WeeklyActiveUsers = 'weekly_active',
-//     MonthlyActiveUsers = 'monthly_active',
-//     UniqueSessions = 'unique_session',
-// }
-//
-// export enum PropertyMathType {
-//     Average = 'avg',
-//     Sum = 'sum',
-//     Minimum = 'min',
-//     Maximum = 'max',
-//     Median = 'median',
-//     P90 = 'p90',
-//     P95 = 'p95',
-//     P99 = 'p99',
-// }
-//
-// export enum CountPerActorMathType {
-//     Average = 'avg_count_per_actor',
-//     Minimum = 'min_count_per_actor',
-//     Maximum = 'max_count_per_actor',
-//     Median = 'median_count_per_actor',
-//     P90 = 'p90_count_per_actor',
-//     P95 = 'p95_count_per_actor',
-//     P99 = 'p99_count_per_actor',
-// }
-
 const Persons: PersonsNode = {
     kind: NodeKind.PersonsNode,
     properties: [

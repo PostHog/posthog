@@ -107,21 +107,15 @@ function ColumnConfiguratorModal(): JSX.Element {
                                 setColumns(columns.map((c, i) => (i === dataIndex ? newColumn : c)))
                             }
                         }}
-                        status="stealth"
+                        status="primary"
                         size="small"
-                        className="ml-auto"
                     >
-                        <IconEdit data-attr="column-display-item-edit-icon" style={{ color: 'var(--primary)' }} />
+                        <IconEdit data-attr="column-display-item-edit-icon" />
                     </LemonButton>
-                </Tooltip>{' '}
+                </Tooltip>
                 <Tooltip title="Remove">
-                    <LemonButton
-                        onClick={() => unselectColumn(column)}
-                        status="stealth"
-                        size="small"
-                        className="ml-auto"
-                    >
-                        <IconClose data-attr="column-display-item-remove-icon" style={{ color: 'var(--danger)' }} />
+                    <LemonButton onClick={() => unselectColumn(column)} status="danger" size="small">
+                        <IconClose data-attr="column-display-item-remove-icon" />
                     </LemonButton>
                 </Tooltip>
             </div>
