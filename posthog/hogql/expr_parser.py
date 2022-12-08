@@ -1,5 +1,6 @@
 import ast
-from typing import List
+from dataclasses import dataclass
+from typing import List, Optional
 
 from clickhouse_driver.util.escape import escape_param
 
@@ -8,44 +9,61 @@ from posthog.models.property.util import get_property_string_expr
 EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id"]
 PERSON_FIELDS = ["id", "created_at", "properties"]
 CLICKHOUSE_FUNCTIONS = ["concat", "coalesce"]
+HOGQL_AGGREGATIONS = ["avg", "sum", "total"]
 
 
-def translate_hql(hql: str) -> str:
+@dataclass
+class ExprParserContext:
+    aggregates: List[List[str]]
+    properties: List[List[str]]
+
+
+def translate_hql(hql: str, context: Optional[ExprParserContext] = None) -> str:
     """Translate a HogQL expression into a Clickhouse expression."""
     try:
         node = ast.parse(hql)
     except SyntaxError as err:
         raise ValueError(f"SyntaxError: {err.msg}")
-    return translate_ast(node)
+    if not context:
+        context = ExprParserContext(aggregates=[], properties=[])
+    return translate_ast(node, [], context)
 
 
-def translate_ast(node: ast.AST) -> str:
+def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContext) -> str:
     """Translate a parsed HogQL expression in the shape of a Python AST into a Clickhouse expression."""
+    response = ""
+    stack.append(node)
     if type(node) == ast.Module:
         if len(node.body) == 1 and type(node.body[0]) == ast.Expr:
-            return translate_ast(node.body[0])
-        raise ValueError(f"Module body must contain only one 'Expr'")
+            response = translate_ast(node.body[0], stack, context)
+        else:
+            raise ValueError(f"Module body must contain only one 'Expr'")
     elif type(node) == ast.Expr:
-        return translate_ast(node.value)
+        response = translate_ast(node.value, stack, context)
     elif type(node) == ast.BinOp:
         if type(node.op) == ast.Add:
-            return f"plus({translate_ast(node.left)}, {translate_ast(node.right)})"
-        if type(node.op) == ast.Sub:
-            return f"minus({translate_ast(node.left)}, {translate_ast(node.right)})"
-        if type(node.op) == ast.Mult:
-            return f"multiply({translate_ast(node.left)}, {translate_ast(node.right)})"
-        if type(node.op) == ast.Div:
-            return f"divide({translate_ast(node.left)}, {translate_ast(node.right)})"
-        return f"({translate_ast(node.left)} {translate_ast(node.op)} {translate_ast(node.right)})"
+            response = f"plus({translate_ast(node.left, stack, context)}, {translate_ast(node.right, stack, context)})"
+        elif type(node.op) == ast.Sub:
+            response = f"minus({translate_ast(node.left, stack, context)}, {translate_ast(node.right, stack, context)})"
+        elif type(node.op) == ast.Mult:
+            response = (
+                f"multiply({translate_ast(node.left, stack, context)}, {translate_ast(node.right, stack, context)})"
+            )
+        elif type(node.op) == ast.Div:
+            response = (
+                f"divide({translate_ast(node.left, stack, context)}, {translate_ast(node.right, stack, context)})"
+            )
+        else:
+            response = f"({translate_ast(node.left, stack, context)} {translate_ast(node.op, stack, context)} {translate_ast(node.right, stack, context)})"
     elif type(node) == ast.UnaryOp:
-        return f"{translate_ast(node.op)}{translate_ast(node.operand)}"
+        response = f"{translate_ast(node.op, stack, context)}{translate_ast(node.operand, stack, context)}"
     elif type(node) == ast.USub:
-        return "-"
+        response = "-"
     elif type(node) == ast.Constant:
         if type(node.value) == int or type(node.value) == float:
-            return str(node.value)
+            response = str(node.value)
         elif type(node.value) == str or type(node.value) == list:
-            return escape_param(node.value)
+            response = escape_param(node.value)
         else:
             raise ValueError(f"Unknown AST Constant node type '{type(node.value)}' for value '{str(node.value)}'")
     elif type(node) == ast.Attribute or type(node) == ast.Subscript:
@@ -69,29 +87,53 @@ def translate_ast(node: ast.AST) -> str:
                 break
             else:
                 raise ValueError(f"Unknown node in field access chain: {ast.dump(node)}")
-        return property_access_to_clickhouse(attribute_chain)
+        context.properties.append(attribute_chain)
+        response = property_access_to_clickhouse(attribute_chain)
     elif type(node) == ast.Call:
         if type(node.func) != ast.Name:
             raise ValueError(f"Can only call simple functions like 'avg(properties.bla)' or 'total()'")
-
         call_name = node.func.id
-        if call_name == "total":
-            if len(node.args) != 0:
-                raise ValueError(f"Method 'total' does not accept any arguments.")
-            return "count(*)"
-        elif call_name == "avg":
-            if len(node.args) != 1:
-                raise ValueError(f"Method 'avg' expects just one argument.")
-            return f"avg({translate_ast(node.args[0])})"
-        if node.func.id in CLICKHOUSE_FUNCTIONS:
-            return f"{node.func.id}({', '.join([translate_ast(arg) for arg in node.args])})"
+        if call_name in HOGQL_AGGREGATIONS:
+            if call_name == "total":
+                if len(node.args) != 0:
+                    raise ValueError(f"Method 'total' does not accept any arguments.")
+                response = "count(*)"
+            else:
+                # check that there
+                if len(node.args) != 1:
+                    raise ValueError(f"Method '{call_name}' expects just one argument.")
+
+                # check that we're not running inside another aggregate
+                for stack_node in stack:
+                    if (
+                        stack_node != node
+                        and type(stack_node) == ast.Call
+                        and type(stack_node.func) == ast.Name
+                        and stack_node.func.id in HOGQL_AGGREGATIONS
+                    ):
+                        raise ValueError(f"Method 'avg' cannot be nested inside another aggregate.")
+
+                # check that we're running an aggregate on a property
+                properties_before = len(context.properties)
+                response = f"{call_name}({translate_ast(node.args[0], stack, context)})"
+                properties_after = len(context.properties)
+                if properties_after == properties_before:
+                    raise ValueError(f"{call_name}(...) must be called on fields or properties, not literals.")
+                for property in context.properties[properties_before:properties_after]:
+                    context.aggregates.append(property)
+        elif node.func.id in CLICKHOUSE_FUNCTIONS:
+            response = f"{node.func.id}({', '.join([translate_ast(arg, stack, context) for arg in node.args])})"
         else:
             raise ValueError(f"Unsupported function call '{call_name}(...)'")
     elif type(node) == ast.Name and type(node.id) == str:
-        return property_access_to_clickhouse([node.id])
+        context.properties.append([node.id])
+        response = property_access_to_clickhouse([node.id])
     else:
         ast.dump(node)
         raise ValueError(f"Unknown AST type {type(node).__name__}")
+
+    stack.pop()
+    return response
 
 
 def property_access_to_clickhouse(chain: List[str]):

@@ -1,4 +1,4 @@
-from posthog.hogql.expr_parser import translate_hql
+from posthog.hogql.expr_parser import ExprParserContext, translate_hql
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, test_with_materialized_columns
 
 
@@ -57,10 +57,24 @@ class TestExprParser(ClickhouseTestMixin, APIBaseTest):
         self._assert_value_error("['properties']['value']", "Unknown node in field access chain:")
         self._assert_value_error("chipotle", "Unknown event field 'chipotle'")
         self._assert_value_error("person.chipotle", "Unknown person field 'chipotle'")
+        self._assert_value_error("avg(2)", "avg(...) must be called on fields or properties, not literals.")
+        self._assert_value_error("avg(avg(properties.bla))", "Method 'avg' cannot be nested inside another aggregate.")
 
-        # TODO
-        # self._assert_value_error("avg(avg(2))", "No nested averages")
-        # self._assert_value_error("avg(2)", "Averages must be on properties")
+    def test_hogql_returned_properties(self):
+        context = ExprParserContext(aggregates=[], properties=[])
+        translate_hql("avg(properties.prop) + avg(uuid) + event", context)
+        self.assertEqual(context.properties, [["properties", "prop"], ["uuid"], ["event"]])
+        self.assertEqual(context.aggregates, [["properties", "prop"], ["uuid"]])
+
+        context = ExprParserContext(aggregates=[], properties=[])
+        translate_hql("coalesce(event, properties.event)", context)
+        self.assertEqual(context.properties, [["event"], ["properties", "event"]])
+        self.assertEqual(context.aggregates, [])
+
+        context = ExprParserContext(aggregates=[], properties=[])
+        translate_hql("total() + sum(timestamp)", context)
+        self.assertEqual(context.properties, [["timestamp"]])
+        self.assertEqual(context.aggregates, [["timestamp"]])
 
     def _assert_value_error(self, expr, expected_error):
         with self.assertRaises(ValueError) as context:
