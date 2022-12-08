@@ -11,7 +11,7 @@ concurrency: 'publish_latest_image' # Ensure only one of this runs at a time
 jobs:
     build-push:
         name: Build Docker images and push them
-        if: github.repository == 'PostHog/posthog'
+        if: github.repository == 'sourcefuse/posthog-code'
         runs-on: ubuntu-20.04
         permissions:
             contents: read
