@@ -893,6 +893,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        updateFiltersSuccess: () => {
+            actions.refreshAllDashboardItems({ action: 'refresh_insights_on_filters_updated' })
+        },
         setRefreshError: sharedListeners.reportRefreshTiming,
         setRefreshStatuses: sharedListeners.reportRefreshTiming,
         setRefreshStatus: sharedListeners.reportRefreshTiming,
