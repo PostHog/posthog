@@ -140,6 +140,7 @@ export const FEATURE_FLAGS = {
     BILLING_FEATURES_EXPERIMENT: 'billing-features-experiment', // owner: #team-growth
     BILLING_PLAN_MOST_POPULAR_EXPERIMENT: 'billing-plan-most-popular-experiment', // owner: #team-growth, @raquelmsmith
     RECORDINGS_EXPORT: 'recordings-export', // owner: #team-session-recordings
+    YEAR_IN_HOG: 'year-in-hog', // owner: @pauldambra
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
