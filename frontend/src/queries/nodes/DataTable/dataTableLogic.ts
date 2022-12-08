@@ -4,6 +4,7 @@ import { DataTableNode, DataTableColumn } from '~/queries/schema'
 import { defaultsForDataTable } from './defaults'
 import { sortedKeys } from 'lib/utils'
 import { isEventsNode } from '~/queries/utils'
+import { Sorting } from 'lib/components/LemonTable'
 
 export interface DataTableLogicProps {
     key: string
@@ -44,6 +45,27 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showEventsBufferWarning: query.showEventsBufferWarning ?? false,
                     }),
                 }
+            },
+        ],
+        canSort: [
+            (s) => [s.queryWithDefaults],
+            (query: DataTableNode): boolean => isEventsNode(query.source) && !!query.source.select,
+        ],
+        sorting: [
+            (s) => [s.queryWithDefaults, s.canSort],
+            (query, canSort): Sorting | null => {
+                if (canSort && isEventsNode(query.source) && query.source.orderBy && query.source.orderBy.length > 0) {
+                    return query.source.orderBy[0] === '-'
+                        ? {
+                              columnKey: query.source.orderBy[0].substring(1),
+                              order: -1,
+                          }
+                        : {
+                              columnKey: query.source.orderBy[0],
+                              order: 1,
+                          }
+                }
+                return null
             },
         ],
     }),

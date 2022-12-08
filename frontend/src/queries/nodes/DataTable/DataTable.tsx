@@ -56,7 +56,12 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     const defaultColumns = currentTeam?.live_events_columns ?? defaultDataTableColumns(query.source)
 
     const dataTableLogicProps: DataTableLogicProps = { query, key, defaultColumns }
-    const { columns: dataTableQueryColumns, queryWithDefaults } = useValues(dataTableLogic(dataTableLogicProps))
+    const {
+        columns: dataTableQueryColumns,
+        queryWithDefaults,
+        canSort,
+        sorting,
+    } = useValues(dataTableLogic(dataTableLogicProps))
     const columns =
         response?.columns && Array.isArray(response.columns) && !response.columns.find((c) => typeof c !== 'string')
             ? (response?.columns as string[])
@@ -86,6 +91,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                 const value = arrayOfArrays ? record[index] : record[key]
                 return renderColumn(key, value, record, query, setQuery, context)
             },
+            sorter: canSort || undefined, // we sort on the backend
         })),
         ...(showActions && isEventsNode(query.source)
             ? [
@@ -165,6 +171,22 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         columns={lemonColumns}
                         key={lemonColumns.join('::')}
                         dataSource={dataSource}
+                        sorting={canSort && setQuery ? sorting : undefined}
+                        useURLForSorting={false}
+                        onSort={
+                            canSort && setQuery
+                                ? (newSorting) =>
+                                      setQuery?.({
+                                          ...query,
+                                          source: {
+                                              ...query.source,
+                                              orderBy: newSorting
+                                                  ? [(newSorting.order === -1 ? '-' : '') + newSorting.columnKey]
+                                                  : undefined,
+                                          } as EventsNode,
+                                      } as DataTableNode)
+                                : undefined
+                        }
                         expandable={
                             expandable
                                 ? {
