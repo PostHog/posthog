@@ -1,5 +1,6 @@
 import re
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional, cast
+from uuid import UUID
 
 import posthoganalytics
 import pytz
@@ -280,3 +281,68 @@ def get_available_features_for_team(team_id: int):
     )
 
     return available_features
+
+
+def get_effective_membership_level(team_id: int, user_id: int) -> Optional["OrganizationMembership.Level"]:
+    """
+    Given a team_id and a user_id, return an effective membership level.
+
+    None returned if the user has no explicit membership and organization access is too low for implicit membership.
+    """
+    from posthog.models.organization import OrganizationMembership
+
+    try:
+        (membership_id, available_features, access_control, level) = (
+            OrganizationMembership.objects.filter(organization__team=team_id, user_id=user_id)
+            .values_list(
+                "id",
+                "organization__available_features",
+                "organization__team__access_control",
+                "level",
+            )
+            .get()
+        )
+    except OrganizationMembership.DoesNotExist:
+        return None
+
+    return get_effective_membership_level_for_parent_membership(
+        membership_id=membership_id,
+        team_id=team_id,
+        available_features=available_features,
+        access_control=access_control,
+        level=level,
+    )
+
+
+def get_effective_membership_level_for_parent_membership(
+    membership_id: Optional[UUID],
+    team_id: int,
+    available_features: Optional[List[str]],
+    access_control: Optional[bool],
+    level: Optional[int],
+) -> Optional["OrganizationMembership.Level"]:
+    from posthog.models.organization import OrganizationMembership
+
+    if AvailableFeature.PROJECT_BASED_PERMISSIONING not in (available_features or []) or not access_control:
+        return OrganizationMembership.Level(level)
+
+    try:
+        from ee.models import ExplicitTeamMembership
+    except ImportError:
+        # Only organizations admins and above get implicit project membership
+        if level is not None and level < OrganizationMembership.Level.ADMIN:
+            return None
+        return OrganizationMembership.Level(level)
+    else:
+        try:
+            (explicit_level,) = (
+                ExplicitTeamMembership.objects.filter(parent_membership_id=membership_id, team_id=team_id)
+                .values_list("level")
+                .get()
+            )
+            return OrganizationMembership.Level(max(cast(int, level), cast(int, explicit_level)))
+        except ExplicitTeamMembership.DoesNotExist:
+            # Only organizations admins and above get implicit project membership
+            if level is not None and level < OrganizationMembership.Level.ADMIN:
+                return None
+            return OrganizationMembership.Level(level)

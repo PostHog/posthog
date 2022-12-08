@@ -5,9 +5,11 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
 
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.team.team import get_effective_membership_level
 from posthog.utils import get_can_create_org
 
 CREATE_METHODS = ["POST", "PUT"]
@@ -166,12 +168,8 @@ class TeamMemberAccessPermission(BasePermission):
 
     message = "You don't have access to the project."
 
-    def has_permission(self, request, view) -> bool:
-        try:
-            team = view.team
-        except Team.DoesNotExist:
-            return True  # This will be handled as a 404 in the viewset
-        requesting_level = team.get_effective_membership_level(request.user.id)
+    def has_permission(self, request, view: StructuredViewSetMixin) -> bool:
+        requesting_level = get_effective_membership_level(view.team_id, request.user.id)
         return requesting_level is not None
 
 
