@@ -8,6 +8,7 @@ from typing import (
     Type,
     TypedDict,
 )
+from uuid import UUID
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
@@ -181,7 +182,7 @@ class User(AbstractUser, UUIDClassicModel):
         return teams.order_by("access_control", "id")
 
     @property
-    def organization_id(self) -> Optional[Organization]:
+    def organization_id(self) -> Optional[UUID]:
         if self.current_organization_id is None:
             if self.current_team_id is not None:
                 self.current_organization_id = Organization.objects.values_list("id", flat=True).get(
