@@ -80,7 +80,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
                         )
                     attribute_chain.insert(0, node.slice.value)
                     node = node.value
-                if type(node.slice) == ast.Index and type(node.slice.value) == ast.Constant:
+                elif type(node.slice) == ast.Index and type(node.slice.value) == ast.Constant:
                     if type(node.slice.value.value) != str:
                         raise ValueError(
                             f"Only string property access is currently supported, found '{node.slice.value.value}'"
