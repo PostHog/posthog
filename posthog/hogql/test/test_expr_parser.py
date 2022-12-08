@@ -1,44 +1,44 @@
-from posthog.hogql.expr import hogql_expr_to_clickhouse_expr
+from posthog.hogql.expr_parser import translate_hql
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, test_with_materialized_columns
 
 
-class TestHogQLExpr(ClickhouseTestMixin, APIBaseTest):
+class TestExprParser(ClickhouseTestMixin, APIBaseTest):
     def test_hogql_literals(self):
-        self.assertEqual(hogql_expr_to_clickhouse_expr("1 + 2"), "plus(1, 2)")
-        self.assertEqual(hogql_expr_to_clickhouse_expr("-1 + 2"), "plus(-1, 2)")
-        self.assertEqual(hogql_expr_to_clickhouse_expr("-1 - 2 / (3 + 4)"), "minus(-1, divide(2, plus(3, 4)))")
-        self.assertEqual(hogql_expr_to_clickhouse_expr("1.0 * 2.66"), "multiply(1.0, 2.66)")
-        self.assertEqual(hogql_expr_to_clickhouse_expr("'string'"), "'string'")
-        self.assertEqual(hogql_expr_to_clickhouse_expr('"string"'), "'string'")
+        self.assertEqual(translate_hql("1 + 2"), "plus(1, 2)")
+        self.assertEqual(translate_hql("-1 + 2"), "plus(-1, 2)")
+        self.assertEqual(translate_hql("-1 - 2 / (3 + 4)"), "minus(-1, divide(2, plus(3, 4)))")
+        self.assertEqual(translate_hql("1.0 * 2.66"), "multiply(1.0, 2.66)")
+        self.assertEqual(translate_hql("'string'"), "'string'")
+        self.assertEqual(translate_hql('"string"'), "'string'")
 
     @test_with_materialized_columns(["$browser"])
     def test_hogql_fields_and_properties(self):
         self.assertEqual(
-            hogql_expr_to_clickhouse_expr("properties.bla"),
+            translate_hql("properties.bla"),
             "replaceRegexpAll(JSONExtractRaw(properties, 'bla'), '^\"|\"$', '')",
         )
         self.assertEqual(
-            hogql_expr_to_clickhouse_expr("properties['bla']"),
+            translate_hql("properties['bla']"),
             "replaceRegexpAll(JSONExtractRaw(properties, 'bla'), '^\"|\"$', '')",
         )
         self.assertEqual(
-            hogql_expr_to_clickhouse_expr('properties["bla"]'),
+            translate_hql('properties["bla"]'),
             "replaceRegexpAll(JSONExtractRaw(properties, 'bla'), '^\"|\"$', '')",
         )
-        # self.assertEqual(hogql_expr_to_clickhouse_expr("properties['$browser']"), "\"mat_$browser\"")
+        # self.assertEqual(translate_hql("properties['$browser']"), "\"mat_$browser\"")
         self.assertEqual(
-            hogql_expr_to_clickhouse_expr("person.properties.bla"),
+            translate_hql("person.properties.bla"),
             "replaceRegexpAll(JSONExtractRaw(person_properties, 'bla'), '^\"|\"$', '')",
         )
-        self.assertEqual(hogql_expr_to_clickhouse_expr("uuid"), "uuid")
-        self.assertEqual(hogql_expr_to_clickhouse_expr("event"), "event")
-        self.assertEqual(hogql_expr_to_clickhouse_expr("timestamp"), "timestamp")
-        self.assertEqual(hogql_expr_to_clickhouse_expr("distinct_id"), "distinct_id")
-        self.assertEqual(hogql_expr_to_clickhouse_expr("person_id"), "person_id")
-        self.assertEqual(hogql_expr_to_clickhouse_expr("person.created_at"), "person_created_at")
+        self.assertEqual(translate_hql("uuid"), "uuid")
+        self.assertEqual(translate_hql("event"), "event")
+        self.assertEqual(translate_hql("timestamp"), "timestamp")
+        self.assertEqual(translate_hql("distinct_id"), "distinct_id")
+        self.assertEqual(translate_hql("person_id"), "person_id")
+        self.assertEqual(translate_hql("person.created_at"), "person_created_at")
 
     def test_hogql_methods(self):
-        self.assertEqual(hogql_expr_to_clickhouse_expr("total()"), "count(*)")
+        self.assertEqual(translate_hql("total()"), "count(*)")
 
     def test_hogql_expr_parse_errors(self):
         self._assert_value_error("", "Module body must contain only one 'Expr'")
@@ -64,7 +64,7 @@ class TestHogQLExpr(ClickhouseTestMixin, APIBaseTest):
 
     def _assert_value_error(self, expr, expected_error):
         with self.assertRaises(ValueError) as context:
-            hogql_expr_to_clickhouse_expr(expr)
+            translate_hql(expr)
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
         self.assertTrue(expected_error in str(context.exception))
