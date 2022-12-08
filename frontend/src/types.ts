@@ -238,6 +238,7 @@ export interface TeamBasicType {
     name: string
     completed_snippet_onboarding: boolean
     ingested_event: boolean
+    latest_event_sent_at: string | null // Datetime
     is_demo: boolean
     timezone: string
     /** Whether the project is private. */

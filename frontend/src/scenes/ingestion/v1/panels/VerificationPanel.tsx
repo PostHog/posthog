@@ -7,7 +7,7 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
+import { IngestionWarningsTable } from 'scenes/data-management/ingestion-warnings/IngestionWarningsView'
 
 export function VerificationPanel(): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
@@ -15,9 +15,10 @@ export function VerificationPanel(): JSX.Element {
     const { setAddBilling, completeOnboarding } = useActions(ingestionLogic)
     const { showBillingStep } = useValues(ingestionLogic)
     const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
+    const { data: ingestionWarnings, dataLoading: ingestionWarningsLoading } = useValues(ingestionLogic)
 
     useInterval(() => {
-        if (!currentTeam?.ingested_event) {
+        if (!currentTeam?.latest_event_sent_at) {
             loadCurrentTeam()
         }
     }, 2000)
@@ -25,7 +26,7 @@ export function VerificationPanel(): JSX.Element {
     return (
         <CardContainer>
             <div className="text-center">
-                {!currentTeam?.ingested_event ? (
+                {!currentTeam?.latest_event_sent_at ? (
                     <>
                         <div className="ingestion-listening-for-events">
                             <Spinner className="text-4xl" />
@@ -34,7 +35,12 @@ export function VerificationPanel(): JSX.Element {
                                 Once you have integrated the snippet and sent an event, we will verify it was properly
                                 received and continue.
                             </p>
-                            <EventBufferNotice className="mb-4" />
+                            {ingestionWarnings && ingestionWarnings.length > 0 ? (
+                                <IngestionWarningsTable
+                                    data={ingestionWarnings}
+                                    dataLoading={ingestionWarningsLoading}
+                                />
+                            ) : null}
                             <LemonButton
                                 fullWidth
                                 center

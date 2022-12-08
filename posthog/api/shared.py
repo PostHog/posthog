@@ -38,6 +38,7 @@ class TeamBasicSerializer(serializers.ModelSerializer):
             "timezone",
             "access_control",
             "effective_membership_level",
+            "latest_event_sent_at",
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:

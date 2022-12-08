@@ -95,6 +95,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "primary_dashboard",
             "live_events_columns",
             "recording_domains",
+            "latest_event_sent_at",
         )
         read_only_fields = (
             "id",
@@ -106,6 +107,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "ingested_event",
             "effective_membership_level",
             "has_group_types",
+            "latest_event_sent_at",
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:

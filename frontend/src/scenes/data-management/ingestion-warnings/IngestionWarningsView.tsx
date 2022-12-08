@@ -75,62 +75,68 @@ export function IngestionWarningsView(): JSX.Element {
 
             <div className="mb-4">Data ingestion related warnings from past 30 days.</div>
 
-            <LemonTable
-                dataSource={data}
-                loading={dataLoading}
-                columns={[
-                    {
-                        title: 'Warning',
-                        dataIndex: 'type',
-                        render: function Render(_, summary: IngestionWarningSummary) {
-                            const type = WARNING_TYPE_TO_DESCRIPTION[summary.type] || summary.type
-                            return (
-                                <>
-                                    {type} (
-                                    <Link
-                                        to={`https://posthog.com/manual/data-management#${type
-                                            .toLowerCase()
-                                            .split(' ')
-                                            .join('-')}`}
-                                    >
-                                        {'docs'})
-                                    </Link>
-                                </>
-                            )
-                        },
-                    },
-                    {
-                        title: 'Graph',
-                        render: function Render(_, summary: IngestionWarningSummary) {
-                            return <WarningEventsGraph summary={summary} />
-                        },
-                    },
-                    {
-                        title: 'Events',
-                        dataIndex: 'count',
-                        align: 'right',
-                        sorter: (a, b) => a.count - b.count,
-                    },
-                    {
-                        title: 'Last Seen',
-                        dataIndex: 'lastSeen',
-                        render: function Render(_, summary: IngestionWarningSummary) {
-                            return <TZLabel time={summary.lastSeen} showSeconds />
-                        },
-                        align: 'right',
-                        sorter: (a, b) => (new Date(a.lastSeen) > new Date(b.lastSeen) ? 1 : -1),
-                    },
-                ]}
-                expandable={{
-                    expandedRowRender: RenderNestedWarnings,
-                }}
-                defaultSorting={{
-                    columnKey: 'lastSeen',
-                    order: -1,
-                }}
-                noSortingCancellation
-            />
+            <IngestionWarningsTable data={data} dataLoading={dataLoading} />
         </div>
+    )
+}
+
+export function IngestionWarningsTable({ data, dataLoading }: any): JSX.Element {
+    return (
+        <LemonTable
+            dataSource={data}
+            loading={dataLoading}
+            columns={[
+                {
+                    title: 'Warning',
+                    dataIndex: 'type',
+                    render: function Render(_, summary: IngestionWarningSummary) {
+                        const type = WARNING_TYPE_TO_DESCRIPTION[summary.type] || summary.type
+                        return (
+                            <>
+                                {type} (
+                                <Link
+                                    to={`https://posthog.com/manual/data-management#${type
+                                        .toLowerCase()
+                                        .split(' ')
+                                        .join('-')}`}
+                                >
+                                    {'docs'})
+                                </Link>
+                            </>
+                        )
+                    },
+                },
+                {
+                    title: 'Graph',
+                    render: function Render(_, summary: IngestionWarningSummary) {
+                        return <WarningEventsGraph summary={summary} />
+                    },
+                },
+                {
+                    title: 'Events',
+                    dataIndex: 'count',
+                    align: 'right',
+                    sorter: (a, b) => a.count - b.count,
+                },
+                {
+                    title: 'Last Seen',
+                    dataIndex: 'lastSeen',
+                    render: function Render(_, summary: IngestionWarningSummary) {
+                        return <TZLabel time={summary.lastSeen} showSeconds />
+                    },
+                    align: 'right',
+                    sorter: (a, b) => (new Date(a.lastSeen) > new Date(b.lastSeen) ? 1 : -1),
+                },
+            ]}
+            expandable={{
+                expandedRowRender: RenderNestedWarnings,
+            }}
+            defaultSorting={{
+                columnKey: 'lastSeen',
+                order: -1,
+            }}
+            noSortingCancellation
+        />
     )
 }
 
