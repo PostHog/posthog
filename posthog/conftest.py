@@ -5,7 +5,6 @@ from django.conf import settings
 from infi.clickhouse_orm import Database
 
 from posthog.client import sync_execute
-from posthog.cloud_utils import TEST_clear_cloud_cache
 from posthog.test.base import TestMixin, run_clickhouse_statement_in_parallel
 
 
@@ -131,13 +130,3 @@ def cache():
     yield django_cache
 
     django_cache.clear()
-
-
-@pytest.fixture(autouse=True)
-def reset_is_cloud_cached():
-    """
-    Make sure that before every test, we reset the is_cloud_cached value
-    otherwise we can end up with tests that pass locally but fail in CI.
-    """
-    TEST_clear_cloud_cache()
-    yield

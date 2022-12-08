@@ -3,6 +3,7 @@ from unittest.mock import patch
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.cloud_utils import TEST_clear_cloud_cache
 from posthog.models import Action, ActionStep, Organization, Tag, User
 from posthog.test.base import (
     APIBaseTest,
@@ -258,6 +259,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @freeze_time("2021-12-12")
     def test_listing_actions_is_not_nplus1(self) -> None:
+        TEST_clear_cloud_cache()  # HACK: if we do not clear the cache, we get different results in CI
+
         with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
