@@ -312,12 +312,8 @@ export const activationLogic = kea<activationLogicType>([
     })),
     events(({ actions }) => ({
         afterMount: () => {
-            // we artificially wait for a second so that the UI has time to render before we check for these async values
-            // this prevents the UI from flickering when the values are loaded
-            setTimeout(() => {
-                actions.loadCustomEvents()
-                actions.loadInsights()
-            }, 1000)
+            actions.loadCustomEvents()
+            actions.loadInsights()
         },
     })),
     urlToAction(({ actions, values }) => ({
