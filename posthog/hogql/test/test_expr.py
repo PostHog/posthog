@@ -55,6 +55,8 @@ class TestHogQLExpr(ClickhouseTestMixin, APIBaseTest):
         self._assert_value_error("mad(bla)", "Unsupported function call 'mad(...)'")
         self._assert_value_error("yeet.the.cloud", "Unsupported property access: ['yeet', 'the', 'cloud']")
         self._assert_value_error("['properties']['value']", "Unknown node in field access chain:")
+        self._assert_value_error("chipotle", "Unknown event field 'chipotle'")
+        self._assert_value_error("person.chipotle", "Unknown person field 'chipotle'")
 
         # TODO
         # self._assert_value_error("avg(avg(2))", "No nested averages")

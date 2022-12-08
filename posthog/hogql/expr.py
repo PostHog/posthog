@@ -130,19 +130,20 @@ def ast_to_clickhouse_expr(node: ast.AST) -> str:
 
 
 def property_access_to_clickhouse(chain: list[str]):
-    if len(chain) == 2 and chain[0] == "properties":
-        expression, _ = get_property_string_expr(
-            "events",
-            chain[1],
-            escape_param(chain[1]),
-            "properties",
-        )
-        return expression
-    elif len(chain) == 2 and chain[0] == "person":
-        if chain[1] in PERSON_FIELDS:
-            return f"person_{chain[1]}"
-        else:
-            raise ValueError(f"Unknown person field '{chain[1]}'")
+    if len(chain) == 2:
+        if chain[0] == "properties":
+            expression, _ = get_property_string_expr(
+                "events",
+                chain[1],
+                escape_param(chain[1]),
+                "properties",
+            )
+            return expression
+        elif chain[0] == "person":
+            if chain[1] in PERSON_FIELDS:
+                return f"person_{chain[1]}"
+            else:
+                raise ValueError(f"Unknown person field '{chain[1]}'")
     elif len(chain) == 3 and chain[0] == "person" and chain[1] == "properties":
         expression, _ = get_property_string_expr(
             "events",
