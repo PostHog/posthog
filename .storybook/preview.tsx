@@ -1,10 +1,12 @@
 import '~/styles'
 import './storybook.scss'
+import type { Meta } from '@storybook/react'
 import { worker } from '~/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
-import { KeaStory } from './kea-story'
-import { getStorybookAppContext } from 'storybook/app-context'
-import { useAvailableFeatures } from '~/mocks/features'
+
+import { getStorybookAppContext } from './app-context'
+import { withKea } from './decorators/withKea'
+import { withMockDate } from './decorators/withMockDate'
 
 const setupMsw = () => {
     // Make sure the msw worker is started
@@ -21,12 +23,8 @@ const setupPosthogJs = () => {
     // e.g. `/decide/` for feature flags
     window.JS_POSTHOG_HOST = window.location.origin
 
-    // We don't be doing any authn so we can just use a fake key
-    window.JS_POSTHOG_API_KEY = 'dummy-key'
-
     loadPostHogJS()
 }
-
 setupPosthogJs()
 
 // Setup storybook global parameters. See https://storybook.js.org/docs/react/writing-stories/parameters#global-parameters
@@ -64,16 +62,10 @@ export const parameters = {
 }
 
 // Setup storybook global decorators. See https://storybook.js.org/docs/react/writing-stories/decorators#global-decorators
-export const decorators = [
-    // Make sure the msw service worker is started, and reset the handlers to
-    // defaults.
-    (Story: any) => {
-        // Reset enabled enterprise features. Overwrite this line within your stories.
-        useAvailableFeatures([])
-        return (
-            <KeaStory>
-                <Story />
-            </KeaStory>
-        )
-    },
+export const decorators: Meta['decorators'] = [
+    // Make sure the msw service worker is started, and reset the handlers to defaults.
+    withKea,
+    // Allow us to time travel to ensure our stories don't change over time.
+    // To mock a date for a story, set the `mockDate` parameter.
+    withMockDate,
 ]
