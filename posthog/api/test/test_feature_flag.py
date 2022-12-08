@@ -6,6 +6,7 @@ from unittest.mock import patch
 from freezegun.api import freeze_time
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
 from posthog.models.person import Person
@@ -1734,6 +1735,11 @@ class TestFeatureFlag(APIBaseTest):
         ).json()
 
         self.assertEqual(len(feature_flag["rollback_conditions"]), 1)
+
+    def test_feature_flag_can_edit(self):
+        self.assertEqual((AvailableFeature.ROLE_BASED_ACCESS in self.organization.available_features), False)
+        res = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
+        self.assertEqual(res.json()["results"][0]["can_edit"], True)
 
 
 class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
