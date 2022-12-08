@@ -132,12 +132,14 @@ test.describe('stickiness insight', () => {
     })
 })
 
-// test.describe('user paths insights', () => {
-//     test('displays viz correctly', async ({ storyPage }) => {
-//         await storyPage.goto(toId('Scenes-App/Insights', 'User Paths'))
-//         await storyPage.expectSceneScreenshot()
-//     })
-// })
+// flaky test - needs investigation
+// https://github.com/PostHog/posthog/pull/13185
+test.skip('user paths insights', () => {
+    test('displays viz correctly', async ({ storyPage }) => {
+        await storyPage.goto(toId('Scenes-App/Insights', 'User Paths'))
+        await storyPage.expectSceneScreenshot()
+    })
+})
 
 test.describe('error states', () => {
     test('display the empty state correctly', async ({ storyPage }) => {
