@@ -223,16 +223,17 @@ class UniqueConstraintByExpression(BaseConstraint):
     def __init__(self, *, name: str, expression: str, concurrently=True):
         self.name = name
         self.expression = expression
-        self.concurrently = True
+        self.concurrently = concurrently
 
     def constraint_sql(self, model, schema_editor):
+        schema_editor.deferred_sql.append(str(self.create_sql(model, schema_editor, table_creation=True)))
         return None
 
-    def create_sql(self, model, schema_editor):
+    def create_sql(self, model, schema_editor, table_creation=False):
         table = model._meta.db_table
         return Statement(
             f"""
-            CREATE UNIQUE INDEX {'CONCURRENTLY' if self.concurrently else ''} %(name)s
+            CREATE UNIQUE INDEX {'CONCURRENTLY' if self.concurrently and not table_creation else ''} %(name)s
             ON %(table)s
             %(expression)s
             """,
