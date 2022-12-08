@@ -89,6 +89,7 @@ export function Login(): JSX.Element {
     return (
         <BridgePage
             view="login"
+            hedgehog
             message={
                 <>
                     Welcome to
