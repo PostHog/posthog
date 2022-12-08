@@ -20,7 +20,7 @@ from posthog.constants import (
     SESSION_RECORDINGS_PLAYLIST_FREE_COUNT,
     AvailableFeature,
 )
-from posthog.models import SessionRecordingPlaylist, SessionRecordingPlaylistItem, Team, User
+from posthog.models import SessionRecording, SessionRecordingPlaylist, SessionRecordingPlaylistItem, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
@@ -283,8 +283,9 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
 
         # TODO: Maybe we need to save the created_at date here properly to help with filtering
         if request.method == "POST":
+            recording = SessionRecording.objects.get_or_create(session_id=session_recording_id, team=self.team)
             playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
-                playlist=playlist, session_id=session_recording_id, team=self.team
+                playlist=playlist, session_id=session_recording_id, team=self.team, recording=recording
             )
 
             return response.Response({"success": True})
