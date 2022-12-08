@@ -46,12 +46,16 @@ explanation = {
 }
 
 
-def count_from(data: Dict, badge: str) -> List[Dict[str, Union[int, str]]]:
+def stats_for_badge(data: Dict, badge: str) -> List[Dict[str, Union[int, str]]]:
     stats = data["stats"]
     # noinspection PyBroadException
     try:
         if badge == "astronaut" or badge == "deep_diver":
-            return [{"count": stats["insight_created_count"], "description": "Insights created"}]
+            return (
+                [{"count": stats["insight_created_count"], "description": "Insights created"}]
+                if stats["insight_created_count"]
+                else []
+            )
         elif badge == "curator":
             return [{"count": stats["dashboard_created_count"], "description": "Dashboards created"}]
         elif badge == "flag_raiser":
@@ -91,6 +95,8 @@ def render_2022(request, user_token: str) -> HttpResponse:
 
         badge = sort_list_based_on_preference(data["badges"])
 
+        stats = stats_for_badge(data, badge)
+
         context = {
             "debug": settings.DEBUG,
             "api_token": os.environ.get("DEBUG_API_TOKEN", "unknown") if settings.DEBUG else "sTMFPsFhdP1Ssg",
@@ -100,7 +106,7 @@ def render_2022(request, user_token: str) -> HttpResponse:
             "image": f"badges/2022_{badge}.png",
             "opengraph_image": f"open-graph/2022_{badge}.png",
             "explanation": explanation.get(badge),
-            "stats": count_from(data, badge),
+            "stats": stats,
             "page_url": f"{request.scheme}://{request.META['HTTP_HOST']}{request.get_full_path()}",
         }
 
