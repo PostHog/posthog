@@ -73,20 +73,19 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
                 attribute_chain.insert(0, node.attr)
                 node = node.value
             elif type(node) == ast.Subscript:
-                if type(node.slice) == ast.Constant:
-                    if type(node.slice.value) != str:
-                        raise ValueError(
-                            f"Only string property access is currently supported, found '{node.slice.value}'"
-                        )
-                    attribute_chain.insert(0, node.slice.value)
+                slice: ast.AST = node.slice
+                if type(slice) == ast.Constant:
+                    if type(slice.value) != str:
+                        raise ValueError(f"Only string property access is currently supported, found '{slice.value}'")
+                    attribute_chain.insert(0, slice.value)
                     node = node.value
-                elif type(node.slice) == ast.Index and type(node.slice.value) == ast.Constant:
-                    if type(node.slice.value.value) != str:
-                        raise ValueError(
-                            f"Only string property access is currently supported, found '{node.slice.value.value}'"
-                        )
-                    attribute_chain.insert(0, node.slice.value.value)
-                    node = node.value
+                # ast.Index is a deprecated node class that shows up in tests with Python 3.8
+                elif type(slice) == ast.Index and type(slice.value) == ast.Constant:  # type: ignore
+                    const: ast.Constant = slice.value  # type: ignore
+                    if type(const.value) != str:
+                        raise ValueError(f"Only string property access is currently supported, found '{const.value}'")
+                    attribute_chain.insert(0, const.value)
+                    node = const
                 else:
                     raise ValueError(f"Unsupported Subscript slice type: {type(node.slice).__name__}")
             elif type(node) == ast.Name:  # type: ignore

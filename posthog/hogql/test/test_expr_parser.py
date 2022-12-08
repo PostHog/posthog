@@ -1,5 +1,5 @@
 from posthog.hogql.expr_parser import ExprParserContext, translate_hql
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, test_with_materialized_columns
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin  # , test_with_materialized_columns
 
 
 class TestExprParser(ClickhouseTestMixin, APIBaseTest):
@@ -11,7 +11,7 @@ class TestExprParser(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(translate_hql("'string'"), "'string'")
         self.assertEqual(translate_hql('"string"'), "'string'")
 
-    @test_with_materialized_columns(["$browser"])
+    # @test_with_materialized_columns(["$browser"])
     def test_hogql_fields_and_properties(self):
         self.assertEqual(
             translate_hql("properties.bla"),
@@ -55,6 +55,7 @@ class TestExprParser(ClickhouseTestMixin, APIBaseTest):
         self._assert_value_error("mad(bla)", "Unsupported function call 'mad(...)'")
         self._assert_value_error("yeet.the.cloud", "Unsupported property access: ['yeet', 'the', 'cloud']")
         self._assert_value_error("['properties']['value']", "Unknown node in field access chain:")
+        self._assert_value_error("['properties']['value']['bla']", "Unknown node in field access chain:")
         self._assert_value_error("chipotle", "Unknown event field 'chipotle'")
         self._assert_value_error("person.chipotle", "Unknown person field 'chipotle'")
         self._assert_value_error("avg(2)", "avg(...) must be called on fields or properties, not literals.")
