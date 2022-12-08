@@ -83,6 +83,19 @@ const PropertyFormulasTable: DataTableNode = {
     source: PropertyFormulas,
 }
 
+const EventAggegations: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: NodeKind.EventsNode,
+        select: ["properties['$geoip_city_name']", 'event', 'total()'],
+        orderBy: ['-total()'],
+    },
+    showReload: true,
+    showEventFilter: true,
+    showPropertyFilter: true,
+    showExport: true,
+}
+
 const DataPerCountry: EventsNode = {
     kind: NodeKind.EventsNode,
     properties: [
@@ -311,6 +324,7 @@ export const examples: Record<string, Node> = {
     TotalEventsTable,
     PropertyFormulas,
     PropertyFormulasTable,
+    EventAggegations,
     DataPerCountry,
     Persons,
     PersonsTable,

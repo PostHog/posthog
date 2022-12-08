@@ -1,5 +1,5 @@
 import ast
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional
 
 from clickhouse_driver.util.escape import escape_param
@@ -14,8 +14,9 @@ HOGQL_AGGREGATIONS = ["avg", "sum", "total"]
 
 @dataclass
 class ExprParserContext:
-    aggregates: List[List[str]]
-    properties: List[List[str]]
+    property_list: List[List[str]] = field(default_factory=list)
+    encountered_nodes: List[ast.AST] = field(default_factory=list)
+    is_aggregation: bool = False
 
 
 def translate_hql(hql: str, context: Optional[ExprParserContext] = None) -> str:
@@ -25,7 +26,7 @@ def translate_hql(hql: str, context: Optional[ExprParserContext] = None) -> str:
     except SyntaxError as err:
         raise ValueError(f"SyntaxError: {err.msg}")
     if not context:
-        context = ExprParserContext(aggregates=[], properties=[])
+        context = ExprParserContext()
     return translate_ast(node, [], context)
 
 
@@ -33,12 +34,14 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
     """Translate a parsed HogQL expression in the shape of a Python AST into a Clickhouse expression."""
     response = ""
     stack.append(node)
+    context.encountered_nodes.append(node)
     if type(node) == ast.Module:
         if len(node.body) == 1 and type(node.body[0]) == ast.Expr:
             response = translate_ast(node.body[0], stack, context)
         else:
             raise ValueError(f"Module body must contain only one 'Expr'")
     elif type(node) == ast.Expr:
+        ast.dump(node)
         response = translate_ast(node.value, stack, context)
     elif type(node) == ast.BinOp:
         if type(node.op) == ast.Add:
@@ -93,13 +96,15 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
                 break
             else:
                 raise ValueError(f"Unknown node in field access chain: {ast.dump(node)}")
-        context.properties.append(attribute_chain)
         response = property_access_to_clickhouse(attribute_chain)
+        context.property_list.append(attribute_chain)
+
     elif type(node) == ast.Call:
         if type(node.func) != ast.Name:
             raise ValueError(f"Can only call simple functions like 'avg(properties.bla)' or 'total()'")
         call_name = node.func.id
         if call_name in HOGQL_AGGREGATIONS:
+            context.is_aggregation = True
             if call_name == "total":
                 if len(node.args) != 0:
                     raise ValueError(f"Method 'total' does not accept any arguments.")
@@ -120,20 +125,19 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
                         raise ValueError(f"Method 'avg' cannot be nested inside another aggregate.")
 
                 # check that we're running an aggregate on a property
-                properties_before = len(context.properties)
+                properties_before = len(context.property_list)
                 response = f"{call_name}({translate_ast(node.args[0], stack, context)})"
-                properties_after = len(context.properties)
+                properties_after = len(context.property_list)
                 if properties_after == properties_before:
                     raise ValueError(f"{call_name}(...) must be called on fields or properties, not literals.")
-                for property in context.properties[properties_before:properties_after]:
-                    context.aggregates.append(property)
+
         elif node.func.id in CLICKHOUSE_FUNCTIONS:
             response = f"{node.func.id}({', '.join([translate_ast(arg, stack, context) for arg in node.args])})"
         else:
             raise ValueError(f"Unsupported function call '{call_name}(...)'")
     elif type(node) == ast.Name and type(node.id) == str:
-        context.properties.append([node.id])
         response = property_access_to_clickhouse([node.id])
+        context.property_list.append([node.id])
     else:
         ast.dump(node)
         raise ValueError(f"Unknown AST type {type(node).__name__}")

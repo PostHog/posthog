@@ -62,20 +62,27 @@ class TestExprParser(ClickhouseTestMixin, APIBaseTest):
         self._assert_value_error("avg(avg(properties.bla))", "Method 'avg' cannot be nested inside another aggregate.")
 
     def test_hogql_returned_properties(self):
-        context = ExprParserContext(aggregates=[], properties=[])
+        context = ExprParserContext()
         translate_hql("avg(properties.prop) + avg(uuid) + event", context)
-        self.assertEqual(context.properties, [["properties", "prop"], ["uuid"], ["event"]])
-        self.assertEqual(context.aggregates, [["properties", "prop"], ["uuid"]])
+        self.assertEqual(context.property_list, [["properties", "prop"], ["uuid"], ["event"]])
+        self.assertEqual(context.is_aggregation, True)
 
-        context = ExprParserContext(aggregates=[], properties=[])
+        context = ExprParserContext()
         translate_hql("coalesce(event, properties.event)", context)
-        self.assertEqual(context.properties, [["event"], ["properties", "event"]])
-        self.assertEqual(context.aggregates, [])
+        self.assertEqual(context.property_list, [["event"], ["properties", "event"]])
+        self.assertEqual(context.is_aggregation, False)
 
-        context = ExprParserContext(aggregates=[], properties=[])
+        context = ExprParserContext()
         translate_hql("total() + sum(timestamp)", context)
-        self.assertEqual(context.properties, [["timestamp"]])
-        self.assertEqual(context.aggregates, [["timestamp"]])
+        self.assertEqual(context.property_list, [["timestamp"]])
+        self.assertEqual(context.is_aggregation, True)
+
+        context = ExprParserContext()
+        translate_hql("event + avg(event + properties.event) + avg(event + properties.event)", context)
+        self.assertEqual(
+            context.property_list, [["event"], ["event"], ["properties", "event"], ["event"], ["properties", "event"]]
+        )
+        self.assertEqual(context.is_aggregation, True)
 
     def _assert_value_error(self, expr, expected_error):
         with self.assertRaises(ValueError) as context:

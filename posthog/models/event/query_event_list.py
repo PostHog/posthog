@@ -7,7 +7,7 @@ from django.utils.timezone import now
 
 from posthog.api.utils import get_pk_or_uuid
 from posthog.client import query_with_columns, sync_execute
-from posthog.hogql.expr_parser import translate_hql
+from posthog.hogql.expr_parser import ExprParserContext, translate_hql
 from posthog.models import Action, Filter, Person, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.event.sql import (
@@ -62,7 +62,16 @@ def query_events_list(
     limit_sql = "LIMIT %(limit)s"
     order = "DESC" if order_by[0] == "-timestamp" else "ASC"
 
-    selected_columns = [translate_hql(col) for col in select] if select else None
+    selected_columns: List[str] = []
+    group_by_columns: List[str] = []
+
+    if select:
+        for column in select:
+            context = ExprParserContext()
+            clickhouse_sql = translate_hql(column, context)
+            selected_columns.append(clickhouse_sql)
+            if not context.is_aggregation:
+                group_by_columns.append(clickhouse_sql)
 
     conditions, condition_params = determine_event_conditions(
         team,
@@ -91,13 +100,24 @@ def query_events_list(
         prop_filter_params = {**prop_filter_params, **params}
 
     if selected_columns:
+        order_by_list = []
+        if order_by:
+            for fragment in order_by:
+                if fragment.startswith("-"):
+                    order_by_list.append(translate_hql(fragment[1:]) + " DESC")
+                else:
+                    order_by_list.append(translate_hql(fragment) + " ASC")
+        else:
+            order_by_list.append(selected_columns[0])
+
         results, types = sync_execute(
             SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS.format(
                 columns=", ".join(selected_columns),
                 conditions=conditions,
                 limit=limit_sql,
+                group="GROUP BY {}".format(", ".join(group_by_columns)) if group_by_columns else "",
+                order="ORDER BY {}".format(", ".join(order_by_list)),
                 filters=prop_filters,
-                order=selected_columns[0],
             ),
             {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
             with_column_types=True,

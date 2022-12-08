@@ -8,11 +8,16 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/defaults'
 import { isEventsNode, isPersonsNode } from '~/queries/utils'
 import { getEventsEndpoint, getPersonsEndpoint } from '~/queries/query'
 
+const DEFAULT_EXPORT_LIMIT = 3500
+
 function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void {
     const exportContext = isEventsNode(query.source)
-        ? { path: getEventsEndpoint(query.source), max_limit: query.source.limit ?? 3500 }
+        ? {
+              path: getEventsEndpoint({ ...query.source, limit: DEFAULT_EXPORT_LIMIT }),
+              max_limit: query.source.limit ?? DEFAULT_EXPORT_LIMIT,
+          }
         : isPersonsNode(query.source)
-        ? { path: getPersonsEndpoint(query.source), max_limit: 3500 }
+        ? { path: getPersonsEndpoint(query.source), max_limit: DEFAULT_EXPORT_LIMIT }
         : undefined
     if (!exportContext) {
         throw new Error('Unsupported node type')

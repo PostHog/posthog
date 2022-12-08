@@ -117,7 +117,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         canLoadNewData: [
             (s) => [s.query],
             (query) => {
-                return isEventsNode(query)
+                return isEventsNode(query) && !query.select
             },
         ],
         canLoadNextData: [
