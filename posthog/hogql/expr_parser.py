@@ -80,6 +80,13 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
                         )
                     attribute_chain.insert(0, node.slice.value)
                     node = node.value
+                if type(node.slice) == ast.Index and type(node.slice.value) == ast.Constant:
+                    if type(node.slice.value.value) != str:
+                        raise ValueError(
+                            f"Only string property access is currently supported, found '{node.slice.value.value}'"
+                        )
+                    attribute_chain.insert(0, node.slice.value.value)
+                    node = node.value
                 else:
                     raise ValueError(f"Unsupported Subscript slice type: {type(node.slice).__name__}")
             elif type(node) == ast.Name:  # type: ignore
