@@ -158,10 +158,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         refreshAllDashboardItemsManual: true,
         resetInterval: true,
         updateAndRefreshDashboard: true,
-        setDates: (dateFrom: string | null, dateTo: string | null, reloadDashboard = true) => ({
+        setDates: (dateFrom: string | null, dateTo: string | null) => ({
             dateFrom,
             dateTo,
-            reloadDashboard,
         }),
         setProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
@@ -191,7 +190,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         abortQuery: (payload: { dashboardQueryId: string; queryId: string; queryStartTime: number }) => payload,
     }),
 
-    loaders(({ actions, props, values }) => ({
+    loaders(({ actions, props, values, cache }) => ({
         // TODO this is a terrible name... it is "dashboard" but there's a "dashboard" reducer ¯\_(ツ)_/¯
         allItems: [
             null as DashboardType | null,
@@ -219,6 +218,27 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             throw new Error('Dashboard not found')
                         }
                         throw error
+                    }
+                },
+                updateFilters: async () => {
+                    if (!props.id) {
+                        // what are we saving colors against?!
+                        return values.allItems
+                    }
+
+                    if (cache.abortController) {
+                        cache.abortController.abort()
+                    }
+                    cache.abortController = null
+
+                    try {
+                        return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
+                            filters: values.filters,
+                            no_items_field: true,
+                        })
+                    } catch (e) {
+                        lemonToast.error('Could not update dashboardFilters: ' + e)
+                        return values.allItems
                     }
                 },
                 updateTileColor: async ({ tileId, color }) => {
@@ -1100,28 +1120,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.lastRefreshed)
         },
-        updateAndRefreshDashboard: async (_, breakpoint) => {
-            await breakpoint(200)
-
-            if (cache.abortController) {
-                cache.abortController.abort()
-            }
-            cache.abortController = null
-
-            await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
-                filters: values.filters,
-                no_items_field: true,
-            })
-            actions.loadDashboardItems({ action: 'update_filters' })
-        },
-        setDates: ({ dateFrom, dateTo, reloadDashboard }) => {
-            if (reloadDashboard) {
-                actions.updateAndRefreshDashboard()
-            }
+        setDates: ({ dateFrom, dateTo }) => {
+            actions.updateFilters()
             eventUsageLogic.actions.reportDashboardDateRangeChanged(dateFrom, dateTo)
         },
         setProperties: () => {
-            actions.updateAndRefreshDashboard()
+            actions.updateFilters()
             eventUsageLogic.actions.reportDashboardPropertiesChanged()
         },
         setDashboardMode: async ({ mode, source }) => {
