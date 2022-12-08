@@ -5,6 +5,7 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem, User
+from posthog.models.organization import is_feature_available
 from posthog.models.tag import tagify
 
 
@@ -73,12 +74,7 @@ class TaggedItemSerializerMixin(serializers.Serializer):
 
 
 def is_licensed_for_tagged_items(user: User) -> bool:
-    return (
-        not user.is_anonymous
-        # The below triggers an extra query to resolve user's organization.
-        and user.organization is not None
-        and user.organization.is_feature_available(AvailableFeature.TAGGING)
-    )
+    return not user.is_anonymous and is_feature_available(user.organization_id, AvailableFeature.TAGGING)
 
 
 class TaggedItemViewSetMixin(viewsets.GenericViewSet):

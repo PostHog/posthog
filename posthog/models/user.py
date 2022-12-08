@@ -181,6 +181,17 @@ class User(AbstractUser, UUIDClassicModel):
         return teams.order_by("access_control", "id")
 
     @property
+    def organization_id(self) -> Optional[Organization]:
+        if self.current_organization_id is None:
+            if self.current_team_id is not None:
+                self.current_organization_id = Organization.objects.values_list("id", flat=True).get(
+                    teams=self.current_team_id
+                )
+            self.current_organization_id = self.organizations.values_list("id", flat=True).first()
+            self.save()
+        return self.current_organization_id
+
+    @property
     def organization(self) -> Optional[Organization]:
         if self.current_organization is None:
             if self.current_team is not None:

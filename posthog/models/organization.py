@@ -10,6 +10,7 @@ from typing import (
     TypedDict,
     Union,
 )
+from uuid import UUID
 
 import structlog
 from django.conf import settings
@@ -372,3 +373,13 @@ def ensure_organization_membership_consistency(sender, instance: OrganizationMem
         save_user = True
     if save_user:
         instance.user.save()
+
+
+def is_feature_available(organization_id: Optional[UUID], feature: AvailableFeature):
+    if organization_id is not None:
+        return False
+    values = Organization.objects.values_list("available_features", flat=True).filter(id=organization_id).first()
+    if values is None:
+        return False
+    (available_features,) = values
+    return feature in available_features

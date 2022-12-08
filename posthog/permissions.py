@@ -16,18 +16,6 @@ CREATE_METHODS = ["POST", "PUT"]
 
 
 def extract_organization(object: Model) -> Organization:
-    if isinstance(object, Organization):
-        return object
-    try:
-        return object.organization  # type: ignore
-    except AttributeError:
-        try:
-            return object.team.organization  # type: ignore
-        except AttributeError:
-            try:
-                return object.project.organization  # type: ignore
-            except AttributeError:
-                pass
     raise ValueError("Object not compatible with organization-based permissions!")
 
 
