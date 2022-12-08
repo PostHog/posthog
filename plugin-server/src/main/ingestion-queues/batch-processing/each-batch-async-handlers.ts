@@ -26,7 +26,7 @@ export async function eachMessageAsyncHandlers(message: KafkaMessage, queue: Ing
             clickHouseEvent = JSON.parse(message.value.toString())
             event = convertToIngestionEvent(clickHouseEvent)
         } catch (error) {
-            Sentry.captureException(error)
+            Sentry.captureException(error, { extra: { clickHouseEvent } })
             return
         }
     }
