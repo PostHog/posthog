@@ -5,7 +5,7 @@ import { CSSTransition } from 'react-transition-group'
 import './BridgePage.scss'
 import { LaptopHog3 } from '../hedgehogs'
 
-export type BridgePageProps = {
+export type BridgePageCommonProps = {
     className?: string
     children?: React.ReactNode
     footer?: React.ReactNode
@@ -13,11 +13,22 @@ export type BridgePageProps = {
     view: string
     noLogo?: boolean
     sideLogo?: boolean
-    message?: React.ReactNode
     fixedWidth?: boolean
     leftContainerContent?: JSX.Element
-    hedgehog?: boolean
 }
+
+interface NoHedgehogProps extends BridgePageCommonProps {
+    hedgehog?: false
+    message?: never
+}
+
+interface YesHedgehogProps extends BridgePageCommonProps {
+    hedgehog: true
+    message?: React.ReactNode
+}
+
+// Only allow setting of the hog message when a hog actually exists
+type BridgePageProps = NoHedgehogProps | YesHedgehogProps
 
 export function BridgePage({
     children,
