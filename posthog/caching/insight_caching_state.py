@@ -67,69 +67,43 @@ class LazyLoader:
 def sync_insight_cache_states():
     lazy_loader = LazyLoader()
     insights = Insight.objects.all().prefetch_related("team", "sharingconfiguration_set").order_by("pk")
-    for insight in _iterate_large_queryset(insights, 1000):
-        try:
-            upsert(insight.team, insight, lazy_loader)
-        except ValueError:
-            pass
+    for page_of_insights in _iterate_large_queryset(insights, 1000):
+        batch = [upsert(insight.team, insight, lazy_loader, execute=False) for insight in page_of_insights]
+        _execute_insert(batch)
+
     tiles = (
         DashboardTile.objects.all()
         .prefetch_related("dashboard", "dashboard__team", "dashboard__sharingconfiguration_set", "insight")
         .order_by("pk")
     )
-    for tile in _iterate_large_queryset(tiles, 1000):
-        try:
-            upsert(tile.dashboard.team, tile, lazy_loader)
-        except ValueError:
-            pass
+    for page_of_tiles in _iterate_large_queryset(tiles, 1000):
+        batch = [upsert(tile.dashboard.team, tile, lazy_loader, execute=False) for tile in page_of_tiles]
+        _execute_insert(batch)
 
 
-def upsert(team: Team, target: Union[DashboardTile, Insight], lazy_loader: Optional[LazyLoader] = None):
+def upsert(
+    team: Team, target: Union[DashboardTile, Insight], lazy_loader: Optional[LazyLoader] = None, execute=True
+) -> Optional[InsightCachingState]:
     lazy_loader = lazy_loader or LazyLoader()
     cache_key = calculate_cache_key(target)
     if cache_key is None:  # Non-cachable model
-        return
+        return None
 
     target_age = calculate_target_age(team, target, lazy_loader)
     target_cache_age_seconds = target_age.value.total_seconds() if target_age.value is not None else None
 
-    _execute_insert(
-        [
-            InsightCachingState(
-                team_id=team.pk,
-                insight=target if isinstance(target, Insight) else target.insight,
-                dashboard_tile=target if isinstance(target, DashboardTile) else None,
-                cache_key=cache_key,
-                target_cache_age_seconds=target_cache_age_seconds,
-            )
-        ]
+    model = InsightCachingState(
+        team_id=team.pk,
+        insight=target if isinstance(target, Insight) else target.insight,
+        dashboard_tile=target if isinstance(target, DashboardTile) else None,
+        cache_key=cache_key,
+        target_cache_age_seconds=target_cache_age_seconds,
     )
-
-
-def _execute_insert(states: List[InsightCachingState]):
-    from django.db import connection
-
-    timestamp = now()
-    values = []
-    params = []
-    for state in states:
-        values.append("(%s, %s, %s, %s, %s, %s, %s, %s, 0)")
-        params.extend(
-            [
-                UUIDT(),
-                state.team_id,
-                state.insight_id,
-                state.dashboard_tile_id,
-                state.cache_key,
-                state.target_cache_age_seconds,
-                timestamp,
-                timestamp,
-            ]
-        )
-
-    with connection.cursor() as cursor:
-        query = INSERT_INSIGHT_CACHING_STATES_QUERY.format(values=", ".join(values))
-        cursor.execute(query, params=params)
+    if execute:
+        _execute_insert([model])
+        return None
+    else:
+        return model
 
 
 def sync_insight_caching_state(team_id: int, insight_id: Optional[int] = None, dashboard_tile_id: Optional[int] = None):
@@ -220,5 +194,34 @@ def _iterate_large_queryset(queryset, page_size):
     for page_number in paginator.page_range:
         page = paginator.page(page_number)
 
-        for item in page.object_list:
-            yield item
+        yield page.object_list
+
+
+def _execute_insert(states: List[Optional[InsightCachingState]]):
+    from django.db import connection
+
+    states = list(filter(None, states))
+    if len(states) == 0:
+        return
+
+    timestamp = now()
+    values = []
+    params = []
+    for state in states:
+        values.append("(%s, %s, %s, %s, %s, %s, %s, %s, 0)")
+        params.extend(
+            [
+                UUIDT(),
+                state.team_id,
+                state.insight_id,
+                state.dashboard_tile_id,
+                state.cache_key,
+                state.target_cache_age_seconds,
+                timestamp,
+                timestamp,
+            ]
+        )
+
+    with connection.cursor() as cursor:
+        query = INSERT_INSIGHT_CACHING_STATES_QUERY.format(values=", ".join(values))
+        cursor.execute(query, params=params)
