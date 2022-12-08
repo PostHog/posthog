@@ -1,16 +1,13 @@
-import functools
 import os
-import random
 import time
 from random import randrange
-from typing import Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from celery import Celery
 from celery.schedules import crontab
 from celery.signals import setup_logging, task_postrun, task_prerun, worker_process_init
 from django.conf import settings
-from django.core.cache import cache
 from django.db import connection
 from django.dispatch import receiver
 from django.utils import timezone
@@ -103,15 +100,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     # Sync all Organization.available_features every hour
     sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
-    sync_insight_cache_states_schedule = get_crontab(settings.SYNC_INSIGHT_CACHE_STATES_SCHEDULE)
-    if sync_insight_cache_states_schedule:
-        sender.add_periodic_task(
-            sync_insight_cache_states_schedule, sync_insight_cache_states_task.s(), name="sync insight cache states"
-        )
-
     sender.add_periodic_task(
-        1,
-        schedule_cache_updates_task.s(),
+        settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS,
+        check_cached_items.s(),
         name="check dashboard items",
     )
 
@@ -184,28 +175,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             check_flags_to_rollback.s(),
             name="check feature flags that should be rolled back",
         )
-
-
-def single_executing_at_once(lock_name, lock_timeout_seconds=180, jitter=(1, 20)):
-    """
-    Ensures only a single copy of a celery task is executing at once.
-    """
-
-    def decorator_fn(fn):
-        @functools.wraps(fn)
-        def inner(self, *args, **kw):
-            if not cache.add(lock_name, 1, timeout=lock_timeout_seconds):
-                retry_time = random.uniform(*jitter)
-                return self.retry(countdown=retry_time)
-
-            try:
-                return fn(self, *args, **kw)
-            finally:
-                cache.delete(lock_name)
-
-        return inner
-
-    return decorator_fn
 
 
 # Set up clickhouse query instrumentation
@@ -504,6 +473,24 @@ def calculate_cohort():
 
 
 @app.task(ignore_result=True)
+def check_cached_items():
+    from posthog.caching.update_cache import update_cached_items
+
+    update_cached_items()
+
+
+@app.task(ignore_result=False)
+def update_cache_item_task(key: str, cache_type, payload: dict) -> List[Dict[str, Any]]:
+    """
+    Tasks used in a group (as this is) must not ignore their results
+    https://docs.celeryq.dev/en/latest/userguide/canvas.html#groups:~:text=Similarly%20to%20chords%2C%20tasks%20used%20in%20a%20group%20must%20not%20ignore%20their%20results.
+    """
+    from posthog.caching.update_cache import update_cache_item
+
+    return update_cache_item(key, cache_type, payload)
+
+
+@app.task(ignore_result=True)
 def sync_insight_cache_states_task():
     from posthog.caching.insight_caching_state import sync_insight_cache_states
 
@@ -517,9 +504,8 @@ def schedule_cache_updates_task():
     schedule_cache_updates()
 
 
-@app.task(ignore_result=True, bind=True)
-@single_executing_at_once("celery_update_cache_task")
-def update_cache_task(self, caching_state_id: UUID):
+@app.task(ignore_result=True)
+def update_cache_task(caching_state_id: UUID):
     from posthog.caching.insight_cache import update_cache
 
     update_cache(caching_state_id)
