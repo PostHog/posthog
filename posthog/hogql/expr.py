@@ -4,7 +4,7 @@ from clickhouse_driver.util.escape import escape_param
 
 from posthog.models.property.util import get_property_string_expr
 
-EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id", "person_id"]
+EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id"]
 PERSON_FIELDS = ["id", "created_at", "properties"]
 
 
@@ -31,15 +31,19 @@ def ast_to_clickhouse_expr(node: ast.AST) -> str:
     elif type(node) == ast.Expr:
         return ast_to_clickhouse_expr(node.value)
     elif type(node) == ast.BinOp:
+        if type(node.op) == ast.Add:
+            return f"plus({ast_to_clickhouse_expr(node.left)}, {ast_to_clickhouse_expr(node.right)})"
+        if type(node.op) == ast.Sub:
+            return f"minus({ast_to_clickhouse_expr(node.left)}, {ast_to_clickhouse_expr(node.right)})"
+        if type(node.op) == ast.Mult:
+            return f"multiply({ast_to_clickhouse_expr(node.left)}, {ast_to_clickhouse_expr(node.right)})"
+        if type(node.op) == ast.Div:
+            return f"divide({ast_to_clickhouse_expr(node.left)}, {ast_to_clickhouse_expr(node.right)})"
         return f"({ast_to_clickhouse_expr(node.left)} {ast_to_clickhouse_expr(node.op)} {ast_to_clickhouse_expr(node.right)})"
     elif type(node) == ast.UnaryOp:
         return f"{ast_to_clickhouse_expr(node.op)}{ast_to_clickhouse_expr(node.operand)}"
-    elif type(node) == ast.Add:
-        return "+"
-    elif type(node) == ast.Sub or type(node) == ast.USub:
+    elif type(node) == ast.USub:
         return "-"
-    elif type(node) == ast.Div:
-        return "/"
     elif type(node) == ast.Constant:
         if type(node.value) == int or type(node.value) == float:
             return str(node.value)
@@ -151,7 +155,9 @@ def property_access_to_clickhouse(chain: list[str]):
         if chain[0] in EVENT_FIELDS:
             if chain[0] == "id":
                 return "uuid"
-            return f"{chain[0]}"
+            return chain[0]
+        elif chain[0].startswith("person_") and chain[0][7:] in PERSON_FIELDS:
+            return chain[0]
         else:
             raise ValueError(f"Unknown event field '{chain[0]}'")
 

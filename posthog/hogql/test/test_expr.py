@@ -4,10 +4,10 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, test_with_materi
 
 class TestHogQLExpr(ClickhouseTestMixin, APIBaseTest):
     def test_hogql_literals(self):
-        self.assertEqual(hogql_expr_to_clickhouse_expr("1 + 2"), "(1 + 2)")
-        self.assertEqual(hogql_expr_to_clickhouse_expr("-1 + 2"), "(-1 + 2)")
-        self.assertEqual(hogql_expr_to_clickhouse_expr("-1 - 2 / (3 + 4)"), "(-1 - (2 / (3 + 4)))")
-        self.assertEqual(hogql_expr_to_clickhouse_expr("1.0 + 2.66"), "(1.0 + 2.66)")
+        self.assertEqual(hogql_expr_to_clickhouse_expr("1 + 2"), "plus(1, 2)")
+        self.assertEqual(hogql_expr_to_clickhouse_expr("-1 + 2"), "plus(-1, 2)")
+        self.assertEqual(hogql_expr_to_clickhouse_expr("-1 - 2 / (3 + 4)"), "minus(-1, divide(2, plus(3, 4)))")
+        self.assertEqual(hogql_expr_to_clickhouse_expr("1.0 * 2.66"), "multiply(1.0, 2.66)")
         self.assertEqual(hogql_expr_to_clickhouse_expr("'string'"), "'string'")
         self.assertEqual(hogql_expr_to_clickhouse_expr('"string"'), "'string'")
 
