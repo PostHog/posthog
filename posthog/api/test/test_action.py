@@ -9,7 +9,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     QueryMatchingTest,
     _create_event,
-    snapshot_postgres_queries,
+    snapshot_postgres_queries_context,
 )
 
 
@@ -256,23 +256,22 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/count").json()
         self.assertEqual(response, {"count": 1})
 
-    @snapshot_postgres_queries
     def test_listing_actions_is_not_nplus1(self) -> None:
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
             team=self.team, name="first", created_by=User.objects.create_and_join(self.organization, "a", "")
         )
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
             team=self.team, name="second", created_by=User.objects.create_and_join(self.organization, "b", "")
         )
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
     def test_get_tags_on_non_ee_returns_empty_list(self):
