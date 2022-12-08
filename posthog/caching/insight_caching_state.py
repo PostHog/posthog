@@ -73,11 +73,13 @@ def sync_insight_cache_states():
 
     tiles = (
         DashboardTile.objects.all()
-        .prefetch_related("dashboard", "dashboard__team", "dashboard__sharingconfiguration_set", "insight")
+        .filter(insight__isnull=False)
+        .prefetch_related("dashboard", "dashboard__sharingconfiguration_set", "insight", "insight__team")
         .order_by("pk")
     )
+
     for page_of_tiles in _iterate_large_queryset(tiles, 1000):
-        batch = [upsert(tile.dashboard.team, tile, lazy_loader, execute=False) for tile in page_of_tiles]
+        batch = [upsert(tile.insight.team, tile, lazy_loader, execute=False) for tile in page_of_tiles]
         _execute_insert(batch)
 
 
