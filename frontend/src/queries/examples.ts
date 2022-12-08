@@ -91,6 +91,7 @@ const EventAggegations: DataTableNode = {
             "concat(properties['$geoip_city_name'], ' ', 'Rocks') # City",
             'event',
             'total() + 100000 # Inflamed total',
+            '1 + 2',
         ],
         orderBy: ['-total()'],
     },
@@ -98,6 +99,7 @@ const EventAggegations: DataTableNode = {
     showEventFilter: true,
     showPropertyFilter: true,
     showExport: true,
+    showColumnConfigurator: true,
 }
 
 const DataPerCountry: EventsNode = {
