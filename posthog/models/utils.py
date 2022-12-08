@@ -245,7 +245,7 @@ class UniqueConstraintByExpression(BaseConstraint):
     def remove_sql(self, model, schema_editor):
         return Statement(
             f"""
-            DROP INDEX CONCURRENTLY IF EXISTS %(name)s
+            DROP INDEX IF EXISTS %(name)s
             """,
             name=self.name,
         )
