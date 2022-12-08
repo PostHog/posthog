@@ -1,4 +1,5 @@
 import ast
+from typing import List
 
 from clickhouse_driver.util.escape import escape_param
 
@@ -93,7 +94,7 @@ def translate_ast(node: ast.AST) -> str:
         raise ValueError(f"Unknown AST type {type(node).__name__}")
 
 
-def property_access_to_clickhouse(chain: list[str]):
+def property_access_to_clickhouse(chain: List[str]):
     """Given a list like ['properties', '$browser'] or ['uuid'], translate to the correct ClickHouse expr."""
     if len(chain) == 2:
         if chain[0] == "properties":
