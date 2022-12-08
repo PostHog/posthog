@@ -71,4 +71,4 @@ export function TimeoutState(): JSX.Element {
     return <App />
 }
 
-export const FunelSingleStep = createInsightScene(funnelOneStep as any)
+export const FunnelSingleStep = createInsightScene(funnelOneStep as any)
