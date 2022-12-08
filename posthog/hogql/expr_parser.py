@@ -25,7 +25,7 @@ def translate_hql(hql: str, context: Optional[ExprParserContext] = None) -> str:
     try:
         # Until we swap out the AST parser, we're limited to Python's dialect.
         # This means "properties.$bla" fails. The following is a hack to get around that fofr now.
-        hql = re.sub(r"properties\.(\$[\$a-zA-Z0-9_\-]+)", r"properties['\1']", hql)
+        hql = re.sub(r"properties\.(\$[$a-zA-Z0-9_\-]+)", r"properties['\1']", hql)
         node = ast.parse(hql)
     except SyntaxError as err:
         raise ValueError(f"SyntaxError: {err.msg}")
@@ -36,66 +36,67 @@ def translate_hql(hql: str, context: Optional[ExprParserContext] = None) -> str:
 
 def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContext) -> str:
     """Translate a parsed HogQL expression in the shape of a Python AST into a Clickhouse expression."""
-    response = ""
     stack.append(node)
     context.encountered_nodes.append(node)
-    if type(node) == ast.Module:
-        if len(node.body) == 1 and type(node.body[0]) == ast.Expr:
+    if isinstance(node, ast.Module):
+        if len(node.body) == 1 and isinstance(node.body[0], ast.Expr):
             response = translate_ast(node.body[0], stack, context)
         else:
             raise ValueError(f"Module body must contain only one 'Expr'")
-    elif type(node) == ast.Expr:
+    elif isinstance(node, ast.Expr):
         ast.dump(node)
         response = translate_ast(node.value, stack, context)
-    elif type(node) == ast.BinOp:
-        if type(node.op) == ast.Add:
+    elif isinstance(node, ast.BinOp):
+        if isinstance(node.op, ast.Add):
             response = f"plus({translate_ast(node.left, stack, context)}, {translate_ast(node.right, stack, context)})"
-        elif type(node.op) == ast.Sub:
+        elif isinstance(node.op, ast.Sub):
             response = f"minus({translate_ast(node.left, stack, context)}, {translate_ast(node.right, stack, context)})"
-        elif type(node.op) == ast.Mult:
+        elif isinstance(node.op, ast.Mult):
             response = (
                 f"multiply({translate_ast(node.left, stack, context)}, {translate_ast(node.right, stack, context)})"
             )
-        elif type(node.op) == ast.Div:
+        elif isinstance(node.op, ast.Div):
             response = (
                 f"divide({translate_ast(node.left, stack, context)}, {translate_ast(node.right, stack, context)})"
             )
         else:
             response = f"({translate_ast(node.left, stack, context)} {translate_ast(node.op, stack, context)} {translate_ast(node.right, stack, context)})"
-    elif type(node) == ast.UnaryOp:
+    elif isinstance(node, ast.UnaryOp):
         response = f"{translate_ast(node.op, stack, context)}{translate_ast(node.operand, stack, context)}"
-    elif type(node) == ast.USub:
+    elif isinstance(node, ast.USub):
         response = "-"
-    elif type(node) == ast.Constant:
-        if type(node.value) == int or type(node.value) == float:
+    elif isinstance(node, ast.Constant):
+        if isinstance(node.value, int) or isinstance(node.value, float):
             response = str(node.value)
-        elif type(node.value) == str or type(node.value) == list:
+        elif isinstance(node.value, str) or isinstance(node.value, list):
             response = escape_param(node.value)
         else:
             raise ValueError(f"Unknown AST Constant node type '{type(node.value)}' for value '{str(node.value)}'")
-    elif type(node) == ast.Attribute or type(node) == ast.Subscript:
+    elif isinstance(node, ast.Attribute) or isinstance(node, ast.Subscript):
         attribute_chain: list[str] = []
         while True:
-            if type(node) == ast.Attribute:
+            if isinstance(node, ast.Attribute):
                 attribute_chain.insert(0, node.attr)
                 node = node.value
-            elif type(node) == ast.Subscript:
-                slice: ast.AST = node.slice
-                if type(slice) == ast.Constant:
-                    if type(slice.value) != str:
-                        raise ValueError(f"Only string property access is currently supported, found '{slice.value}'")
-                    attribute_chain.insert(0, slice.value)
+            elif isinstance(node, ast.Subscript):
+                node_slice: ast.AST = node.slice
+                if isinstance(node_slice, ast.Constant):
+                    if not isinstance(node_slice.value, str):
+                        raise ValueError(
+                            f"Only string property access is currently supported, found '{node_slice.value}'"
+                        )
+                    attribute_chain.insert(0, node_slice.value)
                     node = node.value
                 # ast.Index is a deprecated node class that shows up in tests with Python 3.8
-                elif type(slice) == ast.Index and type(slice.value) == ast.Constant:  # type: ignore
-                    const: ast.Constant = slice.value  # type: ignore
-                    if type(const.value) != str:
+                elif isinstance(node_slice, ast.Index) and isinstance(node_slice.value, ast.Constant):  # type: ignore
+                    const: ast.Constant = node_slice.value  # type: ignore
+                    if not isinstance(const.value, str):
                         raise ValueError(f"Only string property access is currently supported, found '{const.value}'")
                     attribute_chain.insert(0, const.value)
                     node = const
                 else:
                     raise ValueError(f"Unsupported Subscript slice type: {type(node.slice).__name__}")
-            elif type(node) == ast.Name:  # type: ignore
+            elif isinstance(node, ast.Name):  # type: ignore
                 attribute_chain.insert(0, node.id)
                 break
             else:
@@ -103,8 +104,8 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
         response = property_access_to_clickhouse(attribute_chain)
         context.property_list.append(attribute_chain)
 
-    elif type(node) == ast.Call:
-        if type(node.func) != ast.Name:
+    elif isinstance(node, ast.Call):
+        if not isinstance(node.func, ast.Name):
             raise ValueError(f"Can only call simple functions like 'avg(properties.bla)' or 'total()'")
         call_name = node.func.id
         if call_name in HOGQL_AGGREGATIONS:
@@ -122,8 +123,8 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
                 for stack_node in stack:
                     if (
                         stack_node != node
-                        and type(stack_node) == ast.Call
-                        and type(stack_node.func) == ast.Name
+                        and isinstance(stack_node, ast.Call)
+                        and isinstance(stack_node.func, ast.Name)
                         and stack_node.func.id in HOGQL_AGGREGATIONS
                     ):
                         raise ValueError(f"Method 'avg' cannot be nested inside another aggregate.")
@@ -139,7 +140,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
             response = f"{node.func.id}({', '.join([translate_ast(arg, stack, context) for arg in node.args])})"
         else:
             raise ValueError(f"Unsupported function call '{call_name}(...)'")
-    elif type(node) == ast.Name and type(node.id) == str:
+    elif isinstance(node, ast.Name) and isinstance(node.id, str):
         response = property_access_to_clickhouse([node.id])
         context.property_list.append([node.id])
     else:
