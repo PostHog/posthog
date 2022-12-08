@@ -7,7 +7,7 @@ export interface TimeToSeeDataPayload {
     time_to_see_data_ms: number
     dashboard_query_id?: string
     query_id?: string
-    status?: 'failure' | 'success'
+    status?: 'failure' | 'success' | 'cancelled'
     api_response_bytes?: number
     api_url?: string
     insight?: string
