@@ -8,6 +8,8 @@ from time import time
 from typing import Any, Callable, Dict, Optional, Set, Type, TypeVar
 
 from django.db import IntegrityError, models, transaction
+from django.db.backends.ddl_references import Statement
+from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
 from posthog.constants import MAX_SLUG_LENGTH
@@ -215,3 +217,40 @@ def get_deferred_field_set_for_model(
         field_prefix: a prefix to add to the field names e.g. ("team__organization__") to work in the query set
     """
     return {f"{field_prefix}{x.name}" for x in model._meta.fields if x.name not in fields_not_deferred}
+
+
+class UniqueConstraintByExpression(BaseConstraint):
+    def __init__(self, *, name: str, expression: str, concurrently=True):
+        self.name = name
+        self.expression = expression
+        self.concurrently = True
+
+    def constraint_sql(self, model, schema_editor):
+        return None
+
+    def create_sql(self, model, schema_editor):
+        table = model._meta.db_table
+        return Statement(
+            f"""
+            CREATE UNIQUE INDEX {'CONCURRENTLY' if self.concurrently else ''} %(name)s
+            ON %(table)s
+            %(expression)s
+            """,
+            name=self.name,
+            table=table,
+            expression=self.expression,
+        )
+
+    def remove_sql(self, model, schema_editor):
+        return Statement(
+            f"""
+            DROP INDEX CONCURRENTLY IF EXISTS %(name)s
+            """,
+            name=self.name,
+        )
+
+    def deconstruct(self):
+        path, args, kwargs = super().deconstruct()
+        kwargs["expression"] = self.expression
+        kwargs["concurrently"] = self.concurrently
+        return path, args, kwargs
