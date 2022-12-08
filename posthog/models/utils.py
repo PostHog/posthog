@@ -255,3 +255,12 @@ class UniqueConstraintByExpression(BaseConstraint):
         kwargs["expression"] = self.expression
         kwargs["concurrently"] = self.concurrently
         return path, args, kwargs
+
+    def __eq__(self, other):
+        if isinstance(other, UniqueConstraintByExpression):
+            return (
+                self.name == other.name
+                and self.expression == other.expression
+                and self.concurrently == other.concurrently
+            )
+        return super().__eq__(other)
