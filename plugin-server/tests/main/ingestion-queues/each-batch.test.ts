@@ -77,6 +77,7 @@ describe('eachBatchX', () => {
                 WORKER_CONCURRENCY: 1,
                 TASKS_PER_WORKER: 10,
                 BUFFER_CONVERSION_SECONDS: 60,
+                updateLatestCapturedAtTeams: new Set(),
                 statsd: {
                     timing: jest.fn(),
                     increment: jest.fn(),
