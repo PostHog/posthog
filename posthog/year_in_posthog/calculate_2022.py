@@ -9,117 +9,88 @@ from posthog.logging.timing import timed
 query = """
 with insight_stats AS (
     SELECT
-        user_id,
-        insight_created_count,
+        created_by_id as user_id,
+        count(*) as insight_created_count,
         CASE
-            WHEN insight_created_count >= 10 THEN 'deep_diver'
+            WHEN count(*) >= 10 THEN 'deep_diver'
         END AS badge
     FROM
-        (
-            SELECT
-                created_by_id AS user_id,
-                count(*) AS insight_created_count
-            FROM
-                posthog_dashboarditem
-            WHERE
-                NOT created_by_id IS NULL
-                AND date_part('year', created_at) = 2022
-                AND (
-                    name IS NOT NULL
-                    OR derived_name IS NOT NULL
-                )
-                AND created_by_id = %s
-            GROUP BY
-                created_by_id
-        ) AS insight_stats_inner
+        posthog_dashboarditem
+    WHERE
+        NOT created_by_id IS NULL
+        AND date_part('year', created_at) = 2022
+        AND (
+            name IS NOT NULL
+            OR derived_name IS NOT NULL
+        )
+        AND created_by_id = %(user_id)s
+    group by
+        created_by_id
 ),
 flag_stats AS (
     SELECT
-        user_id,
-        flag_created_count,
+        created_by_id AS user_id,
+        count(*) AS flag_created_count,
         CASE
-            WHEN flag_created_count >= 10 THEN 'flag_raiser'
+            WHEN count(*) >= 10 THEN 'flag_raiser'
         END AS badge
     FROM
-        (
-            SELECT
-                created_by_id AS user_id,
-                count(*) AS flag_created_count
-            FROM
-                posthog_featureflag
-            WHERE
-                date_part('year', created_at) = 2022
-                AND created_by_id = %s
-            GROUP BY
-                user_id
-        ) AS flag_stats_inner
+        posthog_featureflag
+    WHERE
+        date_part('year', created_at) = 2022
+        AND created_by_id = %(user_id)s
+    GROUP BY
+        created_by_id
 ),
 recording_viewed_stats AS (
     SELECT
         user_id,
-        viewed_recording_count,
+        count(*) AS viewed_recording_count,
         CASE
-            WHEN viewed_recording_count >= 10 THEN 'popcorn_muncher'
+            WHEN count(*) >= 10 THEN 'popcorn_muncher'
         END AS badge
     FROM
-        (
-            SELECT
-                user_id,
-                count(*) AS viewed_recording_count
-            FROM
-                posthog_sessionrecordingviewed
-            WHERE
-                date_part('year', created_at) = 2022
-                AND user_id = %s
-            GROUP BY
-                user_id
-        ) AS recording_stats_inner
+        posthog_sessionrecordingviewed
+    WHERE
+        date_part('year', created_at) = 2022
+        AND user_id = %(user_id)s
+    GROUP BY
+        user_id
 ),
 experiments_stats AS (
     SELECT
-        user_id,
-        experiments_created_count,
+        created_by_id AS user_id,
+        count(*) AS experiments_created_count,
         CASE
-            WHEN experiments_created_count >= 4 THEN 'scientist'
+            WHEN count(*) >= 4 THEN 'scientist'
         END AS badge
     FROM
-        (
-            SELECT
-                created_by_id AS user_id,
-                count(*) AS experiments_created_count
-            FROM
-                posthog_experiment
-            WHERE
-                date_part('year', created_at) = 2022
-                AND created_by_id = %s
-            GROUP BY
-                user_id
-        ) AS experiment_stats_inner
+        posthog_experiment
+    WHERE
+        date_part('year', created_at) = 2022
+        AND created_by_id = %(user_id)s
+    GROUP BY
+        created_by_id
 ),
 dashboards_created_stats AS (
     SELECT
-        user_id,
-        dashboards_created_count,
+        created_by_id AS user_id,
+        count(*) AS dashboards_created_count,
         CASE
-            WHEN dashboards_created_count >= 10 THEN 'curator'
+            WHEN count(*) >= 10 THEN 'curator'
         END AS badge
     FROM
-        (
-            SELECT
-                created_by_id AS user_id,
-                count(*) AS dashboards_created_count
-            FROM
-                posthog_dashboard
-            WHERE
-                date_part('year', created_at) = 2022
-                AND created_by_id = %s
-            GROUP BY
-                user_id
-        ) AS dashboard_stats_inner
+        posthog_dashboard
+    WHERE
+        date_part('year', created_at) = 2022
+        AND created_by_id = %(user_id)s
+    GROUP BY
+        created_by_id
 )
 SELECT
     id,
-    array_remove(ARRAY [
+    array_remove(
+        ARRAY [
         case when posthog_user.last_login >= '1-Jan-2022' then 'astronaut' end,
         insight_stats.badge,
         flag_stats.badge,
@@ -131,7 +102,9 @@ SELECT
                 and flag_stats.badge is not null
                 and insight_stats.badge is not null
             then 'champion' end
-    ], NULL) AS badges,
+    ],
+        NULL
+    ) AS badges,
     insight_stats.insight_created_count,
     flag_stats.flag_created_count,
     recording_viewed_stats.viewed_recording_count,
@@ -144,7 +117,8 @@ FROM
     LEFT JOIN recording_viewed_stats ON posthog_user.id = recording_viewed_stats.user_id
     LEFT JOIN experiments_stats ON posthog_user.id = experiments_stats.user_id
     LEFT JOIN dashboards_created_stats ON posthog_user.id = dashboards_created_stats.user_id
-WHERE posthog_user.id = %s
+WHERE
+    posthog_user.id = %(user_id)s
 """
 
 
@@ -158,21 +132,21 @@ def dictfetchall(cursor):
 @cache_for(timedelta(seconds=30))
 def calculate_year_in_posthog_2022(user_id: int) -> Optional[Dict]:
     with connection.cursor() as cursor:
-        cursor.execute(query, [user_id] * 6)
-        results = dictfetchall(cursor)
+        cursor.execute(query, {"user_id": user_id})
+        rows = dictfetchall(cursor)
 
     # we should only match one or zero users
-    if results:
-        result = results[0]
+    if rows:
+        row = rows[0]
         return {
             "stats": {
-                "insight_created_count": result["insight_created_count"],
-                "flag_created_count": result["flag_created_count"],
-                "viewed_recording_count": result["viewed_recording_count"],
-                "experiments_created_count": result["experiments_created_count"],
-                "dashboards_created_count": result["dashboards_created_count"],
+                "insight_created_count": row["insight_created_count"],
+                "flag_created_count": row["flag_created_count"],
+                "viewed_recording_count": row["viewed_recording_count"],
+                "experiments_created_count": row["experiments_created_count"],
+                "dashboards_created_count": row["dashboards_created_count"],
             },
-            "badges": result["badges"],
+            "badges": row["badges"],
         }
 
     return None
