@@ -11,6 +11,12 @@
     {% else %}
         <link rel="shortcut icon" href="/static/icons/favicon-dev.ico?v=2021-04-29">
     {% endif %}
+    {#    this might be a not static URL 🤔#}
+    <link rel="preload" as="font" type="font/woff2"
+          href="//d27nj4tzr3d5tm.cloudfront.net/Website-Assets/Fonts/Matter/MatterSQVF.woff2" crossorigin="anonymous">
+    <link rel="preload" as="font" type="font/woff2"
+          href="//d27nj4tzr3d5tm.cloudfront.net/Website-Assets/Fonts/Matter/MatterSQItalicVF.woff2"
+          crossorigin="anonymous">
     <script>
         !function (t, e) {
             var o, n, p, r;
@@ -45,6 +51,10 @@
     </script>
     {% load static %}
     <style>
+        html {
+            font-family: MatterVF, -apple-system, BlinkMacSystemFont, avenir next, avenir, segoe ui, helvetica, sans-serif;
+        }
+
         body {
             background-color: #2D2D2D;
             color: #fff;
@@ -53,7 +63,7 @@
             display: flex;
             flex-direction: column;
             font-weight: 400;
-            font-size: 1rem;
+            font-size: 2.5vw;
             line-height: 1.25rem;
             align-items: center;
         }
@@ -75,14 +85,14 @@
             width: 100vw;
             padding-left: 1rem;
             padding-right: 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
         }
 
         .column.left {
             min-width: 326px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-
         }
 
         @media only screen and (min-width: 480px) {
@@ -143,9 +153,9 @@
             margin-bottom: 2rem;
         }
 
-        .py-16 {
-            padding-top: 4rem;
-            padding-bottom: 4rem;
+        .px-1 {
+            padding-left: 0.25rem;
+            padding-right: 0.25rem;
         }
 
         .pl-8 {
@@ -162,6 +172,7 @@
             flex-direction: row;
             justify-content: space-between;
             width: 100%;
+            row-gap: 1rem;
         }
 
         .stat {
@@ -191,7 +202,7 @@
     {% endfor %}
 </head>
 <body>
-<div class="content py-16">
+<div class="content">
     <div class="left column">
         <div>This year, I'm a</div>
         <img class="badge my-8" src="{% static image %}"
@@ -203,7 +214,7 @@
         <div class="highlight text-xl my-8">{{ explanation }}</div>
         <div class="stats">
             {% for stat in stats %}
-                <div class="stat">
+                <div class="stat px-1">
                     <div class="highlight text-2xl">{{ stat.count }}</div>
                     <div>{{ stat.description }}</div>
                 </div>
