@@ -25,6 +25,10 @@ class TestExprParser(ClickhouseTestMixin, APIBaseTest):
             translate_hql('properties["bla"]'),
             "replaceRegexpAll(JSONExtractRaw(properties, 'bla'), '^\"|\"$', '')",
         )
+        self.assertEqual(
+            translate_hql("properties.$bla"),
+            "replaceRegexpAll(JSONExtractRaw(properties, '$bla'), '^\"|\"$', '')",
+        )
         # self.assertEqual(translate_hql("properties['$browser']"), "\"mat_$browser\"")
         self.assertEqual(
             translate_hql("person.properties.bla"),

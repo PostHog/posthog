@@ -1,4 +1,5 @@
 import ast
+import re
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -22,6 +23,9 @@ class ExprParserContext:
 def translate_hql(hql: str, context: Optional[ExprParserContext] = None) -> str:
     """Translate a HogQL expression into a Clickhouse expression."""
     try:
+        # Until we swap out the AST parser, we're limited to Python's dialect.
+        # This means "properties.$bla" fails. The following is a hack to get around that fofr now.
+        hql = re.sub(r"properties\.(\$[\$a-zA-Z0-9_\-]+)", r"properties['\1']", hql)
         node = ast.parse(hql)
     except SyntaxError as err:
         raise ValueError(f"SyntaxError: {err.msg}")
