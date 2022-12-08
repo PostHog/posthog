@@ -256,6 +256,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/count").json()
         self.assertEqual(response, {"count": 1})
 
+    @freeze_time("2021-12-12")
     def test_listing_actions_is_not_nplus1(self) -> None:
         with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")

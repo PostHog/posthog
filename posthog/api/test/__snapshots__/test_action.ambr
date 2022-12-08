@@ -33,7 +33,7 @@
          "ee_license"."key",
          "ee_license"."max_users"
   FROM "ee_license"
-  WHERE "ee_license"."valid_until" >= '2022-12-08T13:25:51.402980+00:00'::timestamptz /**/
+  WHERE "ee_license"."valid_until" >= '2021-12-12T00:00:00+00:00'::timestamptz /**/
   '
 ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.10
