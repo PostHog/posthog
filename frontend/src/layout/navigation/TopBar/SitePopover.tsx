@@ -77,7 +77,7 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
 
     return (
         <LemonRow icon={<Lettermark name={organization.name} />} fullWidth>
-            <>
+            <LemonButton status="stealth" fullWidth to={urls.organizationSettings()} onClick={closeSitePopover}>
                 <div className="SitePopover__main-info SitePopover__organization">
                     <strong>{organization.name}</strong>
                     <AccessLevelIndicator organization={organization} />
@@ -91,7 +91,7 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
                         icon={<IconSettings />}
                     />
                 </Tooltip>
-            </>
+            </LemonButton>
         </LemonRow>
     )
 }
