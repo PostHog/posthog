@@ -8,7 +8,7 @@ import { CommandPalette } from 'lib/components/CommandPalette'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { InviteModal } from 'scenes/organization/Settings/InviteModal'
 import { Link } from 'lib/components/Link'
-import { IconCalendar, IconMenu, IconMenuOpen } from 'lib/components/icons'
+import { IconMenu, IconMenuOpen } from 'lib/components/icons'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import './TopBar.scss'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
@@ -21,7 +21,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeedbackButton } from './FeedbackButton'
 import ActivationSidebarToggle from 'lib/components/ActivationSidebar/ActivationSidebarToggle'
-import { LemonButton } from 'lib/components/LemonButton'
+import { YearInHogButton } from '~/layout/navigation/TopBar/YearInHogButton'
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, bareNav, mobileLayout, isCreateOrganizationModalShown, isCreateProjectModalShown } =
@@ -72,16 +72,9 @@ export function TopBar(): JSX.Element {
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
                     {!!featureFlags[FEATURE_FLAGS.YEAR_IN_HOG] && window.POSTHOG_APP_CONTEXT?.year_in_hog_url && (
-                        <LemonButton
-                            type={'primary'}
-                            status={'primary'}
-                            to={`${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`}
-                            targetBlank={true}
-                            icon={<IconCalendar />}
-                            size={'small'}
-                        >
-                            My year in PostHog
-                        </LemonButton>
+                        <YearInHogButton
+                            url={`${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`}
+                        />
                     )}
                     {!!featureFlags[FEATURE_FLAGS.FEEDBACK_BUTTON] && <FeedbackButton />}
                     {!!featureFlags[FEATURE_FLAGS.HOG_BOOK] && <NotificationBell />}
