@@ -758,6 +758,7 @@ describe('dashboardLogic', () => {
                 })
         })
     })
+
     describe('lastRefreshed', () => {
         it('should be the earliest refreshed dashboard', async () => {
             logic = dashboardLogic({ id: 5 })
@@ -788,6 +789,27 @@ describe('dashboardLogic', () => {
                 .toDispatchActions(['loadDashboardItemsSuccess'])
                 .toNotHaveDispatchedActions(['refreshAllDashboardItems'])
                 .toFinishListeners()
+        })
+    })
+
+    describe('text tiles', () => {
+        beforeEach(async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('can remove text tiles', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.removeTile(TEXT_TILE)
+            })
+                .toFinishAllListeners()
+                .toDispatchActions([
+                    dashboardsModel.actionTypes.tileRemovedFromDashboard,
+                    logic.actionTypes.removeTileSuccess,
+                ])
+
+            expect(logic.values.textTiles).toEqual([])
         })
     })
 
@@ -839,27 +861,6 @@ describe('dashboardLogic', () => {
                 dashboards: t.insight!.dashboards,
             }))
         ).toEqual([])
-    })
-
-    describe('text tiles', () => {
-        beforeEach(async () => {
-            logic = dashboardLogic({ id: 5 })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-        })
-
-        it('can remove text tiles', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.removeTile(TEXT_TILE)
-            })
-                .toFinishAllListeners()
-                .toDispatchActions([
-                    dashboardsModel.actionTypes.tileRemovedFromDashboard,
-                    logic.actionTypes.removeTileSuccess,
-                ])
-
-            expect(logic.values.textTiles).toEqual([])
-        })
     })
 })
 /* eslint-enable  @typescript-eslint/no-non-null-assertion */

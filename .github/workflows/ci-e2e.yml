@@ -93,6 +93,7 @@ jobs:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-docker-image-built'
                   properties: '{"imageSize": "${{ env.image_size }}", "imageName": "${{ env.image_name }}"}'
+
     posthog_cloud:
         name: PostHog Cloud image build
         # Only run on non-external PRs. We could make this work on external PR's

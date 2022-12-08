@@ -98,13 +98,20 @@ export function DashboardReloadAction(): JSX.Element {
                 <span className="dashboard-items-action-icon">
                     {itemsLoading ? <LoadingOutlined /> : <ReloadOutlined />}
                 </span>
-                <span className={clsx('dashboard-items-action-refresh-text', itemsLoading && 'invisible')}>
-                    <LastRefreshText />
-                </span>
-                <span
-                    className={clsx('dashboard-items-action-refresh-text', 'completed', !itemsLoading && 'invisible')}
-                >
-                    Refreshed {refreshMetrics.completed} out of {refreshMetrics.total}
+                <span className={clsx('dashboard-items-action-refresh-text')}>
+                    {itemsLoading ? (
+                        <>
+                            {refreshMetrics.total ? (
+                                <>
+                                    Refreshed {refreshMetrics.completed} out of {refreshMetrics.total}
+                                </>
+                            ) : (
+                                <>Refreshing...</>
+                            )}
+                        </>
+                    ) : (
+                        <LastRefreshText />
+                    )}
                 </span>
             </Dropdown.Button>
         </>

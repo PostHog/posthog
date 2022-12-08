@@ -180,9 +180,10 @@ def test_calculate_target_age(
 def test_upsert_new_insight(mock_active_teams, team: Team, user: User):
     with mute_selected_signals():
         insight = create_insight(team=team, user=user, mock_active_teams=mock_active_teams)
-    caching_state = upsert(team, insight)
+    upsert(team, insight)
 
     assert InsightCachingState.objects.filter(team=team).count() == 1
+    caching_state = InsightCachingState.objects.get(team=team)
 
     assert caching_state is not None
     assert caching_state.team_id == team.pk
@@ -200,9 +201,9 @@ def test_upsert_new_insight(mock_active_teams, team: Team, user: User):
 def test_upsert_update_insight(mock_active_teams, team: Team, user: User):
     with mute_selected_signals():
         insight = create_insight(team=team, user=user, mock_active_teams=mock_active_teams)
-    caching_state = upsert(team, insight)
-    assert caching_state is not None
+    upsert(team, insight)
 
+    caching_state = InsightCachingState.objects.get(team=team)
     caching_state.last_refresh = now()
     caching_state.last_refresh_queued_at = now()
     caching_state.refresh_attempt = 1
@@ -212,7 +213,8 @@ def test_upsert_update_insight(mock_active_teams, team: Team, user: User):
         insight.deleted = True
         insight.save()
 
-    updated_caching_state = upsert(team, insight)
+    upsert(team, insight)
+    updated_caching_state = InsightCachingState.objects.get(team=team)
 
     assert InsightCachingState.objects.filter(team=team).count() == 1
     assert updated_caching_state is not None
@@ -228,9 +230,10 @@ def test_upsert_update_insight(mock_active_teams, team: Team, user: User):
 def test_upsert_update_insight_with_filter_change(mock_active_teams, team: Team, user: User):
     with mute_selected_signals():
         insight = create_insight(team=team, user=user, mock_active_teams=mock_active_teams)
-    caching_state = upsert(team, insight)
-    assert caching_state is not None
 
+    upsert(team, insight)
+
+    caching_state = InsightCachingState.objects.get(team=team)
     caching_state.last_refresh = now()
     caching_state.refresh_attempt = 1
     caching_state.save()
@@ -242,7 +245,8 @@ def test_upsert_update_insight_with_filter_change(mock_active_teams, team: Team,
         }
         insight.save()
 
-    updated_caching_state = upsert(team, insight)
+    upsert(team, insight)
+    updated_caching_state = InsightCachingState.objects.get(team=team)
 
     assert InsightCachingState.objects.filter(team=team).count() == 1
     assert updated_caching_state is not None
@@ -258,10 +262,11 @@ def test_upsert_update_insight_with_filter_change(mock_active_teams, team: Team,
 def test_upsert_new_tile(mock_active_teams, team: Team, user: User):
     with mute_selected_signals():
         tile = create_tile(team=team, user=user, mock_active_teams=mock_active_teams)
-    caching_state = upsert(team, tile)
+    upsert(team, tile)
 
     assert InsightCachingState.objects.filter(team=team).count() == 1
 
+    caching_state = InsightCachingState.objects.get(team=team)
     assert caching_state is not None
     assert caching_state.team_id == team.pk
     assert caching_state.insight == tile.insight
@@ -277,9 +282,8 @@ def test_upsert_new_tile(mock_active_teams, team: Team, user: User):
 @patch("posthog.caching.insight_caching_state.active_teams")
 def test_upsert_text_tile_does_not_create_record(mock_active_teams, team: Team, user: User):
     tile = create_tile(team=team, user=user, mock_active_teams=mock_active_teams, text_tile=True)
-    caching_state = upsert(team, tile)
+    upsert(team, tile)
 
-    assert caching_state is None
     assert InsightCachingState.objects.filter(team=team).count() == 0
 
 
