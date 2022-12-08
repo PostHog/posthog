@@ -60,7 +60,6 @@ def create_billing_customer(**kwargs) -> Dict[str, Any]:
             }
         ],
         "billing_period": {"current_period_start": "2022-10-07T11:12:48", "current_period_end": "2022-11-07T11:12:48"},
-        "distinct_ids": [],
     }
     data.update(kwargs)
     return data
@@ -213,6 +212,7 @@ class TestBillingAPI(APILicensedTest):
             "id": self.license.key.split("::")[0],
             "organization_id": str(self.organization.id),
             "organization_name": "Test",
+            "distinct_ids": [self.user.distinct_id],
         }
 
     @patch("ee.api.billing.requests.get")
@@ -252,7 +252,6 @@ class TestBillingAPI(APILicensedTest):
                 "current_period_start": "2022-10-07T11:12:48",
                 "current_period_end": "2022-11-07T11:12:48",
             },
-            "distinct_ids": [],
         }
 
     @patch("ee.api.billing.requests.get")
