@@ -9,7 +9,6 @@ from sentry_sdk import capture_exception
 
 from posthog import settings
 from posthog.year_in_posthog.calculate_2022 import calculate_year_in_posthog_2022
-from posthog.year_in_posthog.crypto import user_id_decrypt
 
 logger = structlog.get_logger(__name__)
 
@@ -86,12 +85,10 @@ def sort_list_based_on_preference(badges: List[str]) -> str:
 
 
 @cache_control(public=True, max_age=300)  # cache for 5 minutes
-def render_2022(request, user_token: str) -> HttpResponse:
+def render_2022(request, user_uuid: str) -> HttpResponse:
     data = None
     try:
-        user_id = user_id_decrypt(user_token)
-
-        data = calculate_year_in_posthog_2022(user_id)
+        data = calculate_year_in_posthog_2022(user_uuid)
 
         badge = sort_list_based_on_preference(data["badges"])
 

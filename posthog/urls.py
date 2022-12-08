@@ -166,7 +166,7 @@ urlpatterns = [
     ),  # overrides from `social_django.urls` to validate proper license
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
-    path("year_in_posthog/2022/<str:user_token>", year_in_posthog.render_2022),
+    path("year_in_posthog/2022/<str:user_uuid>", year_in_posthog.render_2022),
 ]
 
 if settings.DEBUG:

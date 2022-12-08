@@ -23,7 +23,7 @@ with insight_stats AS (
             name IS NOT NULL
             OR derived_name IS NOT NULL
         )
-        AND created_by_id = %(user_id)s
+        AND created_by_id = (select id from posthog_user where uuid = %(user_uuid)s)
     group by
         created_by_id
 ),
@@ -38,7 +38,7 @@ flag_stats AS (
         posthog_featureflag
     WHERE
         date_part('year', created_at) = 2022
-        AND created_by_id = %(user_id)s
+        AND created_by_id = (select id from posthog_user where uuid = %(user_uuid)s)
     GROUP BY
         created_by_id
 ),
@@ -53,7 +53,7 @@ recording_viewed_stats AS (
         posthog_sessionrecordingviewed
     WHERE
         date_part('year', created_at) = 2022
-        AND user_id = %(user_id)s
+        AND user_id = (select id from posthog_user where uuid = %(user_uuid)s)
     GROUP BY
         user_id
 ),
@@ -68,7 +68,7 @@ experiments_stats AS (
         posthog_experiment
     WHERE
         date_part('year', created_at) = 2022
-        AND created_by_id = %(user_id)s
+        AND created_by_id = (select id from posthog_user where uuid = %(user_uuid)s)
     GROUP BY
         created_by_id
 ),
@@ -83,7 +83,7 @@ dashboards_created_stats AS (
         posthog_dashboard
     WHERE
         date_part('year', created_at) = 2022
-        AND created_by_id = %(user_id)s
+        AND created_by_id = (select id from posthog_user where uuid = %(user_uuid)s)
     GROUP BY
         created_by_id
 )
@@ -118,7 +118,7 @@ FROM
     LEFT JOIN experiments_stats ON posthog_user.id = experiments_stats.user_id
     LEFT JOIN dashboards_created_stats ON posthog_user.id = dashboards_created_stats.user_id
 WHERE
-    posthog_user.id = %(user_id)s
+    posthog_user.uuid = %(user_uuid)s
 """
 
 
@@ -130,9 +130,9 @@ def dictfetchall(cursor):
 
 @timed("year_in_posthog_2022_calculation")
 @cache_for(timedelta(seconds=30))
-def calculate_year_in_posthog_2022(user_id: int) -> Optional[Dict]:
+def calculate_year_in_posthog_2022(user_uuid: str) -> Optional[Dict]:
     with connection.cursor() as cursor:
-        cursor.execute(query, {"user_id": user_id})
+        cursor.execute(query, {"user_uuid": user_uuid})
         rows = dictfetchall(cursor)
 
     # we should only match one or zero users

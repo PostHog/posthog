@@ -311,9 +311,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     context["js_url"] = get_js_url(request)
 
     try:
-        from posthog.year_in_posthog.crypto import user_id_encrypt
-
-        year_in_hog_url = f"/year_in_posthog/2022/{user_id_encrypt(str(request.user.id)).decode('utf-8')}"
+        year_in_hog_url = f"/year_in_posthog/2022/{str(request.user.uuid)}"
     except:
         year_in_hog_url = None
 
