@@ -28,7 +28,12 @@ specifiers:
   '@storybook/addon-essentials': ^6.5.14
   '@storybook/addon-links': ^6.5.14
   '@storybook/addon-storysource': ^6.5.14
+  '@storybook/addons': ^6.5.14
+  '@storybook/api': ^6.5.14
+  '@storybook/components': ^6.5.14
+  '@storybook/core-events': ^6.5.14
   '@storybook/react': ^6.5.14
+  '@storybook/theming': ^6.5.14
   '@testing-library/dom': '>=7.21.4'
   '@testing-library/jest-dom': ^5.16.2
   '@testing-library/react': ^12.1.2
@@ -280,7 +285,12 @@ devDependencies:
   '@storybook/addon-essentials': 6.5.14_mfgtie7dc47agssbezbnyuyaxy
   '@storybook/addon-links': 6.5.14_wcqkhtmu7mswc6yz4uyexck3ty
   '@storybook/addon-storysource': 6.5.14_wcqkhtmu7mswc6yz4uyexck3ty
+  '@storybook/addons': 6.5.14_wcqkhtmu7mswc6yz4uyexck3ty
+  '@storybook/api': 6.5.14_wcqkhtmu7mswc6yz4uyexck3ty
+  '@storybook/components': 6.5.14_wcqkhtmu7mswc6yz4uyexck3ty
+  '@storybook/core-events': 6.5.14
   '@storybook/react': 6.5.14_ynw662n6z6lgugf2bmr63fewey
+  '@storybook/theming': 6.5.14_wcqkhtmu7mswc6yz4uyexck3ty
   '@testing-library/jest-dom': 5.16.5
   '@testing-library/react': 12.1.5_wcqkhtmu7mswc6yz4uyexck3ty
   '@testing-library/user-event': 13.5.0_aaq3sbffpfe3jnxzm2zngsddei
@@ -355,7 +365,7 @@ devDependencies:
   prettier: 2.7.1
   raw-loader: 4.0.2_webpack@4.46.0
   sass-loader: 10.3.1_sass@1.56.0+webpack@4.46.0
-  storybook-addon-pseudo-states: 1.15.1_wcqkhtmu7mswc6yz4uyexck3ty
+  storybook-addon-pseudo-states: 1.15.1_37oqtmovxyddi5n4m2fn2s3yny
   storybook-addon-turbo-build: 1.1.0_webpack@4.46.0
   style-loader: 2.0.0_webpack@4.46.0
   timekeeper: 2.2.0
@@ -16000,7 +16010,7 @@ packages:
     resolution: {integrity: sha512-siT1RiqlfQnGqgT/YzXVUNsom9S0H1OX+dpdGN1xkyYATo4I6sep5NmsRD/40s3IIOvlCq6akxkqG82urIZW1w==}
     dev: true
 
-  /storybook-addon-pseudo-states/1.15.1_wcqkhtmu7mswc6yz4uyexck3ty:
+  /storybook-addon-pseudo-states/1.15.1_37oqtmovxyddi5n4m2fn2s3yny:
     resolution: {integrity: sha512-GRBf63wRHoFwN65hRTdTaIcE7jn2Yj2B/dNyj03o8TRBevnmOL80NfLAGsmDYP4a7Ye3kBkILX952aUkK4P+ZA==}
     peerDependencies:
       '@storybook/addons': ^6.5.0
@@ -16016,6 +16026,11 @@ packages:
       react-dom:
         optional: true
     dependencies:
+      '@storybook/addons': 6.5.14_wcqkhtmu7mswc6yz4uyexck3ty
+      '@storybook/api': 6.5.14_wcqkhtmu7mswc6yz4uyexck3ty
+      '@storybook/components': 6.5.14_wcqkhtmu7mswc6yz4uyexck3ty
+      '@storybook/core-events': 6.5.14
+      '@storybook/theming': 6.5.14_wcqkhtmu7mswc6yz4uyexck3ty
       react: 16.14.0
       react-dom: 16.14.0_react@16.14.0
     dev: true
