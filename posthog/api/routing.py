@@ -88,7 +88,10 @@ class StructuredViewSetMixin(_GenericViewSet):
 
     @property
     def organization(self) -> Organization:
-        raise NotFound(detail="Organization not found.")
+        try:
+            return Organization.objects.get(id=self.organization_id)
+        except Organization.DoesNotExist:
+            raise NotFound(detail="Organization not found.")
 
     def filter_queryset_by_parents_lookups(self, queryset):
         parents_query_dict = self.parents_query_dict.copy()
