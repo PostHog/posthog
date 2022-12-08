@@ -518,20 +518,3 @@ class TestBillingAPI(APILicensedTest):
                 "usage": 0,
             },
         }
-
-    @patch("ee.api.billing.requests.patch")
-    @patch("ee.api.billing.requests.get")
-    def test_billing_distinct_ids_in_sync(self, mock_request, mock_patch, *args):
-        mock_request.return_value.status_code = 200
-        mock_request.return_value.json.return_value = create_billing_response(
-            customer=create_billing_customer(has_active_subscription=True)
-        )
-        self.organization.customer_id = None
-        self.organization.usage = None
-        self.organization.members.add(self.user)
-        self.organization.save()
-
-        res = self.client.get("/api/billing-v2")
-        assert res.status_code == 200
-        assert mock_patch.call_count == 1
-        assert mock_patch.call_args[1]["json"]["distinct_ids"] == [self.user.distinct_id]

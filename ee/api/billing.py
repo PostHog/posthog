@@ -51,12 +51,19 @@ def build_billing_token(license: License, organization: Organization):
     license_id = license.key.split("::")[0]
     license_secret = license.key.split("::")[1]
 
+    distinct_ids = []
+    if is_cloud():
+        distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
+    else:
+        distinct_ids = list(User.objects.values_list("distinct_id", flat=True))
+
     encoded_jwt = jwt.encode(
         {
             "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
             "id": license_id,
             "organization_id": str(organization.id),
             "organization_name": organization.name,
+            "distinct_ids": distinct_ids,
             "aud": "posthog:license-key",
         },
         license_secret,
@@ -182,22 +189,6 @@ class BillingViewset(viewsets.GenericViewSet):
         # Before responding ensure the org is updated with the latest info
         if org:
             self._update_org_details(org, response)
-
-        # check if the distinct_ids are in sync, if not patch the billing service
-        received_distinct_ids = response.get("distinct_ids") or []
-        local_distinct_ids = []
-        if is_cloud() and org:
-            local_distinct_ids = list(org.members.values_list("distinct_id", flat=True))
-        else:
-            local_distinct_ids = list(User.objects.values_list("distinct_id", flat=True))
-
-        if set(received_distinct_ids) != set(local_distinct_ids):
-            billing_service_token = build_billing_token(license, org)
-            requests.patch(
-                f"{BILLING_SERVICE_URL}/api/billing/",
-                headers={"Authorization": f"Bearer {billing_service_token}"},
-                json={"distinct_ids": local_distinct_ids},
-            )
 
         return Response(response)
 
