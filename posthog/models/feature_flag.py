@@ -754,7 +754,8 @@ def can_user_edit_feature_flag(request, feature_flag):
             final_level = org_level
         else:
             final_level = role_level
-
+        if OrganizationResourceAccess.objects.filter(organization=request.user.organization).exists() is False:
+            return True
         if final_level == OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW:
             can_edit = FeatureFlagRoleAccess.objects.filter(
                 feature_flag__id=feature_flag.pk,
