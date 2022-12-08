@@ -7,7 +7,7 @@ from django.utils.timezone import now
 
 from posthog.api.utils import get_pk_or_uuid
 from posthog.client import query_with_columns, sync_execute
-from posthog.hogql.expr import hogql_expr_to_clickhouse_expr
+from posthog.hogql.expr_parser import translate_hql
 from posthog.models import Action, Filter, Person, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.event.sql import (
@@ -62,7 +62,7 @@ def query_events_list(
     limit_sql = "LIMIT %(limit)s"
     order = "DESC" if order_by[0] == "-timestamp" else "ASC"
 
-    selected_columns = [hogql_expr_to_clickhouse_expr(col) for col in select] if select else None
+    selected_columns = [translate_hql(col) for col in select] if select else None
 
     conditions, condition_params = determine_event_conditions(
         team,
