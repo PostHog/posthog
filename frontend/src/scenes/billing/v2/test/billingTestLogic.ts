@@ -49,6 +49,7 @@ export const billingTestLogic = kea<billingTestLogicType>([
         setShowLicenseDirectInput: (show: boolean) => ({ show }),
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingV2Shown: true,
+        lockIfNecessary: true,
     }),
     connect({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
@@ -193,7 +194,7 @@ export const billingTestLogic = kea<billingTestLogicType>([
         },
     })),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         reportBillingV2Shown: () => {
             posthog.capture('billing v2 shown')
         },
@@ -210,6 +211,15 @@ export const billingTestLogic = kea<billingTestLogicType>([
                 // if the activation is successful, we reload the user to get the updated billing info on the organization
                 actions.loadUser()
                 router.actions.replace('/organization/billing')
+            } else {
+                actions.lockIfNecessary()
+            }
+        },
+
+        lockIfNecessary: () => {
+            if (values.isUserLocked && router.values.location.pathname !== '/organization/billing/locked') {
+                posthog.capture('billing locked screen shown')
+                router.actions.replace(urls.billingLocked())
             }
         },
     })),
@@ -218,19 +228,17 @@ export const billingTestLogic = kea<billingTestLogicType>([
         actions.loadBilling()
     }),
 
-    urlToAction(({ actions, values }) => ({
-        '*': () => {
-            if (values.isUserLocked && router.values.location.pathname !== '/organization/billing/locked') {
-                posthog.capture('billing locked screen shown')
-                router.actions.replace(urls.billingLocked())
-            }
-        },
+    urlToAction(({ actions }) => ({
+        // IMPORTANT: This needs to be above the "*" so it takes precedence
         '/organization/billing': (_params, _search, hash) => {
             if (hash.license) {
                 actions.setShowLicenseDirectInput(true)
                 actions.setActivateLicenseValues({ license: hash.license })
                 actions.submitActivateLicense()
             }
+        },
+        '*': () => {
+            actions.lockIfNecessary()
         },
     })),
 ])
