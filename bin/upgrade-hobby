@@ -56,7 +56,7 @@ git pull
 cd ../
 
 rm -f docker-compose.yml
-cp posthog/docker-compose.base.yml docker-compose.base.tmpl
+cp posthog/docker-compose.base.yml docker-compose.base.yml
 cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
 envsubst < docker-compose.yml.tmpl > docker-compose.yml
 rm docker-compose.yml.tmpl
