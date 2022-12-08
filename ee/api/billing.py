@@ -200,25 +200,26 @@ class BillingViewset(viewsets.GenericViewSet):
             raise Exception("There is no license configured for this instance yet.")
 
         org = self._get_org_required()
-        billing_service_token = build_billing_token(license, org)
-        custom_limits_usd = request.data.get("custom_limits_usd")
+        if license and org:  # for mypy
+            billing_service_token = build_billing_token(license, org)
 
-        if custom_limits_usd:
-            res = requests.patch(
-                f"{BILLING_SERVICE_URL}/api/billing/",
-                headers={"Authorization": f"Bearer {billing_service_token}"},
-                json={"custom_limits_usd": custom_limits_usd},
-            )
-
-            handle_billing_service_error(res)
-
-            if distinct_id:
-                posthoganalytics.capture(distinct_id, "billing limits updated", properties={**custom_limits_usd})
-                posthoganalytics.group_identify(
-                    "organization",
-                    str(org.id),
-                    properties={f"billing_limits_{key}": value for key, value in custom_limits_usd.items()},
+            custom_limits_usd = request.data.get("custom_limits_usd")
+            if custom_limits_usd:
+                res = requests.patch(
+                    f"{BILLING_SERVICE_URL}/api/billing/",
+                    headers={"Authorization": f"Bearer {billing_service_token}"},
+                    json={"custom_limits_usd": custom_limits_usd},
                 )
+
+                handle_billing_service_error(res)
+
+                if distinct_id:
+                    posthoganalytics.capture(distinct_id, "billing limits updated", properties={**custom_limits_usd})
+                    posthoganalytics.group_identify(
+                        "organization",
+                        str(org.id),
+                        properties={f"billing_limits_{key}": value for key, value in custom_limits_usd.items()},
+                    )
 
         return self.list(request, *args, **kwargs)
 
