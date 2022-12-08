@@ -327,10 +327,15 @@ test.concurrent(`latest ingested event sent_at is recorded on team`, async () =>
         capturedAt
     )
 
-    await delayUntilEventIngested(async () => {
-        const team = await fetchTeam(postgres, teamId)
-        return team.latest_event_captured_at?.getTime() === capturedAt.getTime() ? [team] : []
-    })
+    await delayUntilEventIngested(
+        async () => {
+            const team = await fetchTeam(postgres, teamId)
+            return team.latest_event_captured_at?.getTime() === capturedAt.getTime() ? [team] : []
+        },
+        1,
+        500,
+        40
+    )
 
     // It should also update latest_event_captured_at even if there is no teamId set
     const newerCapturedAt = new Date()
@@ -348,10 +353,15 @@ test.concurrent(`latest ingested event sent_at is recorded on team`, async () =>
         newerCapturedAt
     )
 
-    await delayUntilEventIngested(async () => {
-        const team = await fetchTeam(postgres, teamId)
-        return team.latest_event_captured_at?.getTime() === newerCapturedAt.getTime() ? [team] : []
-    })
+    await delayUntilEventIngested(
+        async () => {
+            const team = await fetchTeam(postgres, teamId)
+            return team.latest_event_captured_at?.getTime() === newerCapturedAt.getTime() ? [team] : []
+        },
+        1,
+        500,
+        40
+    )
 
     // It should not update latest_event_captured_at if the event is older than the current value
     const olderCapturedAt = new Date(new Date().getTime() - 3600)
@@ -369,8 +379,13 @@ test.concurrent(`latest ingested event sent_at is recorded on team`, async () =>
         olderCapturedAt
     )
 
-    await delayUntilEventIngested(async () => {
-        const team = await fetchTeam(postgres, teamId)
-        return team.latest_event_captured_at?.getTime() === newerCapturedAt.getTime() ? [team] : []
-    })
+    await delayUntilEventIngested(
+        async () => {
+            const team = await fetchTeam(postgres, teamId)
+            return team.latest_event_captured_at?.getTime() === newerCapturedAt.getTime() ? [team] : []
+        },
+        1,
+        500,
+        40
+    )
 })
