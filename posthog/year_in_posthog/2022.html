@@ -3,6 +3,7 @@
 <head>
     <meta charset="utf-8">
     <title>My year in PostHog</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png?v=2021-04-29">
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png?v=2021-04-29">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png?v=2021-04-29">
@@ -59,13 +60,20 @@
             background-color: #2D2D2D;
             color: #fff;
             height: 100vh;
+            width: 100vw;
             margin: 0;
             display: flex;
             flex-direction: column;
             font-weight: 400;
-            font-size: 2.5vw;
-            line-height: 1.25rem;
+            font-size: 5vw;
+            line-height: 1.25;
             align-items: center;
+        }
+
+        @media only screen and (min-width: 650px) {
+            body {
+                font-size: 2.5vw;
+            }
         }
 
         .content {
@@ -73,18 +81,17 @@
             display: flex;
             flex-direction: column;
             max-width: 1280px;
+            gap: 2rem;
         }
 
-        @media only screen and (min-width: 480px) {
+        @media only screen and (min-width: 650px) {
             .content {
                 flex-direction: row;
             }
         }
 
         .column {
-            width: 100vw;
-            padding-left: 1rem;
-            padding-right: 1rem;
+            width: 90vw;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -93,17 +100,21 @@
 
         .column.left {
             min-width: 326px;
+            margin-bottom: 2rem;
         }
 
-        @media only screen and (min-width: 480px) {
+        .column.right {
+            align-items: start;
+        }
+
+        @media only screen and (min-width: 650px) {
             .column.left {
                 width: 45%;
-                padding-left: 15%;
+                margin: 0;
             }
 
             .column.right {
                 width: 55%;
-                padding-right: 15%;
             }
         }
 
@@ -149,13 +160,24 @@
         }
 
         .my-8 {
+            margin-top: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        @media only screen and (min-width: 650px) {
+            .my-8 {
             margin-top: 2rem;
             margin-bottom: 2rem;
+        }
         }
 
         .px-1 {
             padding-left: 0.25rem;
             padding-right: 0.25rem;
+        }
+
+        .p-4 {
+            padding: 1rem;
         }
 
         .pl-8 {
@@ -178,6 +200,7 @@
         .stat {
             display: flex;
             flex-direction: column;
+            flex-basis: 100%;
         }
     </style>
     <meta name="description" content="{{ explanation }}">
@@ -202,7 +225,7 @@
     {% endfor %}
 </head>
 <body>
-<div class="content">
+<div class="content p-4">
     <div class="left column">
         <div>This year, I'm a</div>
         <img class="badge my-8" src="{% static image %}"
