@@ -6,6 +6,7 @@ from posthog.models.property.util import get_property_string_expr
 
 EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id"]
 PERSON_FIELDS = ["id", "created_at", "properties"]
+CLICKHOUSE_FUNCTIONS = ["concat", "coalesce"]
 
 
 def hogql_expr_to_clickhouse_expr(expr: str) -> str:
@@ -86,11 +87,10 @@ def ast_to_clickhouse_expr(node: ast.AST) -> str:
             if len(node.args) != 1:
                 raise ValueError(f"Method 'avg' expects just one argument.")
             return f"avg({ast_to_clickhouse_expr(node.args[0])})"
+        if node.func.id in CLICKHOUSE_FUNCTIONS:
+            return f"{node.func.id}({', '.join([ast_to_clickhouse_expr(arg) for arg in node.args])})"
         else:
             raise ValueError(f"Unsupported function call '{call_name}(...)'")
-
-        # if node.func.id in TRANFORMATIONS:
-        # return f"{node.func.id}({', '.join([ast_to_clickhouse_expr(arg) for arg in node.args])})"
     elif type(node) == ast.Name:
         return property_access_to_clickhouse([node.id])
 
