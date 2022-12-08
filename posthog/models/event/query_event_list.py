@@ -6,12 +6,14 @@ from dateutil.parser import isoparse
 from django.utils.timezone import now
 
 from posthog.api.utils import get_pk_or_uuid
-from posthog.client import query_with_columns
+from posthog.client import query_with_columns, sync_execute
+from posthog.hogql.expr import hogql_expr_to_clickhouse_expr
 from posthog.models import Action, Filter, Person, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.event.sql import (
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
+    SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS,
 )
 from posthog.models.property.util import parse_prop_grouped_clauses
 
@@ -52,12 +54,15 @@ def query_events_list(
     request_get_query_dict: Dict,
     order_by: List[str],
     action_id: Optional[str],
+    select: Optional[List[str]],
     long_date_from: bool = False,
     limit: int = 100,
-) -> List:
+) -> Union[List, dict]:
     limit += 1
     limit_sql = "LIMIT %(limit)s"
     order = "DESC" if order_by[0] == "-timestamp" else "ASC"
+
+    selected_columns = [hogql_expr_to_clickhouse_expr(col) for col in select] if select else None
 
     conditions, condition_params = determine_event_conditions(
         team,
@@ -84,6 +89,24 @@ def query_events_list(
         action_query, params = format_action_filter(team_id=team.pk, action=action)
         prop_filters += " AND {}".format(action_query)
         prop_filter_params = {**prop_filter_params, **params}
+
+    if selected_columns:
+        results, types = sync_execute(
+            SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS.format(
+                columns=", ".join(selected_columns),
+                conditions=conditions,
+                limit=limit_sql,
+                filters=prop_filters,
+                order=selected_columns[0],
+            ),
+            {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
+            with_column_types=True,
+        )
+        return {
+            "results": results,
+            "columns": select,
+            "types": [type for _, type in types],
+        }
 
     if prop_filters != "":
         return query_with_columns(

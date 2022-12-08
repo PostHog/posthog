@@ -78,6 +78,9 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 OpenApiTypes.STR,
                 description="Filter list by event. For example `user sign up` or `$pageview`.",
             ),
+            OpenApiParameter(
+                "select", OpenApiTypes.STR, description="Columns to return. Supports HogQL aggregations.", many=True
+            ),
             OpenApiParameter("person_id", OpenApiTypes.INT, description="Filter list by person id."),
             OpenApiParameter("distinct_id", OpenApiTypes.INT, description="Filter list by distinct id."),
             OpenApiParameter(
@@ -106,6 +109,8 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             team = self.team
             filter = Filter(request=request, team=self.team)
 
+            select: list[str] = json.loads(request.GET["select"]) if request.GET.get("select") else None
+
             query_result = query_events_list(
                 filter=filter,
                 team=team,
@@ -113,6 +118,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 request_get_query_dict=request.GET.dict(),
                 order_by=parse_order_by(request.GET.get("orderBy")),
                 action_id=request.GET.get("action_id"),
+                select=select,
             )
 
             # Retry the query without the 1 day optimization
@@ -125,17 +131,24 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                     request_get_query_dict=request.GET.dict(),
                     order_by=parse_order_by(request.GET.get("orderBy")),
                     action_id=request.GET.get("action_id"),
+                    select=select,
+                )
+
+            # Result with selected columns
+            if type(query_result) == dict:
+                return response.Response(
+                    {"columns": select, "types": query_result["types"], "results": query_result["results"]}
                 )
 
             result = ClickhouseEventSerializer(
-                query_result[0:limit], many=True, context={"people": self._get_people(query_result, team)}
+                query_result[0:limit], many=True, context={"people": self._get_people(query_result, team)}  # type: ignore
             ).data
 
             next_url: Optional[str] = None
             if not is_csv_request and len(query_result) > limit:
                 next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"])
-
             return response.Response({"next": next_url, "results": result})
+
         except Exception as ex:
             capture_exception(ex)
             raise ex
