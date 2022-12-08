@@ -5,26 +5,32 @@ import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
 import api from 'lib/api'
 import { DataTableNode } from '~/queries/schema'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/DataTable'
+import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/defaults'
 
 function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void {
     const exportContext = {
-        path: api.events.determineListEndpoint({
-            event: query.source.event,
-            properties: query.source.properties,
-            limit: query.source.limit,
-        }),
+        path: api.events.determineListEndpoint(
+            {
+                ...(query.source.event ? { event: query.source.event } : {}),
+                ...(query.source.properties ? { properties: query.source.properties } : {}),
+            },
+            3500
+        ),
         max_limit: 3500,
     }
+
+    const columnMapping = {
+        url: ['properties.$current_url', 'properties.$screen_name'],
+        time: 'timestamp',
+        event: 'event',
+        source: 'properties.$lib',
+        person: ['person.distinct_ids.0', 'person.properties.email'],
+    }
+
     if (onlySelectedColumns) {
-        const queryColumns = query.columns || defaultDataTableColumns
-        exportContext['columns'] = queryColumns.map((column) => {
-            if (typeof column === 'string') {
-                return column
-            } else {
-                return `${column.type}.${column.key}`
-            }
-        })
+        exportContext['columns'] = (query.columns ?? defaultDataTableStringColumns)?.flatMap(
+            (c) => columnMapping[c] || c
+        )
     }
     triggerExport({
         export_format: ExporterFormat.CSV,
@@ -37,7 +43,7 @@ interface DataTableExportProps {
     setQuery?: (node: DataTableNode) => void
 }
 
-export function DataTableExport({ query }: DataTableExportProps): JSX.Element {
+export function DataTableExport({ query }: DataTableExportProps): JSX.Element | null {
     return (
         <LemonButtonWithPopup
             popup={{
@@ -51,7 +57,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element {
                             startDownload(query, true)
                         }}
                     >
-                        <LemonButton fullWidth={true} status="stealth">
+                        <LemonButton fullWidth status="stealth">
                             Export current columns
                         </LemonButton>
                     </ExportWithConfirmation>,
@@ -60,7 +66,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element {
                         placement={'bottomRight'}
                         onConfirm={() => startDownload(query, false)}
                     >
-                        <LemonButton fullWidth={true} status="stealth">
+                        <LemonButton fullWidth status="stealth">
                             Export all columns
                         </LemonButton>
                     </ExportWithConfirmation>,

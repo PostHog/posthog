@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 import sqlparse
 from django.apps import apps
-from django.db import connection
+from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
 from django.test.utils import CaptureQueriesContext
@@ -353,25 +353,62 @@ class QueryMatchingTest:
             assert params == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
 
 
-def snapshot_postgres_queries(fn):
+@contextmanager
+def snapshot_postgres_queries_context(testcase: QueryMatchingTest, replace_all_numbers: bool = True):
     """
     Captures and snapshots select queries from test using `syrupy` library.
     Requires queries to be stable to avoid flakiness.
 
     Snapshots are automatically saved in a __snapshot__/*.ambr file.
     Update snapshots via --snapshot-update.
+
+    To avoid flakiness, we optionally replaces all numbers in the query with a
+    fixed output.
+
+    Returns a context manager that can be used to capture queries.
+
+    NOTE: it requires specifically that a `QueryMatchingTest` is used as the
+    testcase argument.
+
+    TODO: remove requirement that this must be used in conjunction with a
+    `QueryMatchingTest` class.
+
+    Example usage:
+
+    class MyTest(QueryMatchingTest):
+        def test_something(self):
+            with snapshot_postgres_queries_context(self) as context:
+                # Run some code that generates queries
+
     """
-    from django.db import connections
+    with CaptureQueriesContext(connections["default"]) as context:
+        yield context
+
+    for query_with_time in context.captured_queries:
+        query = query_with_time["sql"]
+        if "SELECT" in query and "django_session" not in query:
+            testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
+
+
+def snapshot_postgres_queries(fn):
+    """
+    Decorator that captures and snapshots select queries from test using
+    `syrupy` library. It wraps `snapshot_postgres_queries_context`, see that
+    context manager for more details.
+
+    Example usage:
+
+    class MyTest(QueryMatchingTest):
+        @snapshot_postgres_queries
+        def test_something(self):
+            # Run some code that generates queries
+
+    """
 
     @wraps(fn)
-    def wrapped(self, *args, **kwargs):
-        with CaptureQueriesContext(connections["default"]) as context:
+    def wrapped(self: QueryMatchingTest, *args, **kwargs):
+        with snapshot_postgres_queries_context(self):
             fn(self, *args, **kwargs)
-
-        for query_with_time in context.captured_queries:
-            query = query_with_time["sql"]
-            if "SELECT" in query and "django_session" not in query:
-                self.assertQueryMatchesSnapshot(query, replace_all_numbers=True)
 
     return wrapped
 

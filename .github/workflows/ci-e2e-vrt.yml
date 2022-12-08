@@ -1,0 +1,54 @@
+name: E2E Visual Regression Tests
+
+on:
+    pull_request:
+    push:
+        branches:
+            - master
+
+jobs:
+    playwright:
+        name: Visual Regression Tests
+        runs-on: ubuntu-20.04
+        steps:
+            - uses: actions/checkout@v3
+
+            - name: Set up Node 16
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 16
+
+            - uses: actions/cache@v3
+              id: node-modules-cache
+              with:
+                  path: |
+                      node_modules
+                  key: ${{ runner.os }}-node-modules-${{ hashFiles('**/yarn.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-node-modules
+
+            - name: Install package.json dependencies with Yarn
+              if: steps.node-modules-cache.outputs.cache-hit != 'true'
+              run: yarn install --frozen-lockfile
+
+            - name: Build Storybook
+              run: yarn build-storybook --quiet
+
+            - name: Install Playwright Browsers
+              run: npx playwright install --with-deps
+
+            - name: Serve Storybook and run tests
+              run: |
+                  npx concurrently -k -s first -n "SB,TEST" -c "magenta,blue" \
+                    "npx http-server storybook-static --port 6006 --silent" \
+                    "npx wait-on tcp:6006 && npx playwright test"
+
+            - name: Upload Playwright report
+              uses: actions/upload-artifact@v3
+              if: always()
+              with:
+                  name: playwright-report
+                  path: |
+                      playwright-report/
+                      test-results/
+                  retention-days: 30

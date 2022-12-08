@@ -641,7 +641,7 @@ export interface FunnelStepRangeEntityFilter {
 export type EntityFilterTypes = EntityFilter | ActionFilter | null
 
 export interface PersonType {
-    id?: number
+    id?: string
     uuid?: string
     name?: string
     distinct_ids: string[]
@@ -1394,6 +1394,7 @@ export interface EventsListQueryParams {
     orderBy?: string[]
     action_id?: number
     after?: string
+    before?: string
     limit?: number
 }
 

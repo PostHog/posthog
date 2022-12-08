@@ -23,8 +23,8 @@ import {
     StepOrderValue,
     PropertyGroupFilter,
 } from '~/types'
+import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/defaults'
 import { ShownAsValue } from '~/lib/constants'
-import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/DataTable'
 
 const Events: EventsNode = {
     kind: NodeKind.EventsNode,
