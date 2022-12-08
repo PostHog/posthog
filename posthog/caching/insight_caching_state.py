@@ -1,7 +1,7 @@
 from datetime import timedelta
 from enum import Enum
 from functools import cached_property
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 import structlog
 from django.core.paginator import Paginator
@@ -12,6 +12,7 @@ from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.insight import Insight, InsightViewed, generate_insight_cache_key
 from posthog.models.insight_caching_state import InsightCachingState
 from posthog.models.team import Team
+from posthog.models.utils import UUIDT
 
 VERY_RECENTLY_VIEWED_THRESHOLD = timedelta(hours=48)
 GENERALLY_VIEWED_THRESHOLD = timedelta(weeks=2)
@@ -24,6 +25,29 @@ class TargetCacheAge(Enum):
     LOW_PRIORITY = timedelta(days=7)
     MID_PRIORITY = timedelta(hours=24)
     HIGH_PRIORITY = timedelta(hours=12)
+
+
+INSERT_INSIGHT_CACHING_STATES_QUERY = """
+INSERT INTO posthog_insightcachingstate AS state (
+    id,
+    team_id,
+    insight_id,
+    dashboard_tile_id,
+    cache_key,
+    target_cache_age_seconds,
+    created_at,
+    updated_at,
+    refresh_attempt
+)
+VALUES {values}
+ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO UPDATE SET
+    last_refresh = (SELECT CASE WHEN state.cache_key != EXCLUDED.cache_key THEN NULL ELSE state.last_refresh END AS new_last_refresh),
+    last_refresh_queued_at = (SELECT CASE WHEN state.cache_key != EXCLUDED.cache_key THEN NULL ELSE state.last_refresh_queued_at END AS new_last_refresh_queued_at),
+    refresh_attempt = (SELECT CASE WHEN state.cache_key != EXCLUDED.cache_key THEN 0 ELSE state.refresh_attempt END AS new_refresh_attempt),
+    cache_key = EXCLUDED.cache_key,
+    target_cache_age_seconds = EXCLUDED.target_cache_age_seconds,
+    updated_at = EXCLUDED.updated_at
+"""
 
 
 # Helps do large-scale re-calculations efficiently by loading some data only once
@@ -42,54 +66,70 @@ class LazyLoader:
 
 def sync_insight_cache_states():
     lazy_loader = LazyLoader()
-
     insights = Insight.objects.all().prefetch_related("team", "sharingconfiguration_set").order_by("pk")
     for insight in _iterate_large_queryset(insights, 1000):
-        upsert(insight.team, insight, lazy_loader)
-
+        try:
+            upsert(insight.team, insight, lazy_loader)
+        except ValueError:
+            pass
     tiles = (
         DashboardTile.objects.all()
         .prefetch_related("dashboard", "dashboard__team", "dashboard__sharingconfiguration_set", "insight")
         .order_by("pk")
     )
     for tile in _iterate_large_queryset(tiles, 1000):
-        upsert(tile.dashboard.team, tile, lazy_loader)
+        try:
+            upsert(tile.dashboard.team, tile, lazy_loader)
+        except ValueError:
+            pass
 
 
-def upsert(
-    team: Team, target: Union[DashboardTile, Insight], lazy_loader: Optional[LazyLoader] = None
-) -> Optional[InsightCachingState]:
+def upsert(team: Team, target: Union[DashboardTile, Insight], lazy_loader: Optional[LazyLoader] = None):
     lazy_loader = lazy_loader or LazyLoader()
     cache_key = calculate_cache_key(target)
     if cache_key is None:  # Non-cachable model
-        return None
+        return
 
     target_age = calculate_target_age(team, target, lazy_loader)
-    target_age_seconds = target_age.value.total_seconds() if target_age.value is not None else None
+    target_cache_age_seconds = target_age.value.total_seconds() if target_age.value is not None else None
 
-    filters = {
-        "team_id": team.pk,
-        "insight": target if isinstance(target, Insight) else target.insight,
-        "dashboard_tile": target if isinstance(target, DashboardTile) else None,
-    }
+    _execute_insert(
+        [
+            InsightCachingState(
+                team_id=team.pk,
+                insight=target if isinstance(target, Insight) else target.insight,
+                dashboard_tile=target if isinstance(target, DashboardTile) else None,
+                cache_key=cache_key,
+                target_cache_age_seconds=target_cache_age_seconds,
+            )
+        ]
+    )
 
-    if existing_state := InsightCachingState.objects.filter(**filters).first():
-        if existing_state.cache_key != cache_key:
-            existing_state.last_refresh = None
-            existing_state.last_refresh_queued_at = None
-            existing_state.refresh_attempt = 0
 
-        existing_state.cache_key = cache_key
-        existing_state.target_cache_age_seconds = target_age_seconds
-        existing_state.save()
+def _execute_insert(states: List[InsightCachingState]):
+    from django.db import connection
 
-        return existing_state
-    else:
-        return InsightCachingState.objects.create(
-            **filters,
-            cache_key=cache_key,
-            target_cache_age_seconds=target_age_seconds,
+    timestamp = now()
+    values = []
+    params = []
+    for state in states:
+        values.append("(%s, %s, %s, %s, %s, %s, %s, %s, 0)")
+        params.extend(
+            [
+                UUIDT(),
+                state.team_id,
+                state.insight_id,
+                state.dashboard_tile_id,
+                state.cache_key,
+                state.target_cache_age_seconds,
+                timestamp,
+                timestamp,
+            ]
         )
+
+    with connection.cursor() as cursor:
+        query = INSERT_INSIGHT_CACHING_STATES_QUERY.format(values=", ".join(values))
+        cursor.execute(query, params=params)
 
 
 def sync_insight_caching_state(team_id: int, insight_id: Optional[int] = None, dashboard_tile_id: Optional[int] = None):
