@@ -142,7 +142,7 @@ def query_events_list(
         )
 
 
-def parse_order_by(order_by_param: Optional[str], select: List[str]) -> List[str]:
+def parse_order_by(order_by_param: Optional[str], select: Optional[List[str]]) -> List[str]:
     if order_by_param:
         return list(json.loads(order_by_param))
     if not select:

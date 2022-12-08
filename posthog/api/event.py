@@ -64,7 +64,8 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     def _build_next_url(self, request: request.Request, last_event_timestamp: datetime) -> str:
         params = request.GET.dict()
         reverse = "-timestamp" in parse_order_by(
-            request.GET.get("orderBy"), json.loads(request.GET.get("select")) if request.GET.get("select") else None
+            request.GET.get("orderBy"),
+            json.loads(request.GET.get("select", None)) if request.GET.get("select") else None,
         )
         timestamp = last_event_timestamp.astimezone().isoformat()
         if reverse:
