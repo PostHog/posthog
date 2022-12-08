@@ -72,7 +72,7 @@ const PropertyFormulas: EventsNode = {
         '1 + 2 + 3',
         'event',
         'person.created_at',
-        "concat(properties['$browser'], ' 💚 ', properties['$geoip_city_name'])",
+        "concat(properties['$browser'], ' 💚 ', properties['$geoip_city_name']) # Browser 💚 City",
         "'random string'",
     ],
     limit: 100,

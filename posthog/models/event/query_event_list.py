@@ -142,5 +142,11 @@ def query_events_list(
         )
 
 
-def parse_order_by(order_by_param: Optional[str]) -> List[str]:
-    return ["-timestamp"] if not order_by_param else list(json.loads(order_by_param))
+def parse_order_by(order_by_param: Optional[str], select: List[str]) -> List[str]:
+    if order_by_param:
+        return list(json.loads(order_by_param))
+    if not select:
+        return ["-timestamp"]
+    if any(["total()" in column for column in select]):
+        return ["-total()"]
+    return [select[0]]

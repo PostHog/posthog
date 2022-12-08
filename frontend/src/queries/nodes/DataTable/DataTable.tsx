@@ -56,7 +56,11 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     const defaultColumns = currentTeam?.live_events_columns ?? defaultDataTableColumns(query.source)
 
     const dataTableLogicProps: DataTableLogicProps = { query, key, defaultColumns }
-    const { columns, queryWithDefaults } = useValues(dataTableLogic(dataTableLogicProps))
+    const { columns: dataTableQueryColumns, queryWithDefaults } = useValues(dataTableLogic(dataTableLogicProps))
+    const columns =
+        response?.columns && Array.isArray(response.columns) && !response.columns.find((c) => typeof c !== 'string')
+            ? (response?.columns as string[])
+            : dataTableQueryColumns
 
     const {
         showActions,

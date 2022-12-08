@@ -63,7 +63,9 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
 
     def _build_next_url(self, request: request.Request, last_event_timestamp: datetime) -> str:
         params = request.GET.dict()
-        reverse = "-timestamp" in parse_order_by(request.GET.get("orderBy"))
+        reverse = "-timestamp" in parse_order_by(
+            request.GET.get("orderBy"), json.loads(request.GET.get("select")) if request.GET.get("select") else None
+        )
         timestamp = last_event_timestamp.astimezone().isoformat()
         if reverse:
             params["before"] = timestamp
@@ -109,14 +111,14 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             team = self.team
             filter = Filter(request=request, team=self.team)
 
-            select: list[str] = json.loads(request.GET["select"]) if request.GET.get("select") else None
+            select: List[str] = json.loads(request.GET["select"]) if request.GET.get("select") else None
 
             query_result = query_events_list(
                 filter=filter,
                 team=team,
                 limit=limit,
                 request_get_query_dict=request.GET.dict(),
-                order_by=parse_order_by(request.GET.get("orderBy")),
+                order_by=parse_order_by(request.GET.get("orderBy"), select),
                 action_id=request.GET.get("action_id"),
                 select=select,
             )
@@ -129,7 +131,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                     long_date_from=True,
                     limit=limit,
                     request_get_query_dict=request.GET.dict(),
-                    order_by=parse_order_by(request.GET.get("orderBy")),
+                    order_by=parse_order_by(request.GET.get("orderBy"), select),
                     action_id=request.GET.get("action_id"),
                     select=select,
                 )
