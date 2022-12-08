@@ -7,7 +7,7 @@ from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, NotAuthenticated
+from rest_framework.exceptions import NotAuthenticated, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -284,16 +284,14 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
         # TODO: Maybe we need to save the created_at date here properly to help with filtering
         if request.method == "POST":
             playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
-                playlist=playlist,
-                session_id=session_recording_id,
+                playlist=playlist, session_id=session_recording_id, team=self.team
             )
 
             return response.Response({"success": True})
 
         if request.method == "DELETE":
             playlist_item = SessionRecordingPlaylistItem.objects.get(
-                playlist=playlist,
-                session_id=session_recording_id,
+                playlist=playlist, session_id=session_recording_id, team=self.team
             )
 
             if playlist_item:
