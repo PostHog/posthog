@@ -1,5 +1,5 @@
 <p align="center">
-  <img width="300" alt="posthoglogo" src="https://user-images.githubusercontent.com/85295485/144591858-cb39e04a-7bf4-4a4d-a1fd-5d05a3ff693f.png">
+  <img alt="posthoglogo" src="https://user-images.githubusercontent.com/65415371/205059737-c8a4f836-4889-4654-902e-f302b187b6a0.png">
 </p>
 <p align="center">
   <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
@@ -12,90 +12,113 @@
   <img alt="GitHub closed issues" src="https://img.shields.io/github/issues-closed/posthog/posthog"/>
 </p>
 
-## PostHog is an open-source product analytics suite, built for engineers
-* Automatically track every event on your website or app
-* Understand your users and how to improve your product
-* Deploy on your own infrastructure to keep control of your data.
+<p align="center">
+  <a href="https://posthog.com/docs">Docs</a> - <a href="https://posthog.com/using-posthog">Using PostHog</a> - <a href="https://posthog.com/slack">Support community</a> - <a href="https://posthog.com/roadmap">Roadmap</a> - <a href="https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&template=bug_report.md">Bug report</a>
+</p>
 
+## PostHog is an open-source suite of product and data tools, built for engineers
 
+- Specify events manually, or use autocapture to get started quickly
+- Analyze your data with visualizations and session recordings
+- Improve your product with A/B testing and feature flags
+- Keep control over your data by deploying PostHog on your infrastructure
+- Use apps to connect to external services and manage data flows
+
+## Table of Contents
+
+- [Get started for free](#get-started-for-free)
+- [Features](#features)
+- [Docs and support](#docs-and-support)
+- [Contributing](#contributing)
+- [Philosophy](#philosophy)
+- [Open-source vs paid](#open-source-vs-paid)
 
 ## Get started for free
 
-### Option 1: Hobby instance one-line-deploy
-For <100K events ingested monthly on Linux with Docker (recommended 4GB memory):
+### PostHog Cloud
+
+The fastest and most reliable way to get started with PostHog is signing up for free to [PostHog Cloud](https://app.posthog.com/signup) or [PostHog Cloud EU](https://eu.posthog.com/signup)
+
+### Open-source hobby deploy
+
+Deploy a hobby instance in one line on Linux with Docker (recommended 4GB memory):
+
 
  ```bash 
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/deploy-hobby)" 
  ``` 
-### Option 2: Production instance on your infrastructure
-Follow our <a href="https://posthog.com/docs/self-host/overview#deploy">Scaleable Self-Hosting Guide</a> for all major cloud service providers and on-premise deploys
 
-### Option 3: If you don't need to self-host
-Sign up for a free [PostHog Cloud](https://app.posthog.com/signup) project
+Good for <100K events ingested monthly. See our [docs for more info and limitations](https://posthog.com/docs/self-host/open-source/deployment).
 
+### Enterprise self-hosted
+
+See our [enterprise self-hosted docs](https://posthog.com/docs/self-host/enterprise/overview) to deploy a scalable, production-ready instance with support from our team.
 
 ## Features
 ![ui-demo](https://user-images.githubusercontent.com/85295485/144591577-fe97e4a5-5631-4a60-a684-45caf421507f.gif)
 
-We bring all the tools into one place to give you everything you need to build better products:
-- **Event-based Analytics** on users or groups - capture your product's usage data to see which users are doing what in your application
-- **Product data visualizations** [graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [cohorts](https://posthog.com/docs/features/cohorts), [paths](https://posthog.com/docs/features/paths), [retention](https://posthog.com/docs/features/retention), and [dashboards](https://posthog.com/docs/features/dashboards)
-- **Complete control** over your data - [host it yourself](https://posthog.com/docs/self-host/overview#deploy) on any infrastructure
-- **Session recording** to [watch videos](https://posthog.com/docs/features/session-recording) of your users' behavior, with fine-grained privacy controls
-- **Automatically capture** [clicks and pageviews](https://posthog.com/docs/features/actions) to analyze what your users are doing without pushing events manually
-- **Feature flags** to understand the impact of new features before rolling them out more widely
-- **Heatmaps** to understand how users interact with your product with the [PostHog Toolbar](https://posthog.com/docs/features/toolbar)
-- **Automated Analysis** to find [correlations](https://posthog.com/docs/user-guides/correlation) between successful users and their behaviors or attributes 
-- **Plays nicely with data warehouses** import events or user data from your warehouse by writing a simple transformation plugin, and export data with pre-built plugins - such as BigQuery, Redshift, Snowflake and S3
-- **Infinitely extensible** use custom [plugins](https://posthog.com/docs/user-guides/plugins) to extend PostHog and integrate with any service or tool
-- **Ready-made libraries** for **[JS](https://posthog.com/docs/integrations/js-integration), [Python](https://posthog.com/docs/integrations/python-integration), [Ruby](https://posthog.com/docs/integrations/ruby-integration), [Node](https://posthog.com/docs/integrations/node-integration), [Go](https://posthog.com/docs/integrations/go-integration)**, [Android](https://posthog.com/docs/integrations/android-integration), [iOS](https://posthog.com/docs/integrations/ios-integration), [PHP](https://posthog.com/docs/integrations/php-integration), [Flutter](https://posthog.com/docs/integrations/flutter-integration), [React Native](https://posthog.com/docs/integrations/react-native-integration), [Elixir](https://posthog.com/docs/integrations/elixir-integration), [Nim](https://github.com/Yardanico/posthog-nim) + an [API](https://posthog.com/docs/integrations/api) for anything else
-- **And much much more...** for a [full list of PostHog features](https://posthog.com/features).
+We bring together all the tools and data in one place to help you build better products
 
+### Product analytics and optimization
 
-## Event autocapture
-You don't have to spend weeks instrumenting every event on your front-end, point and click at elements from your browser and turn them into events which you and your team can analyze
+- **Event-based analytics:** capture your product's usage [automatically](https://posthog.com/docs/integrate/client/js#autocapture), or [customize](https://posthog.com/docs/integrate) it to your needs
+- **User and group tracking:** understand the [people](https://posthog.com/manual/persons) and [groups](https://posthog.com/manual/group-analytics) behind the events and track properties about them
+- **Data visualizations:** create and share [graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [paths](https://posthog.com/docs/features/paths), [retention](https://posthog.com/docs/features/retention), and [dashboards](https://posthog.com/docs/features/dashboards)
+- **Session recording:** [watch videos](https://posthog.com/docs/features/session-recording) of your users' behavior, with fine-grained filters and privacy controls
+- **Heatmaps:** see where users are using your product with the [PostHog Toolbar](https://posthog.com/docs/features/toolbar)
+- **Feature flags:** test and manage the rollout of new features, target specific users and groups
+- **A/B and multi-variate testing:** run simple or complex changes as [experiments](https://posthog.com/manual/experimentation) and get automatic significance calculations
+- **Correlation analysis:** discover what events and properties [correlate](https://posthog.com/manual/correlation) with success and failure
 
-<img src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/action-toolbar.gif" width="100%">
+### Data and infrastructure tools
 
-## Getting the most of PostHog
+- **Complete control over your data:** [host it yourself](https://posthog.com/docs/self-host/overview#deploy) on any infrastructure
+- **Import and export your data:** import from and export to the services that matter to you with [apps](https://posthog.com/apps)
+- **Ready-made libraries:** we’ve built libraries for [JavaScript](https://posthog.com/docs/integrations/js-integration), [Python](https://posthog.com/docs/integrations/python-integration), [Ruby](https://posthog.com/docs/integrations/ruby-integration), [Node](https://posthog.com/docs/integrations/node-integration), [Go](https://posthog.com/docs/integrations/go-integration), [Android](https://posthog.com/docs/integrations/android-integration), [iOS](https://posthog.com/docs/integrations/ios-integration), [PHP](https://posthog.com/docs/integrations/php-integration), [Flutter](https://posthog.com/docs/integrations/flutter-integration), [React Native](https://posthog.com/docs/integrations/react-native-integration), [Elixir](https://posthog.com/docs/integrations/elixir-integration), [Nim](https://github.com/Yardanico/posthog-nim), and an [API](https://posthog.com/docs/integrations/api) for anything else
+- **Plays nicely with data warehouses:** import events or user data from your warehouse by writing a simple transformation plugin, and export data with pre-built apps - such as [BigQuery](https://posthog.com/apps/bigquery-export), [Redshift](https://posthog.com/apps/redshift-export), [Snowflake](https://posthog.com/apps/snowflake-export), and [S3](https://posthog.com/apps/s3-expo)
 
-See [PostHog Docs](https://posthog.com/docs/) for in-depth walk-throughs on functionality.
+[Read a full list of PostHog features](https://posthog.com/product).
 
-Join our [Slack community](https://posthog.com/slack) if you need help, want to chat, or are thinking of a new feature. We're here to help - and to make PostHog even better.
+## Docs and support
+
+Read how to [deploy](https://posthog.com/docs/self-host), [integrate](https://posthog.com/docs/integrate), and [extend](https://posthog.com/docs/apps) PostHog in our [documentation](https://posthog.com/docs).
+
+Check out our [tutorials](https://posthog.com/docs/apps) for step-by-step guides, how-to's, and best practices.
+
+Learn more about getting the most out of PostHog's features in [our product manual](https://posthog.com/using-posthog).
+
+[Ask a question](https://posthog.com/questions) or join our [Slack community](https://posthog.com/slack) to get support.
+
+## Contributing
+
+We <3 contributions big and small. In priority order (although everything is appreciated) with the most helpful first:
+
+- Give us feedback in our [Slack community](https://posthog.com/slack)
+- Vote on features or get early access to beta functionality in our [roadmap](https://posthog.com/roadmap)
+- Open a PR (see our instructions on [developing PostHog locally](https://posthog.com/handbook/engineering/developing-locally))
+- Submit a [feature request](https://github.com/PostHog/posthog/issues/new?assignees=&labels=enhancement%2C+feature&template=feature_request.md) or [bug report](https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&template=bug_report.md)
 
 ## Philosophy
 
-We help you understand user behavior and build better products without losing control of your data. 
+Our mission is to increase the number of successful products in the world. To do that, we build product and data tools that help you understand user behavior without losing control of your data.
 
 In our view, third-party analytics tools do not work in a world of cookie deprecation, GDPR, HIPAA, CCPA, and many other four-letter acronyms. PostHog is the alternative to sending all of your customers' personal information and usage data to third-parties.
 
-PostHog is designed to give you every tool you need to understand user behavior, create hypothesis and release changes to make your product more successful.
+PostHog gives you every tool you need to understand user behavior, develop and test improvements, and release changes to make your product more successful.
 
-## What's cool about this?
-
-PostHog is the only **product-focused** open-source analytics suite, with an event, user and group architecture that **you can host in any infrastructure**. 
-
-We are an open-source alternative to products such as Mixpanel, Amplitude, Heap, HotJar, Pendo or Full Story. We're designed to be more developer-friendly, with the broadest range of features like session recording, heatmaps, feature flags, and plugins.
-
-We play nicely with data warehouses and other services - you can _import_ event or user data by writing a plugin to create transformations, or you can _export_ data by using our existing data exports to BigQuery, Redshift, Snowflake, etc. All without losing control of your data.
-
-## Developing locally & Contributing
-
-See our Docs for instructions on [developing PostHog locally](https://posthog.com/docs/developing-locally).
-
-We <3 contributions big or small, check out our [guide on how to get started](https://posthog.com/docs/contributing).
-
-Not sure where to start? [Book a free, no-pressure pairing session](mailto:tim@posthog.com?subject=Pairing%20session&body=I'd%20like%20to%20do%20a%20pairing%20session!) with one of the team.
-
-## We're hiring!
-
-Come help us make PostHog even better. We're growing fast, [and would love for you to join us](https://posthog.com/careers).
+PostHog operates in public as much as possible. We detail how we work and our learning on building and running a fast-growing, product-focused startup in our [handbook](https://posthog.com/handbook/getting-started/start-here).
 
 ## Open-source vs. paid
 
-This repo is entirely [MIT licensed](/LICENSE), with the exception of the `ee` directory (if applicable). Need _absolutely 💯% FOSS_? Check out our [posthog-foss](https://github.com/PostHog/posthog-foss) repository, which is purged of all proprietary code and features.
+This repo is available under the [MIT expat license](https://github.com/PostHog/posthog/blob/master/LICENSE), except for the `ee` directory (which has it's [license here](https://github.com/PostHog/posthog/blob/master/ee/LICENSE)) if applicable. 
 
-Premium features (contained in the `ee` directory) require a PostHog license. Contact us at sales@posthog.com for more information, or see our [pricing page](https://posthog.com/pricing).
+Need *absolutely 💯% FOSS*? Check out our [posthog-foss](https://github.com/PostHog/posthog-foss) repository, which is purged of all proprietary code and features.
+
+Using premium features (contained in the `ee` directory) with a self-hosted instance require a PostHog license. To learn more, [book a demo](https://posthog.com/book-a-demo) or see our [pricing page](https://posthog.com/pricing).
+
+### We’re hiring!
+
+Come help us make PostHog even better. We're growing fast [and would love for you to join us](https://posthog.com/careers).
 
 ## Contributors 🦸
 
