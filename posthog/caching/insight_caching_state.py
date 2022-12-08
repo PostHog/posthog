@@ -200,14 +200,14 @@ def _iterate_large_queryset(queryset, page_size):
 def _execute_insert(states: List[Optional[InsightCachingState]]):
     from django.db import connection
 
-    states: List[InsightCachingState] = list(filter(None, states))  # type: ignore
-    if len(states) == 0:
+    models: List[InsightCachingState] = list(filter(None, states))
+    if len(models) == 0:
         return
 
     timestamp = now()
     values = []
     params = []
-    for state in states:
+    for state in models:
         values.append("(%s, %s, %s, %s, %s, %s, %s, %s, 0)")
         params.extend(
             [
