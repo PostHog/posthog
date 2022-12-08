@@ -283,7 +283,7 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
 
         # TODO: Maybe we need to save the created_at date here properly to help with filtering
         if request.method == "POST":
-            recording = SessionRecording.objects.get_or_create(session_id=session_recording_id, team=self.team)
+            recording, _ = SessionRecording.objects.get_or_create(session_id=session_recording_id, team=self.team)
             playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
                 playlist=playlist, session_id=session_recording_id, team=self.team, recording=recording
             )
