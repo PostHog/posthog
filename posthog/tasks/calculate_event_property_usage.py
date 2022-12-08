@@ -261,7 +261,7 @@ def _get_event_properties(team_id: int, since: timezone.datetime) -> List[Tuple[
 
 def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], Counter[PropertyIdentifier]]:
     event_usage: List[str] = []
-    counted_properties: Counter[PropertyIdentifier] = Counter()
+    counted_properties: Counter[PropertyIdentifier] = Counter[PropertyIdentifier]()
 
     insight_filters = [
         (id, Filter(data=filters) if filters else None)
@@ -269,6 +269,13 @@ def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], 
         .values_list("id", "filters")
         .all()
     ]
+
+    statsd.gauge(
+        "calculate_event_property_usage_for_team.insight_filters_to_process",
+        value=len(insight_filters),
+        tags={"team": team_id},
+    )
+
     for id, item_filters in insight_filters:
         if item_filters is None:
             logger.info(
