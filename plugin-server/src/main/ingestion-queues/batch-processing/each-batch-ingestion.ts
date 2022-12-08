@@ -34,7 +34,7 @@ export async function eachBatchIngestion(payload: EachBatchPayload, queue: Inges
         return batches
     }
 
-    if (queue.pluginsServer.UPDATE_LATEST_EVENT_CAPTURED_AT) {
+    if (queue.pluginsServer.updateLatestCapturedAtTeams.size > 0) {
         await updateLatestEventSentAt(payload, queue)
     }
 
@@ -56,7 +56,12 @@ async function updateLatestEventSentAt(payload: EachBatchPayload, queue: Ingesti
         const capturedAt = message.headers?.['captured_at']?.toString()
 
         if (teamId && capturedAt) {
-            latestSentAtPerTeam[teamId] = capturedAt
+            if (
+                queue.pluginsServer.updateLatestCapturedAtTeams.has(teamId.toString()) ||
+                queue.pluginsServer.updateLatestCapturedAtTeams.has('*')
+            ) {
+                latestSentAtPerTeam[teamId] = capturedAt
+            }
         }
     }
 

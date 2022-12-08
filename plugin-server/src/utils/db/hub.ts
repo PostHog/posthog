@@ -78,6 +78,10 @@ export async function createHub(
         serverConfig.CONVERSION_BUFFER_ENABLED_TEAMS.split(',').filter(String).map(Number)
     )
 
+    const updateLatestCapturedAtTeams = new Set(
+        serverConfig.UPDATE_LATEST_EVENT_CAPTURED_AT_TEAMS.split(',').filter(String)
+    )
+
     if (serverConfig.STATSD_HOST) {
         status.info('🤔', `Connecting to StatsD...`)
         statsd = new StatsD({
@@ -288,6 +292,7 @@ export async function createHub(
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
         conversionBufferEnabledTeams,
+        updateLatestCapturedAtTeams,
     }
 
     // :TODO: This is only used on worker threads, not main
